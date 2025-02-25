@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -233,6 +233,8 @@ bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*ve
 
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 }  // namespace
+
+int mgp_is_enterprise_valid() { return memgraph::license::global_license_checker.IsEnterpriseValidFast(); }
 
 mgp_error mgp_alloc(mgp_memory *memory, size_t size_in_bytes, void **result) {
   return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t), result);
@@ -1099,22 +1101,22 @@ mgp_error mgp_list_contains_deleted(mgp_list *list, int *result) {
   return WrapExceptions([list, result] { *result = ContainsDeleted(list); });
 }
 
-namespace {
-void MgpListAppendExtend(mgp_list &list, const mgp_value &value) { list.elems.push_back(value); }
-}  // namespace
-
 mgp_error mgp_list_append(mgp_list *list, mgp_value *val) {
   return WrapExceptions([list, val] {
     if (Call<size_t>(mgp_list_size, list) >= Call<size_t>(mgp_list_capacity, list)) {
       throw InsufficientBufferException{
           "Cannot append a new value to the mgp_list without extending it, because its size reached its capacity!"};
     }
-    MgpListAppendExtend(*list, *val);
+    list->elems.push_back(*val);
   });
 }
 
 mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
-  return WrapExceptions([list, val] { MgpListAppendExtend(*list, *val); });
+  return WrapExceptions([list, val] { list->elems.push_back(*val); });
+}
+
+mgp_error mgp_list_reserve(mgp_list *list, size_t n) {
+  return WrapExceptions([list, n] { list->elems.reserve(n); });
 }
 
 mgp_error mgp_list_size(mgp_list *list, size_t *result) {
@@ -1696,7 +1698,11 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
 }
 
 mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
-  return WrapExceptions([=] { res->error_msg.emplace(msg, memory->impl); });
+  return WrapExceptions([=] {
+    // We are copying error message string here, that includes the out of memory message
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    res->error_msg.emplace(msg, memory->impl);
+  });
 }
 
 mgp_error mgp_func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
@@ -2996,7 +3002,6 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
       if (const auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error("Listing all unique constraints failed due to failure of creating label+property value");
       }
-      mgp_value_destroy(&value);
     }
   });
 }
@@ -3222,136 +3227,6 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       result);
 }
 
-namespace {
-
-mgp_edge *EdgeSet(auto *e, auto *new_vertex, auto *memory, auto *graph, bool set_from) {
-  auto *ctx = graph->ctx;
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-      !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw AuthorizationException{"Insufficient permissions for changing an edge!"};
-  }
-#endif
-  if (!MgpGraphIsMutable(*graph)) {
-    throw ImmutableObjectException{"Cannot change the edge because the graph is immutable!"};
-  }
-
-  auto edge = std::visit(
-      memgraph::utils::Overloaded{
-          [&e, &new_vertex, &set_from](
-              memgraph::query::DbAccessor *accessor) -> memgraph::storage::Result<memgraph::query::EdgeAccessor> {
-            if (set_from) {
-              return accessor->EdgeSetFrom(&e->impl, &std::get<memgraph::query::VertexAccessor>(new_vertex->impl));
-            }
-            return accessor->EdgeSetTo(&e->impl, &std::get<memgraph::query::VertexAccessor>(new_vertex->impl));
-          },
-          [&e, &new_vertex, &set_from](memgraph::query::SubgraphDbAccessor *accessor)
-              -> memgraph::storage::Result<memgraph::query::EdgeAccessor> {
-            if (set_from) {
-              return accessor->EdgeSetFrom(&e->impl,
-                                           &std::get<memgraph::query::SubgraphVertexAccessor>(new_vertex->impl));
-            }
-            return accessor->EdgeSetTo(&e->impl, &std::get<memgraph::query::SubgraphVertexAccessor>(new_vertex->impl));
-          }},
-      graph->impl);
-
-  if (edge.HasError()) {
-    switch (edge.GetError()) {
-      case memgraph::storage::Error::NONEXISTENT_OBJECT:
-        LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing an edge!");
-      case memgraph::storage::Error::DELETED_OBJECT:
-        LOG_FATAL("The edge was already deleted.");
-      case memgraph::storage::Error::PROPERTIES_DISABLED:
-      case memgraph::storage::Error::VERTEX_HAS_EDGES:
-        LOG_FATAL("Unexpected error when removing an edge.");
-      case memgraph::storage::Error::SERIALIZATION_ERROR:
-        throw SerializationException{"Cannot serialize changing an edge."};
-    }
-  }
-
-  if (ctx->trigger_context_collector) {
-    ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
-    ctx->trigger_context_collector->RegisterCreatedObject(*edge);
-  }
-
-  return std::visit(
-      memgraph::utils::Overloaded{
-          [&memory, &edge, &new_vertex](memgraph::query::DbAccessor *) -> mgp_edge * {
-            return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), new_vertex->graph);
-          },
-          [&memory, &edge, &new_vertex](memgraph::query::SubgraphDbAccessor *db_impl) -> mgp_edge * {
-            const auto v_from = memgraph::query::SubgraphVertexAccessor(edge.GetValue().From(), db_impl->getGraph());
-            const auto v_to = memgraph::query::SubgraphVertexAccessor(edge.GetValue().To(), db_impl->getGraph());
-            return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to, new_vertex->graph);
-          }},
-      new_vertex->graph->impl);
-}
-
-}  // namespace
-
-mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
-                                  mgp_memory *memory, mgp_edge **result) {
-  return WrapExceptions([&]() -> mgp_edge * { return EdgeSet(e, new_from, memory, graph, true); }, result);
-}
-
-mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
-                                mgp_memory *memory, mgp_edge **result) {
-  return WrapExceptions([&]() -> mgp_edge * { return EdgeSet(e, new_to, memory, graph, false); }, result);
-}
-
-mgp_error mgp_graph_edge_change_type(mgp_graph *graph, mgp_edge *e, mgp_edge_type new_type, mgp_memory *memory,
-                                     mgp_edge **result) {
-  return WrapExceptions(
-      [&] {
-        auto *ctx = graph->ctx;
-#ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-            !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-          throw AuthorizationException{"Insufficient permissions for changing the edge type!"};
-        }
-#endif
-        if (!MgpGraphIsMutable(*graph)) {
-          throw ImmutableObjectException{"Cannot change an edge in an immutable graph!"};
-        }
-
-        const auto maybe_edge = std::visit(
-            [e, &new_type](auto *impl) { return impl->EdgeChangeType(&e->impl, impl->NameToEdgeType(new_type.name)); },
-            graph->impl);
-        if (maybe_edge.HasError()) {
-          switch (maybe_edge.GetError()) {
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing the edge type!");
-            case memgraph::storage::Error::DELETED_OBJECT:
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-              LOG_FATAL("Unexpected error when changing the edge type.");
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              throw SerializationException{"Cannot serialize changing the edge type."};
-          }
-        }
-
-        if (ctx->trigger_context_collector) {
-          ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
-          ctx->trigger_context_collector->RegisterCreatedObject(*maybe_edge);
-        }
-
-        return std::visit(
-            memgraph::utils::Overloaded{
-                [&memory, &maybe_edge, &graph](memgraph::query::DbAccessor *) -> mgp_edge * {
-                  return NewRawMgpObject<mgp_edge>(memory->impl, maybe_edge.GetValue(), graph);
-                },
-                [&memory, &maybe_edge, &graph](memgraph::query::SubgraphDbAccessor *db_impl) -> mgp_edge * {
-                  const auto v_from =
-                      memgraph::query::SubgraphVertexAccessor(maybe_edge.GetValue().From(), db_impl->getGraph());
-                  const auto v_to =
-                      memgraph::query::SubgraphVertexAccessor(maybe_edge.GetValue().To(), db_impl->getGraph());
-                  return NewRawMgpObject<mgp_edge>(memory->impl, maybe_edge.GetValue(), v_from, v_to, graph);
-                }},
-            graph->impl);
-      },
-      result);
-}
-
 mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     auto *ctx = graph->ctx;
@@ -3504,7 +3379,6 @@ void WrapVectorSearchResults(
     mgp_value_destroy(vertex_value);
     mgp_value_destroy(distance_value);
     mgp_value_destroy(similarity_value);
-    mgp_list_destroy(vertex_distance_similarity);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3520,7 +3394,6 @@ void WrapVectorSearchResults(
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
@@ -3549,10 +3422,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
   }
 
-  for (const auto &[index_name, label, property, dimension, capacity, size] : info) {
+  for (const auto &[index_name, label, property, metric, dimension, capacity, size] : info) {
     mgp_value *index_name_value = nullptr;
     mgp_value *label_value = nullptr;
     mgp_value *property_value = nullptr;
+    mgp_value *metric_value = nullptr;
     mgp_value *dimension_value = nullptr;
     mgp_value *capacity_value = nullptr;
     mgp_value *size_value = nullptr;
@@ -3567,6 +3441,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     }
 
     if (const auto err = mgp_value_make_string(impl->PropertyToName(property).c_str(), memory, &property_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
+    }
+
+    if (const auto err = mgp_value_make_string(metric.c_str(), memory, &metric_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
@@ -3606,6 +3485,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
     }
 
+    if (const auto err = mgp_list_append_extend(index_info, metric_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+
     if (const auto err = mgp_list_append_extend(index_info, dimension_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
@@ -3635,10 +3519,10 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(index_name_value);
     mgp_value_destroy(label_value);
     mgp_value_destroy(property_value);
+    mgp_value_destroy(metric_value);
     mgp_value_destroy(dimension_value);
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);
-    mgp_list_destroy(index_info);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3654,7 +3538,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,

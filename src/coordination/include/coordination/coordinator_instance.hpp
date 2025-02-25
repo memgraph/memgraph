@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,11 +29,9 @@
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <list>
-#include <range/v3/range/primitives.hpp>
 
 namespace memgraph::coordination {
 
@@ -63,20 +61,19 @@ class CoordinatorInstance {
   ~CoordinatorInstance();
 
   // We don't need to open lock and close the lock since we need only one writing to raft log here.
-  // If some of actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
+  // If some of the actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
   // If writing to raft succeeds, we know what everything up to that point passed so all good.
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
-      -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
 
-  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log and then we try to unregister
+  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log, and then we try to unregister
   // replication instance from in-memory structures. If raft passes and some of rpc actions or deletions fails, user
   // should repeat the action. Instance will be deleted twice from raft log but since that action is idempotent, no
   // failure will actually happen.
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
-  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on instances
-  // on the next state check.
+  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on
+  // instances on the next state check.
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
 
   // If user demotes main to replica, cluster will be without main instance. User should then call
@@ -86,37 +83,40 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
 
+  auto ShowInstance() const -> InstanceStatus;
+
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
-  // Finds most up to date instance that could become new main. Only alive instances are taken into account.
-  [[nodiscard]] auto TryFailover() -> FailoverStatus;
+  // Finds most up-to-date instance that could become new main. Only alive instances are taken into account.
+  [[nodiscard]] auto TryFailover() const -> FailoverStatus;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
+
+  auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
-  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+  static auto GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
       -> std::optional<std::string>;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
+  auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void InstanceSuccessCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
+  void InstanceFailCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
 
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
-
-  void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
-  void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
+  void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
  private:
-  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
+  auto FindReplicationInstance(std::string_view replication_instance_name)
+      -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
@@ -140,6 +140,9 @@ class CoordinatorInstance {
   // accept queries.
   std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};
+
+  std::chrono::seconds instance_down_timeout_sec_{5};
+  std::chrono::seconds instance_health_check_frequency_sec_{1};
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
@@ -151,7 +154,7 @@ class CoordinatorInstance {
   utils::ThreadPool thread_pool_{1};
 
   CoordinatorInstanceManagementServer coordinator_management_server_;
-  mutable utils::Synchronized<std::list<std::pair<uint32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+  mutable utils::Synchronized<std::list<std::pair<int32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
       coordinator_connectors_;
 };
 

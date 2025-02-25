@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,8 @@ class TransactionQueueSimpleTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
@@ -62,7 +63,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
                                                           nullptr,
-                                                          &repl_state,
+                                                          repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,

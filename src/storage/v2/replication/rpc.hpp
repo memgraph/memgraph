@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #pragma once
 
 #include <cstdint>
-#include <cstring>
+#include <rpc/version.hpp>
 #include <string>
 #include <utility>
 
@@ -20,7 +20,6 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/config.hpp"
-#include "utils/enum.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage::replication {
@@ -49,11 +48,17 @@ struct AppendDeltasRes {
   static void Load(AppendDeltasRes *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder);
   AppendDeltasRes() = default;
-  AppendDeltasRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+
+  explicit AppendDeltasRes(bool const success) : success(success) {}
 
   bool success;
-  uint64_t current_commit_timestamp;
+};
+
+struct InProgressRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  InProgressRes() = default;
 };
 
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
@@ -99,24 +104,25 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() = default;
-  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid{main_uuid}, uuid{uuid} {}
+  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid)
+      : main_uuid{main_uuid}, storage_uuid{storage_uuid} {}
 
   utils::UUID main_uuid;
-  utils::UUID uuid;
+  utils::UUID storage_uuid;
 };
 
 struct SnapshotRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(SnapshotRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SnapshotRes &self, memgraph::slk::Builder *builder);
+  static void Load(SnapshotRes *self, slk::Reader *reader);
+  static void Save(const SnapshotRes &self, slk::Builder *builder);
   SnapshotRes() = default;
-  SnapshotRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
 
-  bool success;
-  uint64_t current_commit_timestamp;
+  explicit SnapshotRes(std::optional<uint64_t> current_commit_timestamp)
+      : current_commit_timestamp(std::move(current_commit_timestamp)) {}
+
+  std::optional<uint64_t> current_commit_timestamp;
 };
 
 using SnapshotRpc = rpc::RequestResponse<SnapshotReq, SnapshotRes>;
@@ -125,11 +131,11 @@ struct WalFilesReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(WalFilesReq *self, memgraph::slk::Reader *reader);
-  static void Save(const WalFilesReq &self, memgraph::slk::Builder *builder);
+  static void Load(WalFilesReq *self, slk::Reader *reader);
+  static void Save(const WalFilesReq &self, slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t file_number)
-      : main_uuid{main_uuid}, uuid{uuid}, file_number(file_number) {}
+  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid, uint64_t file_number)
+      : main_uuid{main_uuid}, uuid{storage_uuid}, file_number(file_number) {}
 
   utils::UUID main_uuid;
   utils::UUID uuid;
@@ -143,11 +149,10 @@ struct WalFilesRes {
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
   WalFilesRes() = default;
-  WalFilesRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  explicit WalFilesRes(std::optional<uint64_t> current_commit_timestamp)
+      : current_commit_timestamp(current_commit_timestamp) {}
 
-  bool success;
-  uint64_t current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp;
 };
 
 using WalFilesRpc = rpc::RequestResponse<WalFilesReq, WalFilesRes>;
@@ -172,9 +177,10 @@ struct CurrentWalRes {
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);
   CurrentWalRes() = default;
-  explicit CurrentWalRes(uint64_t current_commit_timestamp) : current_commit_timestamp(current_commit_timestamp) {}
+  explicit CurrentWalRes(std::optional<uint64_t> current_commit_timestamp)
+      : current_commit_timestamp(current_commit_timestamp) {}
 
-  uint64_t current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp;
 };
 
 using CurrentWalRpc = rpc::RequestResponse<CurrentWalReq, CurrentWalRes>;

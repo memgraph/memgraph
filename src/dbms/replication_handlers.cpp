@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,8 @@
 #include "storage/v2/storage.hpp"
 #include "system/state.hpp"
 
+#include "rpc/utils.hpp"
+
 namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
@@ -28,8 +30,10 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling CreateDatabase, an enterprise RPC message, without license.");
-    memgraph::slk::Save(res, res_builder);
+    spdlog::error(
+        "Handling CreateDatabase, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -38,7 +42,7 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::CreateDatabaseReq::kType.name);
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -50,7 +54,7 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -67,7 +71,7 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // Failure
   }
 
-  memgraph::slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
@@ -78,8 +82,10 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling DropDatabase, an enterprise RPC message, without license.");
-    memgraph::slk::Save(res, res_builder);
+    spdlog::error(
+        "Handling DropDatabase, an enterprise RPC message, without license. Check your license status by running SHOW "
+        "LICENSE INFO.");
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -88,7 +94,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -100,7 +106,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -123,7 +129,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     // Failure
   }
 
-  memgraph::slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {
@@ -131,7 +137,9 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
    * NO LICENSE
    */
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling SystemRecovery, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
     for (const auto &config : database_configs) {
       // Only handle default DB
       if (config.name != kDefaultDB) continue;

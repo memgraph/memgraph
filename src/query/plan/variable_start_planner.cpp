@@ -77,8 +77,8 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
       const bool is_expanding_from_node2 = symbol_table.at(*expansion.node2->identifier_) == atom_symbol;
       const bool is_expanding_from_edge = symbol_table.at(*expansion.edge->identifier_) == atom_symbol;
 
-      DMG_ASSERT(expansion.node2 && (is_expanding_from_node2 || is_expanding_from_edge),
-                 "Expected node_symbol or edge_symbol to be bound");
+      MG_ASSERT(expansion.node2 && (is_expanding_from_node2 || is_expanding_from_edge),
+                "Expected node_symbol or edge_symbol to be bound");
 
       // if we are expanding from an edge, we will not do any change, but at some point need to throw
       // as expanding from edge in a path is invalid
@@ -163,18 +163,22 @@ std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Match
 // Collect all unique nodes from expansions. Uniqueness is determined by
 // symbol uniqueness.
 auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable &symbol_table) {
-  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms(
+  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms_set(
       expansions.size(), PatternAtomSymbolHash(symbol_table), PatternAtomSymbolEqual(symbol_table));
+  std::vector<PatternAtom *> graph_atoms;
+
+  auto try_insert_atom = [&](PatternAtom *atom) {
+    if (atom && graph_atoms_set.insert(atom).second) {
+      graph_atoms.push_back(atom);
+    }
+  };
+
   for (const auto &expansion : expansions) {
-    // TODO: Handle labels and properties from different node atoms.
-    graph_atoms.insert(expansion.node1);
-    if (expansion.edge) {
-      graph_atoms.insert(expansion.edge);
-    }
-    if (expansion.node2) {
-      graph_atoms.insert(expansion.node2);
-    }
+    try_insert_atom(expansion.node1);
+    try_insert_atom(expansion.edge);
+    try_insert_atom(expansion.node2);
   }
+
   return graph_atoms;
 }
 

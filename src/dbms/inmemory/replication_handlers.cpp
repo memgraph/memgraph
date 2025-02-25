@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,18 +13,20 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
+#include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/schema_info.hpp"
 
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
+#include <usearch/index_plugins.hpp>
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
@@ -40,6 +42,9 @@ using memgraph::storage::durability::WalDeltaData;
 
 namespace memgraph::dbms {
 namespace {
+
+constexpr uint32_t kDeltasBatchProgressSize = 100000;
+
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
@@ -68,13 +73,13 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
       return std::nullopt;
     }
 #endif
-    auto *inmem_storage = dynamic_cast<storage::InMemoryStorage *>(acc.get()->storage());
+    auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());
     if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       spdlog::error("Database is not IN_MEMORY_TRANSACTIONAL.");
       return std::nullopt;
     }
     return std::optional{std::move(acc)};
-  } catch (const dbms::UnknownDatabaseException &e) {
+  } catch (const dbms::UnknownDatabaseException &) {
     spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
     return std::nullopt;
   }
@@ -134,19 +139,20 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
 void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
                                                       replication::RoleReplicaData &role_replica_data,
                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
-  if (!dbms_handler->IsReplica()) {
+  auto replica_state = dbms_handler->ReplicationState();
+  if (!replica_state->IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
-    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
     return;
   }
 
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
-  dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
+  replica_state->TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
 
-  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
+  rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
 }
 
 void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
@@ -159,20 +165,21 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, ""};
-    slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc.has_value()) {
     spdlog::warn("No database accessor");
-    storage::replication::HeartbeatRes res{false, 0, ""};
-    slk::Save(res, res_builder);
+    storage::replication::HeartbeatRes const res{false, 0, ""};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
+  // Move db acc
   auto const *storage = db_acc->get()->storage();
   const storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
                                                std::string{storage->repl_storage_state_.epoch_.id()}};
-  slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
@@ -183,28 +190,33 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    const storage::replication::AppendDeltasRes res{false, 0};
-    slk::Save(res, res_builder);
+    const storage::replication::AppendDeltasRes res{false};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::AppendDeltasRes res{false, 0};
-    slk::Save(res, res_builder);
+    const storage::replication::AppendDeltasRes res{false};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   storage::replication::Decoder decoder(req_reader);
 
   auto maybe_epoch_id = decoder.ReadString();
-  MG_ASSERT(maybe_epoch_id, "Invalid replication message");
+  if (!maybe_epoch_id) {
+    spdlog::error("Invalid replication message, couldn't read epoch id.");
+    const storage::replication::AppendDeltasRes res{false};
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
-  if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
     spdlog::trace("Set epoch id to {} in AppendDeltasHandler.", *maybe_epoch_id);
-    auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
+    auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
@@ -213,119 +225,127 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
   // able to recover from durable data
   if (storage->wal_file_) {
-    if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+    if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
       spdlog::trace("Current WAL file finalized successfully");
     }
   }
 
-  // last_durable_timestamp could be set by snashot; so we cannot guarantee exactly what's the previous timestamp
+  // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
+  // TODO: (andi) Not sure if emptying the stream is needed?
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
-      SPDLOG_INFO("Skipping delta");
-      // TODO: Check if we are always using the latest version when replicating
-      const auto [timestamp, delta] = ReadDelta(&decoder, storage::durability::kVersion);
-      transaction_complete = storage::durability::IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
+      spdlog::info("Skipping delta");
+      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
-    slk::Save(res, res_builder);
+    const storage::replication::AppendDeltasRes res{false};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   try {
-    ReadAndApplyDeltas(
-        storage, &decoder,
-        storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
+    ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
   } catch (const utils::BasicException &e) {
     spdlog::error(
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
         "unsuccessfully.",
         e.what());
-    const storage::replication::AppendDeltasRes res{false, 0};
-    slk::Save(res, res_builder);
+    const storage::replication::AppendDeltasRes res{false};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
-  const storage::replication::AppendDeltasRes res{true, repl_storage_state.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  const storage::replication::AppendDeltasRes res{true};
+  rpc::SendFinalResponse(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
-void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
+// The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
+// passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
+// signal to the caller that it shouldn't update the commit timestamp value.
+void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
-  slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  Load(&req, req_reader);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    const storage::replication::SnapshotRes res{false, 0};
-    slk::Save(res, res_builder);
+    spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
+                  std::string{req.storage_uuid});
+    const storage::replication::SnapshotRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
-    const storage::replication::SnapshotRes res{false, 0};
-    slk::Save(res, res_builder);
+    const storage::replication::SnapshotRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
-
-  storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.snapshot_directory_);
 
+  storage::replication::Decoder decoder(req_reader);
   const auto maybe_snapshot_path = decoder.ReadFile(storage->recovery_.snapshot_directory_);
-  MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
-  spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
-
-  auto storage_guard = std::unique_lock{storage->main_lock_};
-  spdlog::trace("Clearing database since recovering from snapshot.");
-
-  // Clear the database
-  storage->Clear();
-
-  try {
-    spdlog::debug("Loading snapshot");
-    auto recovered_snapshot = storage::durability::LoadSnapshot(
-        *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
-        &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
-        &storage->enum_store_,
-        storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
-    spdlog::debug("Snapshot loaded successfully");
-    // If this step is present it should always be the first step of
-    // the recovery so we use the UUID we read from snasphost
-    storage->uuid().set(recovered_snapshot.snapshot_info.uuid);
-    storage->repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
-    const auto &recovery_info = recovered_snapshot.recovery_info;
-    storage->vertex_id_ = recovery_info.next_vertex_id;
-    storage->edge_id_ = recovery_info.next_edge_id;
-    storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-    storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
-
-    spdlog::trace("Recovering indices and constraints from snapshot.");
-    memgraph::storage::durability::RecoverIndicesAndStats(
-        recovered_snapshot.indices_constraints.indices, &storage->indices_, &storage->vertices_,
-        storage->name_id_mapper_.get(), storage->config_.salient.items.properties_on_edges);
-    memgraph::storage::durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints,
-                                                      &storage->constraints_, &storage->vertices_,
-                                                      storage->name_id_mapper_.get());
-  } catch (const storage::durability::RecoveryFailure &e) {
-    LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
+  if (!maybe_snapshot_path.has_value()) {
+    spdlog::error("Failed to load snapshot from {}", storage->recovery_.snapshot_directory_);
+    const storage::replication::SnapshotRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
+    return;
   }
-  storage_guard.unlock();
+  spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
+  {
+    auto storage_guard = std::lock_guard{storage->main_lock_};
+    spdlog::trace("Clearing database before recovering from snapshot.");
 
-  const storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+    // Clear the database
+    storage->Clear();
+
+    try {
+      spdlog::debug("Loading snapshot");
+      auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
+          *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
+          &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
+          storage->config_, &storage->enum_store_,
+          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
+      // If this step is present it should always be the first step of
+      // the recovery so we use the UUID we read from snapshot
+      storage->uuid().set(snapshot_info.uuid);
+      storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
+      storage->vertex_id_ = recovery_info.next_vertex_id;
+      storage->edge_id_ = recovery_info.next_edge_id;
+      storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+      storage->repl_storage_state_.last_durable_timestamp_ = snapshot_info.durable_timestamp;
+
+      spdlog::trace("Recovering indices and constraints from snapshot.");
+      storage::durability::RecoverIndicesStatsAndConstraints(
+          &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
+          storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges);
+    } catch (const storage::durability::RecoveryFailure &e) {
+      spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
+                    e.what());
+      storage->Clear();
+      const storage::replication::SnapshotRes res{{}};
+      Save(res, res_builder);
+      return;
+    }
+  }
+  spdlog::debug("Snapshot from {} loaded successfully.", *maybe_snapshot_path);
+
+  const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
+  rpc::SendFinalResponse(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
 
   auto uuid_str = std::string{storage->uuid()};
   // Delete other durability files
-  auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, uuid_str);
+  auto const snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, uuid_str);
   for (const auto &[path, uuid, _] : snapshot_files) {
     if (path != *maybe_snapshot_path) {
       spdlog::trace("Deleting snapshot file {}", path);
@@ -334,8 +354,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
 
   spdlog::trace("Deleting old WAL files due to snapshot recovery.");
-  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str);
-  if (wal_files) {
+  if (auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str)) {
     for (const auto &wal_file : *wal_files) {
       spdlog::trace("Deleting WAL file {}", wal_file.path);
       storage->file_retainer_.DeleteFile(wal_file.path);
@@ -353,18 +372,18 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
   if (!db_acc) {
+    spdlog::error("Couldn't get database accessor in force reset storage handler for request storage_uuid {}",
+                  std::string{req.db_uuid});
     const storage::replication::ForceResetStorageRes res{false, 0};
-    slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     const storage::replication::ForceResetStorageRes res{false, 0};
-    slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
-
-  storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
@@ -375,7 +394,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
 
   const storage::replication::ForceResetStorageRes res{true,
                                                        storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files.");
 
@@ -388,8 +407,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   }
 
   spdlog::trace("Deleting old WAL files.");
-  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str);
-  if (wal_files) {
+  if (auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str)) {
     for (const auto &wal_file : *wal_files) {
       spdlog::trace("Deleting WAL file {}", wal_file.path);
       storage->file_retainer_.DeleteFile(wal_file.path);
@@ -399,6 +417,13 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   }
 }
 
+// Commit timestamp on main's side shouldn't be updated if:
+// 1.) the database accessor couldn't be obtained
+// 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
+// send after that CurrentWalHandler
+// If loading all WAL files succeeded then main can continue recovery if it should send more recovery steps.
+// If loading one of WAL files partially succeeded, then recovery cannot be continue but commit timestamp can be
+// obtained.
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -406,39 +431,49 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::WalFilesRes res{false, 0};
-    slk::Save(res, res_builder);
+    spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
+                  std::string{req.uuid});
+    const storage::replication::WalFilesRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    const storage::replication::WalFilesRes res{false, 0};
-    slk::Save(res, res_builder);
+    const storage::replication::WalFilesRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
-
-  const auto wal_file_number = req.file_number;
-  spdlog::debug("Received {} WAL files.", wal_file_number);
-
-  storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
+  const auto wal_file_number = req.file_number;
+  spdlog::debug("Received {} WAL files.", wal_file_number);
+  storage::replication::Decoder decoder(req_reader);
+
+  uint32_t local_batch_counter = 0;
   for (auto i = 0; i < wal_file_number; ++i) {
-    if (!LoadWal(storage, &decoder)) {
-      const storage::replication::WalFilesRes res{false, storage->repl_storage_state_.last_durable_timestamp_.load()};
-      slk::Save(res, res_builder);
-      spdlog::debug("Replication recovery from WAL files didn't end successfully, returning response...");
+    auto const [success, current_batch_counter] = LoadWal(storage, &decoder, res_builder, local_batch_counter);
+    if (!success) {
+      spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files.");
+      const storage::replication::WalFilesRes res{{}};
+      rpc::SendFinalResponse(res, res_builder);
       return;
     }
+    local_batch_counter = current_batch_counter;
   }
 
-  const storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
-  spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
+  spdlog::debug("Replication recovery from WAL files succeeded");
+  const storage::replication::WalFilesRes res{
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+  rpc::SendFinalResponse(res, res_builder);
 }
 
+// Commit timestamp on MAIN's side shouldn't be updated if:
+// 1.) the database accessor couldn't be obtained
+// 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
+// If loading WAL file partially succeeded then we shouldn't continue recovery but commit timestamp can be updated on
+// main
 void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
                                                     const std::optional<utils::UUID> &current_main_uuid,
                                                     slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -446,43 +481,57 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::CurrentWalRes res{0};
-    slk::Save(res, res_builder);
+    spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
+                  std::string{req.uuid});
+    const storage::replication::CurrentWalRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
-    const storage::replication::CurrentWalRes res{0};
-    slk::Save(res, res_builder);
+    const storage::replication::CurrentWalRes res{{}};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
-
-  storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
-  // Even if loading wal file failed, we return last_durable_timestamp which is used on MAIN's side to figure out
-  // whether the replication ended successfully or not.
-  if (!LoadWal(storage, &decoder)) {
-    spdlog::debug(
-        "Replication recovery from current WAL didn't end successfully. Non-fatal error, main should try to recover "
-        "the replica.");
+  storage::replication::Decoder decoder(req_reader);
+
+  // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
+  // When loading a single WAL file, we don't care about saving number of deltas
+  if (!LoadWal(storage, &decoder, res_builder).first) {
+    spdlog::debug("Replication recovery from current WAL didn't end successfully but the error is non-fatal error.");
   } else {
-    spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
+    spdlog::debug("Replication recovery from current WAL ended successfully!");
   }
 
-  const storage::replication::CurrentWalRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  const storage::replication::CurrentWalRes res{
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+  rpc::SendFinalResponse(res, res_builder);
 }
 
-bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
+// The method will return false and hence signal the failure of completely loading the WAL file if:
+// 1.) It cannot open WAL file for reading from temporary WAL directory
+// 2.) If WAL magic and/or version wasn't loaded successfully
+// 3.) If WAL version is invalid
+// 4.) If reading WAL info fails
+// 5.) If applying some of the deltas failed
+// If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
+std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage,
+                                                               storage::replication::Decoder *decoder,
+                                                               slk::Builder *res_builder,
+                                                               uint32_t start_batch_counter) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
-  MG_ASSERT(maybe_wal_path, "Failed to load WAL!");
+  if (!maybe_wal_path) {
+    spdlog::error("Failed to load WAL file from {}!", temp_wal_directory);
+    return {false, 0};
+  }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
     auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path);
@@ -492,10 +541,13 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       storage->uuid().set(wal_info.uuid);
     }
 
-    auto &replica_epoch = storage->repl_storage_state_.epoch_;
-    if (wal_info.epoch_id != replica_epoch.id()) {
-      // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
-      // when we use high availability, this assumption need to be checked.
+    // If WAL file doesn't contain any changes that need to be applied, ignore it
+    if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
+      spdlog::trace("WAL file won't be applied since all changes already exist.");
+      return {true, 0};
+    }
+    // We trust only WAL files which contain changes we are interested in (newer changes)
+    if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
       spdlog::trace("Set epoch id to {} while loading wal file {}.", wal_info.epoch_id, *maybe_wal_path);
       auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
@@ -514,23 +566,32 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     storage::durability::Decoder wal;
     const auto version = wal.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
     spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
-    if (!version) throw storage::durability::RecoveryFailure("Couldn't read WAL magic and/or version!");
-    if (!storage::durability::IsVersionSupported(*version))
-      throw storage::durability::RecoveryFailure("Invalid WAL version!");
+    if (!version) {
+      spdlog::error("Couldn't read WAL magic and/or version!");
+      return {false, 0};
+    }
+    if (!storage::durability::IsVersionSupported(*version)) {
+      spdlog::error("Invalid WAL version!");
+      return {false, 0};
+    }
     wal.SetPosition(wal_info.offset_deltas);
 
-    for (size_t i = 0; i < wal_info.num_deltas;) {
-      i += ReadAndApplyDeltas(storage, &wal, *version);
+    uint32_t local_batch_counter = start_batch_counter;
+    for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
+      auto const [current_delta_idx, current_batch_counter] =
+          ReadAndApplyDeltasSingleTxn(storage, &wal, *version, res_builder, local_batch_counter);
+      local_delta_idx += current_delta_idx;
+      local_batch_counter = current_batch_counter;
     }
 
-    spdlog::debug("Replication from current WAL successful!");
-    return true;
+    spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
+    return {true, local_batch_counter};
   } catch (const storage::durability::RecoveryFailure &e) {
     spdlog::error("Couldn't recover WAL deltas from {} because of: {}.", *maybe_wal_path, e.what());
-    return false;
+    return {false, 0};
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL from {} failed because of {}.", *maybe_wal_path, e.what());
-    return false;
+    return {false, 0};
   }
 }
 
@@ -542,27 +603,27 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     const storage::replication::TimestampRes res{false, 0};
-    slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
     const storage::replication::TimestampRes res{false, 0};
-    slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
   const storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 // The number of applied deltas also includes skipped deltas.
-uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorage *storage,
-                                                         storage::durability::BaseDecoder *decoder,
-                                                         const uint64_t version) {
+std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
+    storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
+    slk::Builder *res_builder, uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -570,9 +631,10 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   constexpr bool kSharedAccess = false;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto const get_replication_accessor =
-      [storage, &commit_timestamp_and_accessor](
-          uint64_t commit_timestamp, bool unique = kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
+  auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
+                                            uint64_t commit_timestamp,
+                                            bool const unique =
+                                                kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {
@@ -580,7 +642,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       } else {
         acc = storage->Access();
       }
-      auto inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
+      auto const inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
@@ -591,14 +653,19 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
+  uint32_t current_batch_counter = start_batch_counter;
   auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   auto current_durable_commit_timestamp = max_delta_timestamp;
 
-  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
-    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
-    if (delta_timestamp > max_delta_timestamp) {
-      max_delta_timestamp = delta_timestamp;
+  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
+    if (current_batch_counter == kDeltasBatchProgressSize) {
+      spdlog::trace("Sending in progress msg");
+      rpc::SendInProgressMsg(res_builder);
+      current_batch_counter = 0;
     }
+
+    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
+    max_delta_timestamp = std::max(max_delta_timestamp, delta_timestamp);
 
     transaction_complete = IsWalDeltaDataTransactionEnd(delta, version);
 
@@ -919,9 +986,12 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
                                         data.property);
           }
         },
-        [&](WalTextIndexCreate const
-                &) { /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/ },
-        [&](WalTextIndexDrop const &) { /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/ },
+        [&](WalTextIndexCreate const &) {
+          /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
+        },
+        [&](WalTextIndexDrop const &) {
+          /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
+        },
         [&](WalExistenceConstraintCreate const &data) {
           spdlog::trace("       Create existence constraint on :{} ({})", data.label, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
@@ -1040,6 +1110,34 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
             throw utils::BasicException("Failed to drop point index on :{}({})", data.label, data.property);
           }
         },
+        [&](WalVectorIndexCreate const &data) {
+          spdlog::trace("       Create vector index on :{}({})", data.label, data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto labelId = storage->NameToLabel(data.label);
+          auto propId = storage->NameToProperty(data.property);
+          auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
+
+          auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
+              .index_name = data.index_name,
+              .label = labelId,
+              .property = propId,
+              .metric_kind = metric_kind,
+              .dimension = data.dimension,
+              .resize_coefficient = data.resize_coefficient,
+              .capacity = data.capacity,
+          });
+          if (res.HasError()) {
+            throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
+          }
+        },
+        [&](WalVectorIndexDrop const &data) {
+          spdlog::trace("       Drop vector index {} ", data.index_name);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto res = transaction->DropVectorIndex(data.index_name);
+          if (res.HasError()) {
+            throw utils::BasicException("Failed to drop vector index {}", data.index_name);
+          }
+        },
     };
 
     spdlog::trace("  Delta {}", current_delta_idx);
@@ -1052,6 +1150,6 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   storage->repl_storage_state_.last_durable_timestamp_ = max_delta_timestamp;
 
   spdlog::debug("Applied {} deltas", applied_deltas);
-  return current_delta_idx;
+  return {current_delta_idx, current_batch_counter};
 }
 }  // namespace memgraph::dbms

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,6 +54,16 @@ struct LicenseInfo {
   License license;
 };
 
+struct DetailedLicenseInfo {
+  std::string organization_name;
+  std::string license_key;
+  bool is_valid{false};
+  std::string license_type;
+  std::string valid_until;
+  int64_t memory_limit{0};
+  std::string status;
+};
+
 inline constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
 inline constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
 
@@ -88,6 +98,7 @@ struct LicenseChecker {
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
+  DetailedLicenseInfo GetDetailedLicenseInfo();
 
   void Finalize() { scheduler_.Stop(); }
 

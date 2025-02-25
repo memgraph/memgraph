@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,13 +27,11 @@
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
-#include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
-#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -47,7 +45,9 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
@@ -65,6 +65,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
@@ -152,6 +153,31 @@ namespace memgraph::query::plan {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
+template <typename>
+constexpr auto kAlwaysFalse = false;
+
+void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
+  std::visit(
+      []<typename T>(const T & /* unused */) {
+        using ErrorType = std::remove_cvref_t<T>;
+        if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+          spdlog::warn(
+              "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
+              "commit.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+          throw QueryException(
+              "PeriodicCommit failed: Unable to commit due to constraint "
+              "violation.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+          throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+          throw QueryException("PeriodicCommit failed: Unable to commit due to persistance error.");
+        } else {
+          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+        }
+      },
+      error);
+}
 
 // Custom equality function for a vector of typed values.
 // Used in unordered_maps in Aggregate and Distinct operators.
@@ -195,10 +221,29 @@ std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType>
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
       result.emplace_back(*label_atom);
     } else {
-      result.emplace_back(dba->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+      const auto value = std::get<Expression *>(label)->Accept(evaluator);
+      if (value.IsString()) {
+        result.emplace_back(dba->NameToLabel(value.ValueString()));
+      } else if (value.IsList()) {
+        for (const auto &label : value.ValueList()) {
+          result.emplace_back(dba->NameToLabel(label.ValueString()));
+        }
+      } else {
+        throw QueryRuntimeException(
+            fmt::format("Expected to evaluate labels of String or List[String] type, got {}.", value.type()));
+      }
     }
   }
   return result;
+}
+
+storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, ExpressionEvaluator &evaluator,
+                                     DbAccessor *dba) {
+  if (const auto *edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_type)) {
+    return *edge_type_id;
+  }
+
+  return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
 }
 
 }  // namespace
@@ -366,9 +411,11 @@ std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) cons
 }
 
 std::string CreateExpand::ToString() const {
-  return fmt::format("CreateExpand ({}){}[{}:{}]{}({})", input_symbol_.name(),
+  const auto *maybe_edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_info_.edge_type);
+  const bool is_expansion_static = maybe_edge_type_id != nullptr;
+  return fmt::format("{} ({}){}[{}:{}]{}({})", "CreateExpand", input_symbol_.name(),
                      edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", edge_info_.symbol.name(),
-                     dba_->EdgeTypeToName(edge_info_.edge_type),
+                     is_expansion_static ? dba_->EdgeTypeToName(*maybe_edge_type_id) : "<DYNAMIC>",
                      edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", node_info_.symbol.name());
 }
 
@@ -377,9 +424,10 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 
 namespace {
 
-EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                        Frame *frame, ExecutionContext &context, ExpressionEvaluator *evaluator) {
-  auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
+EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTypeId edge_type_id, DbAccessor *dba,
+                        VertexAccessor *from, VertexAccessor *to, Frame *frame, ExecutionContext &context,
+                        ExpressionEvaluator *evaluator) {
+  auto maybe_edge = dba->InsertEdge(from, to, edge_type_id);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
     std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -432,6 +480,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+  auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -441,8 +490,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
                                              : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
 
     if (context.auth_checker &&
-        !(context.auth_checker->Has(self_.edge_info_.edge_type,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
@@ -462,14 +510,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto created_edge = [&] {
     switch (self_.edge_info_.direction) {
       case EdgeAtom::Direction::IN:
-        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, context, &evaluator);
+        return CreateEdge(self_.edge_info_, edge_type, dba, &v2, &v1, &frame, context, &evaluator);
       case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
       case EdgeAtom::Direction::BOTH:
-        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, context, &evaluator);
+        return CreateEdge(self_.edge_info_, edge_type, dba, &v1, &v2, &frame, context, &evaluator);
     }
   }();
 
@@ -3394,13 +3442,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4051,7 +4101,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
       return TypedValue(TypedValue::TMap(memory));
-    case Aggregation::Op::PROJECT:
+    case Aggregation::Op::PROJECT_PATH:
+    case Aggregation::Op::PROJECT_LISTS:
       return TypedValue(query::Graph(memory));
   }
 }
@@ -4214,7 +4265,8 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::SUM:
         case Aggregation::Op::COLLECT_LIST:
         case Aggregation::Op::COLLECT_MAP:
-        case Aggregation::Op::PROJECT:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
           break;
       }
     }
@@ -4281,7 +4333,7 @@ class AggregateCursor : public Cursor {
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto input_expr_ptr = agg_elem_it->value;
+      auto *input_expr_ptr = agg_elem_it->arg1;
       if (!input_expr_ptr) {
         *count_it += 1;
         // value is deferred to post-processing
@@ -4319,13 +4371,17 @@ class AggregateCursor : public Cursor {
           case Aggregation::Op::COLLECT_LIST:
             value_it->ValueList().push_back(std::move(input_value));
             break;
-          case Aggregation::Op::PROJECT: {
-            EnsureOkForProject(input_value);
+          case Aggregation::Op::PROJECT_PATH: {
+            EnsureOkForProjectPath(input_value);
             value_it->ValueGraph().Expand(input_value.ValuePath());
             break;
           }
+          case Aggregation::Op::PROJECT_LISTS: {
+            ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
-            auto key = agg_elem_it->key->Accept(*evaluator);
+            auto key = agg_elem_it->arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
             value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
             break;
@@ -4372,18 +4428,41 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_LIST:
           value_it->ValueList().push_back(std::move(input_value));
           break;
-        case Aggregation::Op::PROJECT: {
-          EnsureOkForProject(input_value);
+        case Aggregation::Op::PROJECT_PATH: {
+          EnsureOkForProjectPath(input_value);
           value_it->ValueGraph().Expand(input_value.ValuePath());
           break;
         }
+
+        case Aggregation::Op::PROJECT_LISTS: {
+          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->key->Accept(*evaluator);
+          auto key = agg_elem_it->arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
+  }
+
+  /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
+   */
+  static void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
+    if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
+    }
+
+    if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
+    }
+
+    projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -4417,10 +4496,9 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  /** Checks if the given TypedValue is legal in PROJECT and PROJECT_TRANSITIVE. If not
-   * an appropriate exception is thrown. */
+  /** Checks if the given TypedValue is legal in PROJECT_PATH. If not an appropriate exception is thrown. */
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  void EnsureOkForProject(const TypedValue &value) const {
+  void EnsureOkForProjectPath(const TypedValue &value) const {
     switch (value.type()) {
       case TypedValue::Type::Path:
         return;
@@ -4612,9 +4690,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -5354,27 +5431,31 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // can disable tracking on that arena if it is not
     // once we are done with procedure tracking
 
-    bool is_transaction_tracked = memgraph::memory::IsTransactionTracked(transaction_id);
+#if USE_JEMALLOC
+    const bool is_transaction_tracked = memgraph::memory::IsQueryTracked();
 
+    std::unique_ptr<utils::QueryMemoryTracker> tmp_query_tracker{};
     if (!is_transaction_tracked) {
       // start tracking with unlimited limit on query
       // which is same as not being tracked at all
-      memgraph::memory::TryStartTrackingOnTransaction(transaction_id, memgraph::memory::UNLIMITED_MEMORY);
+      tmp_query_tracker = std::make_unique<utils::QueryMemoryTracker>();
+      tmp_query_tracker->SetQueryLimit(memgraph::memory::UNLIMITED_MEMORY);
+      memgraph::memory::StartTrackingCurrentThread(tmp_query_tracker.get());
     }
-    memgraph::memory::StartTrackingCurrentThreadTransaction(transaction_id);
 
     // due to mgp_batch_read_proc and mgp_batch_write_proc
     // we can return to execution without exhausting whole
     // memory. Here we need to update tracking
-    memgraph::memory::CreateOrContinueProcedureTracking(transaction_id, procedure_id, *memory_limit);
+    memgraph::memory::CreateOrContinueProcedureTracking(procedure_id, *memory_limit);
+
+    const utils::OnScopeExit on_scope_exit{[is_transaction_tracked]() {
+      memgraph::memory::PauseProcedureTracking();
+      if (!is_transaction_tracked) memgraph::memory::StopTrackingCurrentThread();
+    }};
+#endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
     MG_ASSERT(result->signature == &proc.results);
-
-    utils::OnScopeExit on_scope_exit{[transaction_id = transaction_id]() {
-      memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
-      memgraph::memory::PauseProcedureTracking(transaction_id);
-    }};
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
@@ -5397,11 +5478,9 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
-  utils::MonotonicBufferResource monotonic_memory_{1024UL * 1024UL};
-  utils::MemoryResource *memory_resource_ = &monotonic_memory_;
   UniqueCursorPtr input_cursor_;
-  mgp_result *result_;
-  decltype(result_->rows.end()) result_row_it_{result_->rows.end()};
+  mgp_result result_;
+  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
   size_t result_signature_size_{0};
   bool stream_exhausted{true};
   bool call_initializer{false};
@@ -5414,7 +5493,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
-        result_(utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_)) {
+        result_(nullptr, mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -5425,7 +5504,7 @@ class CallProcedureCursor : public Cursor {
     AbortCheck(context);
 
     auto skip_rows_with_deleted_values = [this]() {
-      while (result_row_it_ != result_->rows.end() && result_row_it_->has_deleted_values) {
+      while (result_row_it_ != result_.rows.end() && result_row_it_->has_deleted_values) {
         ++result_row_it_;
       }
     };
@@ -5438,7 +5517,7 @@ class CallProcedureCursor : public Cursor {
     auto module = std::shared_ptr<procedure::Module>{};
     mgp_proc const *proc = nullptr;
 
-    while (result_row_it_ == result_->rows.end()) {
+    while (result_row_it_ == result_.rows.end()) {
       if (!module) {
         auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
         if (!maybe_found) {
@@ -5476,46 +5555,40 @@ class CallProcedureCursor : public Cursor {
       if (!cleanup_ && proc->cleanup) [[unlikely]] {
         cleanup_.emplace(*proc->cleanup);
       }
-      // Unpluging memory without calling destruct on each object since everything was allocated with this memory
-      // resource
-      monotonic_memory_.Release();
-      result_ = utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_);
+      result_.rows.clear();
 
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_->signature = &proc->results;
-      result_->is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
+      result_.signature = &proc->results;
+      result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
 
-      // Use special memory as invoking procedure is complex
-      // TODO: This will probably need to be changed when we add support for
-      // generator like procedures which yield a new result on new query calls.
-      auto *memory = memory_resource_;
+      auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
       MG_ASSERT(transaction_id.has_value());
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          result_, self_->procedure_id_, transaction_id.value(), call_initializer);
+                          &result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
-      result_signature_size_ = result_->signature->size();
-      result_->signature = nullptr;
-      if (result_->error_msg) {
+      result_signature_size_ = result_.signature->size();
+      result_.signature = nullptr;
+      if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
+        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
-      result_row_it_ = result_->rows.begin();
-      if (!result_->is_transactional) {
+      result_row_it_ = result_.rows.begin();
+      if (!result_.is_transactional) {
         skip_rows_with_deleted_values();
       }
 
-      stream_exhausted = result_row_it_ == result_->rows.end();
+      stream_exhausted = result_row_it_ == result_.rows.end();
     }
 
     auto &values = result_row_it_->values;
@@ -5543,7 +5616,7 @@ class CallProcedureCursor : public Cursor {
       }
     }
     ++result_row_it_;
-    if (!result_->is_transactional) {
+    if (!result_.is_transactional) {
       skip_rows_with_deleted_values();
     }
 
@@ -5551,15 +5624,13 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    monotonic_memory_.Release();
-    result_ = utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_);
+    result_.rows.clear();
     if (cleanup_) {
       cleanup_.value()();
     }
   }
 
   void Shutdown() override {
-    monotonic_memory_.Release();
     if (cleanup_) {
       cleanup_.value()();
     }
@@ -5660,13 +5731,13 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 namespace {
 // copy-pasted from interpreter.cpp
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
-  return expression ? expression->Accept(*eval) : TypedValue();
+  return expression ? expression->Accept(*eval) : TypedValue(eval->GetMemoryResource());
 }
 
 auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
-  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
+  auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return utils::pmr::string(evaluated_expr.ValueString(), utils::NewDeleteResource());
+    return utils::pmr::string(std::move(evaluated_expr).ValueString(), evaluator->GetMemoryResource());
   }
   return std::nullopt;
 };
@@ -5772,13 +5843,10 @@ class LoadCsvCursor : public Cursor {
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
-    // Note that the reader has to be given its own memory resource, as it
-    // persists between pulls, so it can't use the evalutation context memory
-    // resource.
     return csv::Reader(
         csv::CsvSource::Create(*maybe_file),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        utils::NewDeleteResource());
+        eval_context->memory);
   }
 
   std::optional<utils::pmr::string> ParseNullif(EvaluationContext *eval_context) {
@@ -6282,13 +6350,18 @@ class PeriodicCommitCursor : public Cursor {
     bool const pull_value = input_cursor_->Pull(frame, context);
 
     pulled_++;
+    utils::BasicResult<storage::StorageManipulationError, void> commit_result;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+    }
+
+    if (commit_result.HasError()) {
+      HandlePeriodicCommitError(commit_result.GetError());
     }
 
     return pull_value;
@@ -6371,7 +6444,10 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            if (commit_result.HasError()) {
+              HandlePeriodicCommitError(commit_result.GetError());
+            }
           }
           return false;
         }
@@ -6385,7 +6461,10 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        if (commit_result.HasError()) {
+          HandlePeriodicCommitError(commit_result.GetError());
+        }
         pulled_ = 0;
       }
 

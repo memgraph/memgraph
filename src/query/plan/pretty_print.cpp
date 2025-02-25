@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -420,6 +420,14 @@ json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) 
   return json;
 }
 
+json ToJson(const StorageEdgeType &edge_type, const DbAccessor &dba) {
+  if (const auto *edge_type_expression = std::get_if<Expression *>(&edge_type)) {
+    return ToJson(*edge_type_expression, dba);
+  }
+
+  return ToJson(std::get<storage::EdgeTypeId>(edge_type), dba);
+}
+
 json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
@@ -441,12 +449,26 @@ json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
 
 json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
   json json;
-  if (elem.value) {
-    json["value"] = ToJson(elem.value, dba);
+  if (elem.op == Aggregation::Op::PROJECT_LISTS) {
+    if (elem.arg1) {
+      json["nodes"] = ToJson(elem.arg1, dba);
+    }
+    if (elem.arg2) {
+      json["relationships"] = ToJson(elem.arg2, dba);
+    }
+  } else if (elem.op == Aggregation::Op::COLLECT_MAP) {
+    if (elem.arg1) {
+      json["value"] = ToJson(elem.arg1, dba);
+    }
+    if (elem.arg2) {
+      json["key"] = ToJson(elem.arg2, dba);
+    }
+  } else {
+    if (elem.arg1) {
+      json["value"] = ToJson(elem.arg1, dba);
+    }
   }
-  if (elem.key) {
-    json["key"] = ToJson(elem.key, dba);
-  }
+
   json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
   json["output_symbol"] = ToJson(elem.output_sym);
   json["distinct"] = elem.distinct;

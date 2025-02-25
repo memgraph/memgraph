@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include <string>
 #include <variant>
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
@@ -32,7 +32,7 @@ constexpr auto *kReplicationReplicaPrefix{"__replication_replica:"};  // introdu
 enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
   V2,  // epoch, replica prefix introduced
-  V3,  // this version, main uuid introduced
+  V3,  // version where main uuid was introduced
   V4   // addresses as provided by users are saved to disk instead of eager evaluation
 };
 

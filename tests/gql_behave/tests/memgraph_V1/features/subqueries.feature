@@ -420,3 +420,20 @@ Feature: Subqueries
         Then the result should be:
             | title          |
             | 'Forrest Gump' |
+    Scenario: Match after call
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({n0:0})
+            """
+        When executing query:
+            """
+            CALL {
+            	RETURN 0 AS x
+            }
+            MATCH (n {n0:x})
+            RETURN n.n0 as n0;
+            """
+        Then the result should be:
+            | n0 |
+            | 0  |

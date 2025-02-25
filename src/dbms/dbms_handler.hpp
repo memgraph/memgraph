@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,9 +28,6 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
 #include "kvstore/kvstore.hpp"
-#include "license/license.hpp"
-#include "replication/replication_client.hpp"
-#include "replication_coordination_glue/handler.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "system/system.hpp"
@@ -40,15 +37,12 @@
 #include "dbms/database_handler.hpp"
 #endif
 #include "global.hpp"
-#include "query/config.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
-#include "system/system.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -115,7 +109,8 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state, auth::SynchedAuth &auth,
+  DbmsHandler(storage::Config config, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
+              auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -123,7 +118,7 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state)
+  DbmsHandler(storage::Config config, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state)
       : repl_state_{repl_state},
         db_gatekeeper_{[&] {
                          config.salient.name = kDefaultDB;
@@ -274,11 +269,8 @@ class DbmsHandler {
 #endif
   }
 
-  replication::ReplicationState &ReplicationState() { return repl_state_; }
-  replication::ReplicationState const &ReplicationState() const { return repl_state_; }
-
-  bool IsMain() const { return repl_state_.IsMain(); }
-  bool IsReplica() const { return repl_state_.IsReplica(); }
+  auto ReplicationState() { return repl_state_.Lock(); }
+  auto ReplicationState() const { return repl_state_.ReadLock(); }
 
   /**
    * @brief Return all active databases.
@@ -319,7 +311,8 @@ class DbmsHandler {
         stats.triggers += info.triggers;
         stats.streams += info.streams;
         ++stats.num_databases;
-        stats.indices += storage_info.label_indices + storage_info.label_property_indices + storage_info.text_indices;
+        stats.indices += storage_info.label_indices + storage_info.label_property_indices + storage_info.text_indices +
+                         storage_info.vector_indices;
         stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
         ++stats.storage_modes[(int)storage_info.storage_mode];
         ++stats.isolation_levels[(int)storage_info.isolation_level];
@@ -365,24 +358,7 @@ class DbmsHandler {
    *
    * @param ic global InterpreterContext
    */
-  void RestoreTriggers(query::InterpreterContext *ic) {
-#ifdef MG_ENTERPRISE
-    auto wr = std::lock_guard{lock_};
-    for (auto &[_, db_gk] : db_handler_) {
-#else
-    {
-      auto &db_gk = db_gatekeeper_;
-#endif
-      auto db_acc_opt = db_gk.access();
-      if (db_acc_opt) {
-        auto &db_acc = *db_acc_opt;
-        spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
-        auto storage_accessor = db_acc->Access();
-        auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-        db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
-      }
-    }
-  }
+  void RestoreTriggers(query::InterpreterContext *ic);
 
   /**
    * @brief Restore streams of all currently defined databases.
@@ -632,7 +608,8 @@ class DbmsHandler {
   //       Database only uses it as a convience to make the correct Access without out needing to be told the
   //       current replication role. TODO: make Database Access explicit about the role and remove this from
   //       dbms stuff
-  replication::ReplicationState &repl_state_;  //!< Ref to global replication state
+  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock>
+      &repl_state_;  //!< Ref to global replication state
 
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

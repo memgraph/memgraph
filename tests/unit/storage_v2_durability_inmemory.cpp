@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -112,6 +113,17 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
+    const auto property_vector = store->NameToProperty("vector");
+    const auto vector_index_name = "vector_index"s;
+    const auto vector_index_metric = unum::usearch::metric_kind_t::l2sq_k;
+    const auto vector_index_dim = 2;
+    const auto vector_index_capacity = 100;
+    const auto vector_index_resize_coefficient = 2;
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{vector_index_name,    label_indexed,    property_vector,
+                                           vector_index_metric,  vector_index_dim, vector_index_resize_coefficient,
+                                           vector_index_capacity};
+
     {
       // Create enum.
       auto unique_acc = store->UniqueAccess();
@@ -154,6 +166,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create point index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+
+    {
+      // Create vector index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateVectorIndex(vector_index_spec).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
@@ -215,6 +234,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             break;
           }
         }
+      }
+
+      // first 5 have vector values
+      if (i < 5) {
+        memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+            memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+        ASSERT_TRUE(vertex.SetProperty(property_vector, property_value).HasValue());
       }
 
       // lower 1/3 and top 1/2 have ids
@@ -387,6 +413,17 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
+    const auto property_vector = store->NameToProperty("vector");
+    const auto vector_index_name = "vector_index"s;
+    const auto vector_index_metric = unum::usearch::metric_kind_t::l2sq_k;
+    const auto vector_index_dim = 2;
+    const auto vector_index_capacity = 100;
+    const auto vector_index_resize_coefficient = 2;
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{vector_index_name,    base_label_indexed, property_vector,
+                                           vector_index_metric,  vector_index_dim,   vector_index_resize_coefficient,
+                                           vector_index_capacity};
+
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").HasValue());
@@ -405,6 +442,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
@@ -421,6 +461,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                            std::make_pair(extended_label_indexed, property_count)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -428,6 +471,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -435,6 +481,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
       }
     }
@@ -456,6 +505,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           break;
         }
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED: {
@@ -471,6 +521,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           break;
         }
         case DatasetType::ONLY_EXTENDED: {
@@ -490,6 +541,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           [[fallthrough]];
         }
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS: {
@@ -624,8 +676,23 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           }
         }
 
+        const auto has_property_vector = i < 5;
+        if (has_property_vector) {
+          memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+              memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+          ASSERT_EQ((*properties)[property_vector], property_value);
+        }
+
+        std::size_t expected_size = 0;
+        if (has_property_point) {
+          expected_size++;
+        }
+        if (has_property_vector) {
+          expected_size++;
+        }
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-          ASSERT_EQ(properties->size(), (has_property_point) ? 2 : 1);
+          expected_size++;
+          ASSERT_EQ(properties->size(), expected_size);
           if (i % 5 == 0) {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
           } else {
@@ -633,7 +700,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           }
 
         } else {
-          ASSERT_EQ(properties->size(), (has_property_point) ? 1 : 0);
+          ASSERT_EQ(properties->size(), expected_size);
         }
       }
 
@@ -926,22 +993,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case ONLY_BASE: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]}]})");
+                R"({ "edges": [ { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
         case ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -962,11 +1029,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case BASE_WITH_EXTENDED: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 150, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 300, "end_node_labels": [], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 250, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et3" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 100, "end_node_labels": [], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 200, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 50, "labels": [ "extended_indexed" ], "properties": [ { "count": 33, "filling_factor": 66.0, "key": "count", "types": [ { "count": 33, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 50, "labels": [], "properties": [ { "count": 50, "filling_factor": 100.0, "key": "count", "types": [ { "count": 50, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 150, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 300, "end_node_labels": [], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 250, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et3" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 100, "end_node_labels": [], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 200, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 50, "labels": [ "extended_indexed" ], "properties": [ { "count": 33, "filling_factor": 66.0, "key": "count", "types": [ { "count": 33, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 50, "labels": [], "properties": [ { "count": 50, "filling_factor": 100.0, "key": "count", "types": [ { "count": 50, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -1103,7 +1170,8 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
     memgraph::storage::Config config{
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}}};
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -1121,7 +1189,8 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1146,7 +1215,8 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)}},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -1162,7 +1232,8 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1196,7 +1267,8 @@ TEST_P(DurabilityTest, SnapshotFallback) {
             },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
     auto const ensure_snapshot_is_written = [&](auto &&func) {
@@ -1237,7 +1309,8 @@ TEST_P(DurabilityTest, SnapshotFallback) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1259,7 +1332,8 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
     auto acc = db.Access();
@@ -1291,7 +1365,8 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)}},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
     CreateBaseDataset(db.storage(), GetParam());
@@ -1335,7 +1410,8 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
             .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
             .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
         };
-        memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+        memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+            memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
       ,
@@ -1350,7 +1426,8 @@ TEST_P(DurabilityTest, SnapshotRetention) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -1374,7 +1451,8 @@ TEST_P(DurabilityTest, SnapshotRetention) {
                        .snapshot_retention_count = 3},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
@@ -1411,7 +1489,8 @@ TEST_P(DurabilityTest, SnapshotRetention) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1433,7 +1512,8 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -1453,7 +1533,8 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -1464,7 +1545,8 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -1488,7 +1570,8 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1510,7 +1593,8 @@ TEST_P(DurabilityTest, SnapshotBackup) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -1532,7 +1616,8 @@ TEST_P(DurabilityTest, SnapshotBackup) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
   }
 
@@ -1550,7 +1635,8 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), false);
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, false, false);
@@ -1569,7 +1655,8 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false, false);
 
@@ -1591,7 +1678,8 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), true);
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, true, false);
@@ -1612,7 +1700,8 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
             .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
             .salient = {.items = {.properties_on_edges = false}},
         };
-        memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+        memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+            memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
       ,
@@ -1627,7 +1716,8 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), true);
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, true, false);
@@ -1672,7 +1762,8 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false, false);
 
@@ -1699,7 +1790,8 @@ TEST_P(DurabilityTest, WalBasic) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
@@ -1715,7 +1807,8 @@ TEST_P(DurabilityTest, WalBasic) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1743,7 +1836,8 @@ TEST_P(DurabilityTest, WalBackup) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -1767,7 +1861,8 @@ TEST_P(DurabilityTest, WalBackup) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
   }
 
@@ -1790,7 +1885,8 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
   }
@@ -1807,7 +1903,8 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -1824,7 +1921,8 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateExtendedDataset(db.storage());
   }
@@ -1839,7 +1937,8 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -1869,7 +1968,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     auto v1 = acc->CreateVertex();
@@ -1906,7 +2006,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
     auto acc = db.Access();
@@ -2013,7 +2114,8 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
@@ -2067,7 +2169,8 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
     auto acc = db.Access();
@@ -2114,7 +2217,8 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
             },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc1 = db.Access();
     auto acc2 = db.Access();
@@ -2198,7 +2302,8 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
     auto acc = db.Access();
@@ -2238,7 +2343,8 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage());
@@ -2265,7 +2371,8 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS, GetParam(),
                 config.salient.items.enable_schema_info);
@@ -2295,7 +2402,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
                          .wal_file_flush_every_n_tx = kFlushWalEvery},
           .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
       };
-      memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+          memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
       // Create one million vertices.
       for (uint64_t i = 0; i < 1000000; ++i) {
@@ -2337,7 +2445,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
             },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     {
       auto acc = db.Access();
@@ -2367,7 +2476,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
     uint64_t current = 0;
@@ -2403,7 +2513,8 @@ TEST_P(DurabilityTest, WalMissingSecond) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -2431,7 +2542,8 @@ TEST_P(DurabilityTest, WalMissingSecond) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     const uint64_t kNumVertices = 1000;
     std::vector<memgraph::storage::Gid> gids;
@@ -2483,7 +2595,8 @@ TEST_P(DurabilityTest, WalMissingSecond) {
             .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
             .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
         };
-        memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+        memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+            memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
       ,
@@ -2504,7 +2617,8 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -2532,7 +2646,8 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     const uint64_t kNumVertices = 1000;
     std::vector<memgraph::storage::Gid> gids;
@@ -2583,7 +2698,8 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
             .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
             .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
         };
-        memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+        memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+            memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
       ,
@@ -2604,7 +2720,8 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     CreateExtendedDataset(db.storage(), /* single_transaction = */ true);
@@ -2628,7 +2745,8 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   // The extended dataset shouldn't be recovered because its WAL transaction was
   // corrupt.
@@ -2659,7 +2777,8 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     auto vertex1 = acc->CreateVertex();
@@ -2706,7 +2825,8 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
     auto acc = db.Access();
@@ -2741,7 +2861,8 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -2758,7 +2879,8 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -2780,7 +2902,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
   }
@@ -2797,7 +2920,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -2814,7 +2938,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateExtendedDataset(db.storage());
   }
@@ -2829,7 +2954,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -2851,7 +2977,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
   }
@@ -2868,7 +2995,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
   }
@@ -2885,7 +3013,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateExtendedDataset(db.storage());
   }
@@ -2908,7 +3037,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
     auto acc = db.Access();
@@ -2931,7 +3061,8 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(),
                 /* ignoring schema after recovery */ false,
@@ -2977,7 +3108,8 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -3007,7 +3139,8 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
                        .wal_file_flush_every_n_tx = 1},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
@@ -3039,7 +3172,8 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
           .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
           .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
       };
-      memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+      memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+          memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
       auto acc = db.Access();
       for (uint64_t j = 0; j < items_created; ++j) {
@@ -3061,7 +3195,8 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
             .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
             .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
         };
-        memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+        memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+            memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
       ,
@@ -3079,7 +3214,8 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)}},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
@@ -3103,7 +3239,8 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)}},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -3129,7 +3266,8 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 
@@ -3144,15 +3282,18 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
+TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true, .items_per_batch = 13},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_on_exit = true,
+                       .items_per_batch = 13,
+                       .allow_parallel_schema_creation = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3170,20 +3311,105 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
       .durability = {.storage_directory = storage_directory,
                      .recover_on_startup = true,
                      .snapshot_on_exit = false,
-                     .items_per_batch = 13},
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
-  // TODO Fix parallel recovery schema
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ParallelWalRecovery) {
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
+  // Create wals.
   {
-    auto acc = db.Access();
-    auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                       .snapshot_on_exit = false,
+                       .items_per_batch = 13,
+                       .allow_parallel_schema_creation = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+    };
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_GT(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover wals.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
+}
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
+  // Create wals.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                       .snapshot_on_exit = false,
+                       .items_per_batch = 13,
+                       .allow_parallel_schema_creation = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+    };
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+    // Manually create database in the middle
+    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
+  }
+
+  ASSERT_GT(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_GT(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover wals.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -3200,7 +3426,8 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   {
     config.durability.recover_on_startup = false;
     config.durability.snapshot_on_exit = true;
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3215,7 +3442,8 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
 
   config.durability.recover_on_startup = true;
   config.durability.snapshot_on_exit = false;
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::SkipList<memgraph::storage::Vertex> vertices;
   memgraph::utils::SkipList<memgraph::storage::Edge> edges;
   memgraph::utils::SkipList<memgraph::storage::EdgeMetadata> edges_metadata;
@@ -3271,7 +3499,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3288,7 +3517,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   // Recover snapshot.
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam(),
                 config.salient.items.enable_schema_info);
@@ -3312,7 +3542,8 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3332,7 +3563,8 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   // Recover snapshot.
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam(),
                 config.salient.items.enable_schema_info);
@@ -3356,7 +3588,8 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3373,7 +3606,8 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   // Recover snapshot.
   memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
                                    .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam(),
                 config.salient.items.enable_schema_info);
@@ -3397,7 +3631,8 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
                                      .salient.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}};
-    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
@@ -3412,7 +3647,8 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true, .enable_schema_info = false}};
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(MultiplicationOperator);
   UNSUCCESSFUL_VISIT(DivisionOperator);
   UNSUCCESSFUL_VISIT(ModOperator);
+  UNSUCCESSFUL_VISIT(ExponentiationOperator);
   UNSUCCESSFUL_VISIT(NotEqualOperator);
   UNSUCCESSFUL_VISIT(EqualOperator);
   UNSUCCESSFUL_VISIT(LessOperator);
@@ -142,6 +143,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(MultiplicationOperator)
   INVALID_VISIT(DivisionOperator)
   INVALID_VISIT(ModOperator)
+  INVALID_VISIT(ExponentiationOperator)
   INVALID_VISIT(NotEqualOperator)
   INVALID_VISIT(EqualOperator)
   INVALID_VISIT(LessOperator)
@@ -277,6 +279,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return value1 || value2;
     } catch (const TypedValueException &) {
       throw QueryRuntimeException("Invalid types: {} and {} for OR.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(ExponentiationOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return pow(value1, value2);
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for ^.", value1.type(), value2.type());
     }
   }
 
@@ -607,13 +619,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
-      TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory)};
-      for (size_t i = 0; i < function.arguments_.size(); ++i) {
-        arguments[i] = function.arguments_[i]->Accept(*this);
+      utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
+      auto constructed_count = 0;
+      auto destroy_arguments = utils::OnScopeExit{[&] {
+        for (size_t i = 0; i != constructed_count; ++i) {
+          std::destroy_at(&(*arguments.as())[i]);
+        }
+      }};
+      for (size_t i = 0; i != function.arguments_.size(); ++i) {
+        std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
+        ++constructed_count;
       }
-      res = function.function_(arguments, function.arguments_.size(), function_ctx);
+
+      res = function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());

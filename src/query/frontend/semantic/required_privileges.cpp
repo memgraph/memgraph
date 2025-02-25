@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(PointIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(TextIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(VectorIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
@@ -70,6 +72,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case SystemInfoQuery::InfoType::ACTIVE_USERS:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
+      case SystemInfoQuery::InfoType::LICENSE:
+        // same privilege as for SHOW DATABASE SETTINGS
+        AddPrivilege(AuthQuery::Privilege::CONFIG);
+        break;
     }
   }
 
@@ -82,25 +88,29 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  void Visit(DumpQuery &dump_query) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
+  void Visit(DumpQuery & /*dump_query*/) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
 
-  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(LockPathQuery & /*lock_path_query*/) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
-  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
+  void Visit(FreeMemoryQuery & /*free_memory_query*/) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
   void Visit(ShowConfigQuery & /*show_config_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
-  void Visit(TriggerQuery &trigger_query) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
+  void Visit(TriggerQuery & /*trigger_query*/) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
 
-  void Visit(StreamQuery &stream_query) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
+  void Visit(StreamQuery & /*stream_query*/) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
 
-  void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+  void Visit(ReplicationQuery & /*replication_query*/) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
 
-  void Visit(IsolationLevelQuery &isolation_level_query) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+  void Visit(ReplicationInfoQuery & /*replication_query*/) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+
+  void Visit(IsolationLevelQuery & /*isolation_level_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
   void Visit(StorageModeQuery & /*storage_mode_query*/) override { AddPrivilege(AuthQuery::Privilege::STORAGE_MODE); }
 
-  void Visit(CreateSnapshotQuery &create_snapshot_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(CreateSnapshotQuery & /*create_snapshot_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::DURABILITY);
+  }
 
   void Visit(RecoverSnapshotQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
@@ -122,12 +132,12 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case MultiDatabaseQuery::Action::DROP:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
-      case MultiDatabaseQuery::Action::USE:
-      case MultiDatabaseQuery::Action::SHOW:
-        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE);
-        break;
     }
   }
+
+  void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
+
+  void Visit(ShowDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */

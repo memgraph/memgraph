@@ -22,9 +22,9 @@ def test_indexed_join_with_indices(memgraph):
 
     expected_explain = [
         f" * Produce {{a, b, r}}",
-        f" * Filter (a :Node), {{a.id}}",
-        f" * Expand (b)-[r:EDGE]-(a)",
-        f" * ScanAllByLabelPropertyValue (b :Node {{id}})",
+        f" * Filter (b :Node), {{b.id}}",
+        f" * Expand (a)-[r:EDGE]-(b)",
+        f" * ScanAllByLabelPropertyValue (a :Node {{id}})",
         f" * Once",
     ]
 
@@ -47,9 +47,9 @@ def test_indexed_join_with_indices_and_filter(memgraph):
         f" * Filter Generic {{n1, n2}}",
         f" * IndexedJoin",
         f" |\\ ",
-        f" | * ScanAllByLabelPropertyValue (n1 :Node {{id}})",
+        f" | * ScanAllByLabelPropertyValue (n2 :Node {{id}})",
         f" | * Once",
-        f" * ScanAllByLabel (n2 :Node)",
+        f" * ScanAllByLabel (n1 :Node)",
         f" * Once",
     ]
 
@@ -62,24 +62,26 @@ def test_indexed_join_with_indices_and_filter(memgraph):
 
 
 def test_indexed_join_with_indices_split(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label0;")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label1(prop0);")
     memgraph.execute("CREATE INDEX ON :Label1(prop1);")
 
     expected_explain = [
         " * Produce {a0, n0, n1, n2, n3, n4, n5, r0, r1, r2}",
-        " * Expand (n5)-[r2]->(n4)",
         " * Filter (n5 :Label0:Label1)",
-        " * ScanAll (n5)",
+        " * Expand (n4)<-[r2]-(n5)",
+        " * ScanAll (n4)",
         " * Unwind",
-        " * EdgeUniquenessFilter {r0 : r1}",
+        " * EdgeUniquenessFilter {r1 : r0}",
         " * IndexedJoin",
         " |\\ ",
-        " | * Expand (n0)<-[r0]-(n1)",
-        " | * ScanAllByLabelPropertyRange (n0 :Label1 {prop1})",
+        " | * Filter (n3 :Label0)",
+        " | * Expand (n2)<-[r1]-(n3)",
+        " | * ScanAllByLabelPropertyRange (n2 :Label1 {prop0})",
         " | * Once",
-        " * Filter (n2 :Label1)",
-        " * Expand (n3)-[r1]->(n2)",
-        " * Filter (n3 :Label0)",
-        " * ScanAll (n3)",
+        " * Expand (n0)<-[r0]-(n1)",
+        " * ScanAllByLabel (n0 :Label1)",
         " * Once",
     ]
 
@@ -89,7 +91,6 @@ def test_indexed_join_with_indices_split(memgraph):
         )
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
-
     assert expected_explain == actual_explain
 
 

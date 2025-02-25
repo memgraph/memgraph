@@ -1,18 +1,18 @@
-set(auth_src_files
+add_library(mg-auth STATIC)
+target_sources(mg-auth PRIVATE
     auth.cpp
     crypto.cpp
     models.cpp
     module.cpp
     rpc.cpp
-    replication_handlers.cpp)
+    replication_handlers.cpp
+)
 
 find_package(Seccomp REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
-
-add_library(mg-auth STATIC ${auth_src_files})
-target_link_libraries(mg-auth json libbcrypt gflags fmt::fmt)
+target_link_libraries(mg-auth nlohmann_json::nlohmann_json libbcrypt gflags fmt::fmt)
 target_link_libraries(mg-auth mg-utils mg-kvstore mg-license mg::system mg-replication)
 
 target_link_libraries(mg-auth ${Seccomp_LIBRARIES})

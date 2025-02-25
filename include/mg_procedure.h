@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,18 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
     MGP_ERROR_AUTHORIZATION_ERROR,
     MGP_ERROR_NOT_YET_IMPLEMENTED,
 };
+///@}
+
+/// @name License check
+///
+///@{
+
+/// Functions used for checking validity of the enterprise license
+
+/// Doesn't allocate anything and can't fail therefore doesn't use
+/// enum mgp_error
+int mgp_is_enterprise_valid();
+
 ///@}
 
 /// @name Memory Allocation
@@ -449,6 +461,10 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// memory and any references to them will be invalid.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
+
+/// Ensure the underlying capacity of the mgp_list is at least n.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_list_reserve(struct mgp_list *list, size_t n);
 
 /// Get the number of elements stored in mgp_list.
 /// Current implementation always returns without errors.
@@ -1023,29 +1039,6 @@ enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mg
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
-
-/// Change edge from vertex
-/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
-/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
-/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
-enum mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
-                                       struct mgp_memory *memory, struct mgp_edge **result);
-
-/// Change edge to vertex
-/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
-/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
-/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
-enum mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
-                                     struct mgp_memory *memory, struct mgp_edge **result);
-
-/// Change edge type
-/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by
-/// another transaction.
-enum mgp_error mgp_graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
-                                          struct mgp_memory *memory, struct mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.

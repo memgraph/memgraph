@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,17 +18,14 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "flags/query.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
-#include "query/config.hpp"
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/stripped.hpp"
-#include "query/interpret/frame.hpp"
 #include "query/metadata.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
@@ -37,7 +34,6 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
@@ -45,13 +41,9 @@
 #include "utils/event_trigger.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
-#include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/thread_pool.hpp"
-#include "utils/timer.hpp"
-#include "utils/tsc.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
@@ -145,11 +137,8 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
-                                           std::string_view replication_server,
-                                           std::chrono::seconds const &instance_health_check_frequency,
-                                           std::chrono::seconds const &instance_down_timeout,
-                                           std::chrono::seconds const &instance_get_uuid_frequency,
-                                           std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
+                                           std::string_view replication_server, std::string_view instance_name,
+                                           CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void UnregisterInstance(std::string_view instance_name) = 0;
@@ -158,12 +147,16 @@ class CoordinatorQueryHandler {
   virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
+  virtual coordination::InstanceStatus ShowInstance() const = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
-  virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                                      std::string_view coordinator_server, std::string_view management_server)
-      -> void = 0;
+  virtual void AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server,
+                                      std::string_view coordinator_server, std::string_view management_server) = 0;
+
+  virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
@@ -498,9 +491,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // If the query finished executing, we have received a value which tells
     // us what to do after.
     if (maybe_res) {
-      if (current_transaction_) {
-        memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-      }
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
       if (!query_execution->notifications.empty()) {
@@ -539,16 +529,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     }
   } catch (const ExplicitTransactionUsageException &e) {
     LogQueryMessage(e.what());
-    if (current_transaction_) {
-      memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-    }
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
     LogQueryMessage(e.what());
-    if (current_transaction_) {
-      memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-    }
     // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);

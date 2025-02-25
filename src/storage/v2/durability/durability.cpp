@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #include <pwd.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -29,10 +28,8 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -129,7 +126,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     try {
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
-          "Reading wal file {} with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {}, "
+          "Reading wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
+          "{}, "
           "sequence "
           "number {}.",
           item.path(), info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp, info.seq_num);
@@ -225,6 +223,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
             "Trying to recover edge type indices while properties on edges are disabled.");
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
   for (const auto &item : indices_metadata.edge) {
+    // TODO: parallel execution
     if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
       throw RecoveryFailure("The edge-type index must be created here!");
     }
@@ -239,6 +238,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_property) {
+    // TODO: parallel execution
     if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access())) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
@@ -256,8 +256,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
         if (!storage_dir.has_value()) {
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
-
-        mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
+        // TODO: parallel execution
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -277,14 +277,16 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Point indices are recreated.");
 
-  // Recover vector index
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    auto acc = vertices->access();
-    for (auto &vertex : acc) {
-      indices->vector_index_.TryInsertVertex(&vertex);
+  spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
+  auto vertices_acc = vertices->access();
+  for (const auto &spec : indices_metadata.vector_indices) {
+    if (!indices->vector_index_.CreateIndex(spec, vertices_acc)) {
+      throw RecoveryFailure("The vector index must be created here!");
     }
-    spdlog::info("Vector indices are recreated.");
+    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
+                 name_id_mapper->IdToName(spec.property.AsUint()));
   }
+  spdlog::info("Vector indices are recreated.");
 
   spdlog::info("Indices are recreated.");
 }
@@ -367,22 +369,14 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
+                         GetParallelExecInfo(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config) {
-  return config.durability.allow_parallel_schema_creation
-             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
-                                                                 config.durability.recovery_thread_count})
-             : std::nullopt;
-}
-
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                         const Config &config) {
-  return config.durability.allow_parallel_schema_creation
+  return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
              ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
                                                                  config.durability.recovery_thread_count})
              : std::nullopt;
@@ -444,17 +438,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
               "and restart the database.");
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
-    snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
+    snapshot_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = snapshot_timestamp;
-
-    if (!utils::DirExists(wal_directory_)) {
-      // Apply data dependant meta structures now after all graph data has been loaded
-      RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
-                                        indices_constraints, config.salient.items.properties_on_edges);
-      return recovered_snapshot->recovery_info;
-    }
   } else {
+    // UUID couldn't be recovered from the snapshot; recoverying it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
     std::error_code error_code;
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
@@ -503,28 +491,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  if (!maybe_wal_files) {
-    spdlog::warn(
-        utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
-    return std::nullopt;
-  }
+  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+      maybe_wal_files && !maybe_wal_files->empty()) {
+    // Array of all discovered WAL files, ordered by sequence number.
+    const auto &wal_files = *maybe_wal_files;
 
-  // Array of all discovered WAL files, ordered by sequence number.
-  auto &wal_files = *maybe_wal_files;
-
-  // By this point we should have recovered from a snapshot, or we should have
-  // found some WAL files to recover from in the above `else`. This is just a
-  // sanity check to circumvent the following case: The database didn't recover
-  // from a snapshot, the above `else` triggered to find the recovery UUID from
-  // a WAL file. The above `else` has an early exit in case there are no WAL
-  // files. Because we reached this point there must have been some WAL files
-  // and we must have some WAL files after this second WAL directory iteration.
-  MG_ASSERT(snapshot_timestamp || !wal_files.empty(),
-            "The database didn't recover from a snapshot and didn't find any WAL "
-            "files that match the last WAL file!");
-
-  if (!wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     std::ranges::for_each(wal_files, [](auto &&wal_file) {
       spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num);
@@ -542,7 +513,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           LOG_FATAL(
               "There are missing prefix WAL files and data can't be "
               "recovered without them!");
-        } else if (first_wal.from_timestamp >= *snapshot_timestamp) {
+        } else if (first_wal.from_timestamp > *snapshot_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // that has at least one delta that was created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
@@ -560,7 +531,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
     }
 
-    for (auto &wal_file : wal_files) {
+    for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
@@ -598,6 +569,25 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     *wal_seq_num = *previous_seq_num + 1;
 
     spdlog::info("All necessary WAL files are loaded successfully.");
+
+    // Regenerate the vertex batches
+    // TODO edges?
+    size_t pos = 0;
+    size_t batched = 0;
+    recovery_info.vertex_batches.clear();
+    auto v_acc = vertices->access();
+    const auto size = v_acc.size();
+    for (auto v_itr = v_acc.begin(); v_itr != v_acc.end(); ++v_itr, ++pos) {
+      if (pos == batched) {
+        const auto left = size - pos;
+        if (left <= config.durability.items_per_batch) {
+          recovery_info.vertex_batches.emplace_back(v_itr->gid, left);
+          break;
+        }
+        recovery_info.vertex_batches.emplace_back(v_itr->gid, config.durability.items_per_batch);
+        batched += config.durability.items_per_batch;
+      }
+    }
   }
 
   // Apply meta structures now after all graph data has been loaded

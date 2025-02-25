@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,16 +31,17 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
 
-    Edge *edge;
+    Edge *edge;  // TODO: Generalise to EdgeRef?
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) const {
-      return std::tie(edge->gid, from_vertex->gid, to_vertex->gid, timestamp) <
-             std::tie(rhs.edge->gid, rhs.from_vertex->gid, rhs.to_vertex->gid, rhs.timestamp);
+    friend bool operator<(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) <
+             std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
-    bool operator==(const Entry &rhs) const {
-      return std::tie(edge, from_vertex, to_vertex, timestamp) ==
+
+    friend bool operator==(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) ==
              std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
   };
@@ -81,7 +82,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, View view, Storage *storage,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+             utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, View view, Storage *storage,
              Transaction *transaction);
 
     class Iterator {
@@ -108,6 +110,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
+    utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     View view_;

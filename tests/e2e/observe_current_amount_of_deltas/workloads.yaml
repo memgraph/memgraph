@@ -1,7 +1,7 @@
 observe_current_amount_of_deltas_cluster: &observe_current_amount_of_deltas_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-gc-cycle-sec", "10000"]
       log_file: "observe_current_amount_of_deltas.log"
       setup_queries: []
       validation_queries: []

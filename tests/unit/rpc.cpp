@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,17 +11,16 @@
 
 #include <thread>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "rpc_messages.hpp"
 
 #include "rpc/client.hpp"
 #include "rpc/client_pool.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "utils/on_scope_exit.hpp"
 #include "utils/timer.hpp"
-
-#include "rpc_messages.hpp"
 
 using namespace memgraph::rpc;
 using namespace std::literals::chrono_literals;
@@ -37,7 +36,7 @@ void Load(SumReq *sum, Reader *reader) {
   Load(&sum->y, reader);
 }
 
-void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
+void Save(const SumRes &self, Builder *builder) { Save(self.sum, builder); }
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
@@ -66,7 +65,7 @@ TEST(Rpc, Call) {
     SumReq req;
     memgraph::slk::Load(&req, req_reader);
     SumRes res(req.x + req.y);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -85,7 +84,7 @@ TEST(Rpc, Abort) {
     memgraph::slk::Load(&req, req_reader);
     std::this_thread::sleep_for(500ms);
     SumRes res(req.x + req.y);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -117,7 +116,7 @@ TEST(Rpc, ClientPool) {
     Load(&req, req_reader);
     std::this_thread::sleep_for(100ms);
     SumRes res(req.x + req.y);
-    Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -173,7 +172,7 @@ TEST(Rpc, LargeMessage) {
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -195,7 +194,7 @@ TEST(Rpc, JumboMessage) {
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -221,7 +220,7 @@ TEST(Rpc, Stream) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -246,7 +245,7 @@ TEST(Rpc, StreamLarge) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -274,7 +273,7 @@ TEST(Rpc, StreamJumbo) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    memgraph::slk::Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,10 @@
 
 #include "io/network/endpoint.hpp"
 
-#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <ostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -33,7 +31,7 @@
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 namespace {
 constexpr std::string_view delimiter = ":";

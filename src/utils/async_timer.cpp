@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,6 @@
 #include <limits>
 
 #include "utils/skip_list.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace {
@@ -47,12 +46,14 @@ bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return 
 memgraph::utils::SkipList<ExpirationFlagInfo> expiration_flags{};
 
 uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
-  const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_relaxed);
+  const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_acq_rel);
   expiration_flags.access().insert({id, std::move(flag)});
   return id;
 }
 
 void EraseFlag(uint64_t flag_id) { expiration_flags.access().remove(flag_id); }
+
+void ExpirationFlagsGC() { expiration_flags.run_gc(); }
 
 std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   const auto flag_accessor = expiration_flags.access();
@@ -70,7 +71,7 @@ void MarkDone(const uint64_t flag_id) {
   }
   auto flag = weak_flag.lock();
   if (flag != nullptr) {
-    flag->store(true, std::memory_order_relaxed);
+    flag->store(true, std::memory_order_release);
   }
 }
 }  // namespace
@@ -179,19 +180,18 @@ AsyncTimer &AsyncTimer::operator=(AsyncTimer &&other) {
 };
 
 bool AsyncTimer::IsExpired() const noexcept {
-  if (expiration_flag_ != nullptr) {
-    return expiration_flag_->load(std::memory_order_relaxed);
-  }
-  return false;
+  return expiration_flag_ && expiration_flag_->load(std::memory_order_acquire);
 }
 
 void AsyncTimer::ReleaseResources() {
   if (expiration_flag_ != nullptr) {
     timer_delete(timer_id_);
-    EraseFlag(flag_id_);
+    EraseFlag(flag_id_);  // not deleted, still held in skip_list gc
     flag_id_ = kInvalidFlagId;
-    expiration_flag_ = std::shared_ptr<std::atomic<bool>>{};
+    expiration_flag_.reset();
   }
 }
+
+void AsyncTimer::GCRun() { ExpirationFlagsGC(); }
 
 }  // namespace memgraph::utils

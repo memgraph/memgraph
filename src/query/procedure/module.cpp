@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@ extern "C" {
 #include <fmt/format.h>
 #include <unistd.h>
 
+#include "license/license.hpp"
 #include "py/py.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
@@ -33,7 +34,6 @@ extern "C" {
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/message.hpp"
-#include "utils/string.hpp"
 
 #include <mutex>
 #include <shared_mutex>
@@ -46,7 +46,7 @@ namespace memgraph::query::procedure {
 
 constexpr const char *func_code =
     "import ast\n\n"
-    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph']\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy']\n"
     "modules = set()\n\n"
     "def visit_Import(node):\n"
     "  for name in node.names:\n"
@@ -1098,7 +1098,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
             auto sys_mod_key_name_str = std::string(sys_mod_key_name);
-            if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
+            if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
               PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
             }
             Py_DECREF(sys_mod_key);
@@ -1134,12 +1134,30 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
 }
 namespace {
 
+#ifdef MG_ENTERPRISE
+constexpr std::array<const char *, 5> kEnterpriseModuleList = {
+    "betweenness_centrality_online",
+    "community_detection_online",
+    "katz_centrality_online",
+    "node2vec_online",
+    "pagerank_online",
+};
+#endif
+
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
   if (ext != ".so" && ext != ".py") {
     spdlog::warn(utils::MessageWithLink("Unknown query module file {}.", path, "https://memgr.ph/modules"));
     return nullptr;
   }
+#ifdef MG_ENTERPRISE
+  const auto name = path.stem().string();
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() &&
+      std::find(kEnterpriseModuleList.begin(), kEnterpriseModuleList.end(), name) != kEnterpriseModuleList.end()) {
+    spdlog::warn(fmt::format("Failed to load query module {} because it requires a valid enterprise license.", path));
+    return nullptr;
+  }
+#endif
   std::unique_ptr<Module> module;
   if (path.extension() == ".so") {
     auto lib_module = std::make_unique<SharedLibraryModule>();
@@ -1210,7 +1228,7 @@ void ModuleRegistry::DoUnloadAllModules() {
   modules_.erase(mg_it);
   auto on_exit = utils::OnScopeExit{[&] { modules_.emplace("mg", std::move(mg_preserved)); }};
 
-  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used");
+  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used.");
 }
 
 ModuleRegistry::ModuleRegistry() {
@@ -1260,7 +1278,11 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   auto guard = std::unique_lock{lock_};
 
   if (!TryEraseModule(name))
-    throw query::QueryException("Unable to unload module '{}', it is currently being used", name);
+    throw query::QueryException(
+        "Unable to unload module '{}', either it doesn't exist, or it is currently being used. In order to check "
+        "whether the module exists, please use CALL mg.procedures() YIELD * for custom query procedures, or CALL "
+        "mg.functions() YIELD * for custom query functions.",
+        name);
 
   for (const auto &module_dir : modules_dirs_) {
     if (LoadModuleIfFound(module_dir, name)) {

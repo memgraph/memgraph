@@ -6,10 +6,8 @@
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 
-
 (dbclient/defquery show-replication-role
   "SHOW REPLICATION ROLE;")
-
 
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")
@@ -37,15 +35,13 @@
   RETURN n.id as id;
   ")
 
-(dbclient/defquery max-id
+(dbclient/defquery add-nodes
   "MATCH (n:Node)
-  RETURN max(n.id) as id;
+  WITH coalesce(max(n.id), 0) as max_idx
+  FOREACH (i in range(max_idx + 1, max_idx + $batchSize)
+    | CREATE (:Node {id: i}))
+  RETURN max_idx + $batchSize as id;
   ")
-
-(defn add-nodes
-  [start-idx end-idx]
-  (dbclient/create-query
-   (str "FOREACH (i in range(" start-idx ", " end-idx ") | CREATE (:Node {id: i}));")))
 
 (defn register-replication-instance
   [name node-config]

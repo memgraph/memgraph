@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -11,7 +11,7 @@
 #include <sstream>
 
 #include <fmt/format.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 #include <utility>
 
 #include "communication/bolt/v1/mg_types.hpp"

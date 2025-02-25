@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
@@ -56,6 +55,9 @@ constexpr utils::TypeInfo query::DivisionOperator::kType{utils::TypeId::AST_DIVI
 
 constexpr utils::TypeInfo query::ModOperator::kType{utils::TypeId::AST_MOD_OPERATOR, "ModOperator",
                                                     &query::BinaryOperator::kType};
+
+constexpr utils::TypeInfo query::ExponentiationOperator::kType{utils::TypeId::AST_EXPONENTIATION_OPERATOR,
+                                                               "ExponentiationOperator", &query::BinaryOperator::kType};
 
 constexpr utils::TypeInfo query::NotEqualOperator::kType{utils::TypeId::AST_NOT_EQUAL_OPERATOR, "NotEqualOperator",
                                                          &query::BinaryOperator::kType};
@@ -203,6 +205,9 @@ constexpr utils::TypeInfo query::PointIndexQuery::kType{utils::TypeId::AST_POINT
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
+                                                         &query::Query::kType};
+
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
 constexpr utils::TypeInfo query::CallProcedure::kType{utils::TypeId::AST_CALL_PROCEDURE, "CallProcedure",
@@ -255,6 +260,9 @@ constexpr utils::TypeInfo query::DumpQuery::kType{utils::TypeId::AST_DUMP_QUERY,
 
 constexpr utils::TypeInfo query::ReplicationQuery::kType{utils::TypeId::AST_REPLICATION_QUERY, "ReplicationQuery",
                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::ReplicationInfoQuery::kType{utils::TypeId::AST_REPLICATION_INFO_QUERY,
+                                                             "ReplicationInfoQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COORDINATOR_QUERY, "CoordinatorQuery",
                                                          &query::Query::kType};
@@ -315,6 +323,12 @@ constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUB
 
 constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MULTI_DATABASE_QUERY,
                                                            "MultiDatabaseQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::UseDatabaseQuery::kType{utils::TypeId::AST_USE_DATABASE, "UseDatabaseQuery",
+                                                         &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowDatabaseQuery::kType{utils::TypeId::AST_SHOW_DATABASE, "ShowDatabaseQuery",
+                                                          &query::Query::kType};
 
 constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
                                                            &query::Query::kType};

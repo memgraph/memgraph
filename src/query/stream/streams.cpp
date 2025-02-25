@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include <utility>
 
 #include <spdlog/spdlog.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -116,7 +116,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
   }
 }
 
-template <Stream TStream>
+template <typename TStream>
 StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transformation_name,
                                    std::optional<std::string> owner, const TStream &stream) {
   return {.name = std::move(stream_name),
@@ -134,7 +134,7 @@ const std::string kOwnerRole{"owner_role"};
 const std::string kType{"type"};
 }  // namespace
 
-template <Stream TStream>
+template <typename TStream>
 void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
   data[kStreamName] = std::move(status.name);
   data[kType] = status.type;
@@ -154,7 +154,7 @@ void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
   to_json(data, std::move(status.info));
 }
 
-template <Stream TStream>
+template <typename TStream>
 void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   data.at(kStreamName).get_to(status.name);
   data.at(kIsRunningKey).get_to(status.is_running);
@@ -162,9 +162,10 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     status.owner = owner.get<typename decltype(status.owner)::value_type>();
     if (const auto &owner_role = data.at(kOwnerRole); !owner_role.is_null()) {
-      owner_role.get_to(status.owner_role);
+      status.owner_role.emplace();
+      owner_role.get_to(*status.owner_role);
     } else {
-      status.owner_role = {};
+      status.owner_role.reset();
     }
   } else {
     status.owner = {};
@@ -457,7 +458,7 @@ void Streams::RegisterPulsarProcedures() {
   }
 }
 
-template <Stream TStream, typename TDbAccess>
+template <typename TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
                      std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
@@ -486,7 +487,7 @@ template void Streams::Create<PulsarStream, dbms::DatabaseAccess>(const std::str
                                                                   std::shared_ptr<QueryUserOrRole> owner,
                                                                   dbms::DatabaseAccess db, InterpreterContext *ic);
 
-template <Stream TStream, typename TDbAccess>
+template <typename TStream, typename TDbAccess>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
                                                       std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc,

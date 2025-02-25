@@ -99,6 +99,7 @@ memgraphCypherKeyword : cypherKeyword
                       | KAFKA
                       | LABELS
                       | LEVEL
+                      | LICENSE
                       | LIST
                       | LOAD
                       | LOCALDATETIME
@@ -185,6 +186,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USING
                       | VALUE
                       | VALUES
+                      | VECTOR
                       | VERSION
                       | WEBSOCKET
                       | ZONEDDATETIME
@@ -200,6 +202,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | vectorIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -209,6 +212,7 @@ query : cypherQuery
       | dumpQuery
       | analyzeGraphQuery
       | replicationQuery
+      | replicationInfoQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
@@ -223,6 +227,8 @@ query : cypherQuery
       | showConfigQuery
       | transactionQueueQuery
       | multiDatabaseQuery
+      | useDatabase
+      | showDatabase
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
@@ -265,17 +271,21 @@ authQuery : createRole
           ;
 
 replicationQuery : setReplicationRole
-                 | showReplicationRole
                  | registerReplica
                  | dropReplica
-                 | showReplicas
                  ;
+
+replicationInfoQuery : showReplicationRole
+                     | showReplicas
+                     ;
 
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
                  | setInstanceToMain
+                 | showInstance
                  | showInstances
                  | addCoordinatorInstance
+                 | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
                  ;
@@ -482,6 +492,7 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
+showInstance : SHOW INSTANCE ;
 showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;
@@ -508,6 +519,8 @@ setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
+
+removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
 dropReplica : DROP REPLICA instanceName ;
 
@@ -616,16 +629,14 @@ transactionIdList : transactionId ( ',' transactionId )* ;
 transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
-                   | useDatabase
                    | dropDatabase
-                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
-useDatabase : USE DATABASE databaseName ;
-
 dropDatabase : DROP DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
 
 showDatabase : SHOW DATABASE ;
 
@@ -652,6 +663,12 @@ createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 pointIndexQuery : createPointIndex | dropPointIndex ;
+
+createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
+dropVectorIndex : DROP VECTOR INDEX indexName ;
+
+vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 
 dropGraphQuery : DROP GRAPH ;
 

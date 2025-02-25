@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -125,25 +125,25 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
   switch (value.type()) {
     // No database needed
     case query::TypedValue::Type::Null:
-      return Value();
+      return storage::Result<Value>{std::in_place};
     case query::TypedValue::Type::Bool:
-      return Value(value.ValueBool());
+      return storage::Result<Value>{std::in_place, value.ValueBool()};
     case query::TypedValue::Type::Int:
-      return Value(value.ValueInt());
+      return storage::Result<Value>{std::in_place, value.ValueInt()};
     case query::TypedValue::Type::Double:
-      return Value(value.ValueDouble());
+      return storage::Result<Value>{std::in_place, value.ValueDouble()};
     case query::TypedValue::Type::String:
-      return Value(std::string(value.ValueString()));
+      return storage::Result<Value>{std::in_place, std::string_view(value.ValueString())};
     case query::TypedValue::Type::Date:
-      return Value(value.ValueDate());
+      return storage::Result<Value>{std::in_place, value.ValueDate()};
     case query::TypedValue::Type::LocalTime:
-      return Value(value.ValueLocalTime());
+      return storage::Result<Value>{std::in_place, value.ValueLocalTime()};
     case query::TypedValue::Type::LocalDateTime:
-      return Value(value.ValueLocalDateTime());
+      return storage::Result<Value>{std::in_place, value.ValueLocalDateTime()};
     case query::TypedValue::Type::Duration:
-      return Value(value.ValueDuration());
+      return storage::Result<Value>{std::in_place, value.ValueDuration()};
     case query::TypedValue::Type::ZonedDateTime:
-      return Value(value.ValueZonedDateTime());
+      return storage::Result<Value>{std::in_place, value.ValueZonedDateTime()};
 
     // Database potentially not required
     case query::TypedValue::Type::Map: {
@@ -153,7 +153,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
         if (maybe_value.HasError()) return maybe_value.GetError();
         map.emplace(kv.first, std::move(*maybe_value));
       }
-      return Value(std::move(map));
+      return storage::Result<Value>{std::in_place, std::move(map)};
     }
 
     // Database is required
@@ -166,31 +166,31 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
         if (maybe_value.HasError()) return maybe_value.GetError();
         values.emplace_back(std::move(*maybe_value));
       }
-      return Value(std::move(values));
+      return storage::Result<Value>{std::in_place, std::move(values)};
     }
     case query::TypedValue::Type::Vertex: {
       check_db();
       auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view);
       if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-      return Value(std::move(*maybe_vertex));
+      return storage::Result<Value>{std::in_place, std::move(*maybe_vertex)};
     }
     case query::TypedValue::Type::Edge: {
       check_db();
       auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view);
       if (maybe_edge.HasError()) return maybe_edge.GetError();
-      return Value(std::move(*maybe_edge));
+      return storage::Result<Value>{std::in_place, std::move(*maybe_edge)};
     }
     case query::TypedValue::Type::Path: {
       check_db();
       auto maybe_path = ToBoltPath(value.ValuePath(), *db, view);
       if (maybe_path.HasError()) return maybe_path.GetError();
-      return Value(std::move(*maybe_path));
+      return storage::Result<Value>{std::in_place, std::move(*maybe_path)};
     }
     case query::TypedValue::Type::Graph: {
       check_db();
       auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view);
       if (maybe_graph.HasError()) return maybe_graph.GetError();
-      return Value(std::move(*maybe_graph));
+      return storage::Result<Value>{std::in_place, std::move(*maybe_graph)};
     }
     case query::TypedValue::Type::Enum: {
       check_db();
@@ -201,13 +201,13 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       auto map = bolt_map_t{};
       map.emplace(kMgTypeType, memgraph::communication::bolt::kMgTypeEnum);
       map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
-      return Value(std::move(map));
+      return storage::Result<Value>{std::in_place, std::move(map)};
     }
     case query::TypedValue::Type::Point2d: {
-      return Value(value.ValuePoint2d());
+      return storage::Result<Value>{std::in_place, value.ValuePoint2d()};
     }
     case query::TypedValue::Type::Point3d: {
-      return Value(value.ValuePoint3d());
+      return storage::Result<Value>{std::in_place, value.ValuePoint3d()};
     }
 
     // Unsupported conversions

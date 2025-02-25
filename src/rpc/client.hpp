@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,15 +11,15 @@
 
 #pragma once
 
-#include <memory>
 #include <mutex>
 #include <optional>
+#include <storage/v2/replication/rpc.hpp>
 #include <utility>
 
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "rpc/exceptions.hpp"
-#include "rpc/messages.hpp"
+#include "rpc/messages.hpp"  // necessary include
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -27,14 +27,40 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
-#include "io/network/fmt.hpp"
+#include "io/network/fmt.hpp"  // necessary include
 
 namespace memgraph::rpc {
+
+using namespace std::string_view_literals;
 
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  Client(io::network::Endpoint endpoint, communication::ClientContext *context);
+  inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
+      {"ShowInstancesReq"sv, 10000},          // coordinator sending to coordinator
+      {"DemoteMainToReplicaReq"sv, 10000},    // coordinator sending to main
+      {"PromoteToMainReq"sv, 10000},          // coordinator sending to replica
+      {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
+      {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
+      {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
+      {"GetInstanceUUIDReq"sv, 10000},        // coordinator to data instances
+      {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
+      {"StateCheckReq"sv, 10000},             // coordinator to data instances
+      {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
+      {"FrequentHeartbeatReq"sv, 10000},      // coord to data instances
+      {"HeartbeatReq"sv, 10000},              // main to replica
+      {"TimestampReq"sv, 10000},              // main to replica
+      {"SystemHeartbeatReq"sv, 10000},        // main to replica
+      {"ForceResetStorageReq"sv,
+       60000},                         // main to replica. Longer timeout because we need to wait for all storage locks.
+      {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
+      {"AppendDeltasReq"sv, 30000},    // Waiting 30'' on a progress/final response
+      {"CurrentWalReq"sv, 30000},      // Waiting 30'' on a progress/final response
+      {"WalFilesReq"sv, 30000}         // Waiting 30'' on a progress/final response
+  };
+  // Dependency injection of rpc_timeouts
+  Client(io::network::Endpoint endpoint, communication::ClientContext *context,
+         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -43,22 +69,29 @@ class Client {
     friend class Client;
 
     StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
-                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load)
-        : self_(self), guard_(std::move(guard)), req_builder_(GenBuilderCallback(self, this)), res_load_(res_load) {}
+                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
+                  std::optional<int> timeout_ms)
+        : self_(self),
+          timeout_ms_(timeout_ms),
+          guard_(std::move(guard)),
+          req_builder_(GenBuilderCallback(self, this, timeout_ms_)),
+          res_load_(res_load) {}
 
    public:
     StreamHandler(StreamHandler &&other) noexcept
         : self_{std::exchange(other.self_, nullptr)},
+          timeout_ms_{std::move(other.timeout_ms_)},
           defunct_{std::exchange(other.defunct_, true)},
           guard_{std::move(other.guard_)},
-          req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this)},
+          req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_)},
           res_load_{std::move(other.res_load_)} {}
     StreamHandler &operator=(StreamHandler &&other) noexcept {
       if (&other != this) {
         self_ = std::exchange(other.self_, nullptr);
+        timeout_ms_ = std::move(other.timeout_ms_);
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
-        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this)));
+        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this, timeout_ms_)));
         res_load_ = std::move(other.res_load_);
       }
       return *this;
@@ -71,14 +104,103 @@ class Client {
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
+    typename TRequestResponse::Response AwaitResponseWhileInProgress() {
+      auto final_res_type = TRequestResponse::Response::kType;
+      auto req_type = TRequestResponse::Request::kType;
+
+      auto req_type_name = std::string_view{req_type.name};
+      auto final_res_type_name = std::string_view{final_res_type.name};
+
+      // Finalize the request.
+      req_builder_.Finalize();
+      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
+
+      while (true) {
+        // Receive the response.
+        uint64_t response_data_size = 0;
+        while (true) {
+          // Even if in progress RPC message was sent, the stream will be complete
+          auto const ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+          if (ret.status == slk::StreamStatus::INVALID) {
+            // Logically invalid state, connection is still up, defunct stream and release
+            defunct_ = true;
+            guard_.unlock();
+            throw GenericRpcFailedException();
+          }
+          if (ret.status == slk::StreamStatus::PARTIAL) {
+            if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                      /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
+              // Failed connection, abort and let somebody retry in the future.
+              defunct_ = true;
+              self_->Abort();
+              guard_.unlock();
+              throw GenericRpcFailedException();
+            }
+          } else {
+            response_data_size = ret.stream_size;
+            break;
+          }
+        }
+
+        // Load the response.
+        slk::Reader res_reader(self_->client_->GetData(), response_data_size);
+
+        auto res_id{utils::TypeId::UNKNOWN};
+        // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+        rpc::Version version;
+
+        try {
+          slk::Load(&res_id, &res_reader);
+          slk::Load(&version, &res_reader);
+        } catch (const slk::SlkReaderException &) {
+          self_->client_->ShiftData(response_data_size);
+          throw SlkRpcFailedException();
+        }
+
+        if (version != rpc::current_version) {
+          // V1 we introduced versioning with, absolutely no backwards compatibility,
+          // because it's impossible to provide backwards compatibility with pre versioning.
+          // Future versions this may require mechanism for graceful version handling.
+          self_->client_->ShiftData(response_data_size);
+          throw VersionMismatchRpcFailedException();
+        }
+
+        if (res_id == utils::TypeId::REP_IN_PROGRESS_RES) {
+          // Continue holding the lock
+          spdlog::info("[RpcClient] Received InProgressRes RPC message from {}:{}. Waiting for {}.",
+                       self_->endpoint_.GetAddress(), self_->endpoint_.GetPort(), final_res_type_name);
+          self_->client_->ShiftData(response_data_size);
+          continue;
+        }
+
+        if (res_id != final_res_type.id) {
+          spdlog::error("[RpcClient] Message response was of unexpected type, received TypeId {}",
+                        static_cast<uint64_t>(res_id));
+          // Logically invalid state, connection is still up, defunct stream and release
+          defunct_ = true;
+          guard_.unlock();
+          self_->client_->ShiftData(response_data_size);
+          throw GenericRpcFailedException();
+        }
+
+        spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", final_res_type_name,
+                      self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
+        self_->client_->ShiftData(response_data_size);
+        return res_load_(&res_reader);
+      }
+    }
+
     typename TRequestResponse::Response AwaitResponse() {
       auto res_type = TRequestResponse::Response::kType;
       auto req_type = TRequestResponse::Request::kType;
 
+      auto req_type_name = std::string_view{req_type.name};
+      auto res_type_name = std::string_view{res_type.name};
+
       // Finalize the request.
       req_builder_.Finalize();
 
-      spdlog::trace("[RpcClient] sent {} to {}", req_type.name, self_->client_->endpoint().SocketAddress());
+      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
       uint64_t response_data_size = 0;
@@ -92,8 +214,8 @@ class Client {
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                    /* exactly_len = */ false)) {
-            // Failed connection, abort and let somebody retry in the future
+                                    /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
+            // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
             self_->Abort();
             guard_.unlock();
@@ -136,7 +258,7 @@ class Client {
         throw GenericRpcFailedException();
       }
 
-      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type.name, self_->endpoint_.GetAddress(),
+      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type_name, self_->endpoint_.GetAddress(),
                     self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
@@ -145,10 +267,10 @@ class Client {
     bool IsDefunct() const { return defunct_; }
 
    private:
-    static auto GenBuilderCallback(Client *client, StreamHandler *self) {
-      return [client, self](const uint8_t *data, size_t size, bool have_more) {
+    static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms) {
+      return [client, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
-        if (!client->client_->Write(data, size, have_more)) {
+        if (!client->client_->Write(data, size, have_more, timeout_ms)) {
           self->defunct_ = true;
           client->Abort();
           self->guard_.unlock();
@@ -158,6 +280,7 @@ class Client {
     }
 
     Client *self_;
+    std::optional<int> timeout_ms_;
     bool defunct_ = false;
     std::unique_lock<std::mutex> guard_;
     slk::Builder req_builder_;
@@ -167,7 +290,7 @@ class Client {
   /// Stream a previously defined and registered RPC call. This function can
   /// initiate only one request at a time. The call returns a `StreamHandler`
   /// object that can be used to send additional data to the request (with the
-  /// automatically sent `TRequestResponse::Request` object) and await until the
+  /// automatically sent `TRequestResponse::Request` object) and wait until the
   /// response is received from the server.
   ///
   /// @returns StreamHandler<TRequestResponse> object that is used to handle
@@ -190,8 +313,8 @@ class Client {
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
-  StreamHandler<TRequestResponse> StreamWithLoad(std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-                                                 Args &&...args) {
+  StreamHandler<TRequestResponse> StreamWithLoad(
+      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
 
@@ -213,8 +336,17 @@ class Client {
       }
     }
 
+    std::optional<int> timeout_ms{std::nullopt};
+
+    auto req_type_name = std::string_view{req_type.name};
+    auto const maybe_timeout = std::ranges::find_if(
+        rpc_timeouts_ms_, [req_type_name](auto const &entry) { return entry.first == req_type_name; });
+    if (maybe_timeout != rpc_timeouts_ms_.end()) {
+      timeout_ms.emplace(maybe_timeout->second);
+    }
+
     // Create the stream handler.
-    StreamHandler<TRequestResponse> handler(this, std::move(guard), load);
+    StreamHandler<TRequestResponse> handler(this, std::move(guard), res_load, timeout_ms);
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
@@ -257,8 +389,9 @@ class Client {
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;
+  std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
 };
 
 }  // namespace memgraph::rpc

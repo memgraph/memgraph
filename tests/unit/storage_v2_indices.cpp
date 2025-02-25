@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <gtest/internal/gtest-type-util.h>
 
 #include "disk_test_utils.hpp"
+#include "flags/general.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -36,6 +37,8 @@ template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
   void SetUp() override {
+    FLAGS_storage_properties_on_edges = true;
+    config_.salient.items.properties_on_edges = true;
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     this->storage = std::make_unique<StorageType>(config_);
     auto acc = this->storage->Access();
@@ -1368,6 +1371,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
@@ -1378,12 +1382,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
       ASSERT_NO_ERROR(acc->Commit());
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
+      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 5);
     }
 
     {
@@ -1414,7 +1420,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
 
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 10);
       acc->Abort();
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
     }
 
     {
@@ -1438,6 +1446,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
       ASSERT_NO_ERROR(acc->Commit());
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 10);
     }
 
     {
@@ -1480,7 +1489,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
             }
           }
         }
-        acc->Commit();
+        ASSERT_NO_ERROR(acc->Commit());
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
@@ -1501,7 +1510,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
             }
           }
         }
-        acc->Commit();
+        ASSERT_NO_ERROR(acc->Commit());
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
@@ -1543,28 +1552,20 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
     }
 
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
+      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
     {
       auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
-      EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
-    }
-
-    {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-    }
-    {
-      auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
-      EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
+      EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
@@ -1788,6 +1789,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
@@ -1797,15 +1799,17 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
       auto edge_acc =
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
     ASSERT_NO_ERROR(acc->Commit());
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
+    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
   }
 
   {
@@ -1823,7 +1827,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
       auto edge_acc =
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
 
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
@@ -1838,7 +1842,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
 
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 10);
     acc->Abort();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
   }
 
   {
@@ -1848,7 +1854,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
       auto edge_acc =
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
 
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
@@ -1864,6 +1870,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
     ASSERT_NO_ERROR(acc->Commit());
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 10);
   }
 
   {
@@ -1906,7 +1913,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           }
         }
       }
-      acc->Commit();
+      ASSERT_NO_ERROR(acc->Commit());
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -1927,7 +1934,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           }
         }
       }
-      acc->Commit();
+      ASSERT_NO_ERROR(acc->Commit());
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -1955,7 +1962,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
       auto edge_acc =
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -2003,7 +2010,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
       auto edge_acc =
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -2072,10 +2079,10 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
     if (i % 2) {
       auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     } else {
       auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id2, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id2, memgraph::storage::PropertyValue(i)));
     }
   }
 
@@ -2149,7 +2156,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
     auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
-    edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
   }
 
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2197,10 +2204,10 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
     if (i % 3) {
       auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     } else {
       auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id2, acc.get());
-      edge_acc.SetProperty(this->edge_prop_id2, memgraph::storage::PropertyValue(i));
+      ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id2, memgraph::storage::PropertyValue(i)));
     }
   }
 
@@ -2225,7 +2232,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
 
   for (int i = 0; i < 5; ++i) {
     auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
-    edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
   }
 
   EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
@@ -2236,7 +2243,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
   auto edges = acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW);
   for (auto edge : edges) {
     auto prop_val = edge.GetProperty(this->prop_id, View::NEW)->ValueInt();
-    edge.SetProperty(this->prop_id, memgraph::storage::PropertyValue(prop_val + 1));
+    ASSERT_NO_ERROR(edge.SetProperty(this->prop_id, memgraph::storage::PropertyValue(prop_val + 1)));
   }
 
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),

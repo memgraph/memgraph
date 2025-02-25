@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,6 +58,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         return storage_->Create<DivisionOperator>(e1, e2);
       case MemgraphCypher::PERCENT:
         return storage_->Create<ModOperator>(e1, e2);
+      case MemgraphCypher::CARET:
+        return storage_->Create<ExponentiationOperator>(e1, e2);
       case MemgraphCypher::EQ:
         return storage_->Create<EqualOperator>(e1, e2);
       case MemgraphCypher::NEQ1:
@@ -174,6 +176,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) override;
 
   /**
+   * @return VectorIndexQuery*
+   */
+  antlrcpp::Any visitVectorIndexQuery(MemgraphCypher::VectorIndexQueryContext *ctx) override;
+
+  /**
    * @return ExplainQuery*
    */
   antlrcpp::Any visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) override;
@@ -246,11 +253,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) override;
-
-  /**
-   * @return ReplicationQuery*
-   */
   antlrcpp::Any visitRegisterReplica(MemgraphCypher::RegisterReplicaContext *ctx) override;
 
   /**
@@ -259,7 +261,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) override;
 
   /**
-   * @return ReplicationQuery*
+   * @return ReplicationInfoQuery*
+   */
+  antlrcpp::Any visitReplicationInfoQuery(MemgraphCypher::ReplicationInfoQueryContext *ctx) override;
+
+  /**
+   * @return ReplicationInfoQuery*
+   */
+  antlrcpp::Any visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) override;
+
+  /**
+   * @return ReplicationInfoQuery*
    */
   antlrcpp::Any visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) override;
 
@@ -297,6 +309,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CoordinatorQuery*
    */
+  antlrcpp::Any visitRemoveCoordinatorInstance(MemgraphCypher::RemoveCoordinatorInstanceContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
   antlrcpp::Any visitForceResetClusterStateOnCoordinator(
       MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) override;
 
@@ -304,6 +321,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return CoordinatorQuery*
    */
   antlrcpp::Any visitDemoteInstanceOnCoordinator(MemgraphCypher::DemoteInstanceOnCoordinatorContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowInstance(MemgraphCypher::ShowInstanceContext *ctx) override;
 
   /**
    * @return CoordinatorQuery*
@@ -584,6 +606,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return DropTextIndexQuery*
    */
   antlrcpp::Any visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) override;
+
+  /**
+   * @return CreateVectorIndexQuery*
+   */
+  antlrcpp::Any visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) override;
+
+  /**
+   * @return DropVectorIndexQuery*
+   */
+  antlrcpp::Any visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -915,7 +947,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExpression6(MemgraphCypher::Expression6Context *ctx) override;
 
   /**
-   * Power.
+   * Exponentiation.
    *
    * @return Expression*
    */
@@ -1127,15 +1159,15 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return MultiDatabaseQuery*
    */
-  antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
-
-  /**
-   * @return MultiDatabaseQuery*
-   */
   antlrcpp::Any visitDropDatabase(MemgraphCypher::DropDatabaseContext *ctx) override;
 
   /**
-   * @return MultiDatabaseQuery*
+   * @return UseDatabaseQuery*
+   */
+  antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
+
+  /**
+   * @return ShowDatabaseQuery*
    */
   antlrcpp::Any visitShowDatabase(MemgraphCypher::ShowDatabaseContext *ctx) override;
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,20 +11,18 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <algorithm>
-
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_instance.hpp"
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 namespace memgraph::coordination {
 
 CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
     : instance_{instance} {}
 
-void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
-  instance_->AddOrUpdateClientConnectors(configs);
+void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
+  instance_->UpdateClientConnectors(coord_instances_aux);
 }
 
 }  // namespace memgraph::coordination

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 // "json.hpp" uses libc's EOF macro while
 // "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 // Same is true for <boost/geometry.hpp> that is included by ast.hpp
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
@@ -657,6 +657,18 @@ TEST_P(CypherMainVisitorTest, ModOperator) {
   auto *mod_operator = dynamic_cast<ModOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(mod_operator->expression1_, 2);
   ast_generator.CheckLiteral(mod_operator->expression2_, 3);
+}
+
+TEST_P(CypherMainVisitorTest, ExponentiationOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 ^ 3"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *exp_operator = dynamic_cast<ExponentiationOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ast_generator.CheckLiteral(exp_operator->expression1_, 2);
+  ast_generator.CheckLiteral(exp_operator->expression2_, 3);
 }
 
 #define CHECK_COMPARISON(TYPE, VALUE1, VALUE2)                             \
@@ -1403,7 +1415,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProper
   ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
   auto edge_type = ast_generator.EdgeType("edge_type");
-  EXPECT_EQ(edge->edge_types_[0], edge_type);
+  EXPECT_EQ(*std::get_if<EdgeTypeIx>(&edge->edge_types_[0]), edge_type);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
@@ -2587,15 +2599,15 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICATION ROLE";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICATION_ROLE);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICAS";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICAS);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICAS);
 }
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
@@ -2720,6 +2732,16 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
   EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
 }
 
+TEST_P(CypherMainVisitorTest, TestRemoveCoordinatorInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(REMOVE COORDINATOR 1)";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE);
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
+}
+
 TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto &ast_generator = *GetParam();
 
@@ -2748,6 +2770,14 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
   EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
+
+TEST_P(CypherMainVisitorTest, TestShowInstance) {
+  auto &ast_generator = *GetParam();
+  std::string const query = "SHOW INSTANCE";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_INSTANCE);
+}
+
 #endif
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {

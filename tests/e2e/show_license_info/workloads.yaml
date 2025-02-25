@@ -1,0 +1,13 @@
+show_license_info: &show_license_info
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
+      log_file: "show-license-info.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Show license info"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_license_info/test_show_license_info.py"]
+    <<: *show_license_info

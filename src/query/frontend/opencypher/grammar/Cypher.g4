@@ -46,6 +46,8 @@ storageInfo : STORAGE INFO ;
 
 activeUsersInfo : ACTIVE USERS INFO ;
 
+licenseInfo : LICENSE INFO ;
+
 indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
@@ -60,7 +62,7 @@ buildInfo : BUILD INFO ;
 
 databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
 
-systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo ) ;
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -203,7 +205,10 @@ labelName : symbolicName
           | variable ( propertyLookup )+
           ;
 
-relTypeName : symbolicName ;
+relTypeName : symbolicName
+            | parameter
+            | variable ( propertyLookup )+
+            ;
 
 expression : expression12 ;
 

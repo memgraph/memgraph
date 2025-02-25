@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,6 @@
 #include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -53,13 +52,10 @@
 #include "query/procedure/py_module.hpp"
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
-#include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "storage/v2/view.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_gauge.hpp"
@@ -201,7 +197,6 @@ int main(int argc, char **argv) {
   Py_SetProgramName(program_name);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
-  PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
 
   // Add our Python modules to sys.path
@@ -435,11 +430,6 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_wal_mode = DISABLED;
   }
 
-  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VECTOR_SEARCH) &&
-      db_config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    LOG_FATAL("Vector indexes are not supported in ON_DISK_TRANSACTIONAL storage mode.");
-  }
-
 #ifdef MG_ENTERPRISE
   if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
       std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
@@ -455,9 +445,6 @@ int main(int argc, char **argv) {
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
 #ifdef MG_ENTERPRISE
-      .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
-      .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec),
-      .instance_get_uuid_frequency_sec = std::chrono::seconds(FLAGS_instance_get_uuid_frequency_sec),
 #endif
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
@@ -504,7 +491,8 @@ int main(int argc, char **argv) {
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
 #endif
   // singleton replication state
-  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      ReplicationStateRootPath(db_config)};
 
   int const extracted_bolt_port = [&]() {
     if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
@@ -542,12 +530,19 @@ int main(int argc, char **argv) {
     }
 
     if (is_valid_coordinator_instance) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
+      constexpr auto kRaftDataDir = "/high_availability/raft_data";
+      auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
-          coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
-          coordination_setup.management_port, high_availability_data_dir, coordination_setup.coordinator_hostname,
-          coordination_setup.nuraft_log_file, coordination_setup.ha_durability});
+          .coordinator_id = coordination_setup.coordinator_id,
+          .coordinator_port = coordination_setup.coordinator_port,
+          .bolt_port = extracted_bolt_port,
+          .management_port = coordination_setup.management_port,
+          .durability_dir = high_availability_data_dir,
+          .coordinator_hostname = coordination_setup.coordinator_hostname,
+          .nuraft_log_file = coordination_setup.nuraft_log_file,
+          .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
+          .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
@@ -594,7 +589,7 @@ int main(int argc, char **argv) {
   auto db_acc = dbms_handler.Get();
 
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
-      interp_config, &dbms_handler, &repl_state, system,
+      interp_config, &dbms_handler, repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
@@ -673,7 +668,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
+                      service_name == "BoltS", FLAGS_data_directory, std::chrono::hours(8), 1);
     telemetry->AddStorageCollector(dbms_handler, *auth_);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
@@ -685,6 +680,7 @@ int main(int argc, char **argv) {
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
     telemetry->AddReplicationCollector();
+    telemetry->Start();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
                                                            memory_limit,

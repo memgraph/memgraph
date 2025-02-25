@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -34,19 +33,12 @@
 #include <vector>
 
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "csv/parsing.hpp"
 #include "dbms/coordinator_handler.hpp"
-#include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
-#include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
@@ -60,10 +52,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -80,7 +69,6 @@
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
-#include "query/stream/streams.hpp"
 #include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
@@ -90,9 +78,9 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -102,15 +90,13 @@
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
@@ -210,6 +196,10 @@ template <typename>
 constexpr auto kAlwaysFalse = false;
 
 namespace {
+constexpr std::string_view kSocketErrorExplanation =
+    "The socket address must be a string defining the address and port, delimited by a "
+    "single colon. The address must be valid and the port must be an integer.";
+
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
@@ -370,31 +360,28 @@ class ReplQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
     // Coordinator is main by default so this check is OK although it should actually be nothing (neither main nor
     // replica)
-    if (handler_->IsReplica()) {
-      // replica can't register another replica
-      throw QueryRuntimeException("Replica can't register another replica!");
-    }
-
     const auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_endpoint) {
-      const auto replication_config = replication::ReplicationClientConfig{
-          .name = name,
-          .mode = repl_mode,
-          .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
-          .replica_check_frequency = replica_check_frequency,
-          .ssl = std::nullopt};
+    if (!maybe_endpoint) {
+      throw QueryRuntimeException("Invalid socket address. {}", kSocketErrorExplanation);
+    }
 
-      const auto error = handler_->TryRegisterReplica(replication_config).HasError();
+    const auto replication_config =
+        replication::ReplicationClientConfig{.name = name,
+                                             .mode = repl_mode,
+                                             .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
+                                             .replica_check_frequency = replica_check_frequency,
+                                             .ssl = std::nullopt};
 
-      if (error) {
-        throw QueryRuntimeException("Couldn't register replica {}.", name);
+    const auto error = handler_->TryRegisterReplica(replication_config);
+
+    if (error.HasError()) {
+      if (error.GetError() == RegisterReplicaError::NOT_MAIN) {
+        throw QueryRuntimeException("Replica can't register another replica!");
       }
-
-    } else {
-      throw QueryRuntimeException("Invalid socket address!");
+      throw QueryRuntimeException("Couldn't register replica {}.", name);
     }
   }
 
@@ -404,13 +391,17 @@ class ReplQueryHandler {
     switch (result) {
       using enum memgraph::query::UnregisterReplicaResult;
       case NO_ACCESS:
-        throw QueryRuntimeException("Couldn't get unique access to replication state!");
+        throw QueryRuntimeException(
+            "Failed to unregister replica due to lack of unique access over the cluster state. Please try again later "
+            "on.");
       case NOT_MAIN:
-        throw QueryRuntimeException("Replica can't unregister a replica!");
+        throw QueryRuntimeException(
+            "Replica can't unregister a replica! Please rerun the query on main in order to unregister a replica from "
+            "the cluster.");
       case COULD_NOT_BE_PERSISTED:
         [[fallthrough]];
       case CANNOT_UNREGISTER:
-        throw QueryRuntimeException("Couldn't unregister the replica {}.", replica_name);
+        throw QueryRuntimeException("Failed to unregister the replica {}.", replica_name);
       case SUCCESS:
         break;
     }
@@ -421,7 +412,7 @@ class ReplQueryHandler {
     if (info.HasError()) {
       switch (info.GetError()) {
         case ShowReplicaError::NOT_MAIN:
-          throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
+          throw QueryRuntimeException("Show replicas query should only be run on the main instance.");
       }
     }
 
@@ -452,11 +443,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        constexpr std::string_view common_message =
+            "Couldn't unregister replica instance since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -490,11 +482,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("DEMOTE INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't demote instance to replica since coordinator is not a leader!";
+        constexpr std::string_view common_message =
+            "Couldn't demote instance to replica since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -538,24 +531,21 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
-                                   std::string_view replication_server,
-                                   std::chrono::seconds const &instance_check_frequency,
-                                   std::chrono::seconds const &instance_down_timeout,
-                                   std::chrono::seconds const &instance_get_uuid_frequency,
-                                   std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+                                   std::string_view replication_server, std::string_view instance_name,
+                                   CoordinatorQuery::SyncMode sync_mode) override {
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
-      throw QueryRuntimeException("Invalid bolt socket address!");
+      throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
     if (!maybe_management_server) {
-      throw QueryRuntimeException("Invalid management socket address!");
+      throw QueryRuntimeException("Invalid management socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_replication_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(replication_server);
     if (!maybe_replication_server) {
-      throw QueryRuntimeException("Invalid replication socket address!");
+      throw QueryRuntimeException("Invalid replication socket address. {}", kSocketErrorExplanation);
     }
 
     auto const repl_config =
@@ -563,19 +553,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                             .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
                                             .replication_server = *maybe_replication_server};
 
-    auto coordinator_client_config =
-        coordination::CoordinatorToReplicaConfig{.instance_name = std::string(instance_name),
-                                                 .mgt_server = *maybe_management_server,
-                                                 .bolt_server = *maybe_bolt_server,
-                                                 .replication_client_info = repl_config,
-                                                 .instance_health_check_frequency_sec = instance_check_frequency,
-                                                 .instance_down_timeout_sec = instance_down_timeout,
-                                                 .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
-                                                 .ssl = std::nullopt};
+    auto coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
+                                                                      .mgt_server = *maybe_management_server,
+                                                                      .bolt_server = *maybe_bolt_server,
+                                                                      .replication_client_info = repl_config};
 
-    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
-    switch (status) {
-      using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
+    switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
+      using enum coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
       case MGMT_ENDPOINT_EXISTS:
@@ -591,8 +575,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         auto const *common_message = "Couldn't register replica instance since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -617,39 +601,52 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server, std::string_view management_server)
-      -> void override {
+  void RemoveCoordinatorInstance(int32_t coordinator_id) override {
+    switch (auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
+      using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
+      case NO_SUCH_ID:
+        throw QueryRuntimeException(
+            "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case SUCCESS:
+        break;
+    }
+    spdlog::info("Removed coordinator {}.", coordinator_id);
+  }
+
+  auto AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server, std::string_view coordinator_server,
+                              std::string_view management_server) -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
-      throw QueryRuntimeException("Invalid coordinator socket address!");
+      throw QueryRuntimeException("Invalid coordinator socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
     if (!maybe_management_server) {
-      throw QueryRuntimeException("Invalid management socket address!");
+      throw QueryRuntimeException("Invalid management socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
-      throw QueryRuntimeException("Invalid bolt socket address!");
+      throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
-                                                     .bolt_server = *maybe_bolt_server,
-                                                     .coordinator_server = *maybe_coordinator_server,
-                                                     .management_server = *maybe_management_server
+        coordination::CoordinatorInstanceConfig{.coordinator_id = coordinator_id,
+                                                .bolt_server = *maybe_bolt_server,
+                                                .coordinator_server = *maybe_coordinator_server,
+                                                .management_server = *maybe_management_server
 
         };
 
-    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
-    switch (status) {
+    switch (auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
       case BOLT_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
+      case MGMT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator since instance with such management endpoint already exists!");
       case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such coordinator server already exists!");
@@ -671,11 +668,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't set instance to main since coordinator is not a leader!";
+        constexpr std::string_view common_message = "Couldn't set instance to main since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -702,6 +699,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case SUCCESS:
         break;
     }
+  }
+
+  [[nodiscard]] coordination::InstanceStatus ShowInstance() const override {
+    return coordinator_handler_.ShowInstance();
   }
 
   [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() const override {
@@ -803,7 +804,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 username, password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
                 &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
-            throw UserAlreadyExistsException("User '{}' already exists.", username);
+            throw UserAlreadyExistsException(
+                "User with username '{}' already exists. Use the SHOW USERS query to list all users. In addition you "
+                "can rerun the current query with IF NOT EXISTS.",
+                username);
           }
           spdlog::warn("User '{}' already exists.", username);
         }
@@ -839,7 +843,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
 
         if (!auth->DropUser(username, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", username);
+          throw QueryRuntimeException(
+              "User with username '{}' doesn't exist. A new user can be created via the CREATE USER query.", username);
         }
         return std::vector<std::vector<TypedValue>>();
       };
@@ -888,7 +893,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
-            throw QueryRuntimeException("Role '{}' already exists.", rolename);
+            throw QueryRuntimeException(
+                "Role with name '{}' already exists. Use the SHOW ROLES query to list all roles. In addition you "
+                "can rerun the current query with IF NOT EXISTS.",
+                rolename);
           }
           spdlog::warn("Role '{}' already exists.", rolename);
         }
@@ -1202,21 +1210,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                       repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
-        auto mode = handler.ShowReplicationRole();
-        switch (mode) {
-          case ReplicationQuery::ReplicationRole::MAIN: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
-          }
-          case ReplicationQuery::ReplicationRole::REPLICA: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
-          }
-        }
-      };
-      return callback;
-    }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
       if (is_managed_by_coordinator) {
@@ -1253,7 +1246,29 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is dropped.", repl_query->instance_name_));
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICAS: {
+  }
+}
+
+Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
+                                    ReplicationQueryHandler &replication_query_handler) {
+  Callback callback;
+  switch (repl_query->action_) {
+    case ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE: {
+      callback.header = {"replication role"};
+      callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
+        const auto mode = handler.ShowReplicationRole();
+        switch (mode) {
+          case ReplicationQuery::ReplicationRole::MAIN: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+          }
+          case ReplicationQuery::ReplicationRole::REPLICA: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
+          }
+        }
+      };
+      return callback;
+    }
+    case ReplicationInfoQuery::Action::SHOW_REPLICAS: {
       bool full_info = false;
 #ifdef MG_ENTERPRISE
       full_info = license::global_license_checker.IsEnterpriseValidFast();
@@ -1329,10 +1344,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           return TypedValue{std::move(data_info)};
         };
 
-        auto replicas = handler.ShowReplicas();
+        const auto replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
-        for (auto &replica : replicas) {
+        for (const auto &replica : replicas) {
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 
@@ -1384,11 +1399,34 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   using enum memgraph::flags::Experiments;
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException("High availability is only available in Memgraph Enterprise.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "high availability"));
   }
 
   Callback callback;
   switch (coordinator_query->action_) {
+    case CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can remove coordinator instance!");
+      }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id]() mutable {
+        handler.RemoveCoordinatorInstance(static_cast<int>(coord_server_id));
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REMOVE_COORDINATOR_INSTANCE,
+                                  fmt::format("Coordinator {} has been removed.", coord_server_id));
+      return callback;
+    }
+
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
@@ -1472,19 +1510,14 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
-                     bolt_server = bolt_server_it->second, management_server = management_server_it->second,
-                     replication_server = replication_server_it->second,
-                     instance_name = coordinator_query->instance_name_,
-                     instance_down_timeout_sec = config.instance_down_timeout_sec,
-                     instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
-                     sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(bolt_server, management_server, replication_server,
-                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
-        return std::vector<std::vector<TypedValue>>();
-      };
+      callback.fn =
+          [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second,
+           management_server = management_server_it->second, replication_server = replication_server_it->second,
+           instance_name = coordinator_query->instance_name_, sync_mode = coordinator_query->sync_mode_]() mutable {
+            handler.RegisterReplicationInstance(bolt_server, management_server, replication_server, instance_name,
+                                                sync_mode);
+            return std::vector<std::vector<TypedValue>>();
+          };
 
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
                                   fmt::format("Coordinator has registered replication instance on {} for instance {}.",
@@ -1558,8 +1591,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
                          "health", "role",        "last_succ_resp_ms"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     replica_nfields = callback.header.size()]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
@@ -1575,9 +1607,66 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       };
       return callback;
     }
+    case CoordinatorQuery::Action::SHOW_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW INSTANCE query.");
+      }
+
+      callback.header = {"name", "bolt_server", "coordinator_server", "management_server", "role"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const instance = handler.ShowInstance();
+        std::vector<std::vector<TypedValue>> results;
+        auto instance_result = std::vector{
+            TypedValue{instance.instance_name},      TypedValue{instance.bolt_server},
+            TypedValue{instance.coordinator_server}, TypedValue{instance.management_server},
+            TypedValue{instance.cluster_role},
+
+        };
+        results.push_back(std::move(instance_result));
+        return results;
+      };
+      return callback;
+    }
   }
 }
 #endif
+
+auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+                               query::ExpressionVisitor<query::TypedValue> &evaluator)
+    -> storage::VectorIndexConfigMap {
+  if (config_map.empty()) {
+    throw std::invalid_argument(
+        "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
+  }
+
+  auto transformed_map = ranges::views::all(config_map) | ranges::views::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+
+  auto metric_str = transformed_map.contains(kMetric.data())
+                        ? std::string(transformed_map.at(kMetric.data()).ValueString())
+                        : std::string(kDefaultMetric);
+  auto metric_kind = storage::VectorIndex::MetricFromName(metric_str);
+  auto dimension = transformed_map.find(kDimension.data());
+  if (dimension == transformed_map.end()) {
+    throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
+  }
+  auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
+
+  auto capacity = transformed_map.find(kCapacity.data());
+  if (capacity == transformed_map.end()) {
+    throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
+  }
+  auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
+
+  auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
+                                ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
+                                : kDefaultResizeCoefficient;
+  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient};
+}
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
   return {
@@ -2055,23 +2144,27 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
-  MG_ASSERT(transaction_id.has_value());
-
   if (memory_limit_) {
-    memgraph::memory::TryStartTrackingOnTransaction(*transaction_id, *memory_limit_);
-    memgraph::memory::StartTrackingCurrentThreadTransaction(*transaction_id);
+    auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
+    if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
+    memory_tracker->SetQueryLimit(*memory_limit_);
+    memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
   }
-  utils::OnScopeExit<std::function<void()>> reset_query_limit{
-      [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
-        if (memory_limit) {
-          // Stopping tracking of transaction occurs in interpreter::pull
-          // Exception can occur so we need to handle that case there.
-          // We can't stop tracking here as there can be multiple pulls
-          // so we need to take care of that after everything was pulled
-          memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
-        }
-      }};
+
+  const utils::OnScopeExit reset_query_limit{[this]() {
+    if (memory_limit_.has_value()) {
+      // Stopping tracking of transaction occurs in interpreter::pull
+      // Exception can occur so we need to handle that case there.
+      // We can't stop tracking here as there can be multiple pulls
+      // so we need to take care of that after everything was pulled
+      memgraph::memory::StopTrackingCurrentThread();
+      // Pull has completted or has thrown an exception; either way, reset the query tracker
+      if (!has_unsent_results_ || std::uncaught_exceptions()) {
+        auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
+        memory_tracker.reset();
+      }
+    }
+  }};
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
@@ -3138,6 +3231,95 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
       RWType::W};
 }
 
+PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                      std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *vector_index_query = utils::Downcast<VectorIndexQuery>(parsed_query.query);
+  std::function<Notification(void)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto const invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto index_name = vector_index_query->index_name_;
+  auto label_name = vector_index_query->label_.name;
+  auto prop_name = vector_index_query->property_.name;
+  auto config = vector_index_query->configs_;
+  auto *storage = db_acc->storage();
+  switch (vector_index_query->action_) {
+    case VectorIndexQuery::Action::CREATE: {
+      handler = [dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache),
+                 query_parameters = std::move(parsed_query.parameters), index_name = std::move(index_name),
+                 label_name = std::move(label_name), prop_name = std::move(prop_name), config = std::move(config)]() {
+        Notification index_notification(SeverityLevel::INFO);
+        index_notification.code = NotificationCode::CREATE_INDEX;
+        index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
+
+        auto label_id = storage->NameToLabel(label_name);
+        auto prop_id = storage->NameToProperty(prop_name);
+
+        EvaluationContext evaluation_context;
+        evaluation_context.timestamp = QueryTimestamp();
+        evaluation_context.parameters = query_parameters;
+        auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+        auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+
+        auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
+            .index_name = index_name,
+            .label = label_id,
+            .property = prop_id,
+            .metric_kind = vector_index_config.metric,
+            .dimension = vector_index_config.dimension,
+            .resize_coefficient = vector_index_config.resize_coefficient,
+            .capacity = vector_index_config.capacity,
+        });
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
+        if (maybe_error.HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Vector index on label {} and property {} already exists.", label_name, prop_name);
+        }
+        return index_notification;
+      };
+      break;
+    }
+    case VectorIndexQuery::Action::DROP: {
+      handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache), index_name = std::move(index_name)]() {
+        Notification index_notification(SeverityLevel::INFO);
+        index_notification.code = NotificationCode::DROP_INDEX;
+        index_notification.title = fmt::format("Dropped vector index {}.", index_name);
+
+        auto maybe_index_error = dba->DropVectorIndex(index_name);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
+        if (maybe_index_error.HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title = fmt::format("Vector index {} doesn't exist.", index_name);
+        }
+        return index_notification;
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        notifications->push_back(handler());
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
 PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                     std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
@@ -3212,7 +3394,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
                               std::vector<Notification> *notifications, CurrentDB &current_db,
                               InterpreterContext *interpreter_context) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "TTL"));
   }
 
   if (in_explicit_transaction) {
@@ -3368,6 +3551,31 @@ PreparedQuery PrepareReplicationQuery(
                                          coordinator_state
 #endif
   );
+
+  return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                          ReplicationQueryHandler &replication_query_handler) {
+  if (in_explicit_transaction) {
+    throw ReplicationModificationInMulticommandTxException();
+  }
+
+  auto *replication_query = utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
+  auto callback = HandleReplicationInfoQuery(replication_query, replication_query_handler);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -4289,6 +4497,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
         const std::string_view point_label_property_index_mark{"point"};
+        const std::string_view vector_label_property_index_mark{"vector"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -4321,6 +4530,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->PropertyToName(prop_id)),
                              TypedValue(static_cast<int>(
                                  storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
+        }
+
+        for (const auto &spec : info.vector_indices_spec) {
+          results.push_back({TypedValue(vector_label_property_index_mark), TypedValue(storage->LabelToName(spec.label)),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int>(
+                                 storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -4415,10 +4631,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::METRICS: {
 #ifdef MG_ENTERPRISE
       if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+        throw QueryRuntimeException(license::LicenseCheckErrorToString(
+            license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
 #else
-      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+      throw EnterpriseOnlyException();
 #endif
       header = {"name", "type", "metric type", "value"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
@@ -4529,6 +4746,27 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
           results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.login_timestamp)});
         }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+    } break;
+    case SystemInfoQuery::InfoType::LICENSE: {
+      header = {"license info", "value"};
+      handler = [] {
+        const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
+        const auto memory_limit = license_info.memory_limit != 0
+                                      ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
+                                      : "UNLIMITED";
+
+        const std::vector<std::vector<TypedValue>> results{
+            {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
+            {TypedValue("license_key"), TypedValue(license_info.license_key)},
+            {TypedValue("is_valid"), TypedValue(license_info.is_valid)},
+            {TypedValue("license_type"), TypedValue(license_info.license_type)},
+            {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
+            {TypedValue("memory_limit"), TypedValue(memory_limit)},
+            {TypedValue("status"), TypedValue(license_info.status)},
+        };
+
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
@@ -4833,13 +5071,12 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
-PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
-                                        InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb,
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
@@ -4894,40 +5131,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           ""  // No target DB possible
       };
     }
-    case MultiDatabaseQuery::Action::USE: {
-      if (current_db.in_explicit_db_) {
-        throw QueryException("Database switching is prohibited if session explicitly defines the used database");
-      }
-      return PreparedQuery{{"STATUS"},
-                           std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
-                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                             std::vector<std::vector<TypedValue>> status;
-                             std::string res;
-
-                             try {
-                               if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
-                                 res = "Already using " + db_name;
-                               } else {
-                                 auto tmp = db_handler->Get(db_name);
-                                 if (on_change) (*on_change)(db_name);  // Will trow if cb fails
-                                 current_db.SetCurrentDB(std::move(tmp), false);
-                                 res = "Using " + db_name;
-                               }
-                             } catch (const utils::BasicException &e) {
-                               throw QueryRuntimeException(e.what());
-                             }
-
-                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-                             if (pull_plan->Pull(stream, n)) {
-                               return QueryHandlerResult::COMMIT;
-                             }
-                             return std::nullopt;
-                           },
-                           RWType::NONE,
-                           query->db_name_};
-    }
     case MultiDatabaseQuery::Action::DROP: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
@@ -4978,31 +5181,104 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           RWType::W,
           query->db_name_};
     }
-    case MultiDatabaseQuery::Action::SHOW: {
-      return PreparedQuery{
-          {"Current"},
-          std::move(parsed_query.required_privileges),
-          [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-              AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-            if (!pull_plan) {
-              std::vector<std::vector<TypedValue>> results;
-              auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
-              results.push_back({std::move(db_name)});
-              pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-            }
-
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::NOTHING;
-            }
-            return std::nullopt;
-          },
-          RWType::NONE,
-          ""  // No target DB
-      };
-    }
   };
 #else
-  throw QueryException("Query not supported.");
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  (void)interpreter;
+  throw EnterpriseOnlyException();
+#endif
+}
+
+PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
+                                      InterpreterContext *interpreter_context,
+                                      std::optional<std::function<void(std::string_view)>> on_change_cb) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
+  }
+
+  auto *query = utils::Downcast<UseDatabaseQuery>(parsed_query.query);
+  auto *db_handler = interpreter_context->dbms_handler;
+
+  if (current_db.in_explicit_db_) {
+    throw QueryException("Database switching is prohibited if session explicitly defines the used database");
+  }
+  return PreparedQuery{{"STATUS"},
+                       std::move(parsed_query.required_privileges),
+                       [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         std::vector<std::vector<TypedValue>> status;
+                         std::string res;
+
+                         try {
+                           if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
+                             res = "Already using " + db_name;
+                           } else {
+                             auto tmp = db_handler->Get(db_name);
+                             if (on_change) (*on_change)(db_name);  // Will trow if cb fails
+                             current_db.SetCurrentDB(std::move(tmp), false);
+                             res = "Using " + db_name;
+                           }
+                         } catch (const utils::BasicException &e) {
+                           throw QueryRuntimeException(e.what());
+                         }
+
+                         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE,
+                       query->db_name_};
+#else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)current_db;
+  (void)interpreter_context;
+  (void)on_change_cb;
+  throw EnterpriseOnlyException();
+#endif
+}
+
+PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
+  }
+
+  return PreparedQuery{
+      {"Current"},
+      std::move(parsed_query.required_privileges),
+      [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          std::vector<std::vector<TypedValue>> results;
+          auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
+          results.push_back({std::move(db_name)});
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE,
+      ""  // No target DB
+  };
+#else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)current_db;
+  throw EnterpriseOnlyException();
 #endif
 }
 
@@ -5010,7 +5286,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
                                         std::shared_ptr<QueryUserOrRole> user_or_role) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
   }
 
   auto *db_handler = interpreter_context->dbms_handler;
@@ -5078,7 +5355,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       ""  // No target DB
   };
 #else
-  throw QueryException("Query not supported.");
+  throw EnterpriseOnlyException();
 #endif
 }
 
@@ -5288,6 +5565,16 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
              {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
              {"type", "label+property_point"}}));
       }
+
+      // Vertex label property_vector
+      for (const auto &spec : index_info.vector_indices_spec) {
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(spec.label)}},
+             {"properties", {storage->PropertyToName(spec.property)}},
+             {"count", storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)},
+             {"type", "label+property_vector"}}));
+      }
+
       // Edge type indices
       for (const auto type : index_info.edge_type) {
         edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},
@@ -5344,7 +5631,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Pack json into query result
       schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
     } else {
-      throw QueryException("SchemaInfo disabled.");
+      throw QueryException(
+          "SchemaInfo query is disabled. To enable it, start Memgraph with the --schema-info-enabled flag.");
     }
     return schema;
   };
@@ -5501,7 +5789,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
                           utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
                           utils::Downcast<ReplicationQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
@@ -5521,7 +5808,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
                           utils::Downcast<SettingQuery>(parsed_query.query) ||
                           utils::Downcast<VersionQuery>(parsed_query.query) ||
-                          utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+                          utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
+                          utils::Downcast<UseDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
+                          utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
@@ -5531,8 +5822,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     bool const unique_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-        utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+        utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
+        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
         utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
@@ -5600,12 +5891,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<VectorIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareVectorIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                               &query_execution->notifications, current_db_);
     } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
                                        &query_execution->notifications, current_db_, interpreter_context_);
 #else
-      throw QueryException("Query not supported.");
+      throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -5632,6 +5926,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #endif
           );
 
+    } else if (utils::Downcast<ReplicationInfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareReplicationInfoQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                   *interpreter_context_->replication_handler_);
+
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
@@ -5643,7 +5941,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   *interpreter_context_->coordinator_state_, interpreter_context_->config);
 #else
-      throw QueryRuntimeException("Coordinator queries are not part of community edition");
+      throw EnterpriseOnlyException();
 #endif
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -5693,8 +5991,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
-      prepared_query =
-          PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_, *this);
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+    } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw UseDatabaseQueryInMulticommandTxException();
+      }
+      prepared_query = PrepareUseDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
+    } else if (utils::Downcast<ShowDatabaseQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowDatabaseQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, user_or_role_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
@@ -5866,8 +6170,7 @@ void Interpreter::Abort() {
 
 namespace {
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
-                            TriggerContext original_trigger_context,
-                            std::atomic<TransactionStatus> *transaction_status) {
+                            TriggerContext original_trigger_context) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     QueryAllocator execution_memory{};
@@ -5882,15 +6185,17 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
-                      &interpreter_context->is_shutting_down, transaction_status, trigger_context);
+                      &interpreter_context->is_shutting_down, /* transaction_status = */ nullptr, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
       continue;
     }
 
-    bool is_main = interpreter_context->repl_state->IsMain();
+    auto locked_repl_state = std::optional{interpreter_context->repl_state.ReadLock()};
+    const bool is_main = locked_repl_state.value()->IsMain();
     auto maybe_commit_error = db_accessor.Commit({.is_main = is_main}, db_acc);
+    locked_repl_state.reset();  // proactively unlock
 
     if (maybe_commit_error.HasError()) {
       const auto &error = maybe_commit_error.GetError();
@@ -5934,7 +6239,9 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                 }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-              throw QueryException("Unable to commit due to serialization error.");
+              throw QueryException(MessageWithDocsLink(
+                  "Unable to commit due to serialization error. Try retrying this transaction when the conflicting "
+                  "transaction is finished."));
             } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
               throw QueryException("Unable to commit due to persistance error.");
             } else {
@@ -6078,16 +6385,16 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  interpreter_context_->repl_state->Lock();
-  bool const is_main = interpreter_context_->repl_state->IsMain();
+  auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
+  bool const is_main = locked_repl_state.value()->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
   if (!is_main && !curr_txn->deltas.empty()) {
-    interpreter_context_->repl_state->Unlock();
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
-  interpreter_context_->repl_state->Unlock();
+  // Proactively unlock repl_state
+  locked_repl_state.reset();
 
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
@@ -6140,10 +6447,10 @@ void Interpreter::Commit() {
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
-    db->AddTask([this, trigger_context = std::move(*trigger_context),
+    db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
+                 trigger_context = std::move(*trigger_context),
                  user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
-      RunTriggersAfterCommit(*current_db_.db_acc_, interpreter_context_, std::move(trigger_context),
-                             &this->transaction_status_);
+      RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });

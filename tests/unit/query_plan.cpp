@@ -1870,7 +1870,7 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   auto edge_type = this->storage.GetEdgeTypeIx("type");
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
       IDENT("r"), memgraph::query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-      std::vector<memgraph::query::EdgeTypeIx>{edge_type});
+      std::vector<memgraph::query::QueryEdgeType>{edge_type});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("n");

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -63,21 +63,21 @@ class ChunkedEncoderBuffer {
     while (n > 0) {
       // Define the number of bytes which will be copied into the chunk because
       // the internal storage is a fixed length array.
-      size_t size = n < kChunkMaxDataSize - have_ ? n : kChunkMaxDataSize - have_;
+      const size_t size = std::min(n, kChunkWholeSize - pos_);
 
       // Copy `size` values to the chunk array.
-      std::memcpy(chunk_.data() + kChunkHeaderSize + have_, values + written, size);
+      std::memcpy(chunk_.data() + pos_, values + written, size);
 
       // Update positions. The position pointer and incoming size have to be
       // updated because all incoming values have to be processed.
       written += size;
-      have_ += size;
+      pos_ += size;
       n -= size;
 
       // If the chunk is full, send it to the output stream and clear the
       // internal storage to make space for other incoming values that are left
       // in the values array.
-      if (have_ == kChunkMaxDataSize) Flush(true);
+      if (pos_ == kChunkWholeSize) Flush(true);
     }
   }
 
@@ -91,27 +91,35 @@ class ChunkedEncoderBuffer {
    */
   bool Flush(bool have_more = false) {
     // Write the size of the chunk.
-    chunk_[0] = have_ >> 8;
-    chunk_[1] = have_ & 0xFF;
+    chunk_[chunk_start_] = (pos_ - chunk_start_ - kChunkHeaderSize) >> 8;
+    chunk_[chunk_start_ + 1] = (pos_ - chunk_start_ - kChunkHeaderSize) & 0xFF;
 
     // Write the data to the stream.
-    auto ret = output_stream_.Write(chunk_.data(), kChunkHeaderSize + have_, have_more);
+    if (!have_more || (kChunkWholeSize - pos_ <= kChunkHeaderSize)) {
+      auto ret = output_stream_.Write(chunk_.data(), pos_, have_more);
 
-    // Cleanup.
-    Clear();
-
-    return ret;
+      // Cleanup.
+      Clear();
+      return ret;
+    } else {
+      chunk_start_ = pos_;
+      pos_ = chunk_start_ + kChunkHeaderSize;
+    }
+    return true;
   }
 
   /** Clears the internal buffers. */
-  void Clear() { have_ = 0; }
+  void Clear() {
+    pos_ = kChunkHeaderSize;
+    chunk_start_ = 0;
+  }
 
   /**
    * Returns a boolean indicating whether there is data in the buffer.
    * @returns true if there is data in the buffer,
    *          false otherwise
    */
-  bool HasData() { return have_ > 0; }
+  bool HasData() const { return (pos_ - chunk_start_) > kChunkHeaderSize; }
 
  private:
   // The output stream used.
@@ -121,6 +129,7 @@ class ChunkedEncoderBuffer {
   std::array<uint8_t, kChunkWholeSize> chunk_;
 
   // Amount of data in chunk array.
-  size_t have_{0};
+  size_t pos_{kChunkHeaderSize};
+  size_t chunk_start_{0};
 };
 }  // namespace memgraph::communication::bolt

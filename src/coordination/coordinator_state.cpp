@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,7 +40,7 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
                 mgmt_config.endpoint.GetPort());
 }
 
-auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
+auto CoordinatorState::RegisterReplicationInstance(DataInstanceConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
@@ -116,6 +116,12 @@ auto CoordinatorState::SetReplicationInstanceToMain(std::string_view instance_na
       data_);
 }
 
+auto CoordinatorState::ShowInstance() const -> InstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Can't call show instance on data_, as variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowInstance();
+}
+
 auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");
@@ -128,11 +134,17 @@ auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceMa
   return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
     -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
-            "Coordinator cannot register replica since variant holds wrong alternative");
+            "Coordinator cannot be added since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
+}
+
+auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be unregistered since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
 }
 
 auto CoordinatorState::GetRoutingTable() -> RoutingTable {
@@ -141,7 +153,7 @@ auto CoordinatorState::GetRoutingTable() -> RoutingTable {
   return std::get<CoordinatorInstance>(data_).GetRoutingTable();
 }
 
-auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
+auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();

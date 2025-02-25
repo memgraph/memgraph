@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,6 +84,7 @@ enum class TypeId : uint64_t {
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
   REP_APPEND_DELTAS_REQ = 2000,
   REP_APPEND_DELTAS_RES,
+  REP_IN_PROGRESS_RES,
   REP_HEARTBEAT_REQ,
   REP_HEARTBEAT_RES,
   REP_FREQUENT_HEARTBEAT_REQ,
@@ -153,6 +154,7 @@ enum class TypeId : uint64_t {
   AST_MULTIPLICATION_OPERATOR,
   AST_DIVISION_OPERATOR,
   AST_MOD_OPERATOR,
+  AST_EXPONENTIATION_OPERATOR,
   AST_NOT_EQUAL_OPERATOR,
   AST_EQUAL_OPERATOR,
   AST_LESS_OPERATOR,
@@ -207,6 +209,7 @@ enum class TypeId : uint64_t {
   AST_EDGE_INDEX_QUERY,
   AST_POINT_INDEX_QUERY,
   AST_TEXT_INDEX_QUERY,
+  AST_VECTOR_INDEX_QUERY,
   AST_CREATE,
   AST_CALL_PROCEDURE,
   AST_MATCH,
@@ -229,6 +232,7 @@ enum class TypeId : uint64_t {
   AST_CONSTRAINT_QUERY,
   AST_DUMP_QUERY,
   AST_REPLICATION_QUERY,
+  AST_REPLICATION_INFO_QUERY,
   AST_LOCK_PATH_QUERY,
   AST_LOAD_CSV,
   AST_FREE_MEMORY_QUERY,
@@ -246,6 +250,8 @@ enum class TypeId : uint64_t {
   AST_EXISTS,
   AST_CALL_SUBQUERY,
   AST_MULTI_DATABASE_QUERY,
+  AST_USE_DATABASE,
+  AST_SHOW_DATABASE,
   AST_SHOW_DATABASES,
   AST_EDGE_IMPORT_MODE_QUERY,
   AST_PATTERN_COMPREHENSION,

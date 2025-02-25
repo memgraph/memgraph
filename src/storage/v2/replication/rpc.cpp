@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,8 @@
 
 #include "storage/v2/replication/rpc.hpp"
 #include <cstdint>
+#include <rpc/version.hpp>
+
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
@@ -27,9 +29,11 @@ void AppendDeltasRes::Save(const AppendDeltasRes &self, memgraph::slk::Builder *
   memgraph::slk::Save(self, builder);
 }
 void AppendDeltasRes::Load(AppendDeltasRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -80,6 +84,9 @@ constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::Ty
 
 constexpr utils::TypeInfo storage::replication::AppendDeltasRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
                                                                        "AppendDeltasRes", nullptr};
+
+constexpr utils::TypeInfo storage::replication::InProgressRes::kType{utils::TypeId::REP_IN_PROGRESS_RES,
+                                                                     "InProgressRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::HeartbeatReq::kType{utils::TypeId::REP_HEARTBEAT_REQ, "HeartbeatReq",
                                                                     nullptr};
@@ -168,12 +175,10 @@ void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Re
 // Serialize code for WalFilesRes
 
 void Save(const memgraph::storage::replication::WalFilesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
 void Load(memgraph::storage::replication::WalFilesRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
   memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 
@@ -194,12 +199,10 @@ void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Read
 // Serialize code for SnapshotRes
 
 void Save(const memgraph::storage::replication::SnapshotRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
   memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 
@@ -207,12 +210,12 @@ void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Read
 
 void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.storage_uuid, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->storage_uuid, reader);
 }
 
 // Serialize code for HeartbeatRes
@@ -248,13 +251,11 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 // Serialize code for AppendDeltasRes
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
+  slk::Save(self.success, builder);
 }
 
 void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 
 // Serialize code for AppendDeltasReq
