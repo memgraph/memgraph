@@ -299,8 +299,7 @@ void PriorityThreadPool::Worker::operator()() {
     }
     {
       auto l = std::unique_lock{mtx_};
-      if (!work_.empty() || !run_) continue;
-      cv_.wait(l);
+      cv_.wait(l, [this] { return !work_.empty() || !run_; });
     }
   }
 }
