@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,10 +35,52 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    if (scope_.in_optional) {
+      is_valid_plan_ = false;
+    }
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    if (scope_.in_optional) {
+      is_valid_plan_ = false;
+    }
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    if (scope_.in_optional) {
+      is_valid_plan_ = false;
+    }
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    if (scope_.in_optional) {
+      is_valid_plan_ = false;
+    }
+    return true;
+  }
+
+  bool PreVisit(Optional &op) override {
+    scope_.in_optional = true;
+    return true;
+  }
+
+  bool PostVisit(Optional &op) override {
+    scope_.in_optional = false;
+    return true;
+  }
+
   bool IsValidPlan() { return is_valid_plan_; }
 
  private:
+  struct Scope {
+    bool in_optional{false};
+  };
   bool is_valid_plan_{true};
+  Scope scope_;
 };
 
 }  // namespace impl
