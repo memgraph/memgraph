@@ -47,7 +47,7 @@ def wait_until_main_writeable_assert_replica_down(cursor, query):
             execute_and_fetch_all(cursor, query)
             break
         except Exception as e:
-            if "Write query forbidden on the main" in str(e):
+            if "Write queries currently forbidden on the main instance" in str(e):
                 continue
             assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
             break
