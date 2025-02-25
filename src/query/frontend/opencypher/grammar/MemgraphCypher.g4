@@ -212,6 +212,7 @@ query : cypherQuery
       | dumpQuery
       | analyzeGraphQuery
       | replicationQuery
+      | replicationInfoQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
@@ -270,11 +271,13 @@ authQuery : createRole
           ;
 
 replicationQuery : setReplicationRole
-                 | showReplicationRole
                  | registerReplica
                  | dropReplica
-                 | showReplicas
                  ;
+
+replicationInfoQuery : showReplicationRole
+                     | showReplicas
+                     ;
 
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator

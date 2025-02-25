@@ -360,31 +360,28 @@ class ReplQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
     // Coordinator is main by default so this check is OK although it should actually be nothing (neither main nor
     // replica)
-    if (handler_->IsReplica()) {
-      // replica can't register another replica
-      throw QueryRuntimeException("Replica can't register another replica!");
-    }
-
     const auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_endpoint) {
-      const auto replication_config = replication::ReplicationClientConfig{
-          .name = name,
-          .mode = repl_mode,
-          .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
-          .replica_check_frequency = replica_check_frequency,
-          .ssl = std::nullopt};
-
-      const auto error = handler_->TryRegisterReplica(replication_config).HasError();
-
-      if (error) {
-        throw QueryRuntimeException("Couldn't register replica {}.", name);
-      }
-
-    } else {
+    if (!maybe_endpoint) {
       throw QueryRuntimeException("Invalid socket address. {}", kSocketErrorExplanation);
+    }
+
+    const auto replication_config =
+        replication::ReplicationClientConfig{.name = name,
+                                             .mode = repl_mode,
+                                             .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
+                                             .replica_check_frequency = replica_check_frequency,
+                                             .ssl = std::nullopt};
+
+    const auto error = handler_->TryRegisterReplica(replication_config);
+
+    if (error.HasError()) {
+      if (error.GetError() == RegisterReplicaError::NOT_MAIN) {
+        throw QueryRuntimeException("Replica can't register another replica!");
+      }
+      throw QueryRuntimeException("Couldn't register replica {}.", name);
     }
   }
 
@@ -1213,21 +1210,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                       repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
-        auto mode = handler.ShowReplicationRole();
-        switch (mode) {
-          case ReplicationQuery::ReplicationRole::MAIN: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
-          }
-          case ReplicationQuery::ReplicationRole::REPLICA: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
-          }
-        }
-      };
-      return callback;
-    }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
       if (is_managed_by_coordinator) {
@@ -1264,7 +1246,29 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is dropped.", repl_query->instance_name_));
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICAS: {
+  }
+}
+
+Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
+                                    ReplicationQueryHandler &replication_query_handler) {
+  Callback callback;
+  switch (repl_query->action_) {
+    case ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE: {
+      callback.header = {"replication role"};
+      callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
+        const auto mode = handler.ShowReplicationRole();
+        switch (mode) {
+          case ReplicationQuery::ReplicationRole::MAIN: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+          }
+          case ReplicationQuery::ReplicationRole::REPLICA: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
+          }
+        }
+      };
+      return callback;
+    }
+    case ReplicationInfoQuery::Action::SHOW_REPLICAS: {
       bool full_info = false;
 #ifdef MG_ENTERPRISE
       full_info = license::global_license_checker.IsEnterpriseValidFast();
@@ -1340,10 +1344,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           return TypedValue{std::move(data_info)};
         };
 
-        auto replicas = handler.ShowReplicas();
+        const auto replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
-        for (auto &replica : replicas) {
+        for (const auto &replica : replicas) {
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 
@@ -3542,6 +3546,31 @@ PreparedQuery PrepareReplicationQuery(
                                          coordinator_state
 #endif
   );
+
+  return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                          ReplicationQueryHandler &replication_query_handler) {
+  if (in_explicit_transaction) {
+    throw ReplicationModificationInMulticommandTxException();
+  }
+
+  auto *replication_query = utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
+  auto callback = HandleReplicationInfoQuery(replication_query, replication_query_handler);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -5777,7 +5806,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                           utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
                           utils::Downcast<UseDatabaseQuery>(parsed_query.query) ||
                           utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query);
+                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
+                          utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
@@ -5890,6 +5920,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                   interpreter_context_->coordinator_state_
 #endif
           );
+
+    } else if (utils::Downcast<ReplicationInfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareReplicationInfoQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                   *interpreter_context_->replication_handler_);
 
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
@@ -6153,8 +6187,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       continue;
     }
 
-    bool is_main = interpreter_context->repl_state->IsMain();
+    auto locked_repl_state = std::optional{interpreter_context->repl_state.ReadLock()};
+    const bool is_main = locked_repl_state.value()->IsMain();
     auto maybe_commit_error = db_accessor.Commit({.is_main = is_main}, db_acc);
+    locked_repl_state.reset();  // proactively unlock
 
     if (maybe_commit_error.HasError()) {
       const auto &error = maybe_commit_error.GetError();
@@ -6344,16 +6380,16 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  interpreter_context_->repl_state->Lock();
-  bool const is_main = interpreter_context_->repl_state->IsMain();
+  auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
+  bool const is_main = locked_repl_state.value()->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
   if (!is_main && !curr_txn->deltas.empty()) {
-    interpreter_context_->repl_state->Unlock();
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
-  interpreter_context_->repl_state->Unlock();
+  // Proactively unlock repl_state
+  locked_repl_state.reset();
 
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();

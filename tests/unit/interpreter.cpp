@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,7 +79,8 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
@@ -97,7 +98,7 @@ class InterpreterTest : public ::testing::Test {
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context{{},
                                                           kNoHandler,
-                                                          &repl_state,
+                                                          repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
@@ -1151,7 +1152,8 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
       config2.force_on_disk = true;
     }
 
-    memgraph::replication::ReplicationState repl_state2{memgraph::storage::ReplicationStateRootPath(config2)};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state2{
+        memgraph::storage::ReplicationStateRootPath(config2)};
     memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
@@ -1161,11 +1163,12 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                  : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
         << "Wrong storage mode!";
 
-    memgraph::replication::ReplicationState repl_state{std::nullopt};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        std::nullopt};
     memgraph::system::System system_state;
     memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
                                                                 nullptr,
-                                                                &repl_state,
+                                                                repl_state,
                                                                 system_state
 #ifdef MG_ENTERPRISE
                                                                 ,

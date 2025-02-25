@@ -3325,7 +3325,7 @@ class ReplicationQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SET_REPLICATION_ROLE, SHOW_REPLICATION_ROLE, REGISTER_REPLICA, DROP_REPLICA, SHOW_REPLICAS };
+  enum class Action { SET_REPLICATION_ROLE, REGISTER_REPLICA, DROP_REPLICA };
 
   enum class ReplicationRole { MAIN, REPLICA };
 
@@ -3344,7 +3344,7 @@ class ReplicationQuery : public memgraph::query::Query {
   memgraph::query::ReplicationQuery::SyncMode sync_mode_;
 
   ReplicationQuery *Clone(AstStorage *storage) const override {
-    ReplicationQuery *object = storage->Create<ReplicationQuery>();
+    auto *object = storage->Create<ReplicationQuery>();
     object->action_ = action_;
     object->role_ = role_;
     object->instance_name_ = instance_name_;
@@ -3354,6 +3354,29 @@ class ReplicationQuery : public memgraph::query::Query {
     object->coordinator_socket_address_ =
         coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
 
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class ReplicationInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { SHOW_REPLICATION_ROLE, SHOW_REPLICAS };
+
+  ReplicationInfoQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::ReplicationInfoQuery::Action action_;
+
+  ReplicationInfoQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ReplicationInfoQuery>();
+    object->action_ = action_;
     return object;
   }
 

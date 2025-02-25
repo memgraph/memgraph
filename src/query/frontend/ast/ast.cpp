@@ -261,6 +261,9 @@ constexpr utils::TypeInfo query::DumpQuery::kType{utils::TypeId::AST_DUMP_QUERY,
 constexpr utils::TypeInfo query::ReplicationQuery::kType{utils::TypeId::AST_REPLICATION_QUERY, "ReplicationQuery",
                                                          &query::Query::kType};
 
+constexpr utils::TypeInfo query::ReplicationInfoQuery::kType{utils::TypeId::AST_REPLICATION_INFO_QUERY,
+                                                             "ReplicationInfoQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COORDINATOR_QUERY, "CoordinatorQuery",
                                                          &query::Query::kType};
 

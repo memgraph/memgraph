@@ -728,7 +728,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
   // Check timestamp.
   if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp) {
-    spdlog::info("Skip loading WAL file because it is too old.");
+    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp, *last_loaded_timestamp);
     return ret;
   }
 
