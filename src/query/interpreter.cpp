@@ -1633,17 +1633,13 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
-<<<<<<< Updated upstream
-  std::map<std::string, TypedValue, std::less<>> transformed_map;
-=======
 
-  std::map<std::string, query::TypedValue, std::less<>> transformed_map;
->>>>>>> Stashed changes
-  for (const auto &pair : config_map) {
-    auto key_expr = pair.first->Accept(evaluator);
-    auto value_expr = pair.second->Accept(evaluator);
-    transformed_map.emplace(key_expr.ValueString(), value_expr);
-  }
+  auto transformed_map = ranges::views::all(config_map) | ranges::views::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
 
   auto metric_str = transformed_map.contains(kMetric.data())
                         ? std::string(transformed_map.at(kMetric.data()).ValueString())
