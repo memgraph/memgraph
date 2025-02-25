@@ -1632,8 +1632,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 #endif
 
 auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-                               query::ExpressionVisitor<query::TypedValue> &evaluator)
-    -> storage::VectorIndexConfigMap {
+                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
   if (config_map.empty()) {
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
@@ -3257,22 +3256,17 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto *storage = db_acc->storage();
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      handler = [dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache),
+      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
+      handler = [dba, storage, vector_index_config, invalidate_plan_cache = std::move(invalidate_plan_cache),
                  query_parameters = std::move(parsed_query.parameters), index_name = std::move(index_name),
-                 label_name = std::move(label_name), prop_name = std::move(prop_name), config = std::move(config)]() {
+                 label_name = std::move(label_name), prop_name = std::move(prop_name)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
         index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
-
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
-
-        EvaluationContext evaluation_context;
-        evaluation_context.timestamp = QueryTimestamp();
-        evaluation_context.parameters = query_parameters;
-        auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-        auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
-
         auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
             .label = label_id,
