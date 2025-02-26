@@ -1,0 +1,73 @@
+name: Begin MG release process
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version (format: X.Y)"
+        required: true
+        type: string
+      patch_version:
+        description: "Patch version (format: Z)"
+        required: true
+        type: string
+
+jobs:
+  begin_release_job:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Track or create release branch
+        run: |
+          git pull --all
+          echo Test and use remote branch when it already exists - failure is ok since it will get created automatically as needed
+          if git checkout -b release/${{ github.event.inputs.release_version }} origin/release/${{ github.event.inputs.release_version }} ; then
+            echo Remote branch already exists
+          else
+            echo Creating local branch
+            git checkout -b release/${{ github.event.inputs.release_version }}
+          fi
+          git branch
+
+      - name: Modify CMakeLists.txt
+        run: |
+          temp_file=$( mktemp --tmpdir=. )
+          awk '/MEMGRAPH_OVERRIDE_VERSION/ {gsub(/".*"/, "\"${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}\""); print; next} {print}' CMakeLists.txt > $temp_file
+          mv $temp_file CMakeLists.txt
+          grep OVERRIDE CMakeLists.txt
+
+      - name: Git config
+        run: |
+          git config --global user.email "hal.eisen@memgraph.io"
+          git config --global user.name "Hal Eisen automation bot"
+
+      - name: Add, commit and push CMakeLists.txt
+        run: |
+          git add CMakeLists.txt
+          git commit -m "Update CMakeLists.txt with new memgraph override version"
+
+      - name: Create pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          base: release/${{ github.event.inputs.release_version }}
+          branch: CMakeLists-update-v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}
+          title: "CMakeLists.txt update for v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}"
+          body: Setting MEMGRAPH_OVERRIDE_VERSION via actions/create-pull-request@v7
+
+      - name: Show PR details
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
+          echo "Pull Request URL - ${{ steps.cpr.outputs.pull-request-url }}"
+
+      - name: Allow auto merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+
