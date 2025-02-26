@@ -302,9 +302,20 @@ void DumpEdgeTypePropertyIndex(std::ostream *os, query::DbAccessor *dba, const s
 }
 
 void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                            storage::PropertyId property) {
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
-      << ");";
+                            std::vector<storage::PropertyId> const &properties) {
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(";
+
+  bool need_comma{false};
+  for (auto property : properties) {
+    if (need_comma) {
+      *os << ", ";
+    } else {
+      need_comma = true;
+    }
+    *os << EscapeName(dba->PropertyToName(property));
+  }
+
+  *os << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
@@ -544,8 +555,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
       const auto &label_property_index = label_property[global_index];
-      // @TODO: take the front entry from the now vector
-      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second.front());
+      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;
