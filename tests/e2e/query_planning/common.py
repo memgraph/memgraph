@@ -29,6 +29,7 @@ def memgraph_optional(**kwargs) -> Memgraph:
 
     yield memgraph
     memgraph.execute("DROP EDGE INDEX ON :HAS_KID;")
+    memgraph.execute("DROP EDGE INDEX ON :ET1;")
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
     memgraph.drop_database()

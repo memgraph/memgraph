@@ -36,7 +36,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeType &op) override {
-    if (scope_.in_optional) {
+    if (scope_.in_optional_expand_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -44,7 +44,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
-    if (scope_.in_optional) {
+    if (scope_.in_optional_expand_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -52,7 +52,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
-    if (scope_.in_optional) {
+    if (scope_.in_optional_expand_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -60,7 +60,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
-    if (scope_.in_optional) {
+    if (scope_.in_optional_expand_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -68,12 +68,14 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Optional &op) override {
-    scope_.in_optional = true;
+    if (op.input_->GetTypeInfo() != Once::kType) {
+      scope_.in_optional_expand_ = true;
+    }
     return true;
   }
 
   bool PostVisit(Optional &op) override {
-    scope_.in_optional = false;
+    scope_.in_optional_expand_ = false;
     return true;
   }
 
@@ -81,7 +83,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
 
  private:
   struct Scope {
-    bool in_optional{false};
+    bool in_optional_expand_{false};
   };
   bool is_valid_plan_{true};
   Scope scope_;
