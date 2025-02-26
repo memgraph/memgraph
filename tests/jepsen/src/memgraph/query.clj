@@ -3,6 +3,26 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
 
+
+(dbclient/defquery create-label-idx
+  "
+  CREATE INDEX ON :User;
+  "
+)
+
+(dbclient/defquery create-label-property-idx
+  "
+  CREATE INDEX ON :User(id);
+  "
+)
+
+; Path inside the container
+(dbclient/defquery import-pokec-medium-nodes
+  "
+  LOAD CSV FROM '/opt/memgraph/datasets/pokec_medium/nodes.csv' WITH HEADER AS row
+  CREATE (:User {id: row.id});
+  ")
+
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 

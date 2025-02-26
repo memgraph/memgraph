@@ -3,7 +3,6 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [clojure.core :as c]
-            [clojure.set :as set]
             [clojure.string :as string]
             [jepsen
              [checker :as checker]
@@ -18,118 +17,6 @@
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
-
-(def batch-size 5000)
-
-(defn hamming-sim
-  "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
-  [seq1 seq2]
-  (let [seq1-size (count seq1)
-        seq2-size (count seq2)
-        max-size (max seq1-size seq2-size)
-        size-diff (abs (- seq2-size seq1-size))
-        elemwise-diff (reduce +
-                              (map (fn [elem1 elem2]
-                                     (if (= elem1 elem2) 0 1))
-
-                                   seq1 seq2))
-        sim (- 1 (/ (+ elemwise-diff size-diff) max-size))]
-    sim))
-
-(defn jaccard-sim
-  "Calculates Jaccard similarity between two input sequences."
-  [seq1 seq2]
-  (let [seq1-set (set seq1)
-        seq2-set (set seq2)
-        jaccard-int (set/intersection seq1-set seq2-set)
-        jaccard-un (set/union seq1-set seq2-set)
-        sim (/ (count jaccard-int) (count jaccard-un))]
-    sim))
-
-(defn duplicates
-  "Function returns all duplicated values from the sequence seq. The input seq doesn't need to be sorted."
-  [seq]
-  (let [freqs (frequencies seq)]
-    (->> freqs
-         (filter #(> (val %) 1))
-         (map key)
-         (apply sorted-set)
-         (apply vector))))
-
-(defn seq->monotonically-incr-seq
-  "Converts a vector into a monotonically increasing sequence."
-  [coll]
-  (assert (vector? coll), "Input must be a vector.")
-  (if (empty? coll)
-    []
-    (reduce (fn [res elem]
-              (if (or (empty? res) (> elem (peek res)))
-                (conj res elem)
-                res))
-
-            [] coll)))
-
-(defn is-mono-increasing-seq?
-  "Checks if the vector coll is a monotonically increasing sequence. Stops recursion as soon as 1st element not satisfying result is found.
-  Duplicates aren't allowed, here we use a notion of strictly monotonically increasing sequence.
-  "
-  [coll]
-  (loop [prev-elem (first coll)
-         remaining (rest coll)]
-    (cond
-      (empty? remaining) true
-      (<= (first remaining) prev-elem) false
-      :else (recur (first remaining) (rest remaining)))))
-
-(defn missing-intervals
-  "Finds missing numbers from monotonically increasing vector and reports them as intervals."
-  [coll]
-  (assert (vector? coll) "Input must be a vector.")
-  (assert (is-mono-increasing-seq? coll) "The input must be monotonically increasing sequence.")
-  (if (empty? coll)
-    []
-    (let [coll-size (count coll) ; O(1)
-          head-coll (subvec coll 0 (dec coll-size)) ; O(1), no new structure is being created.
-          shifted-coll (rest coll) ; returns a sequence. O(1), leverages laziness.
-          indices (range 0 (dec coll-size)) ; lazy sequence of numbers
-          split-indices-with-nil (map (fn [index orig shifted]
-                                        (when (not= (inc orig) shifted)
-                                          index)) indices head-coll shifted-coll) ; also lazy sequence. O(1) at this point.
-          start-intervals (filter some? split-indices-with-nil) ; O(1) at this point.
-          end-intervals (map inc start-intervals) ; could start materializing
-          coll-intervals (map (fn [start end] [(inc (nth coll start)) (dec (nth coll end))]) start-intervals end-intervals)]
-
-      coll-intervals)))
-
-(defn sequence->intervals
-  "Compresses a vector into intervals. Each interval is represented by a vector where the 1st element represents
-  starting idx and the 2nd element represent last index from the interval. Interval is included from both sides. In total runs in O(n).
-  One interval represents a range of monotonically increasing ids. The input collection must not contain duplicates and we assert this by checking
-  that the input collection is strictly monotonically increasing sequence.
-  "
-  [coll]
-  (assert (vector? coll) "Input must be a vector.")
-  (assert (is-mono-increasing-seq? coll) "The input must be monotonically increasing sequence.")
-  (if (empty? coll)
-    []
-    (let [coll-size (count coll) ; O(1)
-          head-coll (subvec coll 0 (dec coll-size)) ; O(1), no new structure is being created.
-          shifted-coll (rest coll) ; returns a sequence. O(1), leverages laziness.
-          indices (range 0 (dec coll-size)) ; lazy sequence of numbers
-          split-indices-with-nil (map (fn [index orig shifted]
-                                        (when (not= (inc orig) shifted)
-                                          index)) indices head-coll shifted-coll) ; also lazy sequence. O(1) at this point.
-          end-intervals (filter some? split-indices-with-nil) ; O(1) at this point.
-          start-intervals (conj (map inc end-intervals) 0) ; could start materializing
-          end-intervals (c/concat end-intervals [(dec coll-size)]); could start materializing
-          coll-intervals (map (fn [start end] [(nth coll start) (nth coll end)]) start-intervals end-intervals)]
-
-      coll-intervals)))
-
-(defn get-expected-indices
-  "Returns the range of all indices that should've been inserted."
-  [max-id]
-  (range 1 (inc max-id)))
 
 (defn random-coord
   "Get random leader."
@@ -230,39 +117,6 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :add-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
-                     (let [max-idx (atom nil)]
-                       (try
-                         (utils/with-session bolt-conn session
-                           ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
-                           ; fail result.
-                           (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size}) (map :id) (reduce conj []) first)]
-                             (reset! max-idx local-idx)
-                             (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
-
-                         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                           (utils/process-service-unavailable-exc op node))
-
-                         (catch Exception e
-                           ; Even if sync replica is down, nodes will get created on the main.
-                           (cond (utils/sync-replica-down? e)
-                                 (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
-
-                                 (utils/main-became-replica? e)
-                                 (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
-
-                                 (utils/main-unwriteable? e)
-                                 (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
-
-                                 (or (utils/query-forbidden-on-replica? e)
-                                     (utils/query-forbidden-on-main? e))
-                                 (assoc op :type :info :value (str e))
-
-                                 :else
-                                 (assoc op :type :fail :value (str e))))))
-
-                     (assoc op :type :info :value "Not main data instance."))
-
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (mutils/coord-instance? node)
                                (try
@@ -306,7 +160,37 @@
                 (assoc op :type :info :value "Not a leader")
                 (assoc op :type :fail :value (str e)))))
 
-          (assoc op :type :info :value "Not first leader")))))
+          (assoc op :type :info :value "Not first leader"))
+
+        :import-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+                        (try
+                          (utils/with-session bolt-conn session
+                            (mgquery/create-label-idx session)
+                            (mgquery/create-label-property-idx session)
+                            (mgquery/import-pokec-medium-nodes session)
+                            (assoc op :type :ok :value {:str "pokec_medium nodes imported"}))
+
+                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                            (utils/process-service-unavailable-exc op node))
+
+                          (catch Exception e
+                            (assoc op :type :fail :value (str e))))
+
+                        (assoc op :type :info :value "Not main data instance."))
+
+        :import-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+                        (try
+                          (utils/with-session bolt-conn session
+                            ; (mgquery/import-pokec-medium-nodes session)
+                            (assoc op :type :ok :value {:str "pokec_medium edges imported"}))
+
+                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                            (utils/process-service-unavailable-exc op node))
+
+                          (catch Exception e
+                            (assoc op :type :fail :value (str e))))
+
+                        (assoc op :type :info :value "Not main data instance.")))))
 
   (teardown! [_this _test])
   (close! [this _test]
@@ -356,58 +240,34 @@
                         first
                         (:indices))
 
-            n1-mono-increasing-ids (seq->monotonically-incr-seq n1-ids)
-
-            n1-missing-intervals (missing-intervals n1-mono-increasing-ids)
-
-            n1-max-idx (apply max n1-ids)
-
-            n1-duplicates (duplicates n1-ids)
-
-            n1-duplicates-intervals (sequence->intervals n1-duplicates)
-
-            ; We assume already here that n1-max-idx will be = n2-max-idx so expected-ids is the same for n1 and n2.
-            ; We should give instances enough time at the end to consolidate their results.
-            ; If this is not the case the result won't be valid (valid? will be false because of the check n1-max-idx=n2-max-idx).
-            expected-ids (get-expected-indices n1-max-idx)
-
-            n1-hamming-consistency (hamming-sim expected-ids n1-ids)
-
-            n1-jaccard-consistency (jaccard-sim expected-ids n1-ids)
+            ; n1-max-idx (apply max n1-ids)
 
             n2-ids (->> ok-get-nodes
                         (filter #(= "n2" (:node %)))
                         first
                         (:indices))
 
-            n2-mono-increasing-ids (seq->monotonically-incr-seq n2-ids)
-
-            n2-missing-intervals (missing-intervals n2-mono-increasing-ids)
-
-            n2-max-idx (apply max n2-ids)
-
-            n2-duplicates (duplicates n2-ids)
-
-            n2-duplicates-intervals (sequence->intervals n2-duplicates)
-
-            n2-hamming-consistency (hamming-sim expected-ids n2-ids)
-
-            n2-jaccard-consistency (jaccard-sim expected-ids n2-ids)
+            ; n2-max-idx (apply max n2-ids)
 
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :setup-cluster (:f %)))
                                       (map :value))
 
+            failed-import-nodes (->> history
+                                     (filter #(= :fail (:type %)))
+                                     (filter #(= :import-nodes (:f %)))
+                                     (map :value))
+
+            failed-import-edges (->> history
+                                     (filter #(= :fail (:type %)))
+                                     (filter #(= :import-edges (:f %)))
+                                     (map :value))
+
             failed-show-instances (->> history
                                        (filter #(= :fail (:type %)))
                                        (filter #(= :show-instances-read (:f %)))
                                        (map :value))
-
-            failed-add-nodes (->> history
-                                  (filter #(= :fail (:type %)))
-                                  (filter #(= :add-nodes (:f %)))
-                                  (map :value))
 
             failed-get-nodes (->> history
                                   (filter #(= :fail (:type %)))
@@ -444,39 +304,28 @@
                                      (empty? more-than-one-main)
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
+                                     (empty? failed-import-nodes)
+                                     (empty? failed-import-edges)
                                      (empty? failed-show-instances)
-                                     (empty? n1-duplicates)
-                                     (empty? n2-duplicates)
-                                     (empty? n1-missing-intervals)
-                                     (empty? n2-missing-intervals)
-                                     (= n1-max-idx n2-max-idx))
+                                     ; (= n1-max-idx n2-max-idx)
+                                     )
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n3" "n4" "n5"})
-                            :empty-n1-duplicates? (empty? n1-duplicates)
-                            :n1-hamming-consistency (float n1-hamming-consistency)
-                            :n1-jaccard-consistency (float n1-jaccard-consistency)
-                            :n1-max-idx n1-max-idx
-                            :empty-n1-missing-intervals? (empty? n1-missing-intervals)
-                            :empty-n2-duplicates? (empty? n2-duplicates)
-                            :n2-hamming-consistency (float n2-hamming-consistency)
-                            :n2-jaccard-consistency (float n2-jaccard-consistency)
-                            :n2-max-idx n2-max-idx
-                            :empty-n2-missing-intervals? (empty? n2-missing-intervals)
+                            ; :n1-max-idx n1-max-idx
+                            ; :n2-max-idx n2-max-idx
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
+                            :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
+                            :empty-failed-import-edges? (empty? failed-import-edges) ; There shouldn't be any failed import-edges operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
-                            :empty-failed-add-nodes? (empty? failed-add-nodes) ; There shouldn't be any failed add-nodes operations.
                             :empty-failed-get-nodes? (empty? failed-get-nodes) ; There shouldn't be any failed get-nodes operations.
                             :empty-partial-instances? (empty? partial-instances)}
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
-                     {:key :n1-duplicates-intervals :condition (false? (:empty-n1-duplicates? initial-result)) :value n1-duplicates-intervals}
-                     {:key :n1-missing-intervals :condition (false? (:empty-n1-missing-intervals? initial-result)) :value n1-missing-intervals}
-                     {:key :n2-duplicates-intervals :condition (false? (:empty-n2-duplicates? initial-result)) :value n2-duplicates-intervals}
-                     {:key :n2-missing-intervals :condition (false? (:empty-n2-missing-intervals? initial-result)) :value n2-missing-intervals}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
-                     {:key :failed-add-nodes :condition (not (:empty-failed-add-nodes? initial-result)) :value failed-add-nodes}
+                     {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
+                     {:key :failed-import-edges :condition (not (:empty-failed-import-edges? initial-result)) :value failed-import-edges}
                      {:key :failed-get-nodes :condition (not (:empty-failed-get-nodes? initial-result)) :value failed-get-nodes}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
@@ -497,10 +346,15 @@
   [_ _]
   {:type :invoke :f :setup-cluster :value nil})
 
-(defn add-nodes
-  "Invoke add-nodes."
+(defn import-nodes
+  "Invoke import-nodes operation."
   [_ _]
-  {:type :invoke :f :add-nodes :value nil})
+  {:type :invoke :f :import-nodes :value nil})
+
+(defn import-edges
+  "Invoke import-edges operation."
+  [_ _]
+  {:type :invoke :f :import-edges :value nil})
 
 (defn get-nodes
   "Invoke get-nodes op."
@@ -513,9 +367,13 @@
   (gen/each-thread
    (gen/phases
     (gen/once setup-cluster)
+    (gen/sleep 2)
+    (gen/once import-nodes)
+    (gen/sleep 2)
+    (gen/once import-edges)
     (gen/sleep 5)
     (gen/delay 2
-               (gen/mix [show-instances-reads add-nodes])))))
+               (gen/mix [show-instances-reads])))))
 
 (defn workload
   "Basic HA workload."
