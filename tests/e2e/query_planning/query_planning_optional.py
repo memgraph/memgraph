@@ -78,11 +78,12 @@ def test_match_optional_match_uses_edge_indices_if_input_branch_symbols_dont_mat
     memgraph.execute("CREATE EDGE INDEX ON :ET1")
 
     expected_explain = [
-        f" * Produce {{r}}",
+        f" * Produce {{n, r}}",
         f" * Optional",
         f" |\\ ",
-        f" | * ScanAllByEdgeType (anon1)-[r:ET1]-(anon2)",
+        f" | * ScanAllByEdgeType (anon2)-[r:ET1]->(anon3)",
         f" | * Once",
+        f" * ScanAll (n)",
         f" * Once",
     ]
 
@@ -99,16 +100,20 @@ def test_optional_match_optional_match_uses_edge_indices_if_input_branch_symbols
     memgraph.execute("CREATE EDGE INDEX ON :ET1")
 
     expected_explain = [
-        f" * Produce {{r}}",
+        f" * Produce {{r1, r2}}",
         f" * Optional",
         f" |\\ ",
-        f" | * ScanAllByEdgeType (anon1)-[r:ET1]-(anon2)",
+        f" | * ScanAllByEdgeType (anon4)-[r2:ET1]->(anon5)",
+        f" | * Once",
+        f" * Optional",
+        f" |\\ ",
+        f" | * ScanAllByEdgeType (anon1)-[r1:ET1]->(anon2)",
         f" | * Once",
         f" * Once",
     ]
 
     results = list(
-        memgraph.execute_and_fetch("EXPLAIN OPTIONAL MATCH ()-[:ET1]->() OPTIONAL MATCH ()-[r:ET1]-() RETURN *;")
+        memgraph.execute_and_fetch("EXPLAIN OPTIONAL MATCH ()-[r1:ET1]->() OPTIONAL MATCH ()-[r2:ET1]->() RETURN *;")
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
     print(actual_explain)
