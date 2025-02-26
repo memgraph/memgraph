@@ -11,6 +11,7 @@
 #pragma once
 
 #include <vector>
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -19,7 +20,7 @@ template <typename ErrorType, typename Func, typename... Args>
 void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
                               const std::vector<std::pair<Gid, uint64_t>> &vertex_batches,
                               std::atomic<uint64_t> &batch_counter, const utils::SkipList<Vertex>::Accessor &vertices,
-                              std::optional<SnapshotObserverInfo> snapshot_info, Args &&...args) {
+                              std::optional<SnapshotObserverInfo> const &snapshot_info, Args &&...args) {
   while (!maybe_error.ReadLock()->has_value()) {
     const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
     if (batch_index >= vertex_batches.size()) {
@@ -32,8 +33,8 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
       const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
       if (!violation.has_value()) [[likely]] {
-        if (snapshot_info) {
-          snapshot_info->Update();
+        if (snapshot_info.has_value()) {
+          snapshot_info->Update(UpdateType::VERTICES);
         }
         continue;
       }

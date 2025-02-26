@@ -29,7 +29,7 @@ void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_af
 bool InMemoryLabelIndex::CreateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> snapshot_info) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto create_index_seq = [this, &snapshot_info](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                                        std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());

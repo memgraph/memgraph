@@ -46,7 +46,7 @@ class TypeConstraints {
                                                             const PropertyValue &property_value) const;
   [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(
       utils::SkipList<Vertex>::Accessor vertices,
-      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) const;
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) const;
 
   bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;

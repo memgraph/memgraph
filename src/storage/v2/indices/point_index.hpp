@@ -89,7 +89,7 @@ struct PointIndexStorage {
 
   // Query (modify index set)
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                        std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
 
   // Transaction (establish what to collect + able to build next index)

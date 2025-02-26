@@ -121,13 +121,13 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
-    utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> snapshot_info) const {
+    utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (auto const &vertex : vertices) {
     if (auto violation = Validate(vertex); violation.has_value()) {
       return violation;
     }
     if (snapshot_info) {
-      snapshot_info->Update();
+      snapshot_info->Update(UpdateType::VERTICES);
     }
   }
   return std::nullopt;

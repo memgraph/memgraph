@@ -344,7 +344,7 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
 template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
                                       TIndexKey key, const TFunc &func,
-                                      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
+                                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   try {
@@ -352,7 +352,7 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
       if (snapshot_info) {
-        snapshot_info->Update();
+        snapshot_info->Update(UpdateType::VERTICES);
       }
     }
   } catch (const utils::OutOfMemoryException &) {
@@ -367,7 +367,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
                                          TIndex &index, TIndexKey key,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
                                          const TFunc &func,
-                                         std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
+                                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -386,7 +386,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
-                            &vertices, snapshot_info]() mutable {
+                            &vertices, &snapshot_info]() mutable {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
@@ -400,7 +400,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, key, index_accessor);
               if (snapshot_info) {
-                snapshot_info->Update();
+                snapshot_info->Update(UpdateType::VERTICES);
               }
             }
 

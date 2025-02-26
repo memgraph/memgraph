@@ -95,9 +95,8 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 }
 }  // namespace
 
-bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
-                                         memgraph::utils::SkipList<Vertex>::Accessor vertices,
-                                         std::optional<SnapshotObserverInfo> snapshot_info) {
+bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                                         std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
@@ -141,7 +140,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
     }
 
     if (snapshot_info) {
-      snapshot_info->Update();
+      snapshot_info->Update(UpdateType::POINT_IDX);
     }
   }
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);

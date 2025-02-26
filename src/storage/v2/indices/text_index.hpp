@@ -87,7 +87,8 @@ class TextIndex {
   void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices, NameIdMapper *nameIdMapper);
 
   void RecoverIndex(const std::string &index_name, LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper, std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                    NameIdMapper *name_id_mapper,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   LabelId DropIndex(const std::string &index_name);
 

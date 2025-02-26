@@ -326,6 +326,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     // Clear the database
     storage->Clear();
 
+    std::optional<storage::SnapshotObserverInfo> snapshot_observer_info;
+    snapshot_observer_info.emplace(snapshot_progress_observer, 1'000'000);
+
     try {
       spdlog::debug("Loading snapshot");
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
@@ -333,7 +336,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
-          snapshot_progress_observer);
+          snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
@@ -347,7 +350,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage::durability::RecoverIndicesStatsAndConstraints(
           &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
           storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges,
-          snapshot_progress_observer);
+          snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
                     e.what());

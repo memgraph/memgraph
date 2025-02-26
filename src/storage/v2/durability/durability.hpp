@@ -102,7 +102,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             const std::optional<std::filesystem::path> &storage_dir = std::nullopt,
-                            std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr);
+                            std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 // Helper function used to recover all discovered constraints. The
 // constraints must be recovered after the data recovery is done
@@ -112,12 +112,14 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-                        std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr);
+                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-void RecoverIndicesStatsAndConstraints(
-    utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
-    Config const &config, RecoveryInfo const &recovery_info, RecoveredIndicesAndConstraints const &indices_constraints,
-    bool properties_on_edges, std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr);
+void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                                       Indices *indices, Constraints *constraints, Config const &config,
+                                       RecoveryInfo const &recovery_info,
+                                       RecoveredIndicesAndConstraints const &indices_constraints,
+                                       bool properties_on_edges,
+                                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config);
@@ -125,15 +127,15 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipList<Vertex> *, NameIdMapper *,
                                  const std::optional<ParallelizedSchemaCreationInfo> &,
-                                 std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                                 std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                               utils::SkipList<Vertex> *, NameIdMapper *,
                               const std::optional<ParallelizedSchemaCreationInfo> &,
-                              std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                              std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                             utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
-                            std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                            std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.

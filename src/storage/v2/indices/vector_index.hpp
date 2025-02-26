@@ -110,7 +110,7 @@ class VectorIndex {
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
@@ -185,7 +185,7 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  void UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

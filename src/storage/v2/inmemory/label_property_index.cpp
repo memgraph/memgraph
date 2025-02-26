@@ -36,7 +36,7 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) con
 bool InMemoryLabelPropertyIndex::CreateIndex(
     LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> snapshot_info) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
   auto create_index_seq = [this, &snapshot_info](
                               LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,

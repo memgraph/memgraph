@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
@@ -18,18 +19,25 @@
 #include "utils/observer.hpp"
 
 namespace memgraph::storage {
-struct SnapshotObserverInfo {
-  explicit SnapshotObserverInfo(std::shared_ptr<utils::Observer<void>> observer, uint32_t const item_batch_size)
-      : observer_(std::move(observer)), cnt_(item_batch_size) {}
 
-  void Update() {
-    if (cnt_()) {
+enum class UpdateType : uint8_t { VERTICES, EDGES, TEXT_IDX, POINT_IDX, VECTOR_IDX };
+
+struct SnapshotObserverInfo {
+  explicit SnapshotObserverInfo(std::shared_ptr<utils::Observer<void>> observer,
+                                uint32_t const items_per_progress_batch)
+      : observer_(std::move(observer)), cnt_(items_per_progress_batch) {}
+
+  void Update(UpdateType const update_type) const {
+    if (auto const update_factor = update_factors[static_cast<uint8_t>(update_type)].second; cnt_(update_factor)) {
       observer_->Update();
     }
   }
 
  private:
+  static constexpr std::array<std::pair<UpdateType, uint16_t>, 5> update_factors{
+      std::pair{UpdateType::VERTICES, 1}, std::pair{UpdateType::EDGES, 1}, std::pair{UpdateType::TEXT_IDX, 10},
+      std::pair{UpdateType::POINT_IDX, 10}, std::pair{UpdateType::VECTOR_IDX, 1000}};
   std::shared_ptr<utils::Observer<void>> observer_{nullptr};
-  utils::ResettableRuntimeCounter cnt_;
+  mutable utils::ResettableAtomicCounter cnt_;
 };
 }  // namespace memgraph::storage

@@ -49,7 +49,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
-                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId edge_type) override;

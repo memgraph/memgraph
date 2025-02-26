@@ -20,7 +20,7 @@
 namespace memgraph::storage {
 
 bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
-                                        std::optional<SnapshotObserverInfo> snapshot_info) {
+                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto [it, emplaced] = index_.try_emplace(edge_type);
   if (!emplaced) {
     return false;
@@ -43,7 +43,7 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
           }
           edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
           if (snapshot_info) {
-            snapshot_info->Update();
+            snapshot_info->Update(UpdateType::EDGES);
           }
         }
       }

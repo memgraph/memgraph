@@ -28,7 +28,7 @@ bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) 
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId property,
                                                 utils::SkipList<Vertex>::Accessor vertices,
-                                                std::optional<SnapshotObserverInfo> snapshot_info) {
+                                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto [it, emplaced] = index_.try_emplace({edge_type, property});
   if (!emplaced) {
     return false;
@@ -54,7 +54,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
         auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
         edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
         if (snapshot_info) {
-          snapshot_info->Update();
+          snapshot_info->Update(UpdateType::EDGES);
         }
       }
     }

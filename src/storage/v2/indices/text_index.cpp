@@ -250,7 +250,7 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
-                             std::optional<SnapshotObserverInfo> snapshot_info) {
+                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -270,7 +270,7 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
 
     if (snapshot_info) {
-      snapshot_info->Update();
+      snapshot_info->Update(UpdateType::TEXT_IDX);
     }
   }
 

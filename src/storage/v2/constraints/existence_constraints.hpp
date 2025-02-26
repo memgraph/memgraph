@@ -28,16 +28,16 @@ class ExistenceConstraints {
 
  public:
   struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property,
-                                                  std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+    std::optional<ConstraintViolation> operator()(
+        const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property,
-                                                  std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+    std::optional<ConstraintViolation> operator()(
+        const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
   bool empty() const { return constraints_.empty(); }
@@ -49,7 +49,7 @@ class ExistenceConstraints {
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);

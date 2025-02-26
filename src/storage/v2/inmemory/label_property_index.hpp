@@ -45,7 +45,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
+                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 namespace memgraph::utils {
@@ -26,20 +27,28 @@ auto ResettableCounter() {
   };
 }
 
-struct ResettableRuntimeCounter {
- public:
-  explicit ResettableRuntimeCounter(uint64_t original_size) : original_size_(original_size), current_(original_size) {}
+struct ResettableAtomicCounter {
+  explicit ResettableAtomicCounter(uint64_t const original_size) : original_size_(original_size) {
+    if (original_size == 0) {
+      throw std::invalid_argument("Counter needs to be initialized with a value larger than 0");
+    }
+  }
 
-  bool operator()() {
-    --current_;
-    if (current_ != 0) return false;
-    current_ = original_size_;
-    return true;
+  bool operator()(uint32_t const update_factor) {
+    auto old_value = current_.load(std::memory_order_acquire);
+    while (true) {
+      auto new_value = old_value + update_factor;
+      bool const status = new_value >= original_size_;
+      new_value %= original_size_;
+      if (current_.compare_exchange_weak(old_value, new_value)) {
+        return status;
+      }
+    }
   }
 
  private:
   uint64_t original_size_;
-  uint64_t current_;
+  std::atomic<uint64_t> current_;
 };
 
 }  // namespace memgraph::utils

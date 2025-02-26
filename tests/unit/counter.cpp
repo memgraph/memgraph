@@ -13,15 +13,36 @@
 
 #include "utils/counter.hpp"
 
+using memgraph::utils::ResettableAtomicCounter;
 using memgraph::utils::ResettableCounter;
-using memgraph::utils::ResettableRuntimeCounter;
 
-TEST(Counter, RuntimeCounter) {
-  auto cnt = ResettableRuntimeCounter{2};
-  ASSERT_FALSE(cnt());
-  ASSERT_TRUE(cnt());
-  ASSERT_FALSE(cnt());
-  ASSERT_TRUE(cnt());
+TEST(Counter, RuntimeCounterInc) {
+  auto cnt = ResettableAtomicCounter{2};
+  ASSERT_FALSE(cnt(1));
+  ASSERT_TRUE(cnt(1));
+  ASSERT_FALSE(cnt(1));
+  ASSERT_TRUE(cnt(1));
+}
+
+TEST(Counter, RuntimeCounterLarge) {
+  auto cnt = ResettableAtomicCounter{100};
+  ASSERT_FALSE(cnt(50));
+  ASSERT_FALSE(cnt(40));
+  ASSERT_TRUE(cnt(10));
+}
+
+TEST(Counter, RuntimeCounterLarge2) {
+  auto cnt = ResettableAtomicCounter{100};
+  ASSERT_TRUE(cnt(101));
+}
+
+TEST(Counter, RuntimeCounterLarge3) {
+  auto cnt = ResettableAtomicCounter{100};
+  ASSERT_FALSE(cnt(20));
+  ASSERT_FALSE(cnt(30));
+  ASSERT_FALSE(cnt(30));
+  ASSERT_FALSE(cnt(19));
+  ASSERT_TRUE(cnt(2));
 }
 
 TEST(Counter, CompiletimeCounter) {
