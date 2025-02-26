@@ -20,7 +20,7 @@ namespace impl {
 
 class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
  public:
-  PlanValidator() {}
+  PlanValidator(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
   ~PlanValidator() override = default;
 
@@ -68,6 +68,10 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Optional &op) override {
+    auto io_symbols = op.input_->OutputSymbols(symbol_table_);
+    auto im_symbols = op.input_->ModifiedSymbols(symbol_table_);
+    auto oo_symbols = op.optional_->OutputSymbols(symbol_table_);
+    auto om_symbols = op.optional_->ModifiedSymbols(symbol_table_);
     if (op.input_->GetTypeInfo() != Once::kType) {
       scope_.in_optional_expand_ = true;
     }
@@ -85,14 +89,15 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   struct Scope {
     bool in_optional_expand_{false};
   };
+  const SymbolTable &symbol_table_;
   bool is_valid_plan_{true};
   Scope scope_;
 };
 
 }  // namespace impl
 
-inline bool ValidatePlan(LogicalOperator &root_op) {
-  auto rewriter = impl::PlanValidator{};
+inline bool ValidatePlan(LogicalOperator &root_op, const SymbolTable &symbol_table) {
+  auto rewriter = impl::PlanValidator{symbol_table};
   root_op.Accept(rewriter);
   return rewriter.IsValidPlan();
 }

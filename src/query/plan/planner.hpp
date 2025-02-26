@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,7 +73,9 @@ class PostProcessor final {
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
   }
 
-  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan) { return query::plan::ValidatePlan(*plan); }
+  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {
+    return query::plan::ValidatePlan(*plan, table);
+  }
 
   template <class TVertexCounts>
   PlanCost EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
@@ -130,7 +132,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      if (!post_process->IsValidPlan(rewritten_plan)) {
+      if (!post_process->IsValidPlan(rewritten_plan, *context->symbol_table)) {
         continue;
       }
       valid_plan_found = true;
