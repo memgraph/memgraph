@@ -17,7 +17,7 @@ from common import memgraph
 QUERY_PLAN = "QUERY PLAN"
 
 
-def test_indexed_join_with_indices(memgraph):
+def test_optional_match_doesnt_use_edge_indices(memgraph):
     memgraph.execute("CREATE (org :Org{name: 'big corp'})")
     memgraph.execute("CREATE (org)-[:WORKS_AT]->(person1 :Person{name: 'john'})")
     memgraph.execute("CREATE (org)-[:WORKS_AT]->(person2 :Person{name: 'ada'})")
@@ -30,14 +30,14 @@ def test_indexed_join_with_indices(memgraph):
 
     expected_explain = [
         f" * Produce {{person.name, kid_names}}",
-        f" * Aggregate {{COLLECT-1}} {{person}}"
-        f" * Optional"
-        f" |\\ "
-        f" | * Expand (person)-[anon3:HAS_KID]->(kid)"
-        f" | * Once"
-        f" * Expand (org)-[anon1:WORKS_AT]->(person)"
-        f" * Filter (org :Org), {{org.name}}"
-        f" * ScanAll (org)"
+        f" * Aggregate {{COLLECT-1}} {{person}}",
+        f" * Optional",
+        f" |\\ ",
+        f" | * Expand (person)-[anon3:HAS_KID]->(kid)",
+        f" | * Once",
+        f" * Expand (org)-[anon1:WORKS_AT]->(person)",
+        f" * Filter (org :Org), {{org.name}}",
+        f" * ScanAll (org)",
         f" * Once"
     ]
 
