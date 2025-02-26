@@ -819,14 +819,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2871,11 +2878,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
@@ -3103,9 +3110,14 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
-        auto maybe_index_error = global_index         ? dba->CreateGlobalEdgeIndex(properties[0])
-                                 : properties.empty() ? dba->CreateIndex(edge_type)
-                                                      : dba->CreateIndex(edge_type, properties[0]);
+        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error;
+        if (global_index) {
+          if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+          maybe_index_error = dba->CreateGlobalEdgeIndex(properties[0]);
+        } else {
+          maybe_index_error =
+              properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
+        }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3123,9 +3135,14 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = global_index         ? dba->DropGlobalEdgeIndex(properties[0])
-                                 : properties.empty() ? dba->DropIndex(edge_type)
-                                                      : dba->DropIndex(edge_type, properties[0]);
+
+        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error;
+        if (global_index) {
+          if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+          maybe_index_error = dba->DropGlobalEdgeIndex(properties[0]);
+        } else {
+          maybe_index_error = properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
+        }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {

@@ -80,7 +80,8 @@ bool InMemoryEdgePropertyIndex::Entry::operator<(const PropertyValue &rhs) const
 
 bool InMemoryEdgePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-bool InMemoryEdgePropertyIndex::CreateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
+bool InMemoryEdgePropertyIndex::CreateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto [it, emplaced] = index_.try_emplace(property);
   if (!emplaced) {
     return false;
@@ -102,6 +103,9 @@ bool InMemoryEdgePropertyIndex::CreateIndex(PropertyId property, utils::SkipList
         }
         auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
         edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, type, 0});
+        if (snapshot_info) {
+          snapshot_info->Update(UpdateType::EDGES);
+        }
       }
     }
   } catch (const utils::OutOfMemoryException &) {
@@ -389,7 +393,7 @@ void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
       continue;
     }
 
