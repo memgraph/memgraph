@@ -32,12 +32,13 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAllByEdge &op) override {
     is_valid_plan_ = false;
-    return true;
+    return false;
   }
 
   bool PreVisit(ScanAllByEdgeType &op) override {
     if (scope_.in_optional) {
       is_valid_plan_ = false;
+      return false;
     }
     return true;
   }
@@ -45,6 +46,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
     if (scope_.in_optional) {
       is_valid_plan_ = false;
+      return false;
     }
     return true;
   }
@@ -52,6 +54,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
     if (scope_.in_optional) {
       is_valid_plan_ = false;
+      return false;
     }
     return true;
   }
@@ -59,6 +62,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
     if (scope_.in_optional) {
       is_valid_plan_ = false;
+      return false;
     }
     return true;
   }
