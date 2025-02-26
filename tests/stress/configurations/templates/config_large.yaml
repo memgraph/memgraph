@@ -1,0 +1,55 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
+  args:
+    - "--telemetry-enabled=false"
+    - "--bolt-server-name-for-init=Neo4j/"
+    - "--storage-properties-on-edges=true"
+    - "--storage-snapshot-on-exit=true"
+    - "--storage-snapshot-interval-sec=600"
+    - "--storage-snapshot-retention-count=1"
+    - "--storage-wal-enabled=true"
+    - "--query-execution-timeout-sec=1200"
+    - "--log-file=stress_test.log"
+    - "--log-level=TRACE"
+    - "--also-log-to-stderr=true"
+    - "--data-directory=stress_data"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests:
+    - name: bipartite.py
+      test_args:
+        - "--u-count=300"
+        - "--v-count=300"
+      timeout_min: 30
+    - name: detach_delete.py
+      test_args:
+        - "--worker-count=4"
+        - "--repetition-count=300"
+      timeout_min: 5
+    - name: create_match.py
+      test_args:
+        - "--vertex-count=500000"
+        - "--create-pack-size=500"
+      timeout_min: 30
+    - name: long_running.cpp
+      test_args:
+        - "--vertex-count=10000"
+        - "--edge-count=40000"
+        - "--max-time=5"
+        - "--verify=60"
+        - "--stats-file=.long_running_stats"
+      timeout_min: 16
+    - name: long_running.cpp
+      test_args:
+        - "--vertex-count=200000"
+        - "--edge-count=1000000"
+        - "--max-time=480"
+        - "--verify=300"
+        - "--stats-file=.long_running_stats"
+      timeout_min: 500
