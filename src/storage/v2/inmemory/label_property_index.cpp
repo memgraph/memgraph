@@ -193,7 +193,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_, self_->view_)) {
       continue;
     }
 
