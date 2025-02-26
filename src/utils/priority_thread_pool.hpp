@@ -63,13 +63,11 @@ class PriorityThreadPool {
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()();
+    void operator()(std::vector<Worker *> workers_pool);
 
-    explicit Worker(PriorityThreadPool &scheduler, uint16_t id) : scheduler_{scheduler}, id_{id} {}
+    explicit Worker(uint16_t id) : id_{id} {}
 
    private:
-    PriorityThreadPool &scheduler_;  // TODO Could be removed; check perf
-
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     std::priority_queue<Work> work_;
@@ -85,19 +83,13 @@ class PriorityThreadPool {
     friend class PriorityThreadPool;
   };
 
-  inline void set_hot_thread(uint64_t id);
-  inline void reset_hot_thread(uint64_t id);
-  inline int get_hot_thread();
-
  private:
   std::vector<Worker *> work_buckets_;
   std::vector<Worker *> hp_work_buckets_;  // TODO Unify
   utils::Scheduler monitoring_;
 
-  std::atomic<uint64_t> id_{std::numeric_limits<int64_t>::max()};  // MSB signals high prior
-
-  std::atomic<uint64_t> tid_{0};
-  std::atomic<uint64_t> hot_threads_{0};  // TODO Make it actually work for more than 64 t
+  std::atomic<uint64_t> id_;  // MSB signals high prior
+  std::atomic<uint16_t> tid_;
 
   std::vector<std::jthread> pool_;
   std::stop_source pool_stop_source_;

@@ -12,6 +12,7 @@
 #include "utils/priority_thread_pool.hpp"
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <mutex>
@@ -23,6 +24,9 @@
 #include "utils/priorities.hpp"
 
 namespace {
+constexpr uint64_t kMaxLowPriorityId = std::numeric_limits<int64_t>::max();
+constexpr uint64_t kMinHighPriorityId = kMaxLowPriorityId;
+
 // std::barrier seems to have a bug which leads to missed notifications, so some threads block forever
 class SimpleBarrier {
  public:
@@ -70,11 +74,42 @@ struct yielder {
  private:
   uint_fast32_t count{0};
 };
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::array<std::atomic<uint64_t>, 1024U / 64U> hot_threads_{};
+inline void set_hot_thread(const uint64_t id) {
+  hot_threads_[id / 64U].fetch_or(1UL << (id & 63U), std::memory_order::acq_rel);
+}
+inline void reset_hot_thread(const uint64_t id) {
+  hot_threads_[id / 64U].fetch_and(~(1UL << (id & 63U)), std::memory_order::acq_rel);
+}
+inline std::optional<uint16_t> get_hot_thread(const size_t n_threads) {
+  const auto n_groups = (n_threads - 1) / 64U + 1;
+  for (size_t group_i = 0; group_i < n_groups; ++group_i) {
+    auto &group = hot_threads_[group_i];
+    auto group_threads = group.load(std::memory_order::acquire);
+    if (group_threads == 0) continue;               // No hot thread in this group
+    uint16_t id = std::countr_zero(group_threads);  // get first hot thread in group
+    auto next_ht = group_threads & ~(1UL << id);    // reset
+    while (!group.compare_exchange_weak(group_threads, next_ht, std::memory_order::acq_rel)) {
+      if (group_threads == 0) break;           // No hot thread in this group
+      id = std::countr_zero(group_threads);    // new id
+      next_ht = group_threads & ~(1UL << id);  // reset
+    }
+    if (group_threads != 0) return id + (group_i * 64U);
+  }
+  return {};
+}
 }  // namespace
 
 namespace memgraph::utils {
 
-PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count) {
+PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count)
+    : id_{kMaxLowPriorityId}, tid_{0} {
+  MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
+  MG_ASSERT(mixed_work_threads_count <= 1024, "PriorityThreadPool supports a maximum of 1024 mixed work threads");
+  MG_ASSERT(high_priority_threads_count > 0, "PriorityThreadPool requires at least one high priority work thread");
+
   pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
   work_buckets_.resize(mixed_work_threads_count);
   hp_work_buckets_.resize(high_priority_threads_count);
@@ -84,20 +119,20 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
-      Worker worker(*this, i);
+      Worker worker(i);
       // Divide work by each thread
       work_buckets_[i] = &worker;
       barrier.arrive_and_wait();
-      worker.operator()<Priority::LOW>();
+      worker.operator()<Priority::LOW>(work_buckets_);
     });
   }
 
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
-      Worker worker(*this, i);
+      Worker worker(i);
       hp_work_buckets_[i] = &worker;
       barrier.arrive_and_wait();
-      worker.operator()<Priority::HIGH>();
+      worker.operator()<Priority::HIGH>(work_buckets_);
     });
   }
 
@@ -128,10 +163,10 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
         worker->work_.pop();
         l.unlock();
 
-        uint64_t tid = get_hot_thread();
-        if (tid >= work_buckets_.size()) {
+        auto tid = get_hot_thread(work_buckets_.size());
+        if (!tid) {
           // No LP threads available; schedule HP work to HP thread
-          if (work.id > std::numeric_limits<int64_t>::max()) {
+          if (work.id > kMinHighPriorityId) {
             static size_t last_hp_thread = 0;
             auto &hp_worker =
                 hp_work_buckets_[hp_work_buckets_.size() > 1 ? last_hp_thread++ % hp_work_buckets_.size() : 0];
@@ -142,7 +177,7 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
           }
           tid = (worker_id + 1) % work_buckets_.size();
         }
-        work_buckets_[tid]->push(std::move(work.work), work.id);
+        work_buckets_[*tid]->push(std::move(work.work), work.id);
       }
     }
   });
@@ -178,13 +213,17 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
   }
-  const auto id = (uint64_t(priority == Priority::HIGH) * std::numeric_limits<int64_t>::max()) +
+  const auto id = (uint64_t(priority == Priority::HIGH) * kMinHighPriorityId) +
                   --id_;  // Way to priorities hp tasks (overflow concerns)
-  uint64_t tid = get_hot_thread();
-  if (tid >= work_buckets_.size()) {
-    tid = tid_++ % work_buckets_.size();
+  auto tid = get_hot_thread(work_buckets_.size());
+  if (!tid) {
+    const auto max_wakeup_thread =
+        std::min(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+                 work_buckets_.size());  // Limit the number of directly used threads when there are more workers then
+                                         // hw threads. Gives better overall performance.
+    tid = tid_++ % max_wakeup_thread;
   }
-  work_buckets_[tid]->push(std::move(new_task), id);
+  work_buckets_[*tid]->push(std::move(new_task), id);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
 }
@@ -207,13 +246,12 @@ void PriorityThreadPool::Worker::stop() {
 }
 
 template <Priority ThreadPriority>
-void PriorityThreadPool::Worker::operator()() {
+void PriorityThreadPool::Worker::operator()(std::vector<Worker *> workers_pool) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
-  const auto workers = std::invoke([&, ptr = this] {
-    auto workers = scheduler_.work_buckets_;
-    workers.erase(std::find(workers.begin(), workers.end(), ptr));
-    return workers;
+  const auto workers = std::invoke([workers_pool = std::move(workers_pool), ptr = this]() mutable {
+    workers_pool.erase(std::find(workers_pool.begin(), workers_pool.end(), ptr));
+    return workers_pool;
   });
 
   std::optional<TaskSignature> task;
@@ -244,7 +282,7 @@ void PriorityThreadPool::Worker::operator()() {
 
     working_.store(false, std::memory_order_release);
     if constexpr (ThreadPriority != Priority::HIGH) {
-      scheduler_.set_hot_thread(id_);
+      set_hot_thread(id_);
     }
 
     // Phase 2A - try to steal work
@@ -260,7 +298,7 @@ void PriorityThreadPool::Worker::operator()() {
         // HP threads can only steal HP work
         if constexpr (ThreadPriority == Priority::HIGH) {
           // If LP work, skip
-          if (worker->work_.top().id <= std::numeric_limits<int64_t>::max()) continue;
+          if (worker->work_.top().id <= kMaxLowPriorityId) continue;
         }
 
         // Update flag as soon as possible
@@ -279,7 +317,7 @@ void PriorityThreadPool::Worker::operator()() {
     // Phase 2B - check results and spin to execute
     if (task) {
       if constexpr (ThreadPriority != Priority::HIGH) {
-        scheduler_.reset_hot_thread(id_);
+        reset_hot_thread(id_);
       }
       continue;
     }
@@ -295,7 +333,7 @@ void PriorityThreadPool::Worker::operator()() {
 
     // Phase 4 - go to sleep
     if constexpr (ThreadPriority != Priority::HIGH) {
-      scheduler_.reset_hot_thread(id_);
+      reset_hot_thread(id_);
     }
     {
       auto l = std::unique_lock{mtx_};
@@ -304,27 +342,9 @@ void PriorityThreadPool::Worker::operator()() {
   }
 }
 
-void PriorityThreadPool::set_hot_thread(const uint64_t id) {
-  hot_threads_.fetch_or(1UL << id, std::memory_order::acq_rel);
-}
-void PriorityThreadPool::reset_hot_thread(const uint64_t id) {
-  hot_threads_.fetch_and(~(1UL << id), std::memory_order::acq_rel);
-}
-int PriorityThreadPool::get_hot_thread() {
-  auto hot_threads = hot_threads_.load(std::memory_order::acquire);
-  if (hot_threads == 0) return 64;  // Max
-  auto id = std::countr_zero(hot_threads);
-  auto next_ht = hot_threads & ~(1UL << id);
-  while (!hot_threads_.compare_exchange_weak(hot_threads, next_ht, std::memory_order::acq_rel)) {
-    if (hot_threads == 0) return 64;
-    id = std::countr_zero(hot_threads);
-    next_ht = hot_threads & ~(1UL << id);
-  }
-  reset_hot_thread(id);
-  return id;  // TODO This needs to be atomic get/reset
-}
-
 }  // namespace memgraph::utils
 
-template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>();
-template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>();
+template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
+    std::vector<memgraph::utils::PriorityThreadPool::Worker *>);
+template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>(
+    std::vector<memgraph::utils::PriorityThreadPool::Worker *>);
