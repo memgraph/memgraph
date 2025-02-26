@@ -11,6 +11,7 @@
    [tesser.core :as tesser]
    [memgraph.high-availability.bank.test :as habank]
    [memgraph.high-availability.create.test :as hacreate]
+   [memgraph.mtenancy.test :as ha-mt] ; multitenancy + HA test
    [memgraph.replication.bank :as bank]
    [memgraph.replication.large :as large]
    [memgraph.support :as support]))
@@ -56,7 +57,8 @@
   {:bank                      bank/workload
    :large                     large/workload
    :habank                    habank/workload
-   :hacreate                  hacreate/workload})
+   :hacreate                  hacreate/workload
+   :ha-mt                     ha-mt/workload})
 
 (defn compose-gen
   "Composes final generator used in the test from client generator and nemesis generator."
@@ -140,7 +142,7 @@
                    (:workload opts)
                    (throw (Exception. "Workload undefined!")))
         nodes-config (if (:nodes-config opts)
-                       (if (or (= workload :habank) (= workload :hacreate))
+                       (if (or (= workload :habank) (= workload :hacreate) (= workload :ha-mt))
                          (:nodes-config opts)
                          (validate-nodes-configuration (:nodes-config opts))) ; validate only for replication tests.
                        (throw (Exception. "Nodes config flag undefined!")))

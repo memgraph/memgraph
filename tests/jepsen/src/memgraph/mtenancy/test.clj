@@ -1,5 +1,5 @@
-(ns memgraph.high-availability.create.test
-  "Create test for HA."
+(ns memgraph.mtenancy.test
+  "Test for multitenancy with HA."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [clojure.core :as c]
@@ -10,8 +10,8 @@
              [generator :as gen]
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph.high-availability.utils :as hautils]
-            [memgraph.high-availability.create.nemesis :as nemesis]
+            [memgraph.mtenancy.utils :as mutils]
+            [memgraph.mtenancy.nemesis :as nemesis]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
@@ -134,12 +134,12 @@
 (defn random-coord
   "Get random leader."
   [nodes]
-  (nth nodes (+ 3 (rand-int 3)))) ; Assumes that first 3 instances are data instances and last 3 are coordinators.
+  (nth nodes (+ 2 (rand-int 3)))) ; Runs under assumption that first 2 instances are data instances and last 3 are coordinators.
 
 (defn random-data-instance
   "Get random data instance."
   [nodes]
-  (nth nodes (rand-int 3)))
+  (nth nodes (rand-int 2))) ; Runs under assumption that first 2 instances are data instances
 
 (defn register-replication-instances
   "Register replication instances."
@@ -220,7 +220,7 @@
     (let [bolt-conn (:bolt-conn this)
           node (:node this)]
       (case (:f op)
-        :get-nodes (if (hautils/data-instance? node)
+        :get-nodes (if (mutils/data-instance? node)
                      (try
                        (dbclient/with-transaction bolt-conn txn
                          (let [indices (->> (mg-get-nodes txn) (map :id) (reduce conj []))]
@@ -230,7 +230,7 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :add-nodes (if (and (hautils/data-instance? node) (is-main? bolt-conn))
+        :add-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                      (let [max-idx (atom nil)]
                        (try
                          (utils/with-session bolt-conn session
@@ -264,7 +264,7 @@
                      (assoc op :type :info :value "Not main data instance."))
 
 ; Show instances should be run only on coordinators/
-        :show-instances-read (if (hautils/coord-instance? node)
+        :show-instances-read (if (mutils/coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
                                    (let [instances (reduce conj [] (mgquery/get-all-instances session))]
@@ -366,9 +366,9 @@
 
             n1-duplicates-intervals (sequence->intervals n1-duplicates)
 
-            ; We assume already here that n1-max-idx will be = n2-max-idx = n3-max-idx so expected-ids is the same for n1, n2 and n3.
+            ; We assume already here that n1-max-idx will be = n2-max-idx so expected-ids is the same for n1 and n2.
             ; We should give instances enough time at the end to consolidate their results.
-            ; If this is not the case the result won't be valid (valid? will be false because of the check n1-max-idx=n2-max-idx=n3-max-idx).
+            ; If this is not the case the result won't be valid (valid? will be false because of the check n1-max-idx=n2-max-idx).
             expected-ids (get-expected-indices n1-max-idx)
 
             n1-hamming-consistency (hamming-sim expected-ids n1-ids)
@@ -394,25 +394,6 @@
 
             n2-jaccard-consistency (jaccard-sim expected-ids n2-ids)
 
-            n3-ids (->> ok-get-nodes
-                        (filter #(= "n3" (:node %)))
-                        first
-                        (:indices))
-
-            n3-mono-increasing-ids (seq->monotonically-incr-seq n3-ids)
-
-            n3-missing-intervals (missing-intervals n3-mono-increasing-ids)
-
-            n3-max-idx (apply max n3-ids)
-
-            n3-duplicates (duplicates n3-ids)
-
-            n3-duplicates-intervals (sequence->intervals n3-duplicates)
-
-            n3-hamming-consistency (hamming-sim expected-ids n3-ids)
-
-            n3-jaccard-consistency (jaccard-sim expected-ids n3-ids)
-
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :setup-cluster (:f %)))
@@ -424,14 +405,14 @@
                                        (map :value))
 
             failed-add-nodes (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :add-nodes (:f %)))
-                                       (map :value))
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :add-nodes (:f %)))
+                                  (map :value))
 
             failed-get-nodes (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :get-nodes (:f %)))
-                                       (map :value))
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :get-nodes (:f %)))
+                                  (map :value))
 
             si-reads  (->> history
                            (filter #(= :ok (:type %)))
@@ -439,7 +420,7 @@
                            (map :value))
 
             partial-instances (->> si-reads
-                                   (filter #(not= 6 (count (:instances %)))))
+                                   (filter #(not= 5 (count (:instances %)))))
             ; All reads grouped by node {node->instances}
             coord->instances (->> si-reads
                                   (group-by :node)
@@ -458,7 +439,7 @@
             coordinators (set (keys coord->instances))
 
             initial-result {:valid? (and
-                                     (= coordinators #{"n4" "n5" "n6"})
+                                     (= coordinators #{"n3" "n4" "n5"})
                                      (empty? partial-coordinators)
                                      (empty? more-than-one-main)
                                      (empty? partial-instances)
@@ -466,16 +447,12 @@
                                      (empty? failed-show-instances)
                                      (empty? n1-duplicates)
                                      (empty? n2-duplicates)
-                                     (empty? n3-duplicates)
                                      (empty? n1-missing-intervals)
                                      (empty? n2-missing-intervals)
-                                     (empty? n3-missing-intervals)
-                                     (= n1-jaccard-consistency n2-jaccard-consistency n3-jaccard-consistency 1)
-                                     (= n1-hamming-consistency n2-hamming-consistency n3-hamming-consistency 1)
-                                     (= n1-max-idx n2-max-idx n3-max-idx))
+                                     (= n1-max-idx n2-max-idx))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
-                            :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+                            :correct-coordinators? (= coordinators #{"n3" "n4" "n5"})
                             :empty-n1-duplicates? (empty? n1-duplicates)
                             :n1-hamming-consistency (float n1-hamming-consistency)
                             :n1-jaccard-consistency (float n1-jaccard-consistency)
@@ -486,11 +463,6 @@
                             :n2-jaccard-consistency (float n2-jaccard-consistency)
                             :n2-max-idx n2-max-idx
                             :empty-n2-missing-intervals? (empty? n2-missing-intervals)
-                            :empty-n3-duplicates? (empty? n3-duplicates)
-                            :n3-hamming-consistency (float n3-hamming-consistency)
-                            :n3-jaccard-consistency (float n3-jaccard-consistency)
-                            :n3-max-idx n3-max-idx
-                            :empty-n3-missing-intervals? (empty? n3-missing-intervals)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
                             :empty-failed-add-nodes? (empty? failed-add-nodes) ; There shouldn't be any failed add-nodes operations.
@@ -503,8 +475,6 @@
                      {:key :n1-missing-intervals :condition (false? (:empty-n1-missing-intervals? initial-result)) :value n1-missing-intervals}
                      {:key :n2-duplicates-intervals :condition (false? (:empty-n2-duplicates? initial-result)) :value n2-duplicates-intervals}
                      {:key :n2-missing-intervals :condition (false? (:empty-n2-missing-intervals? initial-result)) :value n2-missing-intervals}
-                     {:key :n3-duplicates-intervals :condition (false? (:empty-n3-duplicates? initial-result)) :value n3-duplicates-intervals}
-                     {:key :n3-missing-intervals :condition (false? (:empty-n3-missing-intervals? initial-result)) :value n3-missing-intervals}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-add-nodes :condition (not (:empty-failed-add-nodes? initial-result)) :value failed-add-nodes}
                      {:key :failed-get-nodes :condition (not (:empty-failed-get-nodes? initial-result)) :value failed-get-nodes}
@@ -558,8 +528,8 @@
         license (:license opts)]
     {:client    (Client. nodes-config first-leader first-main license organization)
      :checker   (checker/compose
-                 {:hacreate     (checker)
+                 {:ha-mt     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 900}
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 15}
      :nemesis-config (nemesis/create db nodes-config)}))
