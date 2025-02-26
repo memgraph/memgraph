@@ -504,6 +504,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
   };
 }
 
+// TODO This for edge prop index
+
 PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypePropertyIndicesPullChunk() {
   // Dump all edge type property indices
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {

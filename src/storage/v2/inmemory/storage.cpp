@@ -81,6 +81,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(EDGE_INDEX_DROP);
     add_case(EDGE_PROPERTY_INDEX_CREATE);
     add_case(EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
@@ -1462,7 +1464,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
   return {};
 }
 
@@ -1528,7 +1530,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_property_index->DropIndex(property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
@@ -2353,6 +2355,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEdgeTypePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_type_property.edge_type,
                                       md_delta.edge_type_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_property.property);
         });
         break;
       }

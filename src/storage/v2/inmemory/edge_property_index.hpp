@@ -57,7 +57,8 @@ class InMemoryEdgePropertyIndex : public storage::EdgePropertyIndex {
   InMemoryEdgePropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(PropertyId property) override;

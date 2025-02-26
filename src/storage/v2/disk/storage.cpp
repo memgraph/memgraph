@@ -1684,6 +1684,10 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented(
               "Edge-type + property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
+        case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
             return StorageManipulationError{PersistenceError{}};
@@ -1703,6 +1707,10 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
           throw utils::NotYetImplemented(
               "Edge-type + property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);

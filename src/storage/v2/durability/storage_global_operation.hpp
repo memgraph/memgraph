@@ -42,6 +42,8 @@ enum class StorageMetadataOperation {
   POINT_INDEX_DROP,
   VECTOR_INDEX_CREATE,
   VECTOR_INDEX_DROP,
+  GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
+  GLOBAL_EDGE_PROPERTY_INDEX_DROP,
 };
 
 }  // namespace memgraph::storage::durability
