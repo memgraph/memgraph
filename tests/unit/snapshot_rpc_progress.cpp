@@ -78,7 +78,7 @@ using namespace std::literals::chrono_literals;
 
 static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
 static constexpr std::size_t resize_coefficient = 2;
-static constexpr uint16_t kDimension = 16;
+static constexpr uint16_t kDimension = 2;
 static constexpr uint16_t kCapacity = 16;
 
 class SnapshotRpcProgressTest : public ::testing::Test {
@@ -480,10 +480,15 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
 
+  const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+      std::pair{prop, PropertyValue{std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)}}}};
+
   {
     auto acc = vertices.access();
     for (uint32_t i = 1; i <= 8; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.labels.emplace_back(label);
+      vertex.properties.InitProperties(prop_data);
       auto [_, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
     }
