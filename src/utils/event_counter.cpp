@@ -89,6 +89,7 @@
   M(ActiveSSLSessions, Session, "Number of active SSL connections.")                                                   \
   M(ActiveWebSocketSessions, Session, "Number of active websocket connections.")                                       \
   M(BoltMessages, Session, "Number of Bolt messages sent.")                                                            \
+  M(ConnectionsAccepted, Session, "Total number of accepted connections.")                                             \
                                                                                                                        \
   M(ActiveTransactions, Transaction, "Number of active transactions.")                                                 \
   M(CommitedTransactions, Transaction, "Number of committed transactions.")                                            \
