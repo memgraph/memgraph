@@ -41,6 +41,7 @@ struct QueryUserOrRole {
                             UserPolicy *policy) const = 0;
 
 #ifdef MG_ENTERPRISE
+  virtual bool CanImpersonate(const std::string &target, UserPolicy *policy) const = 0;
   virtual std::string GetDefaultDB() const = 0;
 #endif
 

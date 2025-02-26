@@ -1952,6 +1952,28 @@ antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::L
 }
 
 /**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitGrantImpersonateUser(MemgraphCypher::GrantImpersonateUserContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_IMPERSONATE_USER;
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyImpersonateUserContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::DENY_IMPERSONATE_USER;
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
+  return auth;
+}
+
+/**
  * @return std::vector<std::string>
  */
 antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) {
@@ -2003,6 +2025,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MULTI_DATABASE_EDIT()) return AuthQuery::Privilege::MULTI_DATABASE_EDIT;
   if (ctx->MULTI_DATABASE_USE()) return AuthQuery::Privilege::MULTI_DATABASE_USE;
   if (ctx->COORDINATOR()) return AuthQuery::Privilege::COORDINATOR;
+  if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

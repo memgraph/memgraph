@@ -88,6 +88,7 @@ memgraphCypherKeyword : cypherKeyword
                       | IDENTIFIED
                       | IF
                       | IGNORE
+                      | IMPERSONATE_USER
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -268,6 +269,8 @@ authQuery : createRole
           | revokeDatabaseFromUserOrRole
           | showDatabasePrivileges
           | setMainDatabase
+          | grantImpersonateUser
+          | denyImpersonateUser
           ;
 
 replicationQuery : setReplicationRole
@@ -413,6 +416,10 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=entitiesList TO userOrRole=userOrRoleName ;
+
+denyImpersonateUser : DENY IMPERSONATE_USER targets=entitiesList TO userOrRole=userOrRoleName ;
+
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
 
 denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
@@ -451,6 +458,7 @@ privilege : CREATE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
           | COORDINATOR
+          | IMPERSONATE_USER
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;

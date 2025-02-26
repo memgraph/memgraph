@@ -691,6 +691,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) override;
 
   /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitGrantImpersonateUser(MemgraphCypher::GrantImpersonateUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitDenyImpersonateUser(MemgraphCypher::DenyImpersonateUserContext *ctx) override;
+
+  /**
    * @return std::vector<std::string>
    */
   antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;

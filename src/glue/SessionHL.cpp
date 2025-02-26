@@ -116,8 +116,20 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
   }
 }
 
-void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user, std::string_view impersonating_user) {
-  // TODO
+void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    throw memgraph::communication::bolt::ClientError(memgraph::license::LicenseCheckErrorToString(
+        memgraph::license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
+  }
+  if (!user_or_role) {
+    throw memgraph::communication::bolt::ClientError(
+        "No session userYou must be logged-in in order to use the impersonate-user feature.");
+  }
+  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy)) {
+    throw memgraph::communication::bolt::ClientError(
+        "Failed to impersonate user '{}'. Make sure you have the right privileges and that the user exists.",
+        impersonated_user);
+  }
 }
 #endif
 }  // namespace
