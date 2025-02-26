@@ -188,7 +188,7 @@ PROCESS_RESULTS() {
         all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/latest"
     done
     INFO "Packing results..."
-    docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
+    docker exec jepsen-control bash -c "tar --ignore-failed-read -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
     docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
     INFO "Result processing (printing and packing) DONE."
 }
