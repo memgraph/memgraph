@@ -68,19 +68,36 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Optional &op) override {
-    auto io_symbols = op.input_->OutputSymbols(symbol_table_);
-    auto im_symbols = op.input_->ModifiedSymbols(symbol_table_);
-    auto oo_symbols = op.optional_->OutputSymbols(symbol_table_);
-    auto om_symbols = op.optional_->ModifiedSymbols(symbol_table_);
-    if (op.input_->GetTypeInfo() != Once::kType) {
+    // create new plan validator that will go into the input branch so we don't recurse
+    // and invalidate the optional_expand flag early
+    if (!IsBranchValid(&op.input_)) {
+      is_valid_plan_ = false;
+      return false;
+    }
+
+    auto input_modified_symbols = op.input_->ModifiedSymbols(symbol_table_);
+    auto optional_modified_symbols = op.optional_->ModifiedSymbols(symbol_table_);
+
+    std::unordered_set<Symbol> input_symbols(input_modified_symbols.begin(), input_modified_symbols.end());
+    std::vector<Symbol> intersection;
+    for (auto symbol : optional_modified_symbols) {
+      if (input_symbols.count(symbol)) {
+        intersection.push_back(symbol);
+        break;
+      }
+    }
+
+    if (!intersection.empty()) {
+      // we should now reject plans which use indexed edge scan since we would like to rather expand from existing
       scope_.in_optional_expand_ = true;
     }
-    return true;
-  }
 
-  bool PostVisit(Optional &op) override {
+    op.optional_->Accept(*this);
+
     scope_.in_optional_expand_ = false;
-    return true;
+
+    // we have manually gotten through the input and the optional so we can quit the execution
+    return false;
   }
 
   bool IsValidPlan() { return is_valid_plan_; }
@@ -92,6 +109,12 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   const SymbolTable &symbol_table_;
   bool is_valid_plan_{true};
   Scope scope_;
+
+  bool IsBranchValid(std::shared_ptr<LogicalOperator> *branch) {
+    auto rewriter = PlanValidator{symbol_table_};
+    (*branch)->Accept(rewriter);
+    return rewriter.IsValidPlan();
+  }
 };
 
 }  // namespace impl
