@@ -1184,7 +1184,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       int64_t vertex_count = db_->VerticesCount(GetLabel(label), {GetProperty(property)});
       std::optional<storage::LabelPropertyIndexStats> new_stats =
-          db_->GetIndexStats(GetLabel(label), GetProperty(property));
+          db_->GetIndexStats(GetLabel(label), {GetProperty(property)});
 
       if (!found || vertex_count * 10 < found->vertex_count) {
         found = LabelPropertyIndex{label, filter, vertex_count, new_stats};

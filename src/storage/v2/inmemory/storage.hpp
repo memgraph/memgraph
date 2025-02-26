@@ -255,14 +255,6 @@ class InMemoryStorage final : public Storage {
           static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label);
     }
 
-    // @TODO do we need this method? Or just have the vec<PropertyId> version?
-    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                  const storage::PropertyId &property) const override {
-      return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-          std::make_pair(label, std::vector<PropertyId>{property}));
-    }
-
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const override {
       return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(

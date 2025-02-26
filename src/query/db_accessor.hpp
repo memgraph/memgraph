@@ -533,11 +533,6 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label);
   }
 
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                const storage::PropertyId &property) const {
-    return accessor_->GetIndexStats(label, property);
-  }
-
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const {
     return accessor_->GetIndexStats(label, properties);

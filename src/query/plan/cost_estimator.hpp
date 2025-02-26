@@ -156,7 +156,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, {logical_op.property_});
     if (index_stats.has_value()) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
@@ -220,7 +220,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, {logical_op.property_});
     if (index_stats.has_value()) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
@@ -255,7 +255,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelProperty &logical_op) override {
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, {logical_op.property_});
     if (index_stats.has_value()) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }

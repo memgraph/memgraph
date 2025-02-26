@@ -288,9 +288,6 @@ class Storage {
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, const storage::PropertyId &property) const = 0;
-
-    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;

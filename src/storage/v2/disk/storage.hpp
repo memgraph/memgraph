@@ -143,11 +143,6 @@ class DiskStorage final : public Storage {
     }
 
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId & /*label*/, const storage::PropertyId & /*property*/) const override {
-      return {};
-    }
-
-    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId & /*label*/, const std::vector<storage::PropertyId> & /*properties*/) const override {
       return {};
     }
