@@ -343,11 +343,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
-                // Schedule next work
-                // We can just steal this if the task and thread proproty match (loop through)
+                // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
-                  // TODO Think if it is better to use post or schedule it ourselves
-                  boost::asio::post(shared_this->strand_, [shared_this]() { shared_this->DoWork(); });
+                  // Task priority lower; reschedule
+                  shared_this->DoWork();
                   return;
                 }
               } else {

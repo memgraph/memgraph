@@ -90,6 +90,8 @@ class PriorityThreadPool {
 
   std::atomic<uint64_t> id_;  // MSB signals high prior
   std::atomic<uint16_t> tid_;
+  uint16_t max_wakeup_thread_;  // Limit the number of directly used threads when there are more workers than hw
+                                // threads. Gives better overall performance.
 
   std::vector<std::jthread> pool_;
   std::stop_source pool_stop_source_;

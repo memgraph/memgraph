@@ -56,19 +56,19 @@ class SimpleBarrier {
 };
 
 struct yielder {
-  void operator()() noexcept {
+  bool operator()(auto &&f) noexcept {
+    count = 0;
+    while (++count < 1024U) {
+      if (f()) return true;
 #if defined(__i386__) || defined(__x86_64__)
-    __builtin_ia32_pause();
+      __builtin_ia32_pause();
 #elif defined(__aarch64__)
-    asm volatile("YIELD");
+      asm volatile("YIELD");
 #else
 #error("no PAUSE/YIELD instructions for unknown architecture");
 #endif
-    ++count;
-    if (count > 1024U) [[unlikely]] {
-      count = 0;
-      std::this_thread::yield();
     }
+    return false;
   }
 
  private:
@@ -105,7 +105,10 @@ inline std::optional<uint16_t> get_hot_thread(const size_t n_threads) {
 namespace memgraph::utils {
 
 PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count)
-    : id_{kMaxLowPriorityId}, tid_{0} {
+    : id_{kMaxLowPriorityId},
+      tid_{0},
+      max_wakeup_thread_(
+          std::min(static_cast<uint64_t>(std::thread::hardware_concurrency()), mixed_work_threads_count)) {
   MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
   MG_ASSERT(mixed_work_threads_count <= 1024, "PriorityThreadPool supports a maximum of 1024 mixed work threads");
   MG_ASSERT(high_priority_threads_count > 0, "PriorityThreadPool requires at least one high priority work thread");
@@ -217,11 +220,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
                   --id_;  // Way to priorities hp tasks (overflow concerns)
   auto tid = get_hot_thread(work_buckets_.size());
   if (!tid) {
-    const auto max_wakeup_thread =
-        std::min(static_cast<uint64_t>(std::thread::hardware_concurrency()),
-                 work_buckets_.size());  // Limit the number of directly used threads when there are more workers then
-                                         // hw threads. Gives better overall performance.
-    tid = tid_++ % max_wakeup_thread;
+    tid = tid_++ % max_wakeup_thread_;
   }
   work_buckets_[*tid]->push(std::move(new_task), id);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
@@ -326,8 +325,9 @@ void PriorityThreadPool::Worker::operator()(std::vector<Worker *> workers_pool) 
     {
       const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
       yielder y;
-      while (!has_pending_work_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < end) {
-        y();
+      while (std::chrono::steady_clock::now() < end) {
+        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); })) break;
+        std::this_thread::yield();
       }
     }
 
