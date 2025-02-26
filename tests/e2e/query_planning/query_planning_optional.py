@@ -62,10 +62,54 @@ def test_optional_match_uses_edge_indices_if_not_expanding(memgraph):
         f" |\\ ",
         f" | * ScanAllByEdgeType (anon1)-[r:ET1]-(anon2)",
         f" | * Once",
-        f" * Once"
+        f" * Once",
     ]
 
     results = list(memgraph.execute_and_fetch("EXPLAIN OPTIONAL MATCH ()-[r:ET1]-() RETURN *;"))
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    print(actual_explain)
+
+    assert expected_explain == actual_explain
+
+
+def test_match_optional_match_uses_edge_indices_if_input_branch_symbols_dont_match(memgraph):
+    memgraph.execute("UNWIND range(1, 10) as x CREATE ()-[:ET1]->()")
+    memgraph.execute("UNWIND range(1, 100) as x CREATE ()")
+    memgraph.execute("CREATE EDGE INDEX ON :ET1")
+
+    expected_explain = [
+        f" * Produce {{r}}",
+        f" * Optional",
+        f" |\\ ",
+        f" | * ScanAllByEdgeType (anon1)-[r:ET1]-(anon2)",
+        f" | * Once",
+        f" * Once",
+    ]
+
+    results = list(memgraph.execute_and_fetch("EXPLAIN MATCH (n) OPTIONAL MATCH ()-[r:ET1]-() RETURN *;"))
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    print(actual_explain)
+
+    assert expected_explain == actual_explain
+
+
+def test_optional_match_optional_match_uses_edge_indices_if_input_branch_symbols_dont_match(memgraph):
+    memgraph.execute("UNWIND range(1, 10) as x CREATE ()-[:ET1]->()")
+    memgraph.execute("UNWIND range(1, 100) as x CREATE ()")
+    memgraph.execute("CREATE EDGE INDEX ON :ET1")
+
+    expected_explain = [
+        f" * Produce {{r}}",
+        f" * Optional",
+        f" |\\ ",
+        f" | * ScanAllByEdgeType (anon1)-[r:ET1]-(anon2)",
+        f" | * Once",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN OPTIONAL MATCH ()-[:ET1]->() OPTIONAL MATCH ()-[r:ET1]-() RETURN *;")
+    )
     actual_explain = [x[QUERY_PLAN] for x in results]
     print(actual_explain)
 
