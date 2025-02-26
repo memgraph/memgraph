@@ -155,8 +155,8 @@ pushd build
 
 #modify CFLAGS for older CPU support
 if [[ "$for_arm" = false ]]; then
-    export CFLAGS="$CFLAGS -mtune=x64-64-v2 -mavx"
-    export CXXFLAGS="$CXXFLAGS -mtune=x64-64-v2 -mavx"
+    export CFLAGS="$CFLAGS -mtune=generic -mavx"
+    export CXXFLAGS="$CXXFLAGS -mtune=generic -mavx"
 fi
 
 log_tool_name "GCC $GCC_VERSION"
@@ -332,8 +332,8 @@ if [ ! -f $PREFIX/bin/ld.gold ]; then
         env \
             CC=gcc \
             CXX=g++ \
-            CFLAGS="-g -O2 -mtune=x64-64-v2 -mavx" \
-            CXXFLAGS="-g -O2 -mtune=x64-64-v2 -mavx" \
+            CFLAGS="-g -O2 -mtune=generic -mavx" \
+            CXXFLAGS="-g -O2 -mtune=generic -mavx" \
             LDFLAGS="" \
             ../configure \
                 --build=x86_64-linux-gnu \
@@ -398,8 +398,8 @@ if [[ ! -f "$PREFIX/bin/gdb" && "$DISTRO" != "amzn-2" ]]; then
         env \
             CC=gcc \
             CXX=g++ \
-            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -mtune=x64-64-v2 -mavx" \
-            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -mtune=x64-64-v2 -mavx" \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -mtune=generic -mavx" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -mtune=generic -mavx" \
             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
             LDFLAGS="-Wl,-z,relro" \
             PYTHON="" \
@@ -474,8 +474,8 @@ if [ ! -f $PREFIX/bin/cmake ]; then
         echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
         echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
     else
-        echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -mtune=x86-64-v2 -mavx" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
-        echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -mtune=x86-64-v2 -mavx" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
+        echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -mtune=generic -mavx" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
+        echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2 -mtune=generic -mavx" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
     fi
     echo 'set(CMAKE_SKIP_BOOTSTRAP_TEST ON CACHE BOOL "Skip BootstrapTest" FORCE)' >> build-flags.cmake
     echo 'set(BUILD_CursesDialog ON CACHE BOOL "Build curses GUI" FORCE)' >> build-flags.cmake
@@ -558,8 +558,8 @@ if [ ! -f $PREFIX/bin/clang ]; then
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
-            -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option -mtune=x86-64-v2 -mavx' \
-            -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option -mtune=x86-64-v2 -mavx' \
+            -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option -mtune=generic -mavx' \
+            -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option -mtune=generic -mavx' \
             -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
             -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
             -DLLVM_LINK_LLVM_DYLIB=ON \
@@ -695,7 +695,7 @@ if [[ "$arch" =~ arm|aarch64 ]]; then
   echo "CPU arch: ARM"
 else
   isarm=false
-  echo "CPU arch: x86
+  echo "CPU arch: x86"
 fi
 
 
@@ -710,15 +710,15 @@ export ORIG_CFLAGS=\$CFLAGS
 export PATH=\$PREFIX:\$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
-export CXXFLAGS=-isystem\ \$PREFIX/include\  \$CXXFLAGS
-export CFLAGS=-isystem\ \$PREFIX/include\ \$CFLAGS
+export CXXFLAGS="-isystem \$PREFIX/include  \$CXXFLAGS"
+export CFLAGS="-isystem \$PREFIX/include \$CFLAGS"
 export MG_TOOLCHAIN_ROOT=\$PREFIX
 export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
 
 # add CPU related flags if we're running on x86
-if [[ "$isarm" = false ]]; then
-    export CXXFLAGS=-mcpu=86-64-v2 -mavx\ \$CXXFLAGS
-    export CFLAGS=-mcpu=86-64-v2 -mavx\ \$CFLAGS
+if [[ "\$isarm" = false ]]; then
+    export CXXFLAGS="-mtune=generic -mavx \$CXXFLAGS"
+    export CFLAGS="-mtune=generic -mavx \$CFLAGS"
 fi
 
 # disable root
@@ -1095,15 +1095,21 @@ if [ ! -d $PREFIX/include/boost ]; then
     pushd boost_$BOOST_VERSION_UNDERSCORES
     # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
+    if [[ "$for_arm" = "true" ]]; then
+    	boost_cxxflags="-mavx -mtune=generic"
+    else 
+    	boost_cxxflags=""
+    fi
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+        	cxxflags=$boost_cxxflags \
             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
             -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
             -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
             -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
     else
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-            cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
+            cxxflags="-stdlib=libc++ $boost_cxxflags" linkflags="-stdlib=libc++" \
             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
             -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
             -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
