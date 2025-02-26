@@ -549,12 +549,6 @@ class DbAccessor final {
     accessor_->SetIndexStats(label, stats);
   }
 
-  // @TODO is this needed?
-  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                     const storage::LabelPropertyIndexStats &stats) {
-    accessor_->SetIndexStats(label, {property}, stats);
-  }
-
   void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
                      const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, properties, stats);
