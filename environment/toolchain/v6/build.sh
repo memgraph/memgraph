@@ -662,8 +662,8 @@ export ORIG_CFLAGS=\$CFLAGS
 export PATH=\$PREFIX:\$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
-export CXXFLAGS=-isystem\ \$PREFIX/include\ \$CXXFLAGS
-export CFLAGS=-isystem\ \$PREFIX/include\ \$CFLAGS
+export CXXFLAGS=-isystem\ \$PREFIX/include\  -mcpu=86-64-v2 -mavx\ \$CXXFLAGS
+export CFLAGS=-isystem\ \$PREFIX/include\  -mcpu=86-64-v2 -mavx\ \$CFLAGS
 export MG_TOOLCHAIN_ROOT=\$PREFIX
 export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
 
