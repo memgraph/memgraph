@@ -45,12 +45,4 @@ uint64_t DiskLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId /*label
   return 10;
 }
 
-uint64_t DiskLabelPropertyCompositeIndex::ApproximateVertexCount(
-    LabelId /*label*/, const std::vector<PropertyId> & /*properties*/,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*lower*/,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*upper*/) const {
-  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
-  return 10;
-}
-
 }  // namespace memgraph::storage

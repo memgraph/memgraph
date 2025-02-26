@@ -57,9 +57,9 @@ class LabelPropertyIndex {
   virtual uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties) const = 0;
 
   virtual uint64_t ApproximateVertexCount(
-      LabelId label, const std::vector<PropertyId> &properties,
-      const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
-      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const = 0;
+      LabelId label, std::vector<PropertyId> const &properties,
+      std::vector<std::optional<utils::Bound<PropertyValue>>> const &lower,
+      std::vector<std::optional<utils::Bound<PropertyValue>>> const &upper) const = 0;
 
   virtual void DropGraphClearIndices() = 0;
 };

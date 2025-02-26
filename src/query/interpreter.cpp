@@ -2752,8 +2752,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                                .statistic = chi_squared_stat,
                                                .avg_group_size = avg_group_size,
                                                .avg_degree = average_degree};
-          // @TODO put back
-          // execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
+          execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
           label_property_stats.push_back(std::make_pair(label_property, index_stats));
         });
 
@@ -5526,12 +5525,15 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                                        {"count", storage_acc->ApproximateVertexCount(label_id)}}));
       }
       // Vertex label property indices
-      for (const auto &[label_id, property] : index_info.label_property) {
+      for (const auto &[label_id, properties] : index_info.label_property) {
+        auto json_properties = nlohmann::json::array();
+        for (const auto property : properties) {
+          json_properties.emplace_back(storage->PropertyToName(property));
+        }
         node_indexes.push_back(
-            // @TODO do this with composite indices
             nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                    {"properties", {""} /*{storage->PropertyToName(property)}*/},
-                                    {"count", storage_acc->ApproximateVertexCount(label_id, property)}}));
+                                    {"properties", std::move(json_properties)},
+                                    {"count", storage_acc->ApproximateVertexCount(label_id, properties)}}));
       }
       // Vertex label text
       for (const auto &[str, label_id] : index_info.text_indices) {

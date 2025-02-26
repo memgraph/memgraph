@@ -29,10 +29,6 @@ class DiskLabelPropertyCompositeIndex : public storage::LabelPropertyIndex {
 
   uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties) const override;
 
-  uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties,
-                                  const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
-                                  const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const override;
-
   void DropGraphClearIndices() override{};
 };
 
