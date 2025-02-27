@@ -156,7 +156,7 @@ pushd build
 #modify CFLAGS for older CPU support
 CPUFLAGS=""
 if [[ "$for_arm" = false ]]; then
-    CPUFLAGS="-mtune=x86-64-v2 -mavx"
+    CPUFLAGS="-mavx"
     export CFLAGS="$CFLAGS $CPUFLAGS"
     export CXXFLAGS="$CXXFLAGS $CPUFLAGS"
 fi
