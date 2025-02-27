@@ -411,8 +411,7 @@ target_link_libraries(${test_prefix}cpp_api mg-query)
 target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_unit_test(vector_index.cpp)
-target_link_libraries(${test_prefix}vector_index mg-storage-v2)
-target_link_libraries(${test_prefix}vector_index PRIVATE lib::cppitertools)
+target_link_libraries(${test_prefix}vector_index mg-storage-v2 PRIVATE lib::cppitertools)
 
 # Test mg-auth
 if(MG_ENTERPRISE)
