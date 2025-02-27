@@ -2199,6 +2199,7 @@ struct IndexHint {
 
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_;
+  // TODO(composite_index): extend to allow hints for composite indices as well
   std::optional<memgraph::query::PropertyIx> property_{std::nullopt};
 
   IndexHint Clone(AstStorage *storage) const {
