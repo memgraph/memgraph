@@ -152,7 +152,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+property index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_id}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
@@ -309,7 +309,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+property index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_count}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
@@ -2132,7 +2132,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }
     for (const auto &index : indices.label_property) {
       auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
+      ASSERT_FALSE(unique_acc->DropIndex(index.first, {index.second}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto constraints = [&] {

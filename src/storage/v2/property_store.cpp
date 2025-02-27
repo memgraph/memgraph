@@ -482,6 +482,8 @@ class Reader {
 
   uint32_t GetPosition() const { return pos_; }
 
+  void SetPosition(uint32_t pos) { pos_ = pos; }
+
  private:
   template <typename T>
   std::optional<T> InternalReadInt() {
@@ -1226,6 +1228,7 @@ enum class ExpectedPropertyStatus {
 //
 // @sa DecodeAnyProperty
 // @sa CompareExpectedProperty
+// @sa TryDecodeExpectedProperty
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedProperty(Reader *reader, PropertyId expected_property,
                                                             PropertyValue &value) {
   auto metadata = reader->ReadMetadata();
@@ -1243,6 +1246,38 @@ enum class ExpectedPropertyStatus {
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
   return (*property_id < expected_property.AsUint()) ? ExpectedPropertyStatus::SMALLER
                                                      : ExpectedPropertyStatus::GREATER;
+}
+
+// Similar to DecodeExpectedProperty, except that if the `expected_property`
+// would be ordered before the next read property, the reader will not advance
+// over the next property.
+//
+// @sa DecodeExpectedProperty
+// @sa DecodeAnyProperty
+// @sa CompareExpectedProperty
+[[nodiscard]] ExpectedPropertyStatus TryDecodeExpectedProperty(Reader *reader, PropertyId expected_property,
+                                                               PropertyValue &value) {
+  uint32_t const prior_position = reader->GetPosition();
+
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
+
+  if (expected_property.AsUint() < property_id) {
+    reader->SetPosition(prior_position);
+    return ExpectedPropertyStatus::GREATER;
+  }
+
+  if (*property_id == expected_property.AsUint()) {
+    if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value))
+      return ExpectedPropertyStatus::MISSING_DATA;
+    return ExpectedPropertyStatus::EQUAL;
+  }
+  // Don't load the value if this isn't the expected property.
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
+  return ExpectedPropertyStatus::SMALLER;
 }
 
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertySize(Reader *reader, PropertyId expected_property,
@@ -1500,9 +1535,29 @@ enum class ExpectedPropertyStatus {
 // the `value` won't be updated.
 //
 // @sa FindSpecificPropertyAndBufferInfo
+// @sa MatchSpecificProperty
 [[nodiscard]] ExpectedPropertyStatus FindSpecificProperty(Reader *reader, PropertyId property, PropertyValue &value) {
   while (true) {
     auto ret = DecodeExpectedProperty(reader, property, value);
+    // Because the properties are sorted in the buffer, we only need to
+    // continue searching for the property while this function returns a
+    // `SMALLER` value indicating that the ID of the found property is smaller
+    // than the seeked ID. All other return values (`MISSING_DATA`, `EQUAL` and
+    // `GREATER`) terminate the search.
+    if (ret != ExpectedPropertyStatus::SMALLER) {
+      return ret;
+    }
+  }
+}
+
+// Similar to FindSpecificProperty, except that the reader will not consume
+// the next property if it is ordered after the requested property.
+//
+// @sa FindSpecificProperty
+// @sa FindSpecificPropertyAndBufferInfo
+[[nodiscard]] ExpectedPropertyStatus MatchSpecificProperty(Reader *reader, PropertyId property, PropertyValue &value) {
+  while (true) {
+    auto ret = TryDecodeExpectedProperty(reader, property, value);
     // Because the properties are sorted in the buffer, we only need to
     // continue searching for the property while this function returns a
     // `SMALLER` value indicating that the ID of the found property is smaller
@@ -1958,6 +2013,24 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
     for (auto property : properties) {
       if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return std::nullopt;
       values.emplace_back(std::move(value));
+    }
+    return values;
+  };
+  return WithReader(get_property);
+}
+
+std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
+    std::span<PropertyId const> ordered_properties) const {
+  auto get_property = [&](Reader &reader) -> std::vector<PropertyValue> {
+    PropertyValue value;
+    auto values = std::vector<PropertyValue>{};
+    values.reserve(ordered_properties.size());
+    for (auto property : ordered_properties) {
+      if (MatchSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) {
+        values.emplace_back();
+      } else {
+        values.emplace_back(std::move(value));
+      }
     }
     return values;
   };

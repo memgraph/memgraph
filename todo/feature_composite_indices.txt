@@ -1,1 +1,67 @@
 composite index hints ATM not possible in the grammar (hence ANTLR ast) or in the cypher_main_visitor (our AST)
+edge type index ATM not allowing composite index
+
+
+ATM:
+Create/Drop will ignore anything but first property
+
+
+durability:
+    We need a test to make sure old version is still readable DONE v18 test convered that
+    We need a test to make sure a new version is readable
+    v19+ what features have not been added to intergration/durability test
+
+
+C API
+mgp_create_label_property_index
+mgp_drop_label_property_index
+
+Not essential:
+Temporary string creation, not needed...just do it in/via formatter
+* auto properties_stringified = utils::Join(data.properties, ", ");
+
+
+Deduplicate stuff like
+      auto properties_string =
+          properties |
+          ranges::views::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
+          ranges::views::join(", ") | ranges::to<std::string>;
+
+
+IdToName -> std::string_view
+
+Add test for:
+A B C -> Entry must exist in index
+X 2 X
+
+Add test for:
+A B C  -> No entry in index
+X X X
+
+
+Problem: we insert entries on update
+A B C
+1 2 3
+
+1 X X -> entry on SetProperty(A) !! invalidated by MVCC
+1 2 X -> entry on SetProperty(B) !! invalidated by MVCC
+1 2 3 -> entry on SetProperty(C) !! actaully valid after commit
+To only insert one entry, we would have to defer insertion till later
+IN_MEMORY_ANALYTICAL would need an alternative collector that Deltas (maybe like what Andreja did for schema)
+
+We should disallow repeated properties when creating composite indices, such as:
+CREATE INDEX ON :Node(a, b, a)
+
+
+Refactor CreateIndex to populate as we insert, rather than fail + cleanup
+
+
+ROADMAP
+- parallel change approach
+    - add new create DONE
+    - add new drop   DONE
+    - add new update on label
+    - add new update on property
+    - add new for list indices + update tests based on new approach
+    - rewrite rules to use the composite index
+    - ScanAllByLabelPropertyRange fix for composite
