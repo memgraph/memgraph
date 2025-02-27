@@ -91,8 +91,7 @@
              :bolt-conn bolt-conn
              :node-config node-config
              :node node
-             :num-tenants num-tenants
-             )))
+             :num-tenants num-tenants)))
 
 ; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
@@ -171,6 +170,23 @@
                 (assoc op :type :fail :value (str e)))))
 
           (assoc op :type :info :value "Not first leader"))
+
+        :create-databases (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+                            (try
+                              (utils/with-session bolt-conn session
+                                (doseq [id (range 1 (inc num-tenants))]
+                                  (let [db (str "db" id)]
+                                    ((mgquery/create-database db) session)))
+
+                                (assoc op :type :ok :value {:str "Created databases" :num-tenants num-tenants}))
+
+                              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                (utils/process-service-unavailable-exc op node))
+
+                              (catch Exception e
+                                (assoc op :type :fail :value (str e))))
+
+                            (assoc op :type :info :value "Not main data instance."))
 
         :import-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                         (try
@@ -275,6 +291,11 @@
                                       (filter #(= :setup-cluster (:f %)))
                                       (map :value))
 
+            failed-create-databases (->> history
+                                         (filter #(= :fail (:type %)))
+                                         (filter #(= :create-databases (:f %)))
+                                         (map :value))
+
             failed-import-nodes (->> history
                                      (filter #(= :fail (:type %)))
                                      (filter #(= :import-nodes (:f %)))
@@ -330,6 +351,7 @@
                                      (empty? more-than-one-main)
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
+                                     (empty? failed-create-databases)
                                      (empty? failed-import-nodes)
                                      (empty? failed-import-edges)
                                      (empty? failed-show-instances)
@@ -343,6 +365,7 @@
                             :n2-all-nodes? (= pokec-medium-expected-num-nodes n2-num-nodes)
                             :n2-all-edges? (= pokec-medium-expected-num-edges n2-num-edges)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
+                            :empty-failed-create-databases? (empty? failed-create-databases) ; There shouldn't be any failed create-databases operations.
                             :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
                             :empty-failed-import-edges? (empty? failed-import-edges) ; There shouldn't be any failed import-edges operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
@@ -357,6 +380,7 @@
                      {:key :n2-not-all-nodes? :condition (not (:n2-all-nodes? initial-result)) :value n2-num-nodes}
                      {:key :n2-not-all-edges? :condition (not (:n2-all-edges? initial-result)) :value n2-num-edges}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
+                     {:key :failed-create-databases :condition (not (:empty-failed-create-databases? initial-result)) :value failed-create-databases}
                      {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
                      {:key :failed-import-edges :condition (not (:empty-failed-import-edges? initial-result)) :value failed-import-edges}
                      {:key :failed-get-num-nodes :condition (not (:empty-failed-get-num-nodes? initial-result)) :value failed-get-num-nodes}
@@ -379,6 +403,11 @@
   "Invoke setup-cluster operation."
   [_ _]
   {:type :invoke :f :setup-cluster :value nil})
+
+(defn create-databases
+  "Invoke create-databases operation."
+  [_ _]
+  {:type :invoke :f :create-databases :value nil})
 
 (defn import-nodes
   "Invoke import-nodes operation."
@@ -407,6 +436,7 @@
    (gen/phases
     (gen/once setup-cluster)
     (gen/sleep 2)
+    (gen/once create-databases)
     (gen/once import-nodes)
     (gen/once import-edges)
     (gen/sleep 5)
@@ -430,8 +460,7 @@
         first-main (random-data-instance (keys nodes-config))
         organization (:organization opts)
         license (:license opts)
-        num-tenants (:num-tenants opts)
-        ]
+        num-tenants (:num-tenants opts)]
     {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)

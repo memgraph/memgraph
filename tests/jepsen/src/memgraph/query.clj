@@ -3,6 +3,20 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
 
+(defn create-database
+  "Creates DB with name 'db'."
+  [db]
+  (dbclient/create-query
+   (let [query (str "CREATE DATABASE " db)]
+     query)))
+
+(defn use-database
+  "Creates DB with name 'db'."
+  [db]
+  (dbclient/create-query
+   (let [query (str "USE DATABASE " db)]
+     query)))
+
 (dbclient/defquery create-label-idx
   "
   CREATE INDEX ON :User;

@@ -155,7 +155,7 @@
         organization (when (:organization opts)
                        (:organization opts))
         num-tenants (when (:num-tenants opts)
-                      (:num-tenants opts))
+                      (Integer/parseInt (:num-tenants opts)))
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
