@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <utility>
+#include "query/exceptions.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
@@ -113,11 +114,15 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
     if (v.deleted) continue;
     if (!utils::Contains(v.labels, label)) continue;
 
-    static constexpr auto point_types = std::array{PropertyStoreType::POINT};
-    auto maybe_value = v.properties.GetPropertyOfTypes(property, point_types);
-    if (!maybe_value) continue;
+    auto value = v.properties.GetProperty(property);
+    if (value.IsNull()) {
+      continue;
+    }
 
-    auto value = *maybe_value;
+    if (!value.IsPoint2d() && !value.IsPoint3d()) {
+      throw query::PointIndexException("Point index creation expected type Point on the vertex property!");
+    }
+
     switch (value.type()) {
       case PropertyValueType::Point2d: {
         auto val = value.ValuePoint2d();
@@ -181,9 +186,8 @@ void PointIndexStorage::Clear() { indexes_->clear(); }
 
 std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
   auto indexes = indexes_;  // local copy of shared_ptr, for safety
-  auto keys = *indexes | std::views::keys | std::views::transform([](LabelPropKey key) {
-    return std::pair{key.label(), key.property()};
-  });
+  auto keys = *indexes | std::views::keys |
+              std::views::transform([](LabelPropKey key) { return std::pair{key.label(), key.property()}; });
   return {keys.begin(), keys.end()};
 }
 
@@ -219,11 +223,18 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
     if (isDeleted(v) || isWithoutLabel(v)) {
       continue;
     }
-    constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-    auto prop = v->properties.GetPropertyOfTypes(labelPropKey.property(), all_point_types);
-    if (!prop) continue;
-    if (prop->IsPoint2d()) {
-      auto const &val = prop->ValuePoint2d();
+    auto prop = v->properties.GetProperty(labelPropKey.property());
+
+    if (prop.IsNull()) {
+      continue;
+    }
+
+    if (!prop.IsPoint2d() && !prop.IsPoint3d()) {
+      throw query::PointIndexException("Point index creation expected type Point on the vertex property!");
+    }
+
+    if (prop.IsPoint2d()) {
+      auto const &val = prop.ValuePoint2d();
       if (IsWGS(val.crs())) {
         changed_wgs_2d.emplace(v, val);
       } else {
@@ -231,7 +242,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
       }
 
     } else {
-      auto const &val = prop->ValuePoint3d();
+      auto const &val = prop.ValuePoint3d();
       if (IsWGS(val.crs())) {
         changed_wgs_3d.emplace(v, val);
       } else {
@@ -524,19 +535,18 @@ double toRadians(double degrees) { return degrees * M_PI / 180.0; }
 double toDegrees(double radians) { return radians * 180.0 / M_PI; }
 
 template <typename point_type>
-requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
+  requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   return [&]<auto... I>(std::index_sequence<I...>) {
     auto const min_corner = point_type{(bg::get<I>(center_point) - boundary)...};
     auto const max_corner = point_type{(bg::get<I>(center_point) + boundary)...};
     return bg::model::box{min_corner, max_corner};
-  }
-  (std::make_index_sequence<n_dimensions>{});
+  }(std::make_index_sequence<n_dimensions>{});
 }
 
 template <typename point_type>
-requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
+  requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   // Our approximation for earth radius
   constexpr double MEAN_EARTH_RADIUS = 6'371'009;

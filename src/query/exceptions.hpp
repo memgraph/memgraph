@@ -542,4 +542,9 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
 };
 
+class PointIndexException : public QueryException {
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(PointIndexException)
+};
+
 }  // namespace memgraph::query
