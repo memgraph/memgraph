@@ -50,6 +50,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       // TODO: Reconsider priviliges, this 4 should have the same.
       case DatabaseInfoQuery::InfoType::EDGE_TYPES:
       case DatabaseInfoQuery::InfoType::NODE_LABELS:
+      case DatabaseInfoQuery::InfoType::VECTOR_INDEX:
         // TODO: This should be INDEX | STATS, but we don't have support for
         // *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::INDEX);
