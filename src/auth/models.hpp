@@ -150,8 +150,8 @@ class UserImpersonation {
     std::string name;
     utils::UUID uuid;
 
-    void to_json(nlohmann::json &j, const UserId &uid);
-    void from_json(const nlohmann::json &j, UserId &uid);
+    void to_json(nlohmann::json &data, const UserId &uid);
+    void from_json(const nlohmann::json &data, UserId &uid);
 
     friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
   };
@@ -173,8 +173,8 @@ class UserImpersonation {
   bool IsDenied(const User &user) const;
   bool IsGranted(const User &user) const;
 
-  friend void to_json(nlohmann::json &j, const UserImpersonation &usr_imp);
-  friend void from_json(const nlohmann::json &j, UserImpersonation &usr_imp);
+  friend void to_json(nlohmann::json &data, const UserImpersonation &usr_imp);
+  friend void from_json(const nlohmann::json &data, UserImpersonation &usr_imp);
 
  private:
   void grant_one(const User &user);

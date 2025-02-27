@@ -944,11 +944,13 @@ void to_json(nlohmann::json &data, const UserImpersonation &usr_imp) {
   data[kUserImpDenied] = std::move(res);
 }
 
-void to_json(nlohmann::json &j, const UserImpersonation::UserId &uid) {
-  j = nlohmann::json::object({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
+void to_json(nlohmann::json &data, const UserImpersonation::UserId &uid) {
+  data = nlohmann::json::object({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
 }
 
-void from_json(const nlohmann::json &j, UserImpersonation::UserId &uid) { uid = {j[kUserImpName], j[kUserImpId]}; }
+void from_json(const nlohmann::json &data, UserImpersonation::UserId &uid) {
+  uid = {data[kUserImpName], data[kUserImpId]};
+}
 
 void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   if (!data.is_object()) {

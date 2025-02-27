@@ -117,9 +117,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::shared_ptr<query::QueryUserOrRole> user_or_role_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
-#endif
   RunTimeConfig runtime_db_;
   RunTimeConfig runtime_user_;
+#endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
 };

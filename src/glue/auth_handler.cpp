@@ -812,7 +812,7 @@ void AuthQueryHandler::GrantImpersonateUser(const std::string &user_or_role, con
     if (!user && !role) {
       throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
-    bool all = targets.size() == 1 && targets[0] == "*";
+    const bool all = targets.size() == 1 && targets[0] == "*";
     std::vector<auth::User> users;  // TODO User or UserId?
     if (!all) {
       for (const auto &target : targets) {

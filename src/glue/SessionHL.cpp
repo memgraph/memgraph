@@ -410,8 +410,8 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 }
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
-  runtime_user_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
 #ifdef MG_ENTERPRISE
+  runtime_user_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
   runtime_db_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
 #else
   (void)run_time_info;
@@ -432,7 +432,6 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
       audit_log_(audit_log),
-#endif
       runtime_db_{"db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
                   [this](std::optional<std::string> defined_db, bool user_defined) {
                     if (defined_db) {  // Db connection
@@ -461,6 +460,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
                         interpreter_.ResetUser();
                       }
                     }},
+#endif
       auth_(auth),
       endpoint_(std::move(endpoint)) {
   // Metrics update
