@@ -3,18 +3,15 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
 
-
 (dbclient/defquery create-label-idx
   "
   CREATE INDEX ON :User;
-  "
-)
+  ")
 
 (dbclient/defquery create-label-property-idx
   "
   CREATE INDEX ON :User(id);
-  "
-)
+  ")
 
 ; Path inside the container
 (dbclient/defquery import-pokec-medium-nodes
@@ -30,6 +27,16 @@
   MATCH (n1:User {id: row.from_id})
   MATCH (n2:User {id: row.to_id})
   CREATE (n1)-[:KNOWS]->(n2);
+  ")
+
+(dbclient/defquery get-num-nodes
+  "
+  MATCH (n) RETURN count(n) as c;
+  ")
+
+(dbclient/defquery get-num-edges
+  "
+  MATCH (n)-[e]->(m) RETURN count(e) as c;
   ")
 
 (dbclient/defquery get-all-instances

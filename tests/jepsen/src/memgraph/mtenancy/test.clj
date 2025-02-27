@@ -18,6 +18,9 @@
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
 
+(def pokec-medium-expected-num-nodes 100000)
+(def pokec-medium-expected-num-edges 1768515) ; one-directional edges
+
 (defn random-coord
   "Get random leader."
   [nodes]
@@ -63,11 +66,6 @@
   ((mgquery/set-instance-to-main first-main) session)
   (info "Set instance" first-main "to main."))
 
-(defn mg-get-nodes
-  "Get all nodes as part of the txn."
-  [txn]
-  (mgquery/collect-ids txn))
-
 (defn is-main?
   "Tests if data instance is main. Returns bool true/false, catches all exceptions."
   [bolt-conn]
@@ -107,15 +105,25 @@
     (let [bolt-conn (:bolt-conn this)
           node (:node this)]
       (case (:f op)
-        :get-nodes (if (mutils/data-instance? node)
-                     (try
-                       (dbclient/with-transaction bolt-conn txn
-                         (let [indices (->> (mg-get-nodes txn) (map :id) (reduce conj []))]
-                           (assoc op :type :ok :value {:indices indices :node node})))
+        :get-num-nodes (if (mutils/data-instance? node)
+                         (try
+                           (dbclient/with-transaction bolt-conn txn
+                             (let [num-nodes (->> (mgquery/get-num-nodes txn) first :c)]
+                               (assoc op :type :ok :value {:num-nodes num-nodes :node node})))
                         ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
-                       (catch Exception e
-                         (assoc op :type :fail :value (str e))))
-                     (assoc op :type :info :value "Not data instance."))
+                           (catch Exception e
+                             (assoc op :type :fail :value (str e))))
+                         (assoc op :type :info :value "Not data instance."))
+
+        :get-num-edges (if (mutils/data-instance? node)
+                         (try
+                           (dbclient/with-transaction bolt-conn txn
+                             (let [num-edges (->> (mgquery/get-num-edges txn) first :c)]
+                               (assoc op :type :ok :value {:num-edges num-edges :node node})))
+                        ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
+                           (catch Exception e
+                             (assoc op :type :fail :value (str e))))
+                         (assoc op :type :info :value "Not data instance."))
 
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (mutils/coord-instance? node)
@@ -230,24 +238,35 @@
   (reify checker/Checker
     (check [_checker _test history _opts]
       ; si prefix stands for show-instances
-      (let [ok-get-nodes (->> history
-                              (filter #(= :ok (:type %)))
-                              (filter #(= :get-nodes (:f %)))
-                              (map :value))
+      (let [ok-get-num-nodes (->> history
+                                  (filter #(= :ok (:type %)))
+                                  (filter #(= :get-num-nodes (:f %)))
+                                  (map :value))
 
-            n1-ids (->> ok-get-nodes
-                        (filter #(= "n1" (:node %)))
-                        first
-                        (:indices))
+            ok-get-num-edges (->> history
+                                  (filter #(= :ok (:type %)))
+                                  (filter #(= :get-num-edges (:f %)))
+                                  (map :value))
 
-            ; n1-max-idx (apply max n1-ids)
+            n1-num-nodes (->> ok-get-num-nodes
+                              (filter #(= "n1" (:node %)))
+                              first
+                              (:num-nodes))
 
-            n2-ids (->> ok-get-nodes
-                        (filter #(= "n2" (:node %)))
-                        first
-                        (:indices))
+            n1-num-edges (->> ok-get-num-edges
+                              (filter #(= "n1" (:node %)))
+                              first
+                              (:num-edges))
 
-            ; n2-max-idx (apply max n2-ids)
+            n2-num-nodes (->> ok-get-num-nodes
+                              (filter #(= "n2" (:node %)))
+                              first
+                              (:num-nodes))
+
+            n2-num-edges (->> ok-get-num-edges
+                              (filter #(= "n2" (:node %)))
+                              first
+                              (:num-edges))
 
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
@@ -269,10 +288,15 @@
                                        (filter #(= :show-instances-read (:f %)))
                                        (map :value))
 
-            failed-get-nodes (->> history
-                                  (filter #(= :fail (:type %)))
-                                  (filter #(= :get-nodes (:f %)))
-                                  (map :value))
+            failed-get-num-nodes (->> history
+                                      (filter #(= :fail (:type %)))
+                                      (filter #(= :get-num-nodes (:f %)))
+                                      (map :value))
+
+            failed-get-num-edges (->> history
+                                      (filter #(= :fail (:type %)))
+                                      (filter #(= :get-num-edges (:f %)))
+                                      (map :value))
 
             si-reads  (->> history
                            (filter #(= :ok (:type %)))
@@ -307,26 +331,29 @@
                                      (empty? failed-import-nodes)
                                      (empty? failed-import-edges)
                                      (empty? failed-show-instances)
-                                     ; (= n1-max-idx n2-max-idx)
-                                     )
+                                     (= n1-num-nodes n2-num-nodes pokec-medium-expected-num-nodes))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n3" "n4" "n5"})
-                            ; :n1-max-idx n1-max-idx
-                            ; :n2-max-idx n2-max-idx
+                            :n1-all-nodes? (= pokec-medium-expected-num-nodes n1-num-nodes)
+                            :n2-all-nodes? (= pokec-medium-expected-num-nodes n2-num-nodes)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
                             :empty-failed-import-edges? (empty? failed-import-edges) ; There shouldn't be any failed import-edges operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
-                            :empty-failed-get-nodes? (empty? failed-get-nodes) ; There shouldn't be any failed get-nodes operations.
+                            :empty-failed-get-num-nodes? (empty? failed-get-num-nodes) ; There shouldn't be any failed get-num-nodes operations.
+                            :empty-failed-get-num-edges? (empty? failed-get-num-edges) ; There shouldn't be any failed get-num-edges operations.
                             :empty-partial-instances? (empty? partial-instances)}
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
+                     {:key :n1-not-all-nodes? :condition (not (:n1-all-nodes? initial-result)) :value n1-num-nodes}
+                     {:key :n2-not-all-nodes? :condition (not (:n2-all-nodes? initial-result)) :value n2-num-nodes}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
                      {:key :failed-import-edges :condition (not (:empty-failed-import-edges? initial-result)) :value failed-import-edges}
-                     {:key :failed-get-nodes :condition (not (:empty-failed-get-nodes? initial-result)) :value failed-get-nodes}
+                     {:key :failed-get-num-nodes :condition (not (:empty-failed-get-num-nodes? initial-result)) :value failed-get-num-nodes}
+                     {:key :failed-get-num-edges :condition (not (:empty-failed-get-num-edges? initial-result)) :value failed-get-num-edges}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
         (reduce (fn [result update]
@@ -356,10 +383,15 @@
   [_ _]
   {:type :invoke :f :import-edges :value nil})
 
-(defn get-nodes
-  "Invoke get-nodes op."
+(defn get-num-nodes
+  "Invoke get-num-nodes op."
   [_ _]
-  {:type :invoke :f :get-nodes :value nil})
+  {:type :invoke :f :get-num-nodes :value nil})
+
+(defn get-num-edges
+  "Invoke get-num-edges op."
+  [_ _]
+  {:type :invoke :f :get-num-edges :value nil})
 
 (defn client-generator
   "Client generator."
@@ -375,6 +407,14 @@
     (gen/delay 2
                (gen/mix [show-instances-reads])))))
 
+(defn final-client-generator
+  "Final client generator."
+  []
+  (gen/each-thread
+   (gen/phases
+    (gen/once get-num-nodes)
+    (gen/once get-num-edges))))
+
 (defn workload
   "Basic HA workload."
   [opts]
@@ -389,5 +429,6 @@
                  {:ha-mt     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 15}
+     ;:final-generator {:clients (gen/each-thread (gen/once get-num-nodes)) :recovery-time 15}
+     :final-generator {:clients (final-client-generator) :recovery-time 15}
      :nemesis-config (nemesis/create db nodes-config)}))
