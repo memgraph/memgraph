@@ -108,8 +108,9 @@
       (case (:f op)
         :get-num-nodes (if (mutils/data-instance? node)
                          (try
-                           (dbclient/with-transaction bolt-conn txn
-                             (let [num-nodes (->> (mgquery/get-num-nodes txn) first :c)]
+                           (utils/with-session bolt-conn session
+                             ((mgquery/use-database "memgraph") session)
+                             (let [num-nodes (->> (mgquery/get-num-nodes session) first :c)]
                                (assoc op :type :ok :value {:num-nodes num-nodes :node node})))
                         ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                            (catch Exception e
@@ -118,8 +119,9 @@
 
         :get-num-edges (if (mutils/data-instance? node)
                          (try
-                           (dbclient/with-transaction bolt-conn txn
-                             (let [num-edges (->> (mgquery/get-num-edges txn) first :c)]
+                           (utils/with-session bolt-conn session
+                             ((mgquery/use-database "memgraph") session)
+                             (let [num-edges (->> (mgquery/get-num-edges session) first :c)]
                                (assoc op :type :ok :value {:num-edges num-edges :node node})))
                         ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                            (catch Exception e
@@ -174,9 +176,8 @@
         :create-databases (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                             (try
                               (utils/with-session bolt-conn session
-                                (doseq [id (range 1 (inc num-tenants))]
-                                  (let [db (str "db" id)]
-                                    ((mgquery/create-database db) session)))
+                                (doseq [db (mutils/get-new-dbs num-tenants)]
+                                  ((mgquery/create-database db) session))
 
                                 (assoc op :type :ok :value {:str "Created databases" :num-tenants num-tenants}))
 
@@ -191,9 +192,12 @@
         :import-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                         (try
                           (utils/with-session bolt-conn session
-                            (mgquery/create-label-idx session)
-                            (mgquery/create-label-property-idx session)
-                            (mgquery/import-pokec-medium-nodes session)
+                            (doseq [db (mutils/get-all-dbs num-tenants)]
+                              ((mgquery/use-database db) session)
+                              (mgquery/create-label-idx session)
+                              (mgquery/create-label-property-idx session)
+                              (mgquery/import-pokec-medium-nodes session))
+
                             (assoc op :type :ok :value {:str "pokec_medium nodes imported"}))
 
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
@@ -207,7 +211,10 @@
         :import-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                         (try
                           (utils/with-session bolt-conn session
-                            (mgquery/import-pokec-medium-edges session)
+                            (doseq [db (mutils/get-all-dbs num-tenants)]
+                              ((mgquery/use-database db) session)
+                              (mgquery/import-pokec-medium-edges session))
+
                             (assoc op :type :ok :value {:str "pokec_medium edges imported"}))
 
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
@@ -467,4 +474,5 @@
                   :timeline (timeline/html)})
      :generator (client-generator)
      :final-generator {:clients (final-client-generator) :recovery-time 15}
+     ; TODO: (andi) Add configuration parameter how much to sleep
      :nemesis-config (nemesis/create db nodes-config)}))

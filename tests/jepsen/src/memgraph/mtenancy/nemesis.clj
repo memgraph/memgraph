@@ -200,7 +200,7 @@
   [db nodes-config]
   {:nemesis (full-nemesis db nodes-config)
    :generator (gen/phases
-               (gen/sleep 45) ; Enough time for cluster setup to finish
+               (gen/sleep 120) ; Enough time for cluster setup to finish
                (nemesis-events nodes-config))
    ; :final-generator (map utils/op [:stop-partition-ring :stop-partition-halves :stop-partition-node :heal-node :stop-network-disruption])
    :final-generator (map utils/op [:heal-node])})
