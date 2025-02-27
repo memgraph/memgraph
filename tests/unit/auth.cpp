@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1069,3 +1069,154 @@ TEST(Serialize, HashedPassword) {
     ASSERT_TRUE(ret.VerifyPassword("password"));
   }
 }
+
+#ifdef MG_ENTERPRISE
+
+TEST_F(AuthWithStorage, UserImpersonationWUser) {
+  ASSERT_TRUE(auth->AddUser("admin"));
+  ASSERT_TRUE(auth->AddUser("user"));
+  ASSERT_TRUE(auth->AddUser("another_user"));
+
+  // User has no permissions by deafult; add some
+  auto user = auth->GetUser("user");
+  auto another_user = auth->GetUser("another_user");
+  ASSERT_TRUE(user);
+  ASSERT_TRUE(another_user);
+
+  // it's not enough to have permission, you need to specify who you are allowed to impersonate
+  auto admin = auth->GetUser("admin");
+  ASSERT_TRUE(admin);
+  admin->permissions().Grant(Permission::IMPERSONATE_USER);
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_FALSE(admin->CanImpersonate(*another_user));
+
+  // allow impersonation of only "another_user"
+  admin->GrantUserImp({*another_user});
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // allow admin to impersonate anyone
+  admin->GrantUserImp();
+  ASSERT_TRUE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // deny impersonation of only "user"
+  admin->DenyUserImp({*user});
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // Reload user
+  auth->SaveUser(*admin);
+  admin = auth->GetUser("admin");
+  ASSERT_TRUE(admin);
+  // deny impersonation of only "user"
+  admin->DenyUserImp({*user});
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+}
+
+TEST_F(AuthWithStorage, UserImpersonationWRole) {
+  ASSERT_TRUE(auth->AddRole("admin"));
+  ASSERT_TRUE(auth->AddUser("user"));
+  ASSERT_TRUE(auth->AddUser("another_user"));
+
+  // User has no permissions by deafult; add some
+  auto user = auth->GetUser("user");
+  auto another_user = auth->GetUser("another_user");
+  ASSERT_TRUE(user);
+  ASSERT_TRUE(another_user);
+  user->permissions().Grant(Permission::MATCH);
+
+  // even the admin can impersonate by default
+  auto admin = auth->GetRole("admin");
+  ASSERT_TRUE(admin);
+  admin->permissions().Grant(Permission::IMPERSONATE_USER);
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_FALSE(admin->CanImpersonate(*another_user));
+
+  // allow impersonation of only "another_user"
+  admin->GrantUserImp({*another_user});
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // allow admin to impersonate anyone
+  admin->GrantUserImp();
+  ASSERT_TRUE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // deny impersonation of only "user"
+  admin->DenyUserImp({*user});
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // user should have the same provoledges as its role
+  user->SetRole(*admin);
+  ASSERT_FALSE(user->CanImpersonate(*user));
+  ASSERT_TRUE(user->CanImpersonate(*another_user));
+
+  // Reload role
+  auth->SaveRole(*admin);
+  admin = auth->GetRole("admin");
+  ASSERT_TRUE(admin);
+  ASSERT_FALSE(user->CanImpersonate(*user));
+  ASSERT_TRUE(user->CanImpersonate(*another_user));
+}
+
+TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
+  ASSERT_TRUE(auth->AddUser("admin"));
+  ASSERT_TRUE(auth->AddRole("admin_role"));
+  ASSERT_TRUE(auth->AddUser("user"));
+  ASSERT_TRUE(auth->AddUser("another_user"));
+
+  // User has no permissions by deafult; add some
+  auto user = auth->GetUser("user");
+  auto another_user = auth->GetUser("another_user");
+  ASSERT_TRUE(user);
+  ASSERT_TRUE(another_user);
+  user->permissions().Grant(Permission::MATCH);
+
+  // even the admin can impersonate by default
+  auto admin_role = auth->GetRole("admin_role");
+  ASSERT_TRUE(admin_role);
+  auto admin = auth->GetUser("admin");
+  ASSERT_TRUE(admin);
+  admin->permissions().Grant(Permission::IMPERSONATE_USER);
+  admin->SetRole(*admin_role);
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_FALSE(admin->CanImpersonate(*another_user));
+
+  // allow impersonation of only "another_user"
+  admin->GrantUserImp({*another_user});
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // allow role to impersonate "user"
+  admin_role->GrantUserImp({*user});
+  admin->SetRole(*admin_role);  // update role
+  ASSERT_TRUE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // allow admin to impersonate anyone
+  admin->GrantUserImp();
+  ASSERT_TRUE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // deny role to impersonate "user"
+  admin_role->DenyUserImp({*user});
+  admin->SetRole(*admin_role);  // update role
+  ASSERT_FALSE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // allow role to impersonate anyone
+  admin_role->GrantUserImp();
+  admin->SetRole(*admin_role);  // update role
+  ASSERT_TRUE(admin->CanImpersonate(*user));
+  ASSERT_TRUE(admin->CanImpersonate(*another_user));
+
+  // deny admin to impersonate "another_user"
+  admin->DenyUserImp({*another_user});
+  ASSERT_TRUE(admin->CanImpersonate(*user));
+  ASSERT_FALSE(admin->CanImpersonate(*another_user));
+}
+
+#endif

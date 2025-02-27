@@ -1951,6 +1951,22 @@ antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::L
   return symbolic_names;
 }
 
+antlrcpp::Any CypherMainVisitor::visitListOfSymbolicNames(MemgraphCypher::ListOfSymbolicNamesContext *ctx) {
+  std::vector<std::string> symbolic_names;
+  for (auto *symbolic_name : ctx->symbolicName()) {
+    symbolic_names.push_back(std::any_cast<std::string>(symbolic_name->accept(this)));
+  }
+  return symbolic_names;
+}
+
+antlrcpp::Any CypherMainVisitor::visitWildcardListOfSymbolicNames(
+    MemgraphCypher::WildcardListOfSymbolicNamesContext *ctx) {
+  if (ctx->listOfSymbolicNames()) {
+    return ctx->listOfSymbolicNames()->accept(this);
+  }
+  return std::vector<std::string>{"*"};
+}
+
 /**
  * @return AuthQuery*
  */

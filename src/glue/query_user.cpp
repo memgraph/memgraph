@@ -41,13 +41,12 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
 
   auto user_to_impersonate = locked_auth->GetUser(target);
   if (!user_to_impersonate) {
-    throw 1;
+    return false;
   }
 
   if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate);
   if (role_) return AuthChecker::CanImpersonate(*role_, *user_to_impersonate);
-
-  return !policy->DoUpdate() || !locked_auth->AccessControlled();
+  return false;
 }
 
 std::string QueryUserOrRole::GetDefaultDB() const {

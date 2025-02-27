@@ -767,7 +767,7 @@ User User::Deserialize(const nlohmann::json &data) {
 
   // Version with user UUID
   utils::UUID uuid{};
-  if (data[kUUID].is_string()) uuid = data[kUUID];
+  if (data[kUUID].is_array()) uuid = data[kUUID];
 
   std::optional<HashedPassword> password_hash{};
   if (password_hash_json.is_object()) {
@@ -839,9 +839,7 @@ void UserImpersonation::Deny(const std::vector<User> &users) {
   }
 }
 
-bool UserImpersonation::CanImpersonate(const User &user) const {
-  return !IsDenied(user) && IsGranted(user);  // NOTE: A user can't be both granted and denied
-}
+bool UserImpersonation::CanImpersonate(const User &user) const { return !IsDenied(user) && IsGranted(user); }
 
 bool UserImpersonation::IsDenied(const User &user) const {
   const std::string_view username = user.username();
@@ -920,7 +918,7 @@ void UserImpersonation::deny_one(const User &user) {
   //        yes -> return
   auto denied_user = find_denied(user.username());
   if (denied_user) {
-    if (denied_user.value()->uuid != user.uuid()) return;
+    if (denied_user.value()->uuid == user.uuid()) return;
     erase_denied(*denied_user);  // Stale user; remove
   }
   denied_.emplace(user.username(), user.uuid());
@@ -967,7 +965,7 @@ void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   if (data[kUserImpGranted].is_boolean())
     granted = true;
   else
-    granted = std::set<UserImpersonation::UserId>{data[kUserImpGranted]};
+    granted = {data[kUserImpGranted].get<std::set<UserImpersonation::UserId>>()};
 
   UserImpersonation::DeniedUsers denied = data[kUserImpDenied];
 

@@ -416,9 +416,13 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
-grantImpersonateUser : GRANT IMPERSONATE_USER targets=entitiesList TO userOrRole=userOrRoleName ;
+listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
-denyImpersonateUser : DENY IMPERSONATE_USER targets=entitiesList TO userOrRole=userOrRoleName ;
+wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
+
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+
+denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
 
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
 

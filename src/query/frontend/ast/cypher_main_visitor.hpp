@@ -231,6 +231,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) override;
 
   /**
+  @return std::vector<std::string>
+  */
+  antlrcpp::Any visitListOfSymbolicNames(MemgraphCypher::ListOfSymbolicNamesContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitWildcardListOfSymbolicNames(MemgraphCypher::WildcardListOfSymbolicNamesContext *ctx) override;
+
+  /**
    * @return AnalyzeGraphQuery*
    */
   antlrcpp::Any visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) override;
