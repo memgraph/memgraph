@@ -315,7 +315,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property))
+        unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
@@ -393,7 +393,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->DropIndex(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property))
+        unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }

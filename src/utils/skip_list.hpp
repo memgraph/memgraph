@@ -922,7 +922,9 @@ class SkipList final : detail::SkipListNode_base {
     uint64_t id_{0};
   };
 
-  explicit SkipList(MemoryResource *memory = NewDeleteResource()) : gc_(memory) {
+  SkipList() : SkipList(NewDeleteResource()) {}
+
+  explicit SkipList(MemoryResource *memory) : gc_(memory) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
     void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -184,8 +184,8 @@ void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  return index_.erase({label, property}) > 0U;
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
+  return index_.erase({label, properties[0]}) > 0U;
 }
 
 bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
