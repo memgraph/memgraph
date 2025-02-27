@@ -80,7 +80,7 @@
     (catch Exception _
       false)))
 
-(defrecord Client [nodes-config first-leader first-main license organization]
+(defrecord Client [nodes-config first-leader first-main license organization num-tenants]
   jclient/Client
   ; Open Bolt connection to all nodes.
   (open! [this _test node]
@@ -90,7 +90,9 @@
       (assoc this
              :bolt-conn bolt-conn
              :node-config node-config
-             :node node)))
+             :node node
+             :num-tenants num-tenants
+             )))
 
 ; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
@@ -331,12 +333,15 @@
                                      (empty? failed-import-nodes)
                                      (empty? failed-import-edges)
                                      (empty? failed-show-instances)
-                                     (= n1-num-nodes n2-num-nodes pokec-medium-expected-num-nodes))
+                                     (= n1-num-nodes n2-num-nodes pokec-medium-expected-num-nodes)
+                                     (= n1-num-edges n2-num-edges pokec-medium-expected-num-edges))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n3" "n4" "n5"})
                             :n1-all-nodes? (= pokec-medium-expected-num-nodes n1-num-nodes)
+                            :n1-all-edges? (= pokec-medium-expected-num-edges n1-num-edges)
                             :n2-all-nodes? (= pokec-medium-expected-num-nodes n2-num-nodes)
+                            :n2-all-edges? (= pokec-medium-expected-num-edges n2-num-edges)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
                             :empty-failed-import-edges? (empty? failed-import-edges) ; There shouldn't be any failed import-edges operations.
@@ -348,7 +353,9 @@
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
                      {:key :n1-not-all-nodes? :condition (not (:n1-all-nodes? initial-result)) :value n1-num-nodes}
+                     {:key :n1-not-all-edges? :condition (not (:n1-all-edges? initial-result)) :value n1-num-edges}
                      {:key :n2-not-all-nodes? :condition (not (:n2-all-nodes? initial-result)) :value n2-num-nodes}
+                     {:key :n2-not-all-edges? :condition (not (:n2-all-edges? initial-result)) :value n2-num-edges}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
                      {:key :failed-import-edges :condition (not (:empty-failed-import-edges? initial-result)) :value failed-import-edges}
@@ -401,7 +408,6 @@
     (gen/once setup-cluster)
     (gen/sleep 2)
     (gen/once import-nodes)
-    (gen/sleep 2)
     (gen/once import-edges)
     (gen/sleep 5)
     (gen/delay 2
@@ -423,12 +429,13 @@
         first-leader (random-coord (keys nodes-config))
         first-main (random-data-instance (keys nodes-config))
         organization (:organization opts)
-        license (:license opts)]
-    {:client    (Client. nodes-config first-leader first-main license organization)
+        license (:license opts)
+        num-tenants (:num-tenants opts)
+        ]
+    {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     ;:final-generator {:clients (gen/each-thread (gen/once get-num-nodes)) :recovery-time 15}
      :final-generator {:clients (final-client-generator) :recovery-time 15}
      :nemesis-config (nemesis/create db nodes-config)}))

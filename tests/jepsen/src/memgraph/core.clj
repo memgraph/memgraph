@@ -154,12 +154,15 @@
                   (:license opts))
         organization (when (:organization opts)
                        (:organization opts))
+        num-tenants (when (:num-tenants opts)
+                      (:num-tenants opts))
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
                           :sync-after-n-txn sync-after-n-txn
                           :license licence
-                          :organization organization})]
+                          :organization organization
+                          :num-tenants num-tenants})]
     (memgraph-test test-opts)))
 
 (def cli-opts
@@ -177,7 +180,8 @@
     :default nil]
    ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
-    :parse-fn #(-> % load-configuration)]])
+    :parse-fn #(-> % load-configuration)]
+   ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default 5]])
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
