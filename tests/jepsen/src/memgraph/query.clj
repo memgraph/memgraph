@@ -23,6 +23,15 @@
   CREATE (:User {id: row.id});
   ")
 
+; Path inside the container
+(dbclient/defquery import-pokec-medium-edges
+  "
+  LOAD CSV FROM '/opt/memgraph/datasets/pokec_medium/relationships.csv' WITH HEADER AS row
+  MATCH (n1:User {id: row.from_id})
+  MATCH (n2:User {id: row.to_id})
+  CREATE (n1)-[:KNOWS]->(n2);
+  ")
+
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 

@@ -181,7 +181,7 @@
         :import-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                         (try
                           (utils/with-session bolt-conn session
-                            ; (mgquery/import-pokec-medium-nodes session)
+                            (mgquery/import-pokec-medium-edges session)
                             (assoc op :type :ok :value {:str "pokec_medium edges imported"}))
 
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
