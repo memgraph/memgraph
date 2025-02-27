@@ -205,6 +205,12 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     is_index_full = locked_index->size() == locked_index->capacity();
   }
 
+  bool const has_label = utils::Contains(vertex->labels, label_prop.label());
+  if (!has_label) {
+    // Vertex doesn't have the label, we should not make the index therefore
+    return;
+  }
+
   const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
   if (property.IsNull()) {
     // if property is null, that means that the vertex should not be in the index and we shouldn't do any other updates
