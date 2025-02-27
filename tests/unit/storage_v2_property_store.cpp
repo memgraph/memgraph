@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -841,6 +841,68 @@ TEST(PropertyStore, GetPropertyOfTypes) {
 
   auto prop_of_type3 = store3.GetPropertyOfTypes(PropertyId::FromInt(2), types);
   ASSERT_EQ(prop_of_type3, std::nullopt);
+}
+
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
+  auto test = [](std::vector<std::pair<PropertyId, PropertyValue>> const &data, std::span<int const> ids_to_read) {
+    PropertyStore store;
+    store.InitProperties(data);
+
+    std::vector<PropertyId> ids;
+    ids.reserve(data.size());
+    std::ranges::transform(ids_to_read, std::back_inserter(ids), [](auto id) { return PropertyId::FromInt(id); });
+
+    auto const read_values = store.ExtractPropertyValuesMissingAsNull(ids);
+    ASSERT_EQ(ids_to_read.size(), read_values.size());
+    for (auto &[prop_id, value] : data) {
+      auto id = std::find(ids.cbegin(), ids.cend(), prop_id);
+      if (id != ids.cend()) {
+        EXPECT_EQ(value, read_values[std::distance(ids.cbegin(), id)]);
+      }
+    }
+  };
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue("charlie")}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue("charlie")}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue()}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue()}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue()}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue("charlie")}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue()}},
+       std::array{1, 2, 3});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue("charlie")},
+        {PropertyId::FromInt(4), PropertyValue("delta")},
+        {PropertyId::FromInt(5), PropertyValue("echo")}},
+       std::array{1, 3, 5});
 }
 
 int main(int argc, char **argv) {
