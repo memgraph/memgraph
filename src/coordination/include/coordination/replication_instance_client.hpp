@@ -72,8 +72,6 @@ class ReplicationInstanceClient {
   }
 
  private:
-  utils::Scheduler instance_checker_;
-
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
@@ -81,6 +79,7 @@ class ReplicationInstanceClient {
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds const instance_health_check_frequency_sec_{1};
+  utils::Scheduler instance_checker_;
 };
 
 }  // namespace memgraph::coordination

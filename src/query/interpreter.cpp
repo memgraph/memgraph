@@ -439,6 +439,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case IS_MAIN:
         throw QueryRuntimeException(
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
+      case NO_MAIN:
+        throw QueryRuntimeException(
+            "The replica cannot be unregisted because the current main is down. Retry when the cluster has an active "
+            "leader!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
