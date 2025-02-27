@@ -681,7 +681,8 @@ TYPED_TEST(DumpTest, IndicesKeys) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label1"), {this->db->storage()->NameToProperty("prop")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -689,7 +690,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
         unique_acc
-            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
+            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), {this->db->storage()->NameToProperty("prop `")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1074,7 +1075,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1082,7 +1083,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                   this->db->storage()->NameToProperty("unexisting_property"))
+                                   {this->db->storage()->NameToProperty("unexisting_property")})
                      .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1263,16 +1264,16 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
       auto unique_acc = this->db->UniqueAccess();
       ASSERT_FALSE(
           unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), {this->db->storage()->NameToProperty("name")})
               .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
-              .HasError());
+      ASSERT_FALSE(unique_acc
+                       ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
+                                     {this->db->storage()->NameToProperty("surname")})
+                       .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 

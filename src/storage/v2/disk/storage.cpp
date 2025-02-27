@@ -1669,7 +1669,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
                   info.label, info.property, kLabelPropertyIndexStr)) {
@@ -1693,7 +1693,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintDeletion(
                   info.label, info.property, kLabelPropertyIndexStr)) {
@@ -1753,13 +1753,13 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           }
         } break;
         case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
-          const auto &info = md_delta.label_properties;
+          const auto &info = md_delta.label_unordered_properties;
           if (!disk_storage->durable_metadata_.PersistUniqueConstraintCreation(info.label, info.properties)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-          const auto &info = md_delta.label_properties;
+          const auto &info = md_delta.label_unordered_properties;
           if (!disk_storage->durable_metadata_.PersistUniqueConstraintDeletion(info.label, info.properties)) {
             return StorageManipulationError{PersistenceError{}};
           }
@@ -2024,17 +2024,22 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
-                                                                                             PropertyId property) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+
+  if (properties.size() != 1) {
+    throw utils::NotYetImplemented("composite index");
+  }
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->CreateIndex(label, property,
-                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, property))) {
+  if (!disk_label_property_index->CreateIndex(label, properties[0],
+                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -2071,16 +2076,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
-                                                                                           PropertyId property) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+
+  if (properties.size() != 1) {
+    throw utils::NotYetImplemented("composite index");
+  }
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->DropIndex(label, property)) {
+  if (!disk_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};

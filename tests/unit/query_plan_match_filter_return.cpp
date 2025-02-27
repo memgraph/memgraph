@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -3149,7 +3149,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3259,7 +3259,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3298,7 +3298,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3331,7 +3331,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3386,7 +3386,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3422,7 +3422,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3455,7 +3455,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3499,7 +3499,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 

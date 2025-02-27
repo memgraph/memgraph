@@ -30,46 +30,21 @@ bool InMemoryLabelIndex::CreateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  const auto create_index_seq = [this, &snapshot_info](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
-    using IndexAccessor = decltype(it->second.access());
-
-    CreateIndexOnSingleThread(
-        vertices, it, index_, label,
-        [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-          TryInsertLabelIndex(vertex, label, index_accessor);
-        },
-        snapshot_info);
-
-    return true;
-  };
-
-  const auto create_index_par = [this, &snapshot_info](
-                                    LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                    std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-    using IndexAccessor = decltype(label_it->second.access());
-
-    CreateIndexOnMultipleThreads(
-        vertices, label_it, index_, label, parallel_exec_info,
-        [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-          TryInsertLabelIndex(vertex, label, index_accessor);
-        },
-        snapshot_info);
-
-    return true;
-  };
-
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
     // Index already exists.
     return false;
   }
 
+  auto const func = [&](Vertex &vertex, auto &index_accessor) { TryInsertLabelIndex(vertex, label, index_accessor); };
+
   if (parallel_exec_info) {
-    return create_index_par(label, vertices, it, *parallel_exec_info);
+    CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func, snapshot_info);
+  } else {
+    CreateIndexOnSingleThread(vertices, it, index_, func, snapshot_info);
   }
-  return create_index_seq(label, vertices, it);
+
+  return true;
 }
 
 bool InMemoryLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }

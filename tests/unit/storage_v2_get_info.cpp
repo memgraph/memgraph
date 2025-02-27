@@ -108,17 +108,17 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 

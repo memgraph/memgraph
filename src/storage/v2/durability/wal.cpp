@@ -112,8 +112,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(LABEL_INDEX_DROP);
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_STATS_SET);
-    add_case(LABEL_PROPERTY_INDEX_CREATE);
-    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTIES_INDEX_CREATE);
+    add_case(LABEL_PROPERTIES_INDEX_DROP);
     add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
     add_case(LABEL_PROPERTY_INDEX_STATS_SET);
     add_case(TEXT_INDEX_CREATE);
@@ -183,8 +183,8 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_LABEL_INDEX_DROP:
     case DELTA_LABEL_INDEX_STATS_SET:
     case DELTA_LABEL_INDEX_STATS_CLEAR:
-    case DELTA_LABEL_PROPERTY_INDEX_CREATE:
-    case DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case DELTA_LABEL_PROPERTIES_INDEX_CREATE:
+    case DELTA_LABEL_PROPERTIES_INDEX_DROP:
     case DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
     case DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case DELTA_EDGE_INDEX_CREATE:
@@ -249,6 +249,7 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
   return marker == Marker::DELTA_TRANSACTION_END;
 }
 
+// ========== concrete type decoders start here ==========
 template <bool is_read>
 auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, Gid, void> {
@@ -280,17 +281,6 @@ auto Decode(utils::tag_type<PropertyValue> /*unused*/, BaseDecoder *decoder, con
     return *std::move(str);
   } else {
     if (!decoder->SkipPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
-  }
-}
-
-template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<is_read, std::optional<Type>, void> {
-  if (MIN_VER <= version) {
-    return Decode<is_read>(utils::tag_t<Type>, decoder, version);
-  }
-  if constexpr (is_read) {
-    return std::nullopt;
   }
 }
 
@@ -371,6 +361,34 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
   }
 }
 
+// ========== concrete type decoders end here ==========
+
+// Generic helper decoder, please keep after the concrete type decoders
+template <bool is_read, auto MIN_VER, typename Type>
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<Type>, void> {
+  if (MIN_VER <= version) {
+    return Decode<is_read>(utils::tag_t<Type>, decoder, version);
+  }
+  if constexpr (is_read) {
+    return std::nullopt;
+  }
+}
+
+// Generic helper decoder, please keep after the concrete type decoders
+template <bool is_read, auto MIN_VER, typename Before, typename After, auto Upgrader>
+auto Decode(utils::tag_type<VersionDependantUpgradable<MIN_VER, Before, After, Upgrader>> /*unused*/,
+            BaseDecoder *decoder, const uint64_t version) -> std::conditional_t<is_read, After, void> {
+  if (MIN_VER <= version) {
+    return Decode<is_read>(utils::tag_t<After>, decoder, version);
+  }
+  if constexpr (is_read) {
+    return Upgrader(Decode<true>(utils::tag_t<Before>, decoder, version));
+  } else {
+    Decode<false>(utils::tag_t<Before>, decoder, version);
+  }
+}
+
 template <typename T>
 auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
   using ctr_types = typename T::ctr_types;
@@ -434,8 +452,8 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(EDGE_INDEX_CREATE, WalEdgeTypeIndexCreate);
     read_skip(EDGE_INDEX_DROP, WalEdgeTypeIndexDrop);
     read_skip(LABEL_INDEX_STATS_SET, WalLabelIndexStatsSet);
-    read_skip(LABEL_PROPERTY_INDEX_CREATE, WalLabelPropertyIndexCreate);
-    read_skip(LABEL_PROPERTY_INDEX_DROP, WalLabelPropertyIndexDrop);
+    read_skip(LABEL_PROPERTIES_INDEX_CREATE, WalLabelPropertyIndexCreate);
+    read_skip(LABEL_PROPERTIES_INDEX_DROP, WalLabelPropertyIndexDrop);
     read_skip(POINT_INDEX_CREATE, WalPointIndexCreate);
     read_skip(POINT_INDEX_DROP, WalPointIndexDrop);
     read_skip(EXISTENCE_CONSTRAINT_CREATE, WalExistenceConstraintCreate);
@@ -955,14 +973,20 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+        auto prop_ids = data.properties | ranges::views::transform([&](std::string_view name) {
+                          return PropertyId::FromUint(name_id_mapper->NameToId(name));
+                        }) |
+                        ranges::to_vector;
+        AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+        auto prop_ids = data.properties | ranges::views::transform([&](std::string_view name) {
+                          return PropertyId::FromUint(name_id_mapper->NameToId(name));
+                        }) |
+                        ranges::to_vector;
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
       [&](WalPointIndexCreate const &data) {
@@ -1313,6 +1337,15 @@ void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_map
 
 void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop) {
   encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+}
+
+void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                           std::vector<PropertyId> const &properties) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteUint(properties.size());
+  for (const auto &property : properties) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  }
 }
 
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,

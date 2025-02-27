@@ -3041,8 +3041,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties_string.push_back(prop.name);
   }
 
-  if (properties.size() > 1) {
-    throw utils::NotYetImplemented("index on multiple properties");
+  if (properties.size() > 1 && !flags::AreExperimentsEnabled(flags::Experiments::COMPOSITE_INDEX)) {
+    throw utils::NotYetImplemented("composite indices");
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -3057,9 +3057,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
+        auto maybe_index_error =
+            properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, std::move(properties));
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3078,9 +3078,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
+        auto maybe_index_error =
+            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3141,7 +3141,8 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   }
 
   if (properties.size() > 1) {
-    throw utils::NotYetImplemented("index on multiple properties");
+    // TODO(composite_index): extend to also apply for edge type indicies
+    throw utils::NotYetImplemented("composite indices");
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -3514,7 +3515,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+            (void)dba->CreateIndex(label, std::vector{prop});  // Only way to fail is to try to create an already existant index
             if (db_acc->config().salient.items.properties_on_edges) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }
@@ -3536,7 +3537,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
+        (void)dba->DropIndex(label, std::vector{prop});  // Only way to fail is to try to drop a non-existant index
         if (db_acc->config().salient.items.properties_on_edges) {
           (void)dba->DropGlobalEdgeIndex(prop);  // Only way to fail is to try to drop a non-existant index
         }

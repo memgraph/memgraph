@@ -58,7 +58,7 @@ class QueryCostEstimator : public ::testing::Test {
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label, {property}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     storage_dba.emplace(db->Access());

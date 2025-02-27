@@ -73,9 +73,9 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(LABEL_INDEX_STATS_SET);
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_DROP);
-    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTIES_INDEX_CREATE);
     add_case(LABEL_PROPERTY_INDEX_STATS_SET);
-    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTIES_INDEX_DROP);
     add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
     add_case(EDGE_INDEX_CREATE);
     add_case(EDGE_INDEX_DROP);
@@ -1402,15 +1402,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, PropertyId property) {
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
+  if (!mem_label_property_index->CreateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1481,15 +1481,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, PropertyId property) {
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->DropIndex(label, property)) {
+  if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -2369,8 +2369,14 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_ordered_properties.label,
+                                md_delta.label_ordered_properties.properties);
+        });
+        break;
+      }
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
       case MetadataDelta::Action::POINT_INDEX_CREATE:
@@ -2408,8 +2414,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
-                                md_delta.label_properties.properties);
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_unordered_properties.label,
+                                md_delta.label_unordered_properties.properties);
         });
         break;
       }
