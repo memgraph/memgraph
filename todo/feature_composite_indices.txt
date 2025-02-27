@@ -1,0 +1,1 @@
+composite index hints ATM not possible in the grammar (hence ANTLR ast) or in the cypher_main_visitor (our AST)
