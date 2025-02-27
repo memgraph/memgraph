@@ -3656,12 +3656,20 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
       std::vector<float> search_query_vector;
       search_query_vector.reserve(search_query->elems.size());
       for (auto &elem : search_query->elems) {
-        double value = 0.0;
-        auto err = mgp_value_get_double(&elem, &value);
-        if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-          throw std::logic_error("Retrieving vector search results failed during conversion of a mgp_value");
+        auto type = MgpValueGetType(elem);
+        if (type == mgp_value_type::MGP_VALUE_TYPE_DOUBLE) {
+          double value = 0.0;
+          mgp_value_get_double(&elem, &value);
+          search_query_vector.push_back(static_cast<float>(value));
+          continue;
         }
-        search_query_vector.push_back(static_cast<float>(value));
+        if (type == mgp_value_type::MGP_VALUE_TYPE_INT) {
+          int64_t value = 0;
+          mgp_value_get_int(&elem, &value);
+          search_query_vector.push_back(static_cast<float>(value));
+          continue;
+        }
+        throw std::logic_error("Unrecognized value type, expecting values are Double or Int!");
       }
       found_vertices = graph->getImpl()->VectorIndexSearch(index_name, result_size, search_query_vector);
     } catch (memgraph::query::QueryException &e) {
