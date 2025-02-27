@@ -270,8 +270,8 @@ class DeltaGenerator final {
         });
         break;
       }
-      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP:
       case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_DROP:
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:

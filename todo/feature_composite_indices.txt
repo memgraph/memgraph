@@ -1,1 +1,20 @@
 composite index hints ATM not possible in the grammar (hence ANTLR ast) or in the cypher_main_visitor (our AST)
+edge type index ATM not allowing composite index
+
+
+ATM:
+Create/Drop will ignore anything but first property
+
+
+durability:
+    We need a test to make sure old version is still readable
+    We need a test to make sure a new version is readable
+
+
+C API
+mgp_create_label_property_index
+mgp_drop_label_property_index
+
+Not essential:
+Temporary string creation, not needed...just do it in/via formatter
+* auto properties_stringified = utils::Join(data.properties, ", ");
