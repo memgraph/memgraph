@@ -420,8 +420,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_VECTOR_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
-        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
-        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTIES_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTIES_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
         case memgraph::storage::durability::Marker::DELTA_EDGE_INDEX_CREATE:
