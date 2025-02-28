@@ -34,7 +34,7 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(
-    LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, std::span<PropertyId const> properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
@@ -70,21 +70,27 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
         return true;
       };
 
-  auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
-
-  indices_by_property_[property].insert({label, &it->second});
-
+  auto [it1, _] = index_.try_emplace(label);
+  auto &properties_map = it1->second;
+  auto [it2, emplaced] = properties_map.try_emplace(std::vector(properties.begin(), properties.end()));
   if (!emplaced) {
     // Index already exists.
     return false;
   }
 
-  if (parallel_exec_info) {
-    return create_index_par(label, property, vertices, it, *parallel_exec_info);
+  auto &propertied_key = it2->first;
+  auto &index = it2->second;
+
+  auto de = EntryDetail{&it2->first, &index};
+  for (auto prop : properties) {
+    indices_by_property_[prop].insert({label, de});
   }
 
-  return create_index_seq(label, property, vertices, it);
+  if (parallel_exec_info) {
+    return create_index_par(label, properties, vertices, it, *parallel_exec_info);
+  }
+
+  return create_index_seq(label, properties, vertices, it);
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
@@ -511,6 +517,16 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.clear();
   indices_by_property_.clear();
   stats_->clear();
+}
+
+LabelPropertyIndex::IndexStats InMemoryLabelPropertyIndex::Analysis() const {
+  IndexStats res{};
+  for (const auto &[lp, _] : index_) {
+    const auto &[label, property] = lp;
+    res.l2p[label].emplace_back(property);
+    res.p2l[property].emplace_back(label);
+  }
+  return res;
 }
 
 }  // namespace memgraph::storage
