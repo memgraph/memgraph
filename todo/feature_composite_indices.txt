@@ -55,6 +55,11 @@ CREATE INDEX ON :Node(a, b, a)
 
 Refactor CreateIndex to populate as we insert, rather than fail + cleanup
 
+composite index requires a check on creation that all property ids are unique
++ write test
+eg. CREATE INDEX ON :L(A,A); // invalid
+
+<=> for entry
 
 ROADMAP
 - parallel change approach
@@ -65,3 +70,8 @@ ROADMAP
     - add new for list indices + update tests based on new approach
     - rewrite rules to use the composite index
     - ScanAllByLabelPropertyRange fix for composite
+
+
+MVCC CurrentVersionHasLabelProperty for the InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid
+- IsPropertyEqual -> ArePropertiesEqual
+- many delta cache -> GetProperty needs GetProperties

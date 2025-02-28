@@ -1821,6 +1821,18 @@ TEST_P(CypherMainVisitorTest, CreateIndex) {
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
+TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, email)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                              ast_generator.Prop("email")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
+}
+
 TEST_P(CypherMainVisitorTest, DropIndex) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko)"));
@@ -1838,7 +1850,14 @@ TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
 
 TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"), SyntaxException);
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("DROP INDEX ON :Person(name, birthDate, email)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                              ast_generator.Prop("email")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnAll) {
