@@ -94,7 +94,7 @@ check() {
             fi
             continue
         fi
-        if ! rpm -q "$pkg" >/dev/null 2>&1; then
+        if ! rpm -q "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
     done
