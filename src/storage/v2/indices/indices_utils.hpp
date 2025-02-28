@@ -24,7 +24,7 @@
 
 namespace memgraph::storage {
 
-namespace {
+namespace details {
 
 template <Delta::Action... actions>
 struct ActionSet {
@@ -52,7 +52,7 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
   return false;
 }
 
-}  // namespace
+}  // namespace details
 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
@@ -70,42 +70,43 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
     return true;
   }
   constexpr auto interesting =
-      ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
-                Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-        if (delta.label.value == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      case Delta::Action::REMOVE_LABEL:
-        if (delta.label.value == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-    return !deleted && has_label;
-  });
+      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
+                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta,
+                                                            [&has_label, &deleted, label](const Delta &delta) {
+                                                              switch (delta.action) {
+                                                                case Delta::Action::ADD_LABEL:
+                                                                  if (delta.label.value == label) {
+                                                                    MG_ASSERT(!has_label, "Invalid database state!");
+                                                                    has_label = true;
+                                                                  }
+                                                                  break;
+                                                                case Delta::Action::REMOVE_LABEL:
+                                                                  if (delta.label.value == label) {
+                                                                    MG_ASSERT(has_label, "Invalid database state!");
+                                                                    has_label = false;
+                                                                  }
+                                                                  break;
+                                                                case Delta::Action::RECREATE_OBJECT: {
+                                                                  MG_ASSERT(deleted, "Invalid database state!");
+                                                                  deleted = false;
+                                                                  break;
+                                                                }
+                                                                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                                                                case Delta::Action::DELETE_OBJECT: {
+                                                                  MG_ASSERT(!deleted, "Invalid database state!");
+                                                                  deleted = true;
+                                                                  break;
+                                                                }
+                                                                case Delta::Action::SET_PROPERTY:
+                                                                case Delta::Action::ADD_IN_EDGE:
+                                                                case Delta::Action::ADD_OUT_EDGE:
+                                                                case Delta::Action::REMOVE_IN_EDGE:
+                                                                case Delta::Action::REMOVE_OUT_EDGE:
+                                                                  break;
+                                                              }
+                                                              return !deleted && has_label;
+                                                            });
 }
 
 /// Helper function for label-property index garbage collection. Returns true if
@@ -131,10 +132,11 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
     return true;
   }
 
-  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
-                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::SET_PROPERTY,
+                         Delta::Action::RECREATE_OBJECT, Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                         Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&has_label, &current_value_equal_to_value, &deleted, label, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
@@ -194,9 +196,10 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
     return true;
   }
 
-  constexpr auto interesting = ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::SET_PROPERTY:

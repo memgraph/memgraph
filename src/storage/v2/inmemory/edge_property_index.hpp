@@ -15,16 +15,12 @@
 #include <map>
 #include <utility>
 
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
-#include "storage/v2/indices/edge_type_property_index.hpp"
-#include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
