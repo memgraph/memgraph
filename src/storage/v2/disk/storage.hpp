@@ -105,6 +105,11 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
+    uint64_t ApproximateEdgeCount() const override {
+      auto *disk_storage = static_cast<DiskStorage *>(storage_);
+      return disk_storage->edge_count_.load(std::memory_order_acquire);
+    }
+
     uint64_t ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const override { return 10; }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const override { return 10; }
