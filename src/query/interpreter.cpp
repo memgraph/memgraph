@@ -3463,7 +3463,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
           if (!ttl.Enabled()) {
             (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
-            if (db_acc->config().salient.items.property_store_compression_enabled) {
+            if (db_acc->config().salient.items.properties_on_edges) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }
             ttl.Enable();
@@ -3485,7 +3485,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
         (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
-        if (db_acc->config().salient.items.property_store_compression_enabled) {
+        if (db_acc->config().salient.items.properties_on_edges) {
           (void)dba->DropGlobalEdgeIndex(prop);  // Only way to fail is to try to drop a non-existant index
         }
         const utils::OnScopeExit invalidator(invalidate_plan_cache);
