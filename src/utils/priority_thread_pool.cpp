@@ -324,7 +324,7 @@ void PriorityThreadPool::Worker::operator()(std::vector<Worker *> workers_pool) 
     // Phase 3 - spin for a while waiting on work
     {
       const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-      yielder y;
+      yielder y;  // NOLINT (misc-const-correctness)
       while (std::chrono::steady_clock::now() < end) {
         if (y([this] { return has_pending_work_.load(std::memory_order_acquire); })) break;
         std::this_thread::yield();
