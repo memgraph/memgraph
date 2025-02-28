@@ -43,7 +43,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+  bool CreateIndex(LabelId label, std::span<PropertyId const> properties, utils::SkipList<Vertex>::Accessor vertices,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -69,15 +69,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp);
 
-  IndexStats Analysis() const {
-    IndexStats res{};
-    for (const auto &[lp, _] : index_) {
-      const auto &[label, property] = lp;
-      res.l2p[label].emplace_back(property);
-      res.p2l[property].emplace_back(label);
-    }
-    return res;
-  }
+  IndexStats Analysis() const;
 
   class Iterable {
    public:
@@ -159,11 +151,23 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
-  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
-                      utils::ReadPrioritizedRWLock>
-      stats_;
+  using IndividualIndex = utils::SkipList<Entry>;
+  using PropertiesIds = std::vector<PropertyId>;
+  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex>;
+  std::map<LabelId, PropertiesIndices, std::less<>> index_;
+
+  using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;
+  using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
+  std::unordered_map<PropertyId, PropToIndexLookup> indices_by_property_;
+
+  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats>;
+  utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
+
+  //  std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>> index_;
+  //  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
+  //  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
+  //                      utils::ReadPrioritizedRWLock>
+  //      stats_;
 };
 
 }  // namespace memgraph::storage
