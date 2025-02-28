@@ -1563,7 +1563,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
   if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
-                                                                          property, std::nullopt);
+                                                                          property, std::nullopt, std::nullopt);
       violation.has_value()) {
     return StorageExistenceConstraintDefinitionError{violation.value()};
   }

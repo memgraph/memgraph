@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -87,10 +88,11 @@ struct PointIndexStorage {
   // TODO: consider passkey idiom
 
   // Query (modify index set)
-  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                        std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
 
-  // Transaction (estabilish what to collect + able to build next index)
+  // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
 
   // Commit
