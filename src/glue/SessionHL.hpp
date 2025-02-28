@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,24 @@
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
+
+class RunTimeConfig {
+ public:
+  RunTimeConfig(std::string key, auto &&get_current, auto &&get_default, auto &&update)
+      : key_(std::move(key)),
+        get_current_(std::forward<decltype(get_current)>(get_current)),
+        get_default_(std::forward<decltype(get_default)>(get_default)),
+        update_(std::forward<decltype(update)>(update)) {}
+
+  void Configure(auto run_time_info, bool in_explicit_tx);
+
+  bool explicit_ = false;
+  std::optional<std::string> implicit_config_{};
+  std::string key_;
+  std::function<std::string()> get_current_;
+  std::function<std::optional<std::string>()> get_default_;
+  std::function<void(std::optional<std::string>, bool)> update_;
+};
 
 using bolt_value_t = memgraph::communication::bolt::Value;
 using bolt_map_t = memgraph::communication::bolt::map_t;
@@ -88,18 +106,22 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
    *
    * @return std::string
    */
-  std::optional<std::string> GetDefaultDB();
+  std::optional<std::string> GetDefaultDB() const;
+
+  std::optional<std::string> GetDefaultUser() const;
+
+  std::string GetCurrentUser() const;
 
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
-  std::unique_ptr<query::QueryUserOrRole> user_or_role_;
+  std::shared_ptr<query::QueryUserOrRole> user_or_role_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
-  bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
+  RunTimeConfig runtime_db_;
+  RunTimeConfig runtime_user_;
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
-  std::optional<std::string> implicit_db_;
 };
 
 }  // namespace memgraph::glue

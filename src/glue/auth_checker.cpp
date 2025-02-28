@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -184,6 +184,15 @@ bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_
           [&](const auth::Role &role) -> bool { return AuthChecker::IsRoleAuthorized(role, privileges, db_name); }},
       user_or_role);
 }
+
+#ifdef MG_ENTERPRISE
+bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgraph::auth::User &target) {
+  return user.CanImpersonate(target);
+}
+bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target) {
+  return role.CanImpersonate(target);
+}
+#endif
 
 #ifdef MG_ENTERPRISE
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)

@@ -45,6 +45,7 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
     return true;
   }
 #ifdef MG_ENTERPRISE
+  virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy) const { return true; }
   std::string GetDefaultDB() const { return "memgraph"; }
 #endif
 };

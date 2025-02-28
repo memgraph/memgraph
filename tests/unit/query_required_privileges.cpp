@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -105,7 +105,8 @@ TEST_F(TestPrivilegeExtractor, AuthQuery) {
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", false, nullptr, "",
-                           std::vector<AuthQuery::Privilege>{}, label_privileges, edge_type_privileges);
+                           std::vector<AuthQuery::Privilege>{}, label_privileges, edge_type_privileges,
+                           std::vector<std::string>{});
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 #endif
