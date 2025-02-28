@@ -73,7 +73,7 @@ jobs:
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
       s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-      additional_build_args: "--skip-init-prep-testing"
+      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   CentOS10:
@@ -89,7 +89,7 @@ jobs:
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
       s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-      additional_build_args: "--skip-init-prep-testing"
+      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   Debian11:
@@ -182,7 +182,7 @@ jobs:
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
       s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-      additional_build_args: "--skip-init-prep-testing"
+      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   RockyLinux9_3:
@@ -198,7 +198,7 @@ jobs:
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
       s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-      additional_build_args: "--skip-init-prep-testing"
+      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   Ubuntu22_04:
