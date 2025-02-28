@@ -99,4 +99,30 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
     assert failed
 
 
+# Try to impersonate a different user with the same username
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        session.run("GRANT IMPERSONATE_USER user,user2,user3 TO admin;").consume()
+
+
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        session.run("DROP USER user2;").consume()
+        session.run("CREATE USER user2;").consume()
+
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    failed = False
+    try:
+        with driver.session(impersonated_user="user2") as session:
+            assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+    except:
+        failed = True
+
+    assert failed
+
+    with driver.session(impersonated_user="user") as session:
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+    with driver.session(impersonated_user="user3") as session:
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user3"
+
 print("All ok!")
