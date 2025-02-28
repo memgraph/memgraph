@@ -1072,6 +1072,9 @@ enum mgp_error mgp_vertices_iterator_get(struct mgp_vertices_iterator *it, struc
 /// Gets number of vertices in the graph.
 enum mgp_error mgp_graph_count_vertices(struct mgp_graph *graph, size_t *result);
 
+/// Gets number of edges in the graph.
+enum mgp_error mgp_graph_count_edges(struct mgp_graph *graph, size_t *result);
+
 /// @name Temporal Types
 ///
 ///@{

@@ -28,6 +28,7 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <atomic>
 #include <cstdint>
 #include <unordered_set>
 #include "utils/small_vector.hpp"
@@ -103,6 +104,11 @@ class DiskStorage final : public Storage {
                                     const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
                                     const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
       return 10;
+    }
+
+    uint64_t ApproximateEdgeCount() const override {
+      auto *disk_storage = static_cast<DiskStorage *>(storage_);
+      return disk_storage->edge_count_.load(std::memory_order_acquire);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const override { return 10; }

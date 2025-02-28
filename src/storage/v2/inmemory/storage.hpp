@@ -208,6 +208,8 @@ class InMemoryStorage final : public Storage {
           label, property, lower, upper);
     }
 
+    uint64_t ApproximateEdgeCount() const override { return static_cast<InMemoryStorage *>(storage_)->edges_.size(); }
+
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->ApproximateEdgeCount(edge_type);
     }
