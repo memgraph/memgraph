@@ -94,7 +94,7 @@ check() {
             fi
             continue
         fi
-        if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
+        if ! rpm -q "$pkg" >/dev/null 2>&1; then
             missing="$pkg $missing"
         fi
     done
