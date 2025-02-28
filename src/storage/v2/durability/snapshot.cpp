@@ -756,18 +756,14 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   }
 }
 
-RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, SalientConfig::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (*version != 14U) throw RecoveryFailure(fmt::format("Expected snapshot version is 14, but got {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -1175,7 +1171,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -1237,20 +1233,14 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
   return {info, ret, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version != 15U) throw RecoveryFailure(fmt::format("Expected snapshot version is 15, but got {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -1468,7 +1458,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -1530,20 +1520,14 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version != 16U) throw RecoveryFailure(fmt::format("Expected snapshot version is 16, but got {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -1876,18 +1860,14 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -2263,19 +2243,15 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
 
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
 /// hence same load for 18 will work for 19
-RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesystem::path &path,
+                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                            utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
                                             memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -2707,19 +2683,15 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
+                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                            utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
                                             memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -3202,8 +3174,9 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion22or23(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
+                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                            utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             const Config &config, memgraph::storage::EnumStore *enum_store,
@@ -3211,11 +3184,6 @@ RecoveredSnapshot LoadSnapshotVersion22or23(const std::filesystem::path &path, u
                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -3746,13 +3714,19 @@ RecoveredSnapshot LoadSnapshotVersion22or23(const std::filesystem::path &path, u
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadCurrentVersionSnapshot(
-    std::filesystem::path const &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-    utils::SkipList<EdgeMetadata> *edges_metadata, std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-    NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config, EnumStore *enum_store,
-    SharedSchemaTracking *schema_info, std::optional<SnapshotObserverInfo> const &snapshot_info,
-    RecoveryInfo &recovery_info, RecoveredIndicesAndConstraints &indices_constraints,
-    Decoder &snapshot) {  // Cleanup of loaded data in case of failure.
+RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
+                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                             utils::SkipList<EdgeMetadata> *edges_metadata,
+                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                             Config const &config, EnumStore *enum_store,
+                                             SharedSchemaTracking *schema_info,
+                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // Cleanup of loaded data in case of failure.
+
+  RecoveryInfo recovery_info;
+  RecoveredIndicesAndConstraints indices_constraints;
+
   bool success = false;
   utils::OnScopeExit cleanup([&] {
     if (!success) {
@@ -4289,54 +4263,56 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(
 
   return {info, recovery_info, std::move(indices_constraints)};
 }
+
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  RecoveryInfo recovery_info;
-  RecoveredIndicesAndConstraints indices_constraints;
-
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
-  if (*version == 14U) {
-    return LoadSnapshotVersion14(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config.salient.items);
+  switch (*version) {
+    case 14U: {
+      return LoadSnapshotVersion14(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config.salient.items);
+    }
+    case 15U: {
+      return LoadSnapshotVersion15(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config);
+    }
+    case 16U: {
+      return LoadSnapshotVersion16(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config);
+    }
+    case 17U: {
+      return LoadSnapshotVersion17(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config);
+    }
+    case 18U:
+    case 19U: {
+      return LoadSnapshotVersion18or19(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                       edge_count, schema_info, config, enum_store);
+    }
+    case 20U:
+    case 21U: {
+      return LoadSnapshotVersion20or21(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                       edge_count, schema_info, config, enum_store);
+    }
+    case 22U:
+    case 23U: {
+      // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
+      return LoadSnapshotVersion22or23(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                       edge_count, config, enum_store, schema_info, snapshot_info);
+    }
+    default: {
+      return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                        edge_count, config, enum_store, schema_info, snapshot_info);
+    }
   }
-  if (*version == 15U) {
-    return LoadSnapshotVersion15(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config);
-  }
-  if (*version == 16U) {
-    return LoadSnapshotVersion16(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config);
-  }
-  if (*version == 17U) {
-    return LoadSnapshotVersion17(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config);
-  }
-  if (*version == 18U || *version == 19U) {
-    return LoadSnapshotVersion18or19(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                     schema_info, config, enum_store);
-  }
-  if (*version == 20U || *version == 21U) {
-    return LoadSnapshotVersion20or21(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                     schema_info, config, enum_store);
-  }
-  // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
-  if (*version == 22U || *version == 23U) {
-    return LoadSnapshotVersion22or23(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                     config, enum_store, schema_info, snapshot_info);
-  }
-
-  return LoadCurrentVersionSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                    config, enum_store, schema_info, snapshot_info, recovery_info, indices_constraints,
-                                    snapshot);
 }
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
