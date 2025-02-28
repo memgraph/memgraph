@@ -194,7 +194,7 @@ uint64_t InMemoryEdgePropertyIndex::ApproximateEdgeCount(
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-void InMemoryEdgePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
+void InMemoryEdgePropertyIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/, Vertex *new_from,
                                                          Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                                          PropertyId property, const PropertyValue &value,
                                                          const Transaction &tx) {
