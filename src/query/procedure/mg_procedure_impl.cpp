@@ -3659,17 +3659,18 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
         auto type = MgpValueGetType(elem);
         if (type == mgp_value_type::MGP_VALUE_TYPE_DOUBLE) {
           double value = 0.0;
-          mgp_value_get_double(&elem, &value);
+          [[maybe_unused]] auto err = mgp_value_get_double(&elem, &value);
           search_query_vector.push_back(static_cast<float>(value));
           continue;
         }
         if (type == mgp_value_type::MGP_VALUE_TYPE_INT) {
           int64_t value = 0;
-          mgp_value_get_int(&elem, &value);
+          [[maybe_unused]] auto err = mgp_value_get_int(&elem, &value);
           search_query_vector.push_back(static_cast<float>(value));
           continue;
         }
-        throw std::logic_error("Unrecognized value type, expecting values are Double or Int!");
+        throw std::logic_error(
+            "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
       found_vertices = graph->getImpl()->VectorIndexSearch(index_name, result_size, search_query_vector);
     } catch (memgraph::query::QueryException &e) {
@@ -4400,7 +4401,7 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
 }
 
 mgp_execution_headers::mgp_execution_headers(memgraph::utils::pmr::vector<memgraph::utils::pmr::string> &&storage)
-    : headers(std::move(storage)){};
+    : headers(std::move(storage)) {};
 
 mgp_error mgp_execution_headers_size(mgp_execution_headers *headers, size_t *result) {
   static_assert(noexcept(headers->headers.size()));
