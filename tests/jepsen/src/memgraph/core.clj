@@ -190,9 +190,9 @@
    ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % load-configuration)]
-   ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default 5]
-   ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default 600]
-   ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default 300]])
+   ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default nil]
+   ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default nil]
+   ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default nil]])
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for

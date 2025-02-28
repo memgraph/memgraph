@@ -167,31 +167,30 @@
 (defn nemesis-events
   "Create a random sequence of nemesis events. Disruptions last [10-60] seconds, and the system remains undisrupted for some time afterwards."
   [nodes-config]
-  (let [events [;[{:type :info :f :start-partition-halves}
-                ; (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
-                ; {:type :info :f :stop-partition-halves}
-                ; (gen/sleep 5)]
+  (let [events [[{:type :info :f :start-partition-halves}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-partition-halves}
+                 (gen/sleep 5)]
 
-                ;[{:type :info :f :start-partition-ring}
-                ; (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
-                ; {:type :info :f :stop-partition-ring}
-                ; (gen/sleep 5)]
+                [{:type :info :f :start-partition-ring}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-partition-ring}
+                 (gen/sleep 5)]
 
-                ;[{:type :info :f :start-partition-node}
-                ; (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
-                ; {:type :info :f :stop-partition-node}
-                ; (gen/sleep 5)]
+                [{:type :info :f :start-partition-node}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-partition-node}
+                 (gen/sleep 5)]
 
                 [{:type :info :f :kill-node}
                  (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
                  {:type :info :f :heal-node}
                  (gen/sleep 5)]
 
-                ; [{:type :info :f :start-network-disruption :value [(keys nodes-config) net/all-packet-behaviors]}
-                ;  (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
-                ;  {:type :info :f :stop-network-disruption}
-                ;  (gen/sleep 5)]
-                ]]
+                [{:type :info :f :start-network-disruption :value [(keys nodes-config) net/all-packet-behaviors]}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-network-disruption}
+                 (gen/sleep 5)]]]
 
     (mapcat identity (repeatedly #(rand-nth events)))))
 
@@ -202,5 +201,4 @@
    :generator (gen/phases
                (gen/sleep nemesis-start-sleep) ; Enough time for cluster setup to finish
                (nemesis-events nodes-config))
-   ; :final-generator (map utils/op [:stop-partition-ring :stop-partition-halves :stop-partition-node :heal-node :stop-network-disruption])
-   :final-generator (map utils/op [:heal-node])})
+   :final-generator (map utils/op [:stop-partition-ring :stop-partition-halves :stop-partition-node :heal-node :stop-network-disruption])})
