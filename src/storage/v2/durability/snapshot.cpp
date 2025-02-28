@@ -4340,6 +4340,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
+      spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will NOT be deleted.", item.path(), e.what());
       // TODO If we want to do this we need a way to protect current wal file
       // We can't get the engine lock here
       // Maybe the file locker can help us. Careful, in any case we don't really want to delete it by accident.
@@ -4409,7 +4410,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
   std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
   if (old_snapshot_files.size() <= storage->config_.durability.snapshot_retention_count - 1) return old_snapshot_files;
 
-  uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
+  const uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
     file_retainer->DeleteFile(snapshot_path);
