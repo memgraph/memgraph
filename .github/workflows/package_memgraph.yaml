@@ -78,7 +78,6 @@ jobs:
 
   CentOS10:
     if: ${{ github.event.inputs.os == 'centos-10' || github.event.inputs.os == 'all' }}
-    runs-on: [self-hosted, x86-64-v3]
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-10"
