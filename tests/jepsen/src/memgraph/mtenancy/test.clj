@@ -108,10 +108,17 @@
       (case (:f op)
         :get-num-nodes (if (mutils/data-instance? node)
                          (try
-                           (utils/with-session bolt-conn session
-                             ((mgquery/use-database "memgraph") session)
-                             (let [num-nodes (->> (mgquery/get-num-nodes session) first :c)]
-                               (assoc op :type :ok :value {:num-nodes num-nodes :node node})))
+                           (let
+                            [num-nodes
+                             (reduce (fn [acc-nodes db]
+                                       (let [session-config (utils/db-session-config db)]
+                                         (utils/with-db-session bolt-conn session-config session
+                                           (let [db-num-nodes (->> (mgquery/get-num-nodes session) first :c)]
+                                             (conj acc-nodes db-num-nodes)))))
+
+                                     [] (mutils/get-all-dbs num-tenants))]
+
+                             (assoc op :type :ok :value {:num-nodes num-nodes :node node}))
                         ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
@@ -119,11 +126,19 @@
 
         :get-num-edges (if (mutils/data-instance? node)
                          (try
-                           (utils/with-session bolt-conn session
-                             ((mgquery/use-database "memgraph") session)
-                             (let [num-edges (->> (mgquery/get-num-edges session) first :c)]
-                               (assoc op :type :ok :value {:num-edges num-edges :node node})))
-                        ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
+                           (let
+                            [num-edges
+                             (reduce (fn [acc-edges db]
+                                       (let [session-config (utils/db-session-config db)]
+                                         (utils/with-db-session bolt-conn session-config session
+                                           (let [db-num-edges (->> (mgquery/get-num-edges session) first :c)]
+                                             (conj acc-edges db-num-edges)))))
+
+                                     [] (mutils/get-all-dbs num-tenants))]
+
+                             (assoc op :type :ok :value {:num-edges num-edges :node node}))
+
+; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
                          (assoc op :type :info :value "Not data instance."))
@@ -191,14 +206,14 @@
 
         :import-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                         (try
-                          (utils/with-session bolt-conn session
-                            (doseq [db (mutils/get-all-dbs num-tenants)]
-                              ((mgquery/use-database db) session)
-                              (mgquery/create-label-idx session)
-                              (mgquery/create-label-property-idx session)
-                              (mgquery/import-pokec-medium-nodes session))
+                          (doseq [db (mutils/get-all-dbs num-tenants)]
+                            (let [session-config (utils/db-session-config db)]
+                              (utils/with-db-session bolt-conn session-config session
+                                (mgquery/create-label-idx session)
+                                (mgquery/create-label-property-idx session)
+                                (mgquery/import-pokec-medium-nodes session))))
 
-                            (assoc op :type :ok :value {:str "pokec_medium nodes imported"}))
+                          (assoc op :type :ok :value {:str "pokec_medium nodes imported"})
 
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                             (utils/process-service-unavailable-exc op node))
@@ -210,12 +225,12 @@
 
         :import-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
                         (try
-                          (utils/with-session bolt-conn session
-                            (doseq [db (mutils/get-all-dbs num-tenants)]
-                              ((mgquery/use-database db) session)
-                              (mgquery/import-pokec-medium-edges session))
+                          (doseq [db (mutils/get-all-dbs num-tenants)]
+                            (let [session-config (utils/db-session-config db)]
+                              (utils/with-db-session bolt-conn session-config session
+                                (mgquery/import-pokec-medium-edges session))))
 
-                            (assoc op :type :ok :value {:str "pokec_medium edges imported"}))
+                          (assoc op :type :ok :value {:str "pokec_medium edges imported"})
 
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                             (utils/process-service-unavailable-exc op node))
@@ -362,15 +377,17 @@
                                      (empty? failed-import-nodes)
                                      (empty? failed-import-edges)
                                      (empty? failed-show-instances)
-                                     (= n1-num-nodes n2-num-nodes pokec-medium-expected-num-nodes)
-                                     (= n1-num-edges n2-num-edges pokec-medium-expected-num-edges))
+                                     (every? #(= % pokec-medium-expected-num-nodes) n1-num-nodes)
+                                     (every? #(= % pokec-medium-expected-num-nodes) n2-num-nodes)
+                                     (every? #(= % pokec-medium-expected-num-edges) n1-num-edges)
+                                     (every? #(= % pokec-medium-expected-num-edges) n2-num-edges))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n3" "n4" "n5"})
-                            :n1-all-nodes? (= pokec-medium-expected-num-nodes n1-num-nodes)
-                            :n1-all-edges? (= pokec-medium-expected-num-edges n1-num-edges)
-                            :n2-all-nodes? (= pokec-medium-expected-num-nodes n2-num-nodes)
-                            :n2-all-edges? (= pokec-medium-expected-num-edges n2-num-edges)
+                            :n1-all-nodes? (every? #(= % pokec-medium-expected-num-nodes) n1-num-nodes)
+                            :n1-all-edges? (every? #(= % pokec-medium-expected-num-edges) n1-num-edges)
+                            :n2-all-nodes? (every? #(= % pokec-medium-expected-num-nodes) n2-num-nodes)
+                            :n2-all-edges? (every? #(= % pokec-medium-expected-num-edges) n2-num-edges)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-create-databases? (empty? failed-create-databases) ; There shouldn't be any failed create-databases operations.
                             :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
@@ -382,10 +399,10 @@
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
-                     {:key :n1-not-all-nodes? :condition (not (:n1-all-nodes? initial-result)) :value n1-num-nodes}
-                     {:key :n1-not-all-edges? :condition (not (:n1-all-edges? initial-result)) :value n1-num-edges}
-                     {:key :n2-not-all-nodes? :condition (not (:n2-all-nodes? initial-result)) :value n2-num-nodes}
-                     {:key :n2-not-all-edges? :condition (not (:n2-all-edges? initial-result)) :value n2-num-edges}
+                     {:key :n1-not-all-nodes :condition (not (:n1-all-nodes? initial-result)) :value n1-num-nodes}
+                     {:key :n1-not-all-edges :condition (not (:n1-all-edges? initial-result)) :value n1-num-edges}
+                     {:key :n2-not-all-nodes :condition (not (:n2-all-nodes? initial-result)) :value n2-num-nodes}
+                     {:key :n2-not-all-edges :condition (not (:n2-all-edges? initial-result)) :value n2-num-edges}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-create-databases :condition (not (:empty-failed-create-databases? initial-result)) :value failed-create-databases}
                      {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
