@@ -528,6 +528,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_EDGE_INDEX_DROP:
     case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
@@ -660,6 +662,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_EDGE_INDEX_DROP:
     case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
