@@ -244,15 +244,14 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   std::chrono::time_point<std::chrono::steady_clock> workload_start;
   std::chrono::duration<double> time_limit = std::chrono::seconds(FLAGS_time_dependent_execution);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
-    threads.push_back(std::thread([&, worker]() {
+    threads.emplace_back([&, worker]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       ready.fetch_add(1, std::memory_order_acq_rel);
-      while (!run.load(std::memory_order_acq_rel))
-        ;
+      while (!run.load(std::memory_order_acquire)) std::this_thread::yield();
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
       auto &duration = worker_duration[worker];
@@ -270,7 +269,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) {
           /// Get back to inital position
-          position.store(0, std::memory_order_acq_rel);
+          position.store(0, std::memory_order_release);
           pos = position.fetch_add(1, std::memory_order_acq_rel);
         }
         const auto &query = queries[pos];
@@ -282,14 +281,13 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
         duration = worker_timer.Elapsed().count();
       }
       client.Close();
-    }));
+    });
   }
 
   // Synchronize workers and collect runtime.
-  while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
-    ;
+  while (ready.load(std::memory_order_acquire) < FLAGS_num_workers) std::this_thread::yield();
 
-  run.store(true);
+  run.store(true, std::memory_order_release);
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
   }
@@ -327,7 +325,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   summary["metadata"] = final_metadata.Export();
   summary["num_workers"] = FLAGS_num_workers;
 
-  (*stream) << summary.dump() << std::endl;
+  (*stream) << summary.dump() << '\n';
 }
 
 void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream) {
@@ -347,15 +345,14 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   std::atomic<uint64_t> ready(0);
   std::atomic<uint64_t> position(0);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
-    threads.push_back(std::thread([&, worker]() {
+    threads.emplace_back([&, worker]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       ready.fetch_add(1, std::memory_order_acq_rel);
-      while (!run.load(std::memory_order_acq_rel))
-        ;
+      while (!run.load(std::memory_order_acquire)) std::this_thread::yield();
 
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
@@ -375,13 +372,12 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
       }
       duration = worker_timer.Elapsed().count();
       client.Close();
-    }));
+    });
   }
 
   // Synchronize workers and collect runtime.
-  while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
-    ;
-  run.store(true, std::memory_order_acq_rel);
+  while (ready.load(std::memory_order_acquire) < FLAGS_num_workers) std::this_thread::yield();
+  run.store(true, std::memory_order_release);
 
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
@@ -410,7 +406,7 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   summary["metadata"] = final_metadata.Export();
   summary["num_workers"] = FLAGS_num_workers;
   summary["latency_stats"] = LatencyStatistics(worker_query_durations);
-  (*stream) << summary.dump() << std::endl;
+  (*stream) << summary.dump() << '\n';
 }
 
 nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::communication::bolt::Value>> &results) {
@@ -459,7 +455,7 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
   summary["results"] = BoltRecordsToJSONStrings(results);
   summary["num_workers"] = FLAGS_num_workers;
 
-  (*stream) << summary.dump() << std::endl;
+  (*stream) << summary.dump() << '\n';
 }
 
 int main(int argc, char **argv) {

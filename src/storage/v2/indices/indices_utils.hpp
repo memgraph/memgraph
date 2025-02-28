@@ -9,10 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <thread>
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
@@ -302,7 +305,7 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
+    ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
@@ -340,12 +343,17 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
 
 template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
-                                      TIndexKey key, const TFunc &func) {
+                                      TIndexKey key, const TFunc &func,
+                                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
   try {
     auto acc = it->second.access();
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
+      if (snapshot_info) {
+        snapshot_info->Update(UpdateType::VERTICES);
+      }
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -358,7 +366,8 @@ template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename 
 inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
                                          TIndex &index, TIndexKey key,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
-                                         const TFunc &func) {
+                                         const TFunc &func,
+                                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -376,29 +385,32 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(
-          [&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key, &vertices]() {
-            while (!maybe_error.Lock()->has_value()) {
-              const auto batch_index = batch_counter++;
-              if (batch_index >= vertex_batches.size()) {
-                return;
-              }
-              const auto &batch = vertex_batches[batch_index];
-              auto index_accessor = index.at(key).access();
-              auto it = vertices.find(batch.first);
+      threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
+                            &vertices, &snapshot_info]() mutable {
+        while (!maybe_error.Lock()->has_value()) {
+          const auto batch_index = batch_counter++;
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &batch = vertex_batches[batch_index];
+          auto index_accessor = index.at(key).access();
+          auto it = vertices.find(batch.first);
 
-              try {
-                for (auto i{0U}; i < batch.second; ++i, ++it) {
-                  func(*it, key, index_accessor);
-                }
-
-              } catch (utils::OutOfMemoryException &failure) {
-                utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-                index.erase(skiplist_iter);
-                *maybe_error.Lock() = std::move(failure);
+          try {
+            for (auto i{0U}; i < batch.second; ++i, ++it) {
+              func(*it, key, index_accessor);
+              if (snapshot_info) {
+                snapshot_info->Update(UpdateType::VERTICES);
               }
             }
-          });
+
+          } catch (utils::OutOfMemoryException &failure) {
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+            index.erase(skiplist_iter);
+            *maybe_error.Lock() = std::move(failure);
+          }
+        }
+      });
     }
   }
   if (maybe_error.Lock()->has_value()) {
@@ -412,12 +424,14 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 // Returns true if we are allowed to see the entity in the index data structures
 // If the method returns true, the reverts of the deltas will finally decide what's the version
 // of the graph entity
-inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction) {
-  if (!transaction->original_start_timestamp.has_value()) {
-    return true;
+inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
+  // Not enough information, need to rely on MVCC to fully check entry
+  if (transaction->command_id != 0) return true;
+  auto const original_start_timestamp = transaction->original_start_timestamp.value_or(transaction->start_timestamp);
+  if (view == View::OLD) {
+    return insertion_timestamp < original_start_timestamp;
   }
-
-  return insertion_timestamp < transaction->original_start_timestamp.value();
+  return insertion_timestamp <= original_start_timestamp;
 }
 
 }  // namespace memgraph::storage
