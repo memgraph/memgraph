@@ -212,6 +212,23 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  // ASAN reports an error here
+  bool PostVisit(ListComprehension &list_comprehension) override {
+    // Remove the symbol which is bound by list_comprehension, because we are only interested
+    // in free (unbound) symbols.
+    used_symbols_.erase(symbol_table_.at(*list_comprehension.identifier_));
+    MG_ASSERT(has_aggregation_.size() >= 2U,
+              "Expected at least 2 has_aggregation_ flags for list comprehension arguments!");
+    bool has_aggr = false;
+    size_t const limit = has_aggregation_.size();
+    for (int i = 0; i < limit; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
   bool PostVisit(None &none) override {
     // Remove the symbol which is bound by none, because we are only interested
     // in free (unbound) symbols.

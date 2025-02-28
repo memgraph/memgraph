@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1489,4 +1489,45 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
 
   // n, edge, m, Path
   ASSERT_EQ(collector.symbols_.size(), 4);
+}
+
+TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
+  // RETURN [x in [1, 2, 3] | x + 1] AS added_numbers
+  auto *ident = IDENT("x");
+  auto query = QUERY(
+      SINGLE_QUERY(RETURN(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
+                                                                     nullptr, ADD(ident, LITERAL(1)))))));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 2);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+
+  lc->Accept(collector);
+
+  // 0, we erase the x symbol as it is only mentioned in the list comprehension
+  ASSERT_EQ(collector.symbols_.size(), 0);
+}
+
+TYPED_TEST(TestSymbolGenerator, ListComprehensionInWith) {
+  // WITH [x in [1, 2, 3] WHERE x = 2 | x + 1] AS added_numbers RETURN added_numbers
+  auto *ident = IDENT("x");
+  auto query = QUERY(SINGLE_QUERY(
+      WITH(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
+                                                     WHERE(EQ(ident, LITERAL(2))), ADD(ident, LITERAL(1))))),
+      RETURN("added_numbers")));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 3);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *with = dynamic_cast<With *>(query->single_query_->clauses_[0]);
+  auto *lc = dynamic_cast<ListComprehension *>(with->body_.named_expressions[0]->expression_);
+
+  lc->Accept(collector);
+
+  // 0, we erase the x symbol as it is only mentioned in the list comprehension
+  ASSERT_EQ(collector.symbols_.size(), 0);
 }
