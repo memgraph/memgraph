@@ -855,7 +855,7 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
     if (!user && !role) {
       throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
-    bool all = targets.size() == 1 && targets[0] == "*";
+    const bool all = targets.size() == 1 && targets[0] == "*";
     if (all) {
       throw memgraph::query::QueryRuntimeException(
           "Cannot deny all users. Instead try to revoke the IMPERSONATE_USER privilege.");
