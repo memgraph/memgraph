@@ -19,6 +19,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
