@@ -484,12 +484,14 @@
         first-main (random-data-instance (keys nodes-config))
         organization (:organization opts)
         license (:license opts)
-        num-tenants (:num-tenants opts)]
+        num-tenants (:num-tenants opts)
+        recovery-time (:recovery-time opts)
+        nemesis-start-sleep (:nemesis-start-sleep opts)
+        ]
     {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (final-client-generator) :recovery-time 15}
-     ; TODO: (andi) Add configuration parameter how much to sleep
-     :nemesis-config (nemesis/create db nodes-config)}))
+     :final-generator {:clients (final-client-generator) :recovery-time recovery-time}
+     :nemesis-config (nemesis/create db nodes-config nemesis-start-sleep)}))

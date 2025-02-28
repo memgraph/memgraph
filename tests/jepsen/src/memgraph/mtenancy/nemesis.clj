@@ -197,10 +197,10 @@
 
 (defn create
   "Create a map which contains a nemesis configuration for running HA create test."
-  [db nodes-config]
+  [db nodes-config nemesis-start-sleep]
   {:nemesis (full-nemesis db nodes-config)
    :generator (gen/phases
-               (gen/sleep 240) ; Enough time for cluster setup to finish
+               (gen/sleep nemesis-start-sleep) ; Enough time for cluster setup to finish
                (nemesis-events nodes-config))
    ; :final-generator (map utils/op [:stop-partition-ring :stop-partition-halves :stop-partition-node :heal-node :stop-network-disruption])
    :final-generator (map utils/op [:heal-node])})

@@ -156,13 +156,22 @@
                        (:organization opts))
         num-tenants (when (:num-tenants opts)
                       (Integer/parseInt (:num-tenants opts)))
+
+        recovery-time (when (:recovery-time opts)
+                        (Integer/parseInt (:recovery-time opts)))
+
+        nemesis-start-sleep (when (:nemesis-start-sleep opts)
+                              (Integer/parseInt (:nemesis-start-sleep opts)))
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
                           :sync-after-n-txn sync-after-n-txn
                           :license licence
                           :organization organization
-                          :num-tenants num-tenants})]
+                          :num-tenants num-tenants
+                          :recovery-time recovery-time
+                          :nemesis-start-sleep nemesis-start-sleep})]
+
     (memgraph-test test-opts)))
 
 (def cli-opts
@@ -181,7 +190,9 @@
    ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % load-configuration)]
-   ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default 5]])
+   ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default 5]
+   ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default 600]
+   ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default 300]])
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
