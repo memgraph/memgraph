@@ -16,8 +16,6 @@
 /// their properties are implemented.
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
