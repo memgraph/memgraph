@@ -54,6 +54,28 @@ def test_create_dynamic_node_param(memgraph):
 
     assert len(result) == 1
     assert result[0]["label"] == "TYPE"
+    
+
+def test_create_multiple_dynamic_labels_on_node_param(memgraph):
+    memgraph.execute("CREATE (:$name);", {"name": ["Foo", "Bar"]})
+
+    result = list(memgraph.execute_and_fetch("MATCH (n) RETURN labels(n) as labels"))
+
+    assert len(result) == 1
+    assert len(result[0]["labels"]) == 2
+    assert result[0]["labels"][0] == "Foo"
+    assert result[0]["labels"][1] == "Bar"
+
+
+def test_create_multiple_dynamic_labels_on_node_with_variable(memgraph):
+    memgraph.execute("WITH {labels: ['Foo', 'Bar']} as var CREATE (:var.labels);")
+
+    result = list(memgraph.execute_and_fetch("MATCH (n) RETURN labels(n) as labels"))
+
+    assert len(result) == 1
+    assert len(result[0]["labels"]) == 2
+    assert result[0]["labels"][0] == "Foo"
+    assert result[0]["labels"][1] == "Bar"
 
 
 def test_match_dynamic_variable_relationship_error(memgraph):
