@@ -3728,7 +3728,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   RecoveredIndicesAndConstraints indices_constraints;
 
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  auto const cleanup = utils::OnScopeExit([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -3742,7 +3742,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
