@@ -51,6 +51,7 @@ def test_ttl_replication(connection, test_name):
     # 2/ MAIN Configure TTL
     # 3/ Validate that TTL is working on MAIN
     # 4/ Validate that nodes have been deleted on REPLICA as well
+    # 5/ Check that the index has been replicated
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -100,21 +101,48 @@ def test_ttl_replication(connection, test_name):
     execute_and_fetch_all(
         cursor, "UNWIND RANGE(0,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
     )
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(0,50) AS d CREATE ()-[:E1{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
+    )
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(50,100) AS d CREATE ()-[:E2{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
+    )
 
     # 2/
     execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
 
     # 3/
     def n_deltas(cursor):
-        return execute_and_fetch_all(cursor, f"MATCH (n) RETURN count(n) < 95;")
+        return execute_and_fetch_all(cursor, f"MATCH (n:TTL) RETURN count(n) < 95;")
+
+    def n_edge_deltas(cursor):
+        return execute_and_fetch_all(cursor, "MATCH ()-[e]->() WHERE e.ttl > 0 RETURN count(e) < 95;")
 
     mg_sleep_and_assert([(True,)], partial(n_deltas, cursor))
-    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    mg_sleep_and_assert([(True,)], partial(n_edge_deltas, cursor))
 
     # 4/
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     mg_sleep_and_assert([(True,)], partial(n_deltas, cursor_replica))
+    mg_sleep_and_assert([(True,)], partial(n_edge_deltas, cursor_replica))
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     mg_sleep_and_assert([(True,)], partial(n_deltas, cursor_replica2))
+    mg_sleep_and_assert([(True,)], partial(n_edge_deltas, cursor_replica2))
+
+    # 5/
+    def check_index(cursor):
+        index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+        assert index_info[0][0] == "edge-property"
+        assert index_info[0][2] == "ttl"
+        assert index_info[0][3] > 0
+        assert index_info[1][0] == "label+property"
+        assert index_info[1][1] == "TTL"
+        assert index_info[1][2] == "ttl"
+        assert index_info[1][3] > 0
+
+    check_index(cursor)
+    check_index(cursor_replica)
+    check_index(cursor_replica2)
 
 
 def test_ttl_on_replica(connection, test_name):
