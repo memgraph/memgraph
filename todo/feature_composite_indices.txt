@@ -7,8 +7,9 @@ Create/Drop will ignore anything but first property
 
 
 durability:
-    We need a test to make sure old version is still readable
+    We need a test to make sure old version is still readable DONE v18 test convered that
     We need a test to make sure a new version is readable
+    v19+ what features have not been added to intergration/durability test
 
 
 C API
@@ -18,3 +19,13 @@ mgp_drop_label_property_index
 Not essential:
 Temporary string creation, not needed...just do it in/via formatter
 * auto properties_stringified = utils::Join(data.properties, ", ");
+
+
+Deduplicate stuff like
+      auto properties_string =
+          properties |
+          ranges::views::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
+          ranges::views::join(", ") | ranges::to<std::string>;
+
+
+IdToName -> std::string_view

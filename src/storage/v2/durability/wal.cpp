@@ -957,14 +957,20 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.properties[0] /*TODO*/));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+        auto prop_ids = data.properties | ranges::views::transform([&](std::string_view name) {
+                          return PropertyId::FromUint(name_id_mapper->NameToId(name));
+                        }) |
+                        ranges::to_vector;
+        AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.properties[0] /*TODO*/));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+        auto prop_ids = data.properties | ranges::views::transform([&](std::string_view name) {
+                          return PropertyId::FromUint(name_id_mapper->NameToId(name));
+                        }) |
+                        ranges::to_vector;
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
       [&](WalPointIndexCreate const &data) {

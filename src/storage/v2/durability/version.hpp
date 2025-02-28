@@ -35,7 +35,7 @@ const uint64_t kPointIndexAndTypeConstraints{20};
 const uint64_t kEdgeSetDeltaWithVertexInfo{21};
 const uint64_t kVectorIndex{22};
 const uint64_t kDurableTS{23};
-const uint64_t kCompositeIndices{24};
+const uint64_t kCompositeIndicesForLabelProperties{24};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

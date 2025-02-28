@@ -89,8 +89,9 @@ struct LabelPropertyOpInfo {
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
   using ctr_types =
-      std::tuple<std::string, VersionDependantUpgradable<kCompositeIndices, std::string, std::vector<std::string>,
-                                                         [](std::string v) { return std::vector{v}; }>>;
+      std::tuple<std::string,
+                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
+                                            [](std::string v) { return std::vector{v}; }>>;
   std::string label;
   std::vector<std::string> properties;
 };
