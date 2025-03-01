@@ -55,6 +55,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(CallProcedure &) override;
   bool PreVisit(CallSubquery & /*unused*/) override;
   bool PostVisit(CallSubquery & /*unused*/) override;
+  bool PreVisit(ExistsSubquery & /*unused*/) override;
+  bool PostVisit(ExistsSubquery & /*unused*/) override;
   bool PreVisit(LoadCsv &) override;
   bool PostVisit(LoadCsv &) override;
   bool PreVisit(Return &) override;
@@ -138,6 +140,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_reduce{false};
     bool in_set_property{false};
     bool in_call_subquery{false};
+    bool in_exists_subquery{false};
     bool has_return{false};
     bool in_set_labels{false};
     bool in_remove_labels{false};
@@ -270,6 +273,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   void Visit(RegexMatch &op) override{};
   void Visit(PatternComprehension &op) override{};
   void Visit(EnumValueAccess &op) override{};
+  void Visit(ExistsSubquery &op) override{};
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 

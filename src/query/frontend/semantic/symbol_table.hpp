@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,6 +55,7 @@ class SymbolTable final {
   const Symbol &at(const PatternComprehension &pattern_comprehension) const {
     return table_.at(pattern_comprehension.symbol_pos_);
   }
+  const Symbol &at(const ExistsSubquery &exists_subquery) const { return table_.at(exists_subquery.symbol_pos_); }
 
   // TODO: Remove these since members are public
   int32_t max_position() const { return static_cast<int32_t>(table_.size()); }
