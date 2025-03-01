@@ -102,7 +102,7 @@ class Session {
 
     // Had to split Prepare in two
     // Phase 1: parse and deduce priority
-    // Phase 2: acutally prepare interpreter for the query
+    // Phase 2: actually prepare interpreter for the query
     if (state_ == State::Parsed) {
       state_ = HandlePrepare(impl);
       if (state_ == State::Close) [[unlikely]] {
@@ -133,20 +133,19 @@ class Session {
           break;
         default:
           // State::Handshake is handled above
+          // State::Parsed is handled below
           // State::Close is handled below
           break;
       }
 
       if (state_ == State::Parsed) {
-        return true;
-      }
-
-      if (state_ == State::Result) {
-        // We need to schedule next work, since we are going to Pull or Discard the results.
-        // All other work has the highest priority
-        // State::Result means we did a Prepare or are in the middle of a Pull
+        // First time seeing this query;
+        // Parsing the query has the highest priority as we don't know what's incoming
+        // Once the query has been parsed, break, check task priority and reschedule if needed.
+        // After Parsed, we do a Prepare (state::Result) and the Pull/Discard (state::Result)
+        // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
-        return decoder_buffer_.NextChunkState() != ChunkState::Partial;  // Not partial means there is more to read
+        return true;
       }
 
       if (state_ == State::Close) [[unlikely]] {
