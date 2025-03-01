@@ -261,39 +261,40 @@ void InsertRecord(mgp_result_record *record, const char *field_name, mgp_value *
 
 /// Inserts a string of value string_value to the field field_name of
 /// the record mgp_result_record record.
-void InsertStringValueResult(mgp_result_record *record, const char *field_name, const char *string_value,
-                             mgp_memory *memory) {
+inline void InsertStringValueResult(mgp_result_record *record, const char *field_name, const char *string_value,
+                                    mgp_memory *memory) {
   auto value = mgp::value_make_string(string_value, memory);
   InsertRecord(record, field_name, value);
 }
 
 /// Inserts an integer of value int_value to the field field_name of
 /// the record mgp_result_record record.
-void InsertIntValueResult(mgp_result_record *record, const char *field_name, const int int_value, mgp_memory *memory) {
+inline void InsertIntValueResult(mgp_result_record *record, const char *field_name, const int int_value,
+                                 mgp_memory *memory) {
   auto value = mgp::value_make_int(int_value, memory);
   InsertRecord(record, field_name, value);
 }
 
 /// Inserts a double of value double_value to the field field_name of
 /// the record mgp_result_record record.
-void InsertDoubleValueResult(mgp_result_record *record, const char *field_name, const double double_value,
-                             mgp_memory *memory) {
+inline void InsertDoubleValueResult(mgp_result_record *record, const char *field_name, const double double_value,
+                                    mgp_memory *memory) {
   auto value = mgp::value_make_double(double_value, memory);
   InsertRecord(record, field_name, value);
 }
 
 /// Inserts a node of value vertex_value to the field field_name of
 /// the record mgp_result_record record.
-void InsertNodeValueResult(mgp_result_record *record, const char *field_name, mgp_vertex *vertex_value,
-                           mgp_memory *memory) {
+inline void InsertNodeValueResult(mgp_result_record *record, const char *field_name, mgp_vertex *vertex_value,
+                                  mgp_memory *memory) {
   auto value = mgp::value_make_vertex(vertex_value);
   InsertRecord(record, field_name, value);
 }
 
 // Inserts a list of value list_value to the field field_name of
 // the record mgp_result_record record.
-void InsertListValueResult(mgp_result_record *record, const char *field_name, mgp_list *list_value,
-                           mgp_memory *memory) {
+inline void InsertListValueResult(mgp_result_record *record, const char *field_name, mgp_list *list_value,
+                                  mgp_memory *memory) {
   auto value = mgp::value_make_list(list_value);
   InsertRecord(record, field_name, value);
 }
@@ -306,7 +307,7 @@ void InsertListValueResult(mgp_result_record *record, const char *field_name, mg
 /// @param graph
 /// @param memory
 /// @return
-mgp_vertex *GetNodeForInsertion(const int node_id, mgp_graph *graph, mgp_memory *memory) {
+inline mgp_vertex *GetNodeForInsertion(const int node_id, mgp_graph *graph, mgp_memory *memory) {
   auto *vertex = mgp::graph_get_vertex_by_id(graph, mgp_vertex_id{.as_int = static_cast<int64_t>(node_id)}, memory);
   if (!vertex && mgp::graph_is_transactional(graph)) {
     throw mg_exception::InvalidIDException();
@@ -317,8 +318,8 @@ mgp_vertex *GetNodeForInsertion(const int node_id, mgp_graph *graph, mgp_memory 
 /// Inserts a node with its ID node_id to create a vertex and insert
 /// the node to the field field_name of the record mgp_result_record record.
 /// Returns true is insert is successful, false otherwise
-bool InsertNodeValueResult(mgp_graph *graph, mgp_result_record *record, const char *field_name, const int node_id,
-                           mgp_memory *memory) {
+inline bool InsertNodeValueResult(mgp_graph *graph, mgp_result_record *record, const char *field_name,
+                                  const int node_id, mgp_memory *memory) {
   auto *vertex = mgp::graph_get_vertex_by_id(graph, mgp_vertex_id{.as_int = node_id}, memory);
   if (!vertex) {
     return false;
@@ -329,8 +330,8 @@ bool InsertNodeValueResult(mgp_graph *graph, mgp_result_record *record, const ch
 
 /// Inserts a relationship of value edge_value to the field field_name of
 /// the record mgp_result_record record.
-void InsertRelationshipValueResult(mgp_result_record *record, const char *field_name, mgp_edge *edge_value,
-                                   mgp_memory *memory) {
+inline void InsertRelationshipValueResult(mgp_result_record *record, const char *field_name, mgp_edge *edge_value,
+                                          mgp_memory *memory) {
   auto value = mgp::value_make_edge(edge_value);
   InsertRecord(record, field_name, value);
 }
@@ -338,15 +339,15 @@ void InsertRelationshipValueResult(mgp_result_record *record, const char *field_
 /// Inserts a relationship with its ID edge_id to create a relationship and
 /// insert the edge to the field field_name of the record mgp_result_record
 /// record.
-void InsertRelationshipValueResult(mgp_graph *graph, mgp_result_record *record, const char *field_name,
-                                   const int edge_id, mgp_memory *memory);
+inline void InsertRelationshipValueResult(mgp_graph *graph, mgp_result_record *record, const char *field_name,
+                                          const int edge_id, mgp_memory *memory);
 
 /// Handles non-double weights for GetWeight().
 /// If the weight property is an integer, mgp::value_get_double() returns 0.0.
 /// To address that, this function checks the type of the edge property and
 /// calls mgp::value_get_int() in case it’s an integer.
 /// If the weight property is not a number, it returns the default weight.
-double GetNumericProperty(mgp_edge *edge, const char *property_name, mgp_memory *memory, double default_weight) {
+inline double GetNumericProperty(mgp_edge *edge, const char *property_name, mgp_memory *memory, double default_weight) {
   double weight;
   auto raw_value = mgp::edge_get_property(edge, property_name, memory);
   auto type = mgp::value_get_type(raw_value);
@@ -367,7 +368,7 @@ double GetNumericProperty(mgp_edge *edge, const char *property_name, mgp_memory 
 }
 
 /// Returns a vector of node_ids of nodes from the mgp_list node_list.
-std::vector<std::uint64_t> GetNodeIDs(mgp_list *node_list) {
+inline std::vector<std::uint64_t> GetNodeIDs(mgp_list *node_list) {
   std::vector<std::uint64_t> node_ids;
   for (std::size_t i = 0; i < mgp::list_size(node_list); i++) {
     node_ids.push_back(mgp::vertex_get_id(mgp::value_get_vertex(mgp::list_at(node_list, i))).as_int);
@@ -378,7 +379,7 @@ std::vector<std::uint64_t> GetNodeIDs(mgp_list *node_list) {
 
 /// Returns a vector of endpoints ({node_id, node_id} pairs) of edges
 /// from the mgp_list edge_list.
-std::vector<std::pair<std::uint64_t, std::uint64_t>> GetEdgeEndpointIDs(mgp_list *edge_list) {
+inline std::vector<std::pair<std::uint64_t, std::uint64_t>> GetEdgeEndpointIDs(mgp_list *edge_list) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> edge_endpoint_ids;
   for (std::size_t i = 0; i < mgp::list_size(edge_list); i++) {
     auto edge = mgp::value_get_edge(mgp::list_at(edge_list, i));
@@ -391,7 +392,7 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> GetEdgeEndpointIDs(mgp_list
 }
 
 /// Return a vector of edge ids from the mgp_list edge_list
-std::vector<std::uint64_t> GetEdgeIDs(mgp_list *edge_list) {
+inline std::vector<std::uint64_t> GetEdgeIDs(mgp_list *edge_list) {
   auto size = mgp::list_size(edge_list);
   auto edge_ids = std::vector<std::uint64_t>(size);
   for (std::size_t i = 0; i < size; i++) {

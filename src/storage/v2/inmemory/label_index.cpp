@@ -14,7 +14,6 @@
 #include <span>
 
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
@@ -29,28 +28,34 @@ void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_af
 
 bool InMemoryLabelIndex::CreateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-  const auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  const auto create_index_seq = [this, &snapshot_info](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
+                                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
 
-    CreateIndexOnSingleThread(vertices, it, index_, label,
-                              [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-                                TryInsertLabelIndex(vertex, label, index_accessor);
-                              });
+    CreateIndexOnSingleThread(
+        vertices, it, index_, label,
+        [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
+          TryInsertLabelIndex(vertex, label, index_accessor);
+        },
+        snapshot_info);
 
     return true;
   };
 
-  const auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                       std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                       const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
+  const auto create_index_par = [this, &snapshot_info](
+                                    LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
+                                    std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
+                                    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
     using IndexAccessor = decltype(label_it->second.access());
 
-    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, parallel_exec_info,
-                                 [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-                                   TryInsertLabelIndex(vertex, label, index_accessor);
-                                 });
+    CreateIndexOnMultipleThreads(
+        vertices, label_it, index_, label, parallel_exec_info,
+        [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
+          TryInsertLabelIndex(vertex, label, index_accessor);
+        },
+        snapshot_info);
 
     return true;
   };

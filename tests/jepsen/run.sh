@@ -5,6 +5,7 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 MEMGRAPH_MODULE_SUPPORT_LIB_PATH="$MEMGRAPH_BUILD_PATH/src/query/libmemgraph_module_support.so"
+MEMGRAPH_MTENANCY_DATASETS="$script_dir/../../tests/jepsen/src/memgraph/mtenancy/datasets/"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
@@ -141,6 +142,13 @@ COPY_BINARIES() {
        $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
        docker cp "$support_lib" "$jepsen_node_name":"/opt/memgraph/src/query/${support_lib_name}"
+
+       if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
+           docker cp "$MEMGRAPH_MTENANCY_DATASETS" "$jepsen_node_name:/opt/memgraph"
+           INFO "Datasets copied successfully."
+       else
+           INFO "Datasets won't be copied."
+       fi
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
        INFO "Copying $binary_name to $jepsen_node_name DONE."

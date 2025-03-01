@@ -21,20 +21,6 @@
 
 (def batch-size 5000)
 
-(defn cum-probs
-  "Calculates cumulative probabilities for the vector of probabilities provided."
-  [probs]
-  (reductions + probs))
-
-(defn get-competent-idx
-  "Get idx which is in charge for the interval from which num comes."
-  [intervals num]
-  (first (keep-indexed (fn [idx end-interval]
-                         (when (> end-interval num)
-                           idx))
-
-                       intervals)))
-
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
