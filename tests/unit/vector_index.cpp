@@ -55,6 +55,22 @@ class VectorSearchTest : public testing::Test {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
+  bool TryCreateIndex(std::uint16_t dimension, std::size_t capacity) {
+    auto unique_acc = this->storage->UniqueAccess();
+    memgraph::query::DbAccessor dba(unique_acc.get());
+    const auto label = dba.NameToLabel(test_label.data());
+    const auto property = dba.NameToProperty(test_property.data());
+
+    // Create a specification for the index
+    const auto spec =
+        VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+
+    bool successful = !unique_acc->CreateVectorIndex(spec).HasError();
+    unique_acc->Commit();
+
+    return successful;
+  }
+
   VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view property,
                               const PropertyValue &property_value, std::string_view label) {
     VertexAccessor vertex = accessor->CreateVertex();
@@ -465,5 +481,49 @@ TYPED_TEST(VectorSearchTest, CreateIndexWhenNodesExistsAlreadyTest) {
   {
     auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+  }
+}
+
+TYPED_TEST(VectorSearchTest, CreateIndexIfAllNodesSatisfyType) {
+  {
+    auto acc = this->storage->Access();
+
+    PropertyValue properties_float(std::vector<PropertyValue>{PropertyValue(1.1), PropertyValue(1.1)});
+    PropertyValue properties_int(std::vector<PropertyValue>{PropertyValue(2), PropertyValue(2)});
+    [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), test_property, properties_float, test_label);
+    [[maybe_unused]] const auto vertex2 = this->CreateVertex(acc.get(), test_property, properties_int, test_label);
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  // all vertices should satisfy type checking because they have int and float values
+  this->CreateIndex(2, 10);
+
+  // Expect the index to have no entries
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllVectorIndices().size(), 1);
+  }
+}
+
+TYPED_TEST(VectorSearchTest, DontCreateIndexIfAnyNodeHasErrorInUpdating) {
+  {
+    auto acc = this->storage->Access();
+
+    PropertyValue properties_float(std::vector<PropertyValue>{PropertyValue(1.1), PropertyValue(1.1)});
+    PropertyValue properties_int(std::vector<PropertyValue>{PropertyValue(2), PropertyValue(2)});
+    PropertyValue properties_string(std::vector<PropertyValue>{PropertyValue("invalid"), PropertyValue("invalid")});
+    [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), test_property, properties_float, test_label);
+    [[maybe_unused]] const auto vertex2 = this->CreateVertex(acc.get(), test_property, properties_int, test_label);
+    [[maybe_unused]] const auto vertex3 = this->CreateVertex(acc.get(), test_property, properties_string, test_label);
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  // Vector index creation should not happen since a vertex does not satisfy condition
+  EXPECT_FALSE(this->TryCreateIndex(2, 10));
+
+  // Expect the index to have no entries
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
   }
 }
