@@ -26,9 +26,11 @@ using namespace memgraph::storage;
 #define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
 
 static constexpr std::string_view test_index = "test_index";
+static constexpr std::string_view alternative_index = "alternative_index";
 static constexpr std::string_view test_label = "test_label";
 static constexpr std::string_view test_property = "test_property";
-static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
+static constexpr unum::usearch::metric_kind_t default_metric = unum::usearch::metric_kind_t::l2sq_k;
+static constexpr unum::usearch::metric_kind_t alternative_metric = unum::usearch::metric_kind_t::haversine_k;
 static constexpr std::size_t resize_coefficient = 2;
 
 template <typename StorageType>
@@ -41,7 +43,8 @@ class VectorSearchTest : public testing::Test {
 
   void TearDown() override { storage.reset(); }
 
-  void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
+  void CreateIndex(std::uint16_t dimension, std::size_t capacity, std::string_view index_name = test_index,
+                   unum::usearch::metric_kind_t metric = default_metric) {
     auto unique_acc = this->storage->UniqueAccess();
     memgraph::query::DbAccessor dba(unique_acc.get());
     const auto label = dba.NameToLabel(test_label.data());
@@ -49,7 +52,7 @@ class VectorSearchTest : public testing::Test {
 
     // Create a specification for the index
     const auto spec =
-        VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+        VectorIndexSpec{index_name.data(), label, property, metric, dimension, resize_coefficient, capacity};
 
     EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
@@ -63,7 +66,7 @@ class VectorSearchTest : public testing::Test {
 
     // Create a specification for the index
     const auto spec =
-        VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+        VectorIndexSpec{test_index.data(), label, property, default_metric, dimension, resize_coefficient, capacity};
 
     bool successful = !unique_acc->CreateVectorIndex(spec).HasError();
     unique_acc->Commit();
@@ -525,5 +528,29 @@ TYPED_TEST(VectorSearchTest, DontCreateIndexIfAnyNodeHasErrorInUpdating) {
   {
     auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+  }
+}
+
+TYPED_TEST(VectorSearchTest, MultipleVectorIndicesPerLabelProperty) {
+  this->CreateIndex(2, 10);
+  EXPECT_FALSE(this->TryCreateIndex(2, 10));
+
+  // Expect to have only one vector index if we tried adding 2 of them
+  {
+    auto acc = this->storage->Access();
+    auto result = acc->ListAllVectorIndices();
+    EXPECT_EQ(result.size(), 1);
+    EXPECT_EQ(result[0].metric, "l2sq");
+  }
+
+  this->CreateIndex(2, 10, alternative_index, alternative_metric);
+
+  // Expect to have 2 vector indices
+  {
+    auto acc = this->storage->Access();
+    auto result = acc->ListAllVectorIndices();
+    EXPECT_EQ(result.size(), 2);
+    EXPECT_EQ(result[0].metric, "haversine");
+    EXPECT_EQ(result[1].metric, "l2sq");
   }
 }

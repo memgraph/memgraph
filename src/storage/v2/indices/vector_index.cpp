@@ -182,21 +182,24 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
                               IndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
                                             std::move(mg_vector_index.index)),
                                         spec});
-
-    // Update the index with the vertices
-    for (auto &vertex : vertices) {
-      if (!utils::Contains(vertex.labels, spec.label)) {
-        continue;
+    try {
+      // Update the index with the vertices
+      for (auto &vertex : vertices) {
+        if (!utils::Contains(vertex.labels, spec.label)) {
+          continue;
+        }
+        if (UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}, nullptr, &spec.index_name) &&
+            snapshot_info) {
+          snapshot_info->Update(UpdateType::VECTOR_IDX);
+        }
       }
-      if (UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}, nullptr, &spec.index_name) &&
-          snapshot_info) {
-        snapshot_info->Update(UpdateType::VECTOR_IDX);
-      }
+    } catch (const std::exception &e) {
+      spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
+      DropIndex(spec.index_name);
+      return false;
     }
   } catch (const std::exception &e) {
     spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
-    DropIndex(spec.index_name);
-
     return false;
   }
   return true;
