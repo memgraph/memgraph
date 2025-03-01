@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "storage/v2/constraints/type_constraints.hpp"
 
+#include <storage/v2/snapshot_observer_info.hpp>
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -22,7 +23,8 @@
 namespace memgraph::storage {
 
 namespace {
-inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
+
+TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
   switch (property.type()) {
     case PropertyValueType::String:
       return TypeConstraintKind::STRING;
@@ -119,10 +121,13 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
-    utils::SkipList<Vertex>::Accessor vertices) const {
+    utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> const &snapshot_info) const {
   for (auto const &vertex : vertices) {
     if (auto violation = Validate(vertex); violation.has_value()) {
       return violation;
+    }
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::VERTICES);
     }
   }
   return std::nullopt;

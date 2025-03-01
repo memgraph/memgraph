@@ -19,6 +19,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
@@ -68,14 +69,16 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct MultipleThreadsConstraintValidation {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+                    const std::set<PropertyId> &properties,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+                    const std::set<PropertyId> &properties,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
   };
 
   /// Indexes the given vertex for relevant labels and properties.
@@ -97,7 +100,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
       LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info);
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,

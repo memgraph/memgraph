@@ -50,6 +50,7 @@ class VectorSearchTest : public testing::Test {
     // Create a specification for the index
     const auto spec =
         VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+
     EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -452,9 +453,12 @@ TYPED_TEST(VectorSearchTest, CreateIndexWhenNodesExistsAlreadyTest) {
     auto acc = this->storage->Access();
 
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    static constexpr std::string_view test_label_2 = "test_label2";
+    [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    [[maybe_unused]] const auto vertex2 = this->CreateVertex(acc.get(), test_property, properties, test_label_2);
     ASSERT_NO_ERROR(acc->Commit());
   }
+  // Index created with test_label. The vertex vertex2 shouldn't be seen
   this->CreateIndex(2, 10);
 
   // Expect the index to have 1 entry
