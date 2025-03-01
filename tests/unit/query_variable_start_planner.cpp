@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,7 +84,7 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
   auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
-    if (!memgraph::query::plan::ValidatePlan(*plan)) {
+    if (!memgraph::query::plan::ValidatePlan(*plan, symbol_table)) {
       continue;
     }
     auto *produce = dynamic_cast<Produce *>(plan.get());
