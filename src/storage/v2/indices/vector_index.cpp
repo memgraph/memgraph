@@ -257,10 +257,12 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex
       return {};
     }
     if (!property.IsList()) {
+      spdlog::error("Property value set on the vertex needs to be of type List since it is vector indexed!");
       return VectorIndexStorageError::VertexPropertyNotList;
     }
     const auto &vector_property = property.ValueList();
     if (spec.dimension != vector_property.size()) {
+      spdlog::error("Property value dimension set on the vertex must be of correct size since it is vector indexed!");
       return VectorIndexStorageError::VertexPropertyNotOfCorrectDImension;
     }
 
@@ -272,6 +274,7 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex
       const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
       const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
       if (!exclusively_locked_index->try_reserve(new_limits)) {
+        spdlog::error("Failed to resize vector index!");
         return VectorIndexStorageError::FailedToResizeIndex;
       }
     }
@@ -287,7 +290,7 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex
         vector.push_back(static_cast<float>(value.ValueInt()));
         continue;
       }
-
+      spdlog::error("List value of the vector indexed property needs to be of type Double/Float or Int!");
       return VectorIndexStorageError::VertexPropertyValueNotOfCorrectType;
     }
 
@@ -303,7 +306,11 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) {
   std::ranges::for_each(pimpl->label_prop_to_index_names_ | std::views::keys, [&](const auto &label_prop) {
     if (label_prop.label() == added_label) {
-      UpdateVectorIndex(vertex_after_update, label_prop);
+      auto result = UpdateVectorIndex(vertex_after_update, label_prop);
+      if (result.HasError()) {
+        throw query::QueryRuntimeException(
+            "Error happened when updating vector indices! Check database logs for information on what happened.");
+      }
     }
   });
 }
@@ -327,7 +334,11 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   auto view = pimpl->label_prop_to_index_names_ | std::views::keys | std::views::filter(has_property) |
               std::views::filter(has_label);
   for (const auto &label_prop : view) {
-    UpdateVectorIndex(vertex, label_prop, &value);
+    auto result = UpdateVectorIndex(vertex, label_prop, &value);
+    if (result.HasError()) {
+      throw query::QueryRuntimeException(
+          "Error happened when updating vector indices! Check database logs for information on what happened.");
+    }
   }
 }
 
@@ -404,7 +415,11 @@ void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex 
 void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
                                  std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) {
   for (const auto &property_value_vertex : prop_vertices) {
-    UpdateVectorIndex(property_value_vertex.second, label_prop, &property_value_vertex.first);
+    auto result = UpdateVectorIndex(property_value_vertex.second, label_prop, &property_value_vertex.first);
+    if (result.HasError()) {
+      throw query::QueryRuntimeException(
+          "Error happened when updating vector indices! Check database logs for information on what happened.");
+    }
   }
 }
 
@@ -439,16 +454,4 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
   }
   return res;
 }
-
-void VectorIndex::TryInsertVertex(Vertex *vertex) {
-  auto guard = std::shared_lock{vertex->lock};
-  auto has_property = [&](const auto &label_prop) { return vertex->properties.HasProperty(label_prop.property()); };
-  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
-  for (const auto &[label_prop, _] : pimpl->label_prop_to_index_names_) {
-    if (has_property(label_prop) && has_label(label_prop)) {
-      UpdateVectorIndex(vertex, label_prop);
-    }
-  }
-}
-
 }  // namespace memgraph::storage

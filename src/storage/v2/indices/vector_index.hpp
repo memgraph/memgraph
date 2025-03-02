@@ -191,10 +191,6 @@ class VectorIndex {
   /// @return The index statistics.
   IndexStats Analysis() const;
 
-  /// @brief Tries to insert a vertex into the index.
-  /// @param vertex The vertex to be inserted.
-  void TryInsertVertex(Vertex *vertex);
-
  private:
   /// @brief Adds a vertex to an existing index.
   /// @param vertex The vertex to be added.
