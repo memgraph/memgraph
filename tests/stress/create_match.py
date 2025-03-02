@@ -52,8 +52,6 @@ def parse_args():
         "max_property_value - 1.",
     )
     parser.add_argument("--create-pack-size", type=int, default=1, help="Number of CREATE clauses in a query")
-    parser.add_argument("--isolation-level", type=str, required=True, help="Database isolation level.")
-    parser.add_argument("--storage-mode", type=str, required=True, help="Database storage mode.")
     return parser.parse_args()
 
 
