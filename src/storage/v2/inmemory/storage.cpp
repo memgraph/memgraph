@@ -1525,33 +1525,48 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
-    VectorIndexSpec spec) {
+utils::BasicResult<StorageVectorIndexDefinitionError, VectorIndex::CreationStatus>
+InMemoryStorage::InMemoryAccessor::CreateVectorIndex(VectorIndexSpec spec) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto vertices_acc = in_memory->vertices_.access();
-  if (!vector_index.CreateIndex(spec, vertices_acc)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  auto result = vector_index.CreateIndex(spec, vertices_acc);
+  if (result.HasError()) {
+    return StorageVectorIndexDefinitionError{result.GetError()};
   }
+
+  if (result.GetValue() != VectorIndex::CreationStatus::SUCCESS) {
+    return result.GetValue();
+  }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
-  return {};
+
+  return VectorIndex::CreationStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
+utils::BasicResult<StorageVectorIndexDefinitionError, VectorIndex::DeletionStatus> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
     std::string_view index_name) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
-  if (!vector_index.DropIndex(index_name)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+
+  auto result = vector_index.DropIndex(index_name);
+  if (result.HasError()) {
+    return StorageVectorIndexDefinitionError{result.GetError()};
   }
+
+  if (result.GetValue() != VectorIndex::DeletionStatus::SUCCESS) {
+    return result.GetValue();
+  }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
-  return {};
+
+  return VectorIndex::DeletionStatus::SUCCESS;
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>

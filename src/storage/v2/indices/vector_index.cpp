@@ -147,8 +147,9 @@ unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) 
                   name));
 }
 
-bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
+utils::BasicResult<StorageVectorIndexDefinitionError, VectorIndex::CreationStatus> VectorIndex::CreateIndex(
+    const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+    std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   try {
     // Create the index
@@ -158,7 +159,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
     if (pimpl->index_.contains(spec.index_name)) {
-      throw query::VectorSearchException("Given vector index already exists.");
+      return VectorIndex::CreationStatus::ALREADY_EXISTS;
     }
 
     auto mg_vector_index = mg_vector_index_t::make(metric);
@@ -196,18 +197,22 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     } catch (const std::exception &e) {
       spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
       DropIndex(spec.index_name);
-      return false;
+
+      return StorageVectorIndexDefinitionError{VectorIndexDefinitionError{}};
     }
   } catch (const std::exception &e) {
     spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
-    return false;
+
+    return StorageVectorIndexDefinitionError{VectorIndexDefinitionError{}};
   }
-  return true;
+
+  return VectorIndex::CreationStatus::SUCCESS;
 }
 
-bool VectorIndex::DropIndex(std::string_view index_name) {
+utils::BasicResult<StorageVectorIndexDefinitionError, VectorIndex::DeletionStatus> VectorIndex::DropIndex(
+    std::string_view index_name) {
   if (!pimpl->index_.contains(index_name.data())) {
-    return false;
+    return VectorIndex::DeletionStatus::NOT_FOUND;
   }
 
   auto it = pimpl->index_name_to_label_prop_.find(index_name.data());
@@ -223,7 +228,8 @@ bool VectorIndex::DropIndex(std::string_view index_name) {
     }
   }
   spdlog::info("Dropped vector index {}", index_name);
-  return true;
+
+  return VectorIndex::DeletionStatus::SUCCESS;
 }
 
 void VectorIndex::Clear() {

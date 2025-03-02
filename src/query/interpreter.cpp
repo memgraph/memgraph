@@ -819,21 +819,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2878,11 +2871,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
+  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
+                 [execution_db_accessor](const auto &label_index) {
+                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
+                                                  TypedValue("")};
+                 });
 
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
@@ -3271,7 +3264,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
-        auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
+        auto maybe_vector_index_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
             .label = label_id,
             .property = prop_id,
@@ -3281,11 +3274,19 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
             .capacity = vector_index_config.capacity,
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
-        if (maybe_error.HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Vector index on label {} and property {} already exists.", label_name, prop_name);
+        if (maybe_vector_index_error.HasError()) {
+          // handle error
         }
+        switch (maybe_vector_index_error.GetValue()) {
+          case storage::VectorIndex::CreationStatus::ALREADY_EXISTS: {
+            index_notification.code = NotificationCode::EXISTENT_INDEX;
+            index_notification.title = fmt::format("Vector index {} already exists.", index_name);
+            break;
+          }
+          case storage::VectorIndex::CreationStatus::SUCCESS:
+            break;
+        }
+
         return index_notification;
       };
       break;
@@ -3296,12 +3297,19 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         index_notification.code = NotificationCode::DROP_INDEX;
         index_notification.title = fmt::format("Dropped vector index {}.", index_name);
 
-        auto maybe_index_error = dba->DropVectorIndex(index_name);
+        auto maybe_vector_index_error = dba->DropVectorIndex(index_name);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
-        if (maybe_index_error.HasError()) {
-          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
-          index_notification.title = fmt::format("Vector index {} doesn't exist.", index_name);
+
+        switch (maybe_vector_index_error.GetValue()) {
+          case storage::VectorIndex::DeletionStatus::NOT_FOUND: {
+            index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+            index_notification.title = fmt::format("Vector index {} does not exist.", index_name);
+            break;
+          }
+          case storage::VectorIndex::DeletionStatus::SUCCESS:
+            break;
         }
+
         return index_notification;
       };
       break;
@@ -3449,7 +3457,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+            (void)dba->CreateIndex(label,
+                                   prop);  // Only way to fail is to try to create an already existant index
             ttl.Enable();
             std::invoke(invalidate_plan_cache);
           }
@@ -4001,7 +4010,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     }
     if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
       throw utils::BasicException(
-          "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
+          "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is "
+          "running. "
           "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
           "automatically start in the default in-memory transactional storage mode.");
     }
@@ -4022,7 +4032,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
             if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when the "
+                  "database "
                   "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
                   "query. ");
             }
@@ -4050,7 +4061,8 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
     auto storage_mode = db->GetStorageMode();
     if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
       throw utils::BasicException(
-          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
+          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE "
+          "MODE "
           "IN_MEMORY_ANALYTICAL'");
     }
     dba->DropGraph();
@@ -4591,7 +4603,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
-              "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
+              "The metadata collection for edge-types is disabled. To enable it, restart your instance and set "
+              "the "
               "storage-enable-schema-metadata flag to True.");
         }
         auto edge_types = dba->ListAllPossiblyPresentEdgeTypes();
@@ -4611,7 +4624,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
-              "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
+              "The metadata collection for node-labels is disabled. To enable it, restart your instance and set "
+              "the "
               "storage-enable-schema-metadata flag to True.");
         }
         auto node_labels = dba->ListAllPossiblyPresentVertexLabels();
@@ -4940,8 +4954,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [storage, &label_name, &properties_stringified,
-                   constraint_type]<typename T>(T const &arg) {  // TODO: using universal reference gives clang tidy
-                                                                 // error but it used above with no problem?
+                   constraint_type]<typename T>(T const &arg) {  // TODO: using universal reference gives clang
+                                                                 // tidy error but it used above with no problem?
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
@@ -5107,7 +5121,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   break;
                 case dbms::NewError::DEFUNCT:
                   throw QueryRuntimeException(
-                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
+                      "{} is defunct and in an unknown state. Try to delete it again or clean up storage and "
+                      "restart "
                       "Memgraph.",
                       db_name);
                 case dbms::NewError::GENERIC:
@@ -5195,7 +5210,8 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException(
-        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW "
+        "LICENSE "
         "INFO.");
   }
 
@@ -5248,7 +5264,8 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException(
-        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW "
+        "LICENSE "
         "INFO.");
   }
 
@@ -5801,8 +5818,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       return system_txn;
     });
 
-    // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
-    // case for use database which overwrites the current database)
+    // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*;
+    // special case for use database which overwrites the current database)
     bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
                           utils::Downcast<SettingQuery>(parsed_query.query) ||
                           utils::Downcast<VersionQuery>(parsed_query.query) ||
@@ -6237,9 +6254,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                 }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-              throw QueryException(MessageWithDocsLink(
-                  "Unable to commit due to serialization error. Try retrying this transaction when the conflicting "
-                  "transaction is finished."));
+              throw QueryException(
+                  MessageWithDocsLink("Unable to commit due to serialization error. Try retrying this "
+                                      "transaction when the conflicting "
+                                      "transaction is finished."));
             } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
               throw QueryException("Unable to commit due to persistance error.");
             } else {
@@ -6279,10 +6297,10 @@ void Interpreter::Commit() {
       // System transactions are not terminable
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
-      // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot abort!
-      // What we are trying to do is set the transaction back to IDLE
-      // We cannot simply put it to IDLE, since the status is used as a syncronization method and we have to follow
-      // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
+      // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot
+      // abort! What we are trying to do is set the transaction back to IDLE We cannot simply put it to IDLE,
+      // since the status is used as a syncronization method and we have to follow its logic. There are 2 states
+      // when we could update to IDLE (ACTIVE and TERMINATED).
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED) {
@@ -6316,8 +6334,8 @@ void Interpreter::Commit() {
 
   /*
   At this point we must check that the transaction is alive to start committing. The only other possible state is
-  verifying and in that case we must check if the transaction was terminated and if yes abort committing. Exception
-  should suffice.
+  verifying and in that case we must check if the transaction was terminated and if yes abort committing.
+  Exception should suffice.
   */
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING)) {
@@ -6338,7 +6356,8 @@ void Interpreter::Commit() {
   if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
       current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw QueryException(
-        "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");
+        "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk "
+        "storage.");
   }
 
   utils::OnScopeExit update_metrics([]() {
@@ -6441,9 +6460,9 @@ void Interpreter::Commit() {
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
   // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is
-  // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
-  // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
-  // ordered execution of after commit triggers are not guaranteed.
+  // finished, that transaction probably will schedule its after commit triggers, because the other transactions
+  // that want to commit are still waiting for commiting or one of them just started commiting its changes. This
+  // means the ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
                  trigger_context = std::move(*trigger_context),

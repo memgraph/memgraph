@@ -18,6 +18,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
 #include "utils/skip_list.hpp"
@@ -92,6 +93,10 @@ class VectorIndex {
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
+  enum class CreationStatus { SUCCESS, ALREADY_EXISTS };
+
+  enum class DeletionStatus { SUCCESS, NOT_FOUND };
+
   /// @brief Converts a metric kind to a string.
   /// @param metric The metric kind to be converted.
   /// @return The string representation of the metric kind.
@@ -109,13 +114,15 @@ class VectorIndex {
   /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  utils::BasicResult<StorageVectorIndexDefinitionError, CreationStatus> CreateIndex(
+      const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name);
+  utils::BasicResult<StorageVectorIndexDefinitionError, DeletionStatus> DropIndex(
+      std::string_view index_name);
 
   /// @brief Drops all existing indexes.
   void Clear();

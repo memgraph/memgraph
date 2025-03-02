@@ -466,7 +466,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+  ASSERT_EQ(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info).GetValue(), VectorIndex::CreationStatus::SUCCESS);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
@@ -498,7 +498,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 4000);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+  ASSERT_EQ(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info).GetValue(), VectorIndex::CreationStatus::SUCCESS);
 }
 
 TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {

@@ -2076,14 +2076,14 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
-utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorIndex(
-    VectorIndexSpec /*spec*/) {
+utils::BasicResult<storage::StorageVectorIndexDefinitionError, VectorIndex::CreationStatus>
+DiskStorage::DiskAccessor::CreateVectorIndex(VectorIndexSpec /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
 
-utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropVectorIndex(
-    std::string_view /*index_name*/) {
+utils::BasicResult<storage::StorageVectorIndexDefinitionError, VectorIndex::DeletionStatus>
+DiskStorage::DiskAccessor::DropVectorIndex(std::string_view /*index_name*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
