@@ -25,6 +25,16 @@
 
 namespace memgraph::storage {
 
+enum struct VectorIndexStorageError : uint8_t {
+  InvalidPropertyValue,
+  UnableToReserveMemory,
+  FailedToCreateIndex,
+  VertexPropertyNotList,
+  VertexPropertyNotOfCorrectDImension,
+  FailedToResizeIndex,
+  VertexPropertyValueNotOfCorrectType
+};
+
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -114,15 +124,14 @@ class VectorIndex {
   /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  utils::BasicResult<StorageVectorIndexDefinitionError, CreationStatus> CreateIndex(
+  utils::BasicResult<VectorIndexStorageError, CreationStatus> CreateIndex(
       const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  utils::BasicResult<StorageVectorIndexDefinitionError, DeletionStatus> DropIndex(
-      std::string_view index_name);
+  utils::BasicResult<VectorIndexStorageError, DeletionStatus> DropIndex(std::string_view index_name);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -192,8 +201,9 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr,
-                         const std::string *specific_index = nullptr);
+  utils::BasicResult<VectorIndexStorageError, void> UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop,
+                                                                      const PropertyValue *value = nullptr,
+                                                                      const std::string *specific_index = nullptr);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

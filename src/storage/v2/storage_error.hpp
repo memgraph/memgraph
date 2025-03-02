@@ -47,10 +47,4 @@ using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation,
 using StorageTypeConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
 using StorageTypeConstraintDroppingError = ConstraintDefinitionError;
-
-struct VectorIndexTypeViolation {};
-struct VectorIndexDefinitionError {};
-
-using StorageVectorIndexDefinitionError = std::variant<VectorIndexTypeViolation, VectorIndexDefinitionError>;
-
 }  // namespace memgraph::storage

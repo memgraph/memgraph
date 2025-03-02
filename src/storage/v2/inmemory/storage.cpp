@@ -1525,7 +1525,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageVectorIndexDefinitionError, VectorIndex::CreationStatus>
+utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus>
 InMemoryStorage::InMemoryAccessor::CreateVectorIndex(VectorIndexSpec spec) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1533,7 +1533,7 @@ InMemoryStorage::InMemoryAccessor::CreateVectorIndex(VectorIndexSpec spec) {
   auto vertices_acc = in_memory->vertices_.access();
   auto result = vector_index.CreateIndex(spec, vertices_acc);
   if (result.HasError()) {
-    return StorageVectorIndexDefinitionError{result.GetError()};
+    return result.GetError();
   }
 
   if (result.GetValue() != VectorIndex::CreationStatus::SUCCESS) {
@@ -1547,15 +1547,15 @@ InMemoryStorage::InMemoryAccessor::CreateVectorIndex(VectorIndexSpec spec) {
   return VectorIndex::CreationStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageVectorIndexDefinitionError, VectorIndex::DeletionStatus> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
-    std::string_view index_name) {
+utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus>
+InMemoryStorage::InMemoryAccessor::DropVectorIndex(std::string_view index_name) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
 
   auto result = vector_index.DropIndex(index_name);
   if (result.HasError()) {
-    return StorageVectorIndexDefinitionError{result.GetError()};
+    return result.GetError();
   }
 
   if (result.GetValue() != VectorIndex::DeletionStatus::SUCCESS) {

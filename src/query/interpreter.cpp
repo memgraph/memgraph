@@ -3261,7 +3261,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
                  label_name = std::move(label_name), prop_name = std::move(prop_name)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
-        index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
+        index_notification.title =
+            fmt::format("Created vector index {} on label {}, property {}.", index_name, label_name, prop_name);
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
         auto maybe_vector_index_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
@@ -3275,7 +3276,24 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (maybe_vector_index_error.HasError()) {
-          // handle error
+          switch (maybe_vector_index_error.GetError()) {
+            case storage::VectorIndexStorageError::InvalidPropertyValue:
+              throw QueryRuntimeException("");
+            case storage::VectorIndexStorageError::UnableToReserveMemory:
+              throw QueryRuntimeException("Failed to reserve memory for the vector index!");
+            case storage::VectorIndexStorageError::FailedToCreateIndex:
+              throw QueryRuntimeException(
+                  "Usearch failed to create the vector index! Check database logs for more information.");
+            case storage::VectorIndexStorageError::VertexPropertyNotList:
+              throw QueryRuntimeException("Vertex property was not of type List when creating the vector index!");
+            case storage::VectorIndexStorageError::VertexPropertyNotOfCorrectDImension:
+              throw QueryRuntimeException(
+                  "Vertex property was not of correct dimension size when creating the vector index!");
+            case storage::VectorIndexStorageError::FailedToResizeIndex:
+              throw QueryRuntimeException("Failed to resize vector index!");
+            case storage::VectorIndexStorageError::VertexPropertyValueNotOfCorrectType:
+              throw QueryRuntimeException("Vertex property values must be of type Double/Float or Int!");
+          }
         }
         switch (maybe_vector_index_error.GetValue()) {
           case storage::VectorIndex::CreationStatus::ALREADY_EXISTS: {
