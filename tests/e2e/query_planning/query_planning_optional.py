@@ -47,7 +47,6 @@ def test_optional_match_doesnt_use_edge_indices(memgraph):
         )
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
-    print(actual_explain)
 
     assert expected_explain == actual_explain
 
@@ -68,7 +67,6 @@ def test_optional_match_uses_edge_indices_if_not_expanding(memgraph):
 
     results = list(memgraph.execute_and_fetch("EXPLAIN OPTIONAL MATCH ()-[r:ET1]-() RETURN *;"))
     actual_explain = [x[QUERY_PLAN] for x in results]
-    print(actual_explain)
 
     assert expected_explain == actual_explain
 
@@ -90,7 +88,6 @@ def test_match_optional_match_uses_edge_indices_if_input_branch_symbols_dont_mat
 
     results = list(memgraph.execute_and_fetch("EXPLAIN MATCH (n) OPTIONAL MATCH ()-[r:ET1]->() RETURN *;"))
     actual_explain = [x[QUERY_PLAN] for x in results]
-    print(actual_explain)
 
     assert expected_explain == actual_explain
 
@@ -117,7 +114,6 @@ def test_optional_match_optional_match_uses_edge_indices_if_input_branch_symbols
         memgraph.execute_and_fetch("EXPLAIN OPTIONAL MATCH ()-[r1:ET1]->() OPTIONAL MATCH ()-[r2:ET1]->() RETURN *;")
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
-    print(actual_explain)
 
     assert expected_explain == actual_explain
 
