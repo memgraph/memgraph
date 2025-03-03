@@ -223,6 +223,12 @@ install() {
             fi
             continue
         fi
+        if [ "$pkg" == nunja-build ]; then
+            if ! dnf list installed ninja-build >/dev/null 2>/dev/null; then
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/n/ninja-build-1.10.2-6.el9.x86_64.rpm
+            fi
+            continue
+        fi
         yum install -y "$pkg"
     done
 }
