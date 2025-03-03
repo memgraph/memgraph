@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/result.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -58,7 +59,8 @@ class VectorSearchTest : public testing::Test {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  bool TryCreateIndex(std::uint16_t dimension, std::size_t capacity) {
+  memgraph::utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> TryCreateIndex(
+      std::uint16_t dimension, std::size_t capacity) {
     auto unique_acc = this->storage->UniqueAccess();
     memgraph::query::DbAccessor dba(unique_acc.get());
     const auto label = dba.NameToLabel(test_label.data());
@@ -68,10 +70,10 @@ class VectorSearchTest : public testing::Test {
     const auto spec =
         VectorIndexSpec{test_index.data(), label, property, default_metric, dimension, resize_coefficient, capacity};
 
-    bool successful = !unique_acc->CreateVectorIndex(spec).HasError();
+    auto creation_status = unique_acc->CreateVectorIndex(spec);
     unique_acc->Commit();
 
-    return successful;
+    return creation_status;
   }
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view property,
@@ -146,7 +148,7 @@ TYPED_TEST(VectorSearchTest, InvalidDimensionTest) {
   PropertyValue property_value(properties);
 
   EXPECT_THROW(this->CreateVertex(acc.get(), test_property, property_value, test_label),
-               memgraph::query::VectorSearchException);
+               memgraph::query::QueryRuntimeException);
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
@@ -522,7 +524,7 @@ TYPED_TEST(VectorSearchTest, DontCreateIndexIfAnyNodeHasErrorInUpdating) {
   }
 
   // Vector index creation should not happen since a vertex does not satisfy condition
-  EXPECT_FALSE(this->TryCreateIndex(2, 10));
+  EXPECT_EQ(this->TryCreateIndex(2, 10).GetError(), VectorIndexStorageError::VertexPropertyValueNotOfCorrectType);
 
   // Expect the index to have no entries
   {
@@ -533,7 +535,7 @@ TYPED_TEST(VectorSearchTest, DontCreateIndexIfAnyNodeHasErrorInUpdating) {
 
 TYPED_TEST(VectorSearchTest, MultipleVectorIndicesPerLabelProperty) {
   this->CreateIndex(2, 10);
-  EXPECT_FALSE(this->TryCreateIndex(2, 10));
+  EXPECT_EQ(this->TryCreateIndex(2, 10).GetValue(), VectorIndex::CreationStatus::ALREADY_EXISTS);
 
   // Expect to have only one vector index if we tried adding 2 of them
   {

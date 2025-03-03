@@ -3286,7 +3286,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
                   "Usearch failed to create the vector index! Check database logs for more information.");
             case storage::VectorIndexStorageError::VertexPropertyNotList:
               throw QueryRuntimeException("Vertex property was not of type List when creating the vector index!");
-            case storage::VectorIndexStorageError::VertexPropertyNotOfCorrectDImension:
+            case storage::VectorIndexStorageError::VertexPropertyNotOfCorrectDimension:
               throw QueryRuntimeException(
                   "Vertex property was not of correct dimension size when creating the vector index!");
             case storage::VectorIndexStorageError::FailedToResizeIndex:

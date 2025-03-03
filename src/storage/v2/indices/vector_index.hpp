@@ -30,7 +30,7 @@ enum struct VectorIndexStorageError : uint8_t {
   UnableToReserveMemory,
   FailedToCreateIndex,
   VertexPropertyNotList,
-  VertexPropertyNotOfCorrectDImension,
+  VertexPropertyNotOfCorrectDimension,
   FailedToResizeIndex,
   VertexPropertyValueNotOfCorrectType
 };

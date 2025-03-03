@@ -191,7 +191,7 @@ utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> VectorI
     }
     auto update_result = UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}, nullptr, &spec.index_name);
     if (update_result.HasError()) {
-      DropIndex(spec.index_name);
+      [[maybe_unused]] auto drop_result = DropIndex(spec.index_name);
       return update_result.GetError();
     }
 
@@ -263,7 +263,7 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex
     const auto &vector_property = property.ValueList();
     if (spec.dimension != vector_property.size()) {
       spdlog::error("Property value dimension set on the vertex must be of correct size since it is vector indexed!");
-      return VectorIndexStorageError::VertexPropertyNotOfCorrectDImension;
+      return VectorIndexStorageError::VertexPropertyNotOfCorrectDimension;
     }
 
     if (is_index_full) {
