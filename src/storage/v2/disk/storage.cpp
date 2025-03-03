@@ -2076,7 +2076,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
-utils::BasicResult<storage::VectorIndexStorageError, VectorIndex::CreationStatus>
+utils::BasicResult<storage::VectorIndexStorageError, void>
 DiskStorage::DiskAccessor::CreateVectorIndex(VectorIndexSpec /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);

@@ -3277,6 +3277,11 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (maybe_vector_index_error.HasError()) {
           switch (maybe_vector_index_error.GetError()) {
+            case storage::VectorIndexStorageError::VectorIndexAlreadyExists: {
+              index_notification.code = NotificationCode::EXISTENT_INDEX;
+              index_notification.title = fmt::format("Vector index {} already exists.", index_name);
+              break;
+            }
             case storage::VectorIndexStorageError::InvalidPropertyValue:
               throw QueryRuntimeException("");
             case storage::VectorIndexStorageError::UnableToReserveMemory:
@@ -3294,15 +3299,6 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
             case storage::VectorIndexStorageError::VertexPropertyValueNotOfCorrectType:
               throw QueryRuntimeException("Vertex property values must be of type Double/Float or Int!");
           }
-        }
-        switch (maybe_vector_index_error.GetValue()) {
-          case storage::VectorIndex::CreationStatus::ALREADY_EXISTS: {
-            index_notification.code = NotificationCode::EXISTENT_INDEX;
-            index_notification.title = fmt::format("Vector index {} already exists.", index_name);
-            break;
-          }
-          case storage::VectorIndex::CreationStatus::SUCCESS:
-            break;
         }
 
         return index_notification;

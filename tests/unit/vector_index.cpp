@@ -59,8 +59,8 @@ class VectorSearchTest : public testing::Test {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  memgraph::utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> TryCreateIndex(
-      std::uint16_t dimension, std::size_t capacity) {
+  memgraph::utils::BasicResult<VectorIndexStorageError, void> TryCreateIndex(std::uint16_t dimension,
+                                                                             std::size_t capacity) {
     auto unique_acc = this->storage->UniqueAccess();
     memgraph::query::DbAccessor dba(unique_acc.get());
     const auto label = dba.NameToLabel(test_label.data());
@@ -535,7 +535,7 @@ TYPED_TEST(VectorSearchTest, DontCreateIndexIfAnyNodeHasErrorInUpdating) {
 
 TYPED_TEST(VectorSearchTest, MultipleVectorIndicesPerLabelProperty) {
   this->CreateIndex(2, 10);
-  EXPECT_EQ(this->TryCreateIndex(2, 10).GetValue(), VectorIndex::CreationStatus::ALREADY_EXISTS);
+  EXPECT_EQ(this->TryCreateIndex(2, 10).GetError(), VectorIndexStorageError::VectorIndexAlreadyExists);
 
   // Expect to have only one vector index if we tried adding 2 of them
   {

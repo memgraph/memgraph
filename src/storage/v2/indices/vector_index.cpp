@@ -147,7 +147,7 @@ unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) 
                   name));
 }
 
-utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> VectorIndex::CreateIndex(
+utils::BasicResult<VectorIndexStorageError, void> VectorIndex::CreateIndex(
     const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto label_prop = LabelPropKey{spec.label, spec.property};
@@ -158,20 +158,19 @@ utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> VectorI
   const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
   if (pimpl->index_.contains(spec.index_name)) {
-    return VectorIndex::CreationStatus::ALREADY_EXISTS;
+    return VectorIndexStorageError::VectorIndexAlreadyExists;
   }
 
   auto mg_vector_index = mg_vector_index_t::make(metric);
   if (!mg_vector_index) {
-    spdlog::error(fmt::format("Failed to create vector index {}, error message: {}", spec.index_name,
-                              mg_vector_index.error.what()));
+    spdlog::error("Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what());
     return VectorIndexStorageError::FailedToCreateIndex;
   }
 
   if (mg_vector_index.index.try_reserve(limits)) {
     spdlog::info("Created vector index {}", spec.index_name);
   } else {
-    spdlog::error(fmt::format("Unable to reserve memory for vector index {}", spec.index_name));
+    spdlog::error("Unable to reserve memory for vector index {}", spec.index_name);
     return VectorIndexStorageError::UnableToReserveMemory;
   }
 
@@ -200,7 +199,7 @@ utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> VectorI
     }
   }
 
-  return VectorIndex::CreationStatus::SUCCESS;
+  return {};
 }
 
 utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus> VectorIndex::DropIndex(

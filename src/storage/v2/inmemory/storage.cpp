@@ -1525,8 +1525,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus>
-InMemoryStorage::InMemoryAccessor::CreateVectorIndex(VectorIndexSpec spec) {
+utils::BasicResult<VectorIndexStorageError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
+    VectorIndexSpec spec) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -1536,15 +1536,11 @@ InMemoryStorage::InMemoryAccessor::CreateVectorIndex(VectorIndexSpec spec) {
     return result.GetError();
   }
 
-  if (result.GetValue() != VectorIndex::CreationStatus::SUCCESS) {
-    return result.GetValue();
-  }
-
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
 
-  return VectorIndex::CreationStatus::SUCCESS;
+  return {};
 }
 
 utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus>

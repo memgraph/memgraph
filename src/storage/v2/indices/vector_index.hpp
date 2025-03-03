@@ -26,6 +26,7 @@
 namespace memgraph::storage {
 
 enum struct VectorIndexStorageError : uint8_t {
+  VectorIndexAlreadyExists,
   InvalidPropertyValue,
   UnableToReserveMemory,
   FailedToCreateIndex,
@@ -103,8 +104,6 @@ class VectorIndex {
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
-  enum class CreationStatus { SUCCESS, ALREADY_EXISTS };
-
   enum class DeletionStatus { SUCCESS, NOT_FOUND };
 
   /// @brief Converts a metric kind to a string.
@@ -124,7 +123,7 @@ class VectorIndex {
   /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  utils::BasicResult<VectorIndexStorageError, CreationStatus> CreateIndex(
+  utils::BasicResult<VectorIndexStorageError, void> CreateIndex(
       const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 

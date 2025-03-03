@@ -393,7 +393,7 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
                                                                          storage::PropertyId property) override;
 
-    utils::BasicResult<VectorIndexStorageError, VectorIndex::CreationStatus> CreateVectorIndex(
+    utils::BasicResult<VectorIndexStorageError, void> CreateVectorIndex(
         VectorIndexSpec spec) override;
 
     utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus> DropVectorIndex(

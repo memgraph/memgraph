@@ -398,7 +398,7 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    virtual utils::BasicResult<storage::VectorIndexStorageError, VectorIndex::CreationStatus> CreateVectorIndex(
+    virtual utils::BasicResult<storage::VectorIndexStorageError, void> CreateVectorIndex(
         VectorIndexSpec spec) = 0;
 
     virtual utils::BasicResult<storage::VectorIndexStorageError, VectorIndex::DeletionStatus> DropVectorIndex(

@@ -224,7 +224,7 @@ class DiskStorage final : public Storage {
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) override;
 
-    utils::BasicResult<storage::VectorIndexStorageError, VectorIndex::CreationStatus> CreateVectorIndex(
+    utils::BasicResult<storage::VectorIndexStorageError, void> CreateVectorIndex(
         VectorIndexSpec spec) override;
 
     utils::BasicResult<storage::VectorIndexStorageError, VectorIndex::DeletionStatus> DropVectorIndex(
