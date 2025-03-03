@@ -1,6 +1,6 @@
 Feature: Vector search related features
 
-    Scenario: Create vector index:
+    Scenario: Create vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         When executing query:
@@ -11,7 +11,7 @@ Feature: Vector search related features
             | index type | label | property | count |
             | 'vector'   | 'L1'  | 'prop1'  | 0     |
 
-    Scenario: Add node to vector index:
+    Scenario: Add node to vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         And having executed
@@ -26,7 +26,7 @@ Feature: Vector search related features
             | index type | label | property | count |
             | 'vector'   | 'L1'  | 'prop1'  | 1     |
 
-    Scenario: Remove node from vector index:
+    Scenario: Remove node from vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
             """
@@ -48,7 +48,7 @@ Feature: Vector search related features
             | index type | label | property | count |
             | 'vector'   | 'L1'  | 'prop1'  | 0     |
 
-    Scenario: Drop vector index:
+    Scenario: Drop vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         And having executed
@@ -62,7 +62,7 @@ Feature: Vector search related features
         Then the result should be:
             | index type             | label | property | count |
 
-    Scenario: Get vector index info:
+    Scenario: Get vector index info
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         When executing query:
@@ -73,7 +73,18 @@ Feature: Vector search related features
             | capacity | dimension | index_name   | label | property | metric | size |
             | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    |
 
-    Scenario: Search vector index:
+    Scenario: Get vector index info with cypher
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    |
+
+    Scenario: Search vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
         And having executed

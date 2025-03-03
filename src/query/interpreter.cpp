@@ -819,21 +819,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2878,11 +2871,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
+  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
+                 [execution_db_accessor](const auto &label_index) {
+                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
+                                                  TypedValue("")};
+                 });
 
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
@@ -4662,6 +4655,26 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
 
+      break;
+    }
+    case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
+      header = {"index_name", "label", "property", "capacity", "dimension", "metric", "size"};
+      handler = [database, dba] {
+        auto *storage = database->storage();
+        auto vector_indices = dba->ListAllVectorIndices();
+        auto storage_acc = database->Access();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(vector_indices.size());
+
+        for (const auto &spec : vector_indices) {
+          results.push_back({TypedValue(spec.index_name), TypedValue(storage->LabelToName(spec.label)),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
+                             TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size))});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
       break;
     }
   }
