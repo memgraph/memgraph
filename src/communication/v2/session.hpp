@@ -156,6 +156,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               data += sent;
                               len -= sent;
                             }
+                            std::this_thread::yield();
                             return true;
                           },
                           [shared_this = shared_from_this(), data, len](SSLSocket &socket) mutable {
@@ -170,6 +171,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               data += sent;
                               len -= sent;
                             }
+                            std::this_thread::yield();
                             return true;
                           },
                           [shared_this = shared_from_this(), data, len](WebSocket &ws) mutable {
@@ -180,6 +182,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               shared_this->OnError(ec);
                               return false;
                             }
+                            std::this_thread::yield();
                             return true;
                           }},
         socket_);
