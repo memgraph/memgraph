@@ -1,0 +1,30 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
+  args: [] # Any additional flags you need
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    # Copied from configurations/workloads/performance/supernode_edge_abort.yaml
+    - name: supernode-edge-abort
+      memgraph_args: ["--memory-limit=4000"]
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: ["UNWIND range(1, 1000000) as x CREATE (:Node {id: x})"]
+      workers:
+        - name: fully-connect
+          type: writer
+          query: "MATCH (n1) MATCH (n2) CREATE (n1)-[:IS_CONNECTED_TO]->(n2)"
+          num_repetitions: 1
+          sleep_millis: 0
+      timeout_min: 2

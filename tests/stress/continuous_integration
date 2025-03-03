@@ -1,250 +1,259 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import argparse
-import copy
 import multiprocessing
 import os
 import subprocess
 import time
 from argparse import Namespace as Args
-from subprocess import Popen
 from typing import Dict, List, Optional
+from gqlalchemy import Memgraph
+import yaml
+from workers import get_worker_object, get_worker_steps
 
-from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
 
-# paths
+# Paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
+DEPLOYMENTS_DIR = os.path.join(SCRIPT_DIR, "configurations/deployments")
 
-# long running stats file
+# Long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
 
-# get number of threads
+# Get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()
 
 
-def generate_temporary_ssl_certs():
-    # https://unix.stackexchange.com/questions/104171/create-ssl-certificate-non-interactively
-    subj = "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com"
-    subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-new",
-            "-newkey",
-            "rsa:4096",
-            "-days",
-            "365",
-            "-nodes",
-            "-x509",
-            "-subj",
-            subj,
-            "-keyout",
-            KEY_FILE,
-            "-out",
-            CERT_FILE,
-        ],
-        check=True,
-    )
+class Config:
+    def __init__(self, config):
+        self._verbose = config.get("general", {}).get("verbose", False)
+        self._use_ssl = config.get("general", {}).get("use_ssl", False)
+
+        # Memgraph configuration
+        memgraph = config.get("memgraph", {})
+        self._script = memgraph.get("deployment", {}).get("script", None)
+        self._memgraph_args = memgraph.get("args", [])
+
+        # Dataset tests
+        dataset = config.get("dataset", {})
+        self._tests = dataset.get("tests", [])
+
+        self._custom_workloads = config.get("customWorkloads", {}).get("tests", [])
+
+    @property
+    def uses_ssl(self):
+        return self._use_ssl
+
+    @property
+    def is_verbose(self):
+        return self._verbose
+
+    @property
+    def script(self):
+        return self._script
+
+    @property
+    def tests(self):
+        return self._tests
+
+    @property
+    def custom_workloads(self):
+        return self._custom_workloads
+
+    @property
+    def memgraph_args(self):
+        return self._memgraph_args
 
 
-def remove_certificates() -> None:
-    os.remove(KEY_FILE)
-    os.remove(CERT_FILE)
+def start_deployment(script_path: str, args: List[str]) -> None:
+    cmd = [script_path, "start"] + args
+    print(f"Starting Memgraph with: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+    time.sleep(2)  # Ensure the server has time to start
+
+
+def stop_deployment(script_path: str) -> None:
+    cmd = [script_path, "stop"]
+    print(f"Stopping Memgraph with: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+
+
+def check_deployment_status(script_path: str) -> bool:
+    cmd = [script_path, "status"]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0
 
 
 def parse_arguments() -> Args:
-    # parse arguments
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
-    parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
-    parser.add_argument("--log-file", default="")
-    parser.add_argument("--data-directory", default="")
+    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
-    parser.add_argument("--large-dataset", action="store_const", const=True, default=False)
-    parser.add_argument("--small-dataset", action="store_const", const=True, default=False)
-    parser.add_argument("--specific-test", default="")
-    parser.add_argument("--use-ssl", action="store_const", const=True, default=False)
-    parser.add_argument("--verbose", action="store_const", const=True, default=False)
     return parser.parse_args()
 
 
-def wait_for_server(port, delay=0.1) -> None:
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
+def run_test(args: Args, config: Config, test: str, options: List[str], timeout: int) -> float:
+    """Runs a test for Memgraph."""
+    print(f"Running test '{test}'")
 
+    binary = _find_test_binary(args, config, test)
 
-def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
-    """Starts Memgraph and return the process"""
-    cwd = os.path.dirname(args.memgraph)
-    cmd = [
-        args.memgraph,
-        "--bolt-num-workers=" + str(THREADS),
-        "--storage-properties-on-edges=true",
-        "--storage-snapshot-on-exit=true",
-        "--storage-snapshot-interval-sec=600",
-        "--storage-snapshot-retention-count=1",
-        "--storage-wal-enabled=true",
-        "--data-recovery-on-startup=false",
-        "--query-execution-timeout-sec=1200",
-        "--bolt-server-name-for-init=Neo4j/",
-    ] + memgraph_options
-    if not args.verbose:
-        cmd += ["--log-level", "WARNING"]
-    if args.log_file:
-        cmd += ["--log-file", args.log_file]
-    if args.data_directory:
-        cmd += ["--data-directory", args.data_directory]
-    if args.use_ssl:
-        cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
-    memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
-    wait_for_server(7687)
-
-    assert memgraph_proc.poll() is None, "The database binary died prematurely!"
-
-    return memgraph_proc
-
-
-def stop_memgraph(proc_mg: Popen) -> None:
-    proc_mg.terminate()
-    ret_mg = proc_mg.wait()
-    if ret_mg != 0:
-        raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
-
-
-def run_test(args: Args, test: str, options: List[str], timeout: int, mode: DatabaseMode) -> float:
-    """Runs tests for a set of specific database configuration.
-
-    Args:
-        args: Arguments passed to the test
-        test: Test name
-        options: List of options specific for each test
-        timeout: Timeout in minutes
-        mode: DatabaseMode (storage mode & isolation level pair)
-    """
-    print("Running test '{}'".format(test))
-
-    binary = _find_test_binary(args, test)
-
-    # start test
-    cmd = (
-        binary
-        + [
-            "--worker-count",
-            str(THREADS),
-            "--isolation-level",
-            mode.isolation_level,
-            "--storage-mode",
-            mode.storage_mode,
-        ]
-        + options
-    )
+    cmd = binary + ["--worker-count", str(THREADS)] + options
     start = time.time()
     ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
     if ret_test.returncode != 0:
-        raise Exception("Test '{}' binary returned non-zero ({})!".format(test, ret_test.returncode))
+        raise Exception(f"Test '{test}' binary returned non-zero ({ret_test.returncode})!")
 
     runtime = time.time() - start
-    print("    Done after {:.3f} seconds".format(runtime))
-
+    print(f"    Done after {runtime:.3f} seconds")
     return runtime
 
 
-def _find_test_binary(args: Args, test: str) -> List[str]:
+def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     if test.endswith(".py"):
-        logging = "DEBUG" if args.verbose else "WARNING"
+        logging = "DEBUG" if config.is_verbose else "WARNING"
         return [args.python, "-u", os.path.join(SCRIPT_DIR, test), "--logging", logging]
 
     if test.endswith(".cpp"):
         exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
         return [exe]
 
-    raise Exception("Test '{}' binary not supported!".format(test))
+    raise Exception(f"Test '{test}' binary not supported!")
 
 
-def run_stress_test_suite(args: Args) -> Optional[Dict[str, float]]:
-    def cleanup(memgraph_proc):
-        if memgraph_proc.poll() != None:
-            return
-        memgraph_proc.kill()
-        memgraph_proc.wait()
-
+def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str, float]]:
+    """Runs custom workloads on Memgraph using GQLAlchemy."""
+    print("Running custom workloads...")
     runtimes = {}
+    err = False
 
-    if args.large_dataset and args.small_dataset:
-        raise Exception("Choose only a large dataset or a small dataset for stress testing!")
+    for workload in config.custom_workloads:
+        workload_name = workload["name"]
+        print(f"Running workload '{workload_name}'")
+        start = time.time()
 
-    dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
-    if args.specific_test:
-        dataset = [x for x in dataset if x[DatasetConstants.TEST] == args.specific_test]
-        if not len(dataset):
-            raise Exception("Specific dataset is not found for stress testing!")
+        try:
+            # Start Memgraph deployment
+            start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []))
 
-    for test in dataset:
-        if args.use_ssl:
-            test[DatasetConstants.OPTIONS] += ["--use-ssl"]
+            # Run import queries
+            print(f"Started import for workload '{workload_name}'")
+            
+            query_host = workload.get("querying", {}).get("host", "127.0.0.1")
+            query_port = workload.get("querying", {}).get("port", 7687)
+            
+            memgraph = Memgraph(host=query_host, port=query_port)
+            for query in workload.get("import", {}).get("queries", []):
+                print(f"Executing query: {query}")
+                memgraph.execute(query)
+            print(f"Finished import for workload '{workload_name}'")
 
-        for mode in test[DatasetConstants.MODE]:
-            test_run = copy.deepcopy(test)
-            # Run for every specified combination of storage mode, serialization mode, etc (if extended)
-            test_run[DatasetConstants.MODE] = mode
-            try:
-                memgraph_options = (
-                    test_run[DatasetConstants.MEMGRAPH_OPTIONS] if DatasetConstants.MEMGRAPH_OPTIONS in test_run else []
-                )
-                if DatasetConstants.MEMGRAPH_OPTIONS in test_run:
-                    del test_run[DatasetConstants.MEMGRAPH_OPTIONS]
-                memgraph_proc = start_memgraph(args, memgraph_options)
-            except Exception as ex:
-                print("Exception occured while starting memgraph", ex)
-                return None
-            err = False
-            try:
-                runtime = run_test(args, **test_run)
-                runtimes[os.path.splitext(test[DatasetConstants.TEST])[0]] = runtime
-            except Exception as ex:
-                print(f"Failed to execute {test_run} with following exception:", ex)
-                err = True
-            finally:
-                stop_memgraph(memgraph_proc)
-                cleanup(memgraph_proc)
-            if err:
-                return None
+            # Execute workers in steps
+            processes = []
+            workers = workload.get("workers", [])
+            steps = get_worker_steps(workers)
+
+            for step in steps:
+                print(f"Running step {step}.")
+
+                for worker in [x for x in workers if x.get("step", 1) == step]:              
+                    # Override with workload global querying if not set on the worker
+                    if "querying" not in worker.keys():
+                        worker["querying"] = {"host": query_host, "port": query_port}
+                    worker_object = get_worker_object(worker)
+
+                    for i in range(worker.get("replicas", 1)):
+                        process = multiprocessing.Process(target=worker_object.run)
+                        processes.append((process, workload.get("timeout_min", 10) * 60))
+                        process.start()
+
+                # Monitor processes and enforce timeouts
+                for process, timeout in processes:
+                    process.join(timeout)
+                    if process.is_alive():
+                        print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
+                        process.terminate()
+                        process.join()
+
+            print(f"Finished workload '{workload_name}'")
+            end = time.time()
+            runtimes[workload_name] = end - start
+
+        except Exception as ex:
+            print(f"Failed to execute workload {workload_name} with exception:", ex)
+            err = True
+        finally:
+            stop_deployment(script_path)
+
+        if err:
+            return None
 
     return runtimes
 
 
+def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
+    """Runs the stress test suite on Memgraph."""
+    runtimes = {}
+
+    script_path = config.script
+    if not script_path:
+        raise Exception("Memgraph deployment script not found!")
+    script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
+    if not os.path.exists(script_path):
+        raise Exception(f"Memgraph deployment script not found: {script_path}!")
+
+    for test in config.tests:
+        test_name = test["name"]
+        test_flags = test["test_args"]
+        timeout = test["timeout_min"]
+        memgraph_flags = config.memgraph_args + test.get("memgraph_args", [])
+
+        try:
+            start_deployment(script_path, memgraph_flags)
+        except Exception as ex:
+            print("Exception occurred while starting Memgraph:", ex)
+            return None
+
+        err = False
+        try:
+            runtime = run_test(args, config, test_name, test_flags, timeout)
+            runtimes[os.path.splitext(test_name)[0]] = runtime
+        except Exception as ex:
+            print(f"Failed to execute {test_name} with exception:", ex)
+            err = True
+        finally:
+            stop_deployment(script_path)
+
+        if err:
+            return None
+
+    workload_runtimes = run_custom_workloads(script_path, config)
+    if workload_runtimes is None:
+        return None
+
+    return runtimes | workload_runtimes
+
+
 def write_stats(runtimes: Dict[str, float]) -> None:
-    measurements = ""
-    for key, value in runtimes.items():
-        measurements += "{}.runtime {}\n".format(key, value)
-    with open(STATS_FILE) as f:
-        stats = f.read().split("\n")
-    measurements += "long_running.queries.executed {}\n".format(stats[0])
-    measurements += "long_running.queries.failed {}\n".format(stats[1])
+    """Writes stress test results to a file."""
     with open(MEASUREMENTS_FILE, "w") as f:
-        f.write(measurements)
+        f.write("\n".join(f"{key}.runtime {value}" for key, value in runtimes.items()))
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    config = Config(yaml.safe_load(open(args.config_file)))
 
-    if args.use_ssl:
-        generate_temporary_ssl_certs()
+    runtimes = run_stress_test_suite(args, config)
 
-    runtimes = run_stress_test_suite(args)
     if runtimes is None:
         print("Some stress tests have failed")
         exit(1)
-    assert runtimes is not None
-    if args.use_ssl:
-        remove_certificates()
-    write_stats(runtimes)
 
+    write_stats(runtimes)
     print("Successfully ran stress tests!")
