@@ -78,8 +78,8 @@ class PropertyStore {
   /// complexity of this function is O(n).
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
 
-  /// Extracts property values for all property ids in the set `properties`, any missing properties will be
-  /// represented by Nulll. The time complexity of this function is O(n).
+  /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
+  /// represented by Null. The time complexity of this function is O(n).
   /// @param ordered_properties: a pre-sorted collection of `PropertyId`
   std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyId const> ordered_properties) const;
 

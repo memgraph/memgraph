@@ -70,10 +70,10 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
       return false;
     }
 
-    auto &propertied_key = it2->first;
+    auto &properties_key = it2->first;
     auto &index = it2->second;
 
-    auto de = EntryDetail{&propertied_key, &index};
+    auto de = EntryDetail{&properties_key, &index};
     for (auto prop : properties) {
       new_indices_by_property_[prop].insert({label, de});
     }
@@ -85,9 +85,9 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
     };
 
     if (parallel_exec_info) {
-      CreateIndexOnMultipleThreads(vertices, it, new_index_, *parallel_exec_info, func, snapshot_info);
+      // CreateIndexOnMultipleThreads(vertices, it, new_index_, *parallel_exec_info, func, snapshot_info);
     } else {
-      CreateIndexOnSingleThread(vertices, it, new_index_, func, snapshot_info);
+      // CreateIndexOnSingleThread(vertices, it, new_index_, func, snapshot_info);
     }
 
     return true;

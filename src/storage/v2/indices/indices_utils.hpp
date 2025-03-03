@@ -354,10 +354,10 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, std::sp
   // TODO: some kind of permute to rearange values into correct order
 
   // TODO(composite_index): null checking (if all null don't insert)
-  if (value.IsNull()) {
-    return;
-  }
-  index_accessor.insert({std::move(value), &vertex, 0});
+  // if (value.IsNull()) {
+  //  return;
+  // }
+  // index_accessor.insert({std::move(value), &vertex, 0});
 }
 
 template <typename TSkiplistIter, typename TIndex, typename TFunc>
