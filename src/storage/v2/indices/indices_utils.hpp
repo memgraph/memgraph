@@ -329,28 +329,47 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &i
 }
 
 template <typename TIndexAccessor>
-inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, PropertyId> label_property_pair,
+inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::tuple<LabelId, PropertyId> label_property,
                                         TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label_property_pair.first)) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, std::get<LabelId>(label_property))) {
     return;
   }
-  auto value = vertex.properties.GetProperty(label_property_pair.second);
+  auto value = vertex.properties.GetProperty(std::get<PropertyId>(label_property));
   if (value.IsNull()) {
     return;
   }
   index_accessor.insert({std::move(value), &vertex, 0});
 }
 
-template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
+template <typename TIndexAccessor>
+inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, std::span<PropertyId const> properties,
+                                          TIndexAccessor &index_accessor) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+    return;
+  }
+
+  auto ordered_propertyIds = std::vector(properties.begin(), properties.end());
+  std::ranges::sort(ordered_propertyIds);
+  auto value = vertex.properties.ExtractPropertyValuesMissingAsNull(ordered_propertyIds);
+  // TODO: some kind of permute to rearange values into correct order
+
+  // TODO(composite_index): null checking (if all null don't insert)
+  // if (value.IsNull()) {
+  //  return;
+  // }
+  // index_accessor.insert({std::move(value), &vertex, 0});
+}
+
+template <typename TSkiplistIter, typename TIndex, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
-                                      TIndexKey key, const TFunc &func,
+                                      const TFunc &func,
                                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   try {
     auto acc = it->second.access();
     for (Vertex &vertex : vertices) {
-      func(vertex, key, acc);
+      func(vertex, acc);
       if (snapshot_info) {
         snapshot_info->Update(UpdateType::VERTICES);
       }
@@ -362,9 +381,9 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
   }
 }
 
-template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
+template <typename TIndex, typename TSKiplistIter, typename TFunc>
 inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
-                                         TIndex &index, TIndexKey key,
+                                         TIndex &index,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
                                          const TFunc &func,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
@@ -379,26 +398,26 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
   std::atomic<uint64_t> batch_counter = 0;
 
+  // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
-                            &vertices, &snapshot_info]() mutable {
+      threads.emplace_back([&]() mutable {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
             return;
           }
           const auto &batch = vertex_batches[batch_index];
-          auto index_accessor = index.at(key).access();
+          auto index_accessor = skiplist_iter->second.access();
           auto it = vertices.find(batch.first);
 
           try {
             for (auto i{0U}; i < batch.second; ++i, ++it) {
-              func(*it, key, index_accessor);
+              func(*it, index_accessor);
               if (snapshot_info) {
                 snapshot_info->Update(UpdateType::VERTICES);
               }
@@ -406,7 +425,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
           } catch (utils::OutOfMemoryException &failure) {
             utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            index.erase(skiplist_iter);
+            index.erase(skiplist_iter);  // TODO(composite_index): make this safe...only should only be called once
             *maybe_error.Lock() = std::move(failure);
           }
         }

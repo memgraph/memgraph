@@ -34,66 +34,73 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(
-    LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, std::span<PropertyId const> properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  auto create_index_seq = [this, &snapshot_info](
-                              LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-                              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
-    using IndexAccessor = decltype(it->second.access());
 
-    CreateIndexOnSingleThread(
-        vertices, it, index_, std::make_pair(label, property),
-        [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-          TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-        },
-        snapshot_info);
+  {
+    // OLD approach
+    auto [it, emplaced] =
+        index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties[0]), std::forward_as_tuple());
+
+    indices_by_property_[properties[0]].insert({label, &it->second});
+
+    auto const func = [&](Vertex &vertex, auto &index_accessor) {
+      TryInsertLabelPropertyIndex(vertex, std::tuple(label, properties[0]), index_accessor);
+    };
+
+    if (parallel_exec_info) {
+      CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func, snapshot_info);
+    } else {
+      CreateIndexOnSingleThread(vertices, it, index_, func, snapshot_info);
+    }
 
     return true;
-  };
-
-  auto create_index_par =
-      [this, &snapshot_info](
-          LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-          std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-        using IndexAccessor = decltype(label_property_it->second.access());
-
-        CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
-            [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-              TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-            },
-            snapshot_info);
-
-        return true;
-      };
-
-  auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
-
-  indices_by_property_[property].insert({label, &it->second});
-
-  if (!emplaced) {
-    // Index already exists.
-    return false;
   }
 
-  if (parallel_exec_info) {
-    return create_index_par(label, property, vertices, it, *parallel_exec_info);
-  }
+  {
+    // NEW approach
 
-  return create_index_seq(label, property, vertices, it);
+    auto [it1, _] = new_index_.try_emplace(label);
+    auto &properties_map = it1->second;
+    auto [it2, emplaced] = properties_map.try_emplace(std::vector(properties.begin(), properties.end()));
+    if (!emplaced) {
+      // Index already exists.
+      return false;
+    }
+
+    auto &properties_key = it2->first;
+    auto &index = it2->second;
+
+    auto de = EntryDetail{&properties_key, &index};
+    for (auto prop : properties) {
+      new_indices_by_property_[prop].insert({label, de});
+    }
+
+    // TODO: populate index with values
+
+    auto const func = [&](Vertex &vertex, auto &index_accessor) {
+      TryInsertLabelPropertyIndex(vertex, std::tuple(label, properties[0]), index_accessor);
+    };
+
+    if (parallel_exec_info) {
+      // CreateIndexOnMultipleThreads(vertices, it, new_index_, *parallel_exec_info, func, snapshot_info);
+    } else {
+      // CreateIndexOnSingleThread(vertices, it, new_index_, func, snapshot_info);
+    }
+
+    return true;
+  }
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
   for (auto &[label_prop, storage] : index_) {
-    if (label_prop.first != added_label) {
+    if (std::get<LabelId>(label_prop) != added_label) {
       continue;
     }
-    auto prop_value = vertex_after_update->properties.GetProperty(label_prop.second);
+    auto prop_value = vertex_after_update->properties.GetProperty(std::get<PropertyId>(label_prop));
     if (!prop_value.IsNull()) {
       auto acc = storage.access();
       acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
@@ -138,8 +145,8 @@ bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property)
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, PropertyId>> ret;
   ret.reserve(index_.size());
-  for (auto const &key : index_ | std::views::keys) {
-    ret.push_back(key);
+  for (auto const &[label, property] : index_ | std::views::keys) {
+    ret.emplace_back(label, property);
   }
   return ret;
 }
@@ -494,7 +501,7 @@ void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
                                               std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                                               uint64_t exact_start_timestamp) {
   for (auto &[label_prop, storage] : index_) {
-    if (label_prop.first != label) {
+    if (std::get<LabelId>(label_prop) != label) {
       continue;
     }
 
@@ -511,6 +518,16 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.clear();
   indices_by_property_.clear();
   stats_->clear();
+}
+
+LabelPropertyIndex::IndexStats InMemoryLabelPropertyIndex::Analysis() const {
+  IndexStats res{};
+  for (const auto &[lp, _] : index_) {
+    const auto &[label, property] = lp;
+    res.l2p[label].emplace_back(property);
+    res.p2l[property].emplace_back(label);
+  }
+  return res;
 }
 
 }  // namespace memgraph::storage

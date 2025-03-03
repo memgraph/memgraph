@@ -199,13 +199,19 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   // Recover label+property indices.
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   {
-    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
-    for (const auto &item : indices_metadata.label_property) {
-      if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
+    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
+    for (auto const &[label, properties] : indices_metadata.label_properties) {
+      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
                                                  snapshot_info))
         throw RecoveryFailure("The label+property index must be created here!");
-      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                   name_id_mapper->IdToName(item.second.AsUint()));
+
+      auto properties_string =
+          properties |
+          ranges::views::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
+          ranges::views::join(", ") | ranges::to<std::string>;
+
+      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                   properties_string);
     }
     spdlog::info("Label+property indices are recreated.");
   }

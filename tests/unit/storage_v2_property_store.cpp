@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -841,6 +841,51 @@ TEST(PropertyStore, GetPropertyOfTypes) {
 
   auto prop_of_type3 = store3.GetPropertyOfTypes(PropertyId::FromInt(2), types);
   ASSERT_EQ(prop_of_type3, std::nullopt);
+}
+
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
+  auto test = [](std::vector<std::pair<PropertyId, PropertyValue>> const &data) {
+    PropertyStore store;
+    store.InitProperties(data);
+
+    std::vector<PropertyId> ids;
+    ids.reserve(data.size());
+    std::ranges::transform(data, std::back_inserter(ids), [](auto const &each) { return each.first; });
+
+    auto const read_values = store.ExtractPropertyValuesMissingAsNull(ids);
+    ASSERT_EQ(data.size(), read_values.size());
+    for (size_t i = 0; i < data.size(); ++i) {
+      EXPECT_EQ(data[i].second, read_values[i]);
+    }
+  };
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue("charlie")}});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue("charlie")}});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue()}});
+
+  test({{PropertyId::FromInt(1), PropertyValue("alfa")},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue()}});
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue("bravo")},
+        {PropertyId::FromInt(3), PropertyValue()}});
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue("charlie")}});
+
+  test({{PropertyId::FromInt(1), PropertyValue()},
+        {PropertyId::FromInt(2), PropertyValue()},
+        {PropertyId::FromInt(3), PropertyValue()}});
 }
 
 int main(int argc, char **argv) {

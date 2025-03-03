@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,8 +75,13 @@ class PropertyStore {
   bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
 
   /// Extracts property values for all property ids in the set `properties`. The time
-  /// complexity of this function is O(n^2).
+  /// complexity of this function is O(n).
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
+
+  /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
+  /// represented by Null. The time complexity of this function is O(n).
+  /// @param ordered_properties: a pre-sorted collection of `PropertyId`
+  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyId const> ordered_properties) const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
