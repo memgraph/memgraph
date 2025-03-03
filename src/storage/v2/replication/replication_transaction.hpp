@@ -53,14 +53,16 @@ class TransactionReplication {
     }
   }
 
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc) {
+  bool FinalizeTransaction(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
     bool finalized_on_all_replicas{true};
     MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
               "handle ASYNC tasks");
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, replica_stream);
-      const auto finalized = client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), timestamp);
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
+                                     replica_stream);
+      const auto finalized =
+          client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
       }

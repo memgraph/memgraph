@@ -27,7 +27,7 @@ namespace memgraph::storage {
 class InMemoryCurrentWalHandler {
  public:
   explicit InMemoryCurrentWalHandler(const utils::UUID &main_uuid, InMemoryStorage const *storage,
-                                     rpc::Client &rpc_client);
+                                     rpc::Client &rpc_client, bool reset_needed);
   void AppendFilename(const std::string &filename);
 
   void AppendSize(size_t size);
@@ -45,8 +45,8 @@ class InMemoryCurrentWalHandler {
 
 ////// CurrentWalHandler //////
 InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(const utils::UUID &main_uuid, InMemoryStorage const *storage,
-                                                     rpc::Client &rpc_client)
-    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(main_uuid, storage->uuid())) {}
+                                                     rpc::Client &rpc_client, bool const reset_needed)
+    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(main_uuid, storage->uuid(), reset_needed)) {}
 
 void InMemoryCurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
@@ -73,8 +73,9 @@ replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream
 // ReplicationClient Helpers
 // Caller should make sure that wal files aren't empty
 replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
-                                          const std::vector<std::filesystem::path> &wal_files) {
-  auto stream = client.Stream<replication::WalFilesRpc>(main_uuid, uuid, wal_files.size());
+                                          const std::vector<std::filesystem::path> &wal_files,
+                                          bool const reset_needed) {
+  auto stream = client.Stream<replication::WalFilesRpc>(main_uuid, uuid, wal_files.size(), reset_needed);
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     spdlog::debug("Sending wal file: {}", wal);
@@ -91,9 +92,10 @@ replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const ut
   return stream.AwaitResponseWhileInProgress();
 }
 
-replication::CurrentWalRes ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
-                                               rpc::Client &client, durability::WalFile const &wal_file) {
-  InMemoryCurrentWalHandler stream{main_uuid, storage, client};
+replication::CurrentWalRes TransferCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
+                                              rpc::Client &client, durability::WalFile const &wal_file,
+                                              bool const reset_needed) {
+  InMemoryCurrentWalHandler stream{main_uuid, storage, client, reset_needed};
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
