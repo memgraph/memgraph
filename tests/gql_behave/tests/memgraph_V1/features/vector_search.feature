@@ -98,6 +98,52 @@ Feature: Vector search related features
             CALL vector_search.search("test_index", 2, [1.0, 1.0]) YIELD * RETURN *;
             """
         Then the result should be:
-            | distance | node                        | similarity |
+            | distance   | node                      | similarity |
             | 0.0        | (:L1 {prop1: [1.0, 1.0]}) | 1.0        |
             | 1.0        | (:L1 {prop1: [1.0, 2.0]}) | 0.5        |
+
+    Scenario: Vector search performs on float values
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.1, 1.1]})
+            CREATE (:L1 {prop1: [2.1, 2.1]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, [1.0, 1.0]) YIELD * RETURN node;
+            """
+        Then the result should be:
+            | node                      |
+            | (:L1 {prop1: [1.1, 1.1]}) |
+
+    Scenario: Vector search performs on integer values
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.1, 1.1]})
+            CREATE (:L1 {prop1: [2.1, 2.1]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, [2, 2]) YIELD * RETURN node;
+            """
+        Then the result should be:
+            | node                      |
+            | (:L1 {prop1: [2.1, 2.1]}) |
+
+    Scenario: Vector search raises error on value that is not integer or double
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.1, 1.1]})
+            CREATE (:L1 {prop1: [2.1, 2.1]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, ["invalid", "invalid"]) YIELD * RETURN node;
+            """
+        Then an error should be raised
