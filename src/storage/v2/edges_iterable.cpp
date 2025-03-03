@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,10 @@ EdgesIterable::EdgesIterable(InMemoryEdgeTypePropertyIndex::Iterable edges)
   new (&in_memory_edges_by_edge_type_property_) InMemoryEdgeTypePropertyIndex::Iterable(std::move(edges));
 }
 
+EdgesIterable::EdgesIterable(InMemoryEdgePropertyIndex::Iterable edges) : type_(Type::BY_EDGE_PROPERTY_IN_MEMORY) {
+  new (&in_memory_edges_by_edge_property_) InMemoryEdgePropertyIndex::Iterable(std::move(edges));
+}
+
 EdgesIterable::EdgesIterable(EdgesIterable &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::BY_EDGE_TYPE_IN_MEMORY:
@@ -31,6 +35,10 @@ EdgesIterable::EdgesIterable(EdgesIterable &&other) noexcept : type_(other.type_
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       new (&in_memory_edges_by_edge_type_property_)
           InMemoryEdgeTypePropertyIndex::Iterable(std::move(other.in_memory_edges_by_edge_type_property_));
+      break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      new (&in_memory_edges_by_edge_property_)
+          InMemoryEdgePropertyIndex::Iterable(std::move(other.in_memory_edges_by_edge_property_));
       break;
   }
 }
@@ -47,6 +55,10 @@ EdgesIterable &EdgesIterable::operator=(EdgesIterable &&other) noexcept {
       new (&in_memory_edges_by_edge_type_property_)
           InMemoryEdgeTypePropertyIndex::Iterable(std::move(other.in_memory_edges_by_edge_type_property_));
       break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      new (&in_memory_edges_by_edge_property_)
+          InMemoryEdgePropertyIndex::Iterable(std::move(other.in_memory_edges_by_edge_property_));
+      break;
   }
   return *this;
 }
@@ -61,6 +73,9 @@ void EdgesIterable::Destroy() noexcept {
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       in_memory_edges_by_edge_type_property_.InMemoryEdgeTypePropertyIndex::Iterable::~Iterable();
       break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      in_memory_edges_by_edge_property_.InMemoryEdgePropertyIndex::Iterable::~Iterable();
+      break;
   }
 }
 
@@ -70,6 +85,8 @@ EdgesIterable::Iterator EdgesIterable::begin() {
       return Iterator(in_memory_edges_by_edge_type_.begin());
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_edges_by_edge_type_property_.begin());
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      return Iterator(in_memory_edges_by_edge_property_.begin());
   }
 }
 
@@ -79,6 +96,8 @@ EdgesIterable::Iterator EdgesIterable::end() {
       return Iterator(in_memory_edges_by_edge_type_.end());
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_edges_by_edge_type_property_.end());
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      return Iterator(in_memory_edges_by_edge_property_.end());
   }
 }
 
@@ -93,6 +112,12 @@ EdgesIterable::Iterator::Iterator(InMemoryEdgeTypePropertyIndex::Iterable::Itera
   new (&in_memory_edges_by_edge_type_property_) InMemoryEdgeTypePropertyIndex::Iterable::Iterator(std::move(it));
 }
 
+EdgesIterable::Iterator::Iterator(InMemoryEdgePropertyIndex::Iterable::Iterator it)
+    : type_(Type::BY_EDGE_PROPERTY_IN_MEMORY) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+  new (&in_memory_edges_by_edge_property_) InMemoryEdgePropertyIndex::Iterable::Iterator(std::move(it));
+}
+
 EdgesIterable::Iterator::Iterator(const EdgesIterable::Iterator &other) : type_(other.type_) {
   switch (other.type_) {
     case Type::BY_EDGE_TYPE_IN_MEMORY:
@@ -102,6 +127,10 @@ EdgesIterable::Iterator::Iterator(const EdgesIterable::Iterator &other) : type_(
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       new (&in_memory_edges_by_edge_type_property_)
           InMemoryEdgeTypePropertyIndex::Iterable::Iterator(other.in_memory_edges_by_edge_type_property_);
+      break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      new (&in_memory_edges_by_edge_property_)
+          InMemoryEdgePropertyIndex::Iterable::Iterator(other.in_memory_edges_by_edge_property_);
       break;
   }
 }
@@ -119,6 +148,10 @@ EdgesIterable::Iterator &EdgesIterable::Iterator::operator=(const EdgesIterable:
       new (&in_memory_edges_by_edge_type_property_)
           InMemoryEdgeTypePropertyIndex::Iterable::Iterator(other.in_memory_edges_by_edge_type_property_);
       break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      new (&in_memory_edges_by_edge_property_)
+          InMemoryEdgePropertyIndex::Iterable::Iterator(other.in_memory_edges_by_edge_property_);
+      break;
   }
   return *this;
 }
@@ -134,6 +167,11 @@ EdgesIterable::Iterator::Iterator(EdgesIterable::Iterator &&other) noexcept : ty
       new (&in_memory_edges_by_edge_type_property_)
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryEdgeTypePropertyIndex::Iterable::Iterator(std::move(other.in_memory_edges_by_edge_type_property_));
+      break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      new (&in_memory_edges_by_edge_property_)
+          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+          InMemoryEdgePropertyIndex::Iterable::Iterator(std::move(other.in_memory_edges_by_edge_property_));
       break;
   }
 }
@@ -152,6 +190,11 @@ EdgesIterable::Iterator &EdgesIterable::Iterator::operator=(EdgesIterable::Itera
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryEdgeTypePropertyIndex::Iterable::Iterator(std::move(other.in_memory_edges_by_edge_type_property_));
       break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      new (&in_memory_edges_by_edge_property_)
+          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+          InMemoryEdgePropertyIndex::Iterable::Iterator(std::move(other.in_memory_edges_by_edge_property_));
+      break;
   }
   return *this;
 }
@@ -166,6 +209,9 @@ void EdgesIterable::Iterator::Destroy() noexcept {
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       in_memory_edges_by_edge_type_property_.InMemoryEdgeTypePropertyIndex::Iterable::Iterator::~Iterator();
       break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      in_memory_edges_by_edge_property_.InMemoryEdgePropertyIndex::Iterable::Iterator::~Iterator();
+      break;
   }
 }
 
@@ -175,6 +221,8 @@ EdgeAccessor const &EdgesIterable::Iterator::operator*() const {
       return *in_memory_edges_by_edge_type_;
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       return *in_memory_edges_by_edge_type_property_;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      return *in_memory_edges_by_edge_property_;
   }
 }
 
@@ -186,6 +234,9 @@ EdgesIterable::Iterator &EdgesIterable::Iterator::operator++() {
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       ++in_memory_edges_by_edge_type_property_;
       break;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      ++in_memory_edges_by_edge_property_;
+      break;
   }
   return *this;
 }
@@ -196,6 +247,8 @@ bool EdgesIterable::Iterator::operator==(const Iterator &other) const {
       return in_memory_edges_by_edge_type_ == other.in_memory_edges_by_edge_type_;
     case Type::BY_EDGE_TYPE_PROPERTY_IN_MEMORY:
       return in_memory_edges_by_edge_type_property_ == other.in_memory_edges_by_edge_type_property_;
+    case Type::BY_EDGE_PROPERTY_IN_MEMORY:
+      return in_memory_edges_by_edge_property_ == other.in_memory_edges_by_edge_property_;
   }
 }
 
