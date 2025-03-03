@@ -1228,6 +1228,8 @@ enum class ExpectedPropertyStatus {
 // @sa CompareExpectedProperty
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedProperty(Reader *reader, PropertyId expected_property,
                                                             PropertyValue &value) {
+  // TODO(composite_index): something like this for seek ... need PeekMetadata + PeekReadUint then conditional skip
+
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
@@ -1958,6 +1960,27 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
     for (auto property : properties) {
       if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return std::nullopt;
       values.emplace_back(std::move(value));
+    }
+    return values;
+  };
+  return WithReader(get_property);
+}
+
+std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
+    std::span<PropertyId const> ordered_properties) const {
+  auto get_property = [&](Reader &reader) -> std::vector<PropertyValue> {
+    PropertyValue value;
+    auto values = std::vector<PropertyValue>{};
+    values.reserve(ordered_properties.size());
+    for (auto property : ordered_properties) {
+      // reader when can't find exact value would have skipped over next value
+      // TODO: peek/seek functionality
+      //
+      if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) {
+        values.emplace_back();
+      } else {
+        values.emplace_back(std::move(value));
+      }
     }
     return values;
   };

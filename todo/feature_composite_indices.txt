@@ -29,3 +29,20 @@ Deduplicate stuff like
 
 
 IdToName -> std::string_view
+
+Add test for:
+A B C -> Entry must exist in index
+X 2 X
+
+Add test for:
+A B C  -> No entry in index
+X X X
+
+
+Problem: we insert entries on update
+A B C
+1 2 3
+
+1 X X -> entry on SetProperty(A)
+1 2 X -> entry on SetProperty(B)
+1 2 3 -> entry on SetProperty(C)
