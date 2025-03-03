@@ -137,8 +137,13 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    yum update -y
-    yum install -y wget git python3 python3-pip
+
+    # enable CRB repo 
+    dnf install -y dnf-plugins-core
+    dnf config-manager --set-enabled crb
+    
+    dnf update -y
+    dnf install -y wget git python3 python3-pip
 
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
@@ -157,18 +162,18 @@ install() {
             install_node "20"
             continue
         fi
-        if [ "$pkg" == perl-Unicode-EastAsianWidth ]; then
-            if ! dnf list installed perl-Unicode-EastAsianWidth >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/p/perl-Unicode-EastAsianWidth-12.0-7.el9.noarch.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == texinfo ]; then
-            if ! dnf list installed texinfo >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/t/texinfo-6.7-15.el9.x86_64.rpm
-            fi
-            continue
-        fi
+        # if [ "$pkg" == perl-Unicode-EastAsianWidth ]; then
+        #     if ! dnf list installed perl-Unicode-EastAsianWidth >/dev/null 2>/dev/null; then
+        #         dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/p/perl-Unicode-EastAsianWidth-12.0-7.el9.noarch.rpm
+        #     fi
+        #     continue
+        # fi
+        # if [ "$pkg" == texinfo ]; then
+        #     if ! dnf list installed texinfo >/dev/null 2>/dev/null; then
+        #         dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/t/texinfo-6.7-15.el9.x86_64.rpm
+        #     fi
+        #     continue
+        # fi
         if [ "$pkg" == libbabeltrace-devel ]; then
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
                 dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
@@ -181,12 +186,12 @@ install() {
             fi
             continue
         fi
-        if [ "$pkg" == doxygen ]; then
-            if ! dnf list installed doxygen >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-12.el9_5.x86_64.rpm
-            fi
-            continue
-        fi
+        # if [ "$pkg" == doxygen ]; then
+        #     if ! dnf list installed doxygen >/dev/null 2>/dev/null; then
+        #         dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-12.el9_5.x86_64.rpm
+        #     fi
+        #     continue
+        # fi
         if [ "$pkg" == cl-asdf ]; then
             if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
                 dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
@@ -223,12 +228,12 @@ install() {
             fi
             continue
         fi
-        if [ "$pkg" == nunja-build ]; then
-            if ! dnf list installed ninja-build >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/n/ninja-build-1.10.2-6.el9.x86_64.rpm
-            fi
-            continue
-        fi
+        # if [ "$pkg" == ninja-build ]; then
+        #     if ! dnf list installed ninja-build >/dev/null 2>/dev/null; then
+        #         dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/n/ninja-build-1.10.2-6.el9.x86_64.rpm
+        #     fi
+        #     continue
+        # fi
         yum install -y "$pkg"
     done
 }
