@@ -35,6 +35,7 @@ function setup_virtualenv () {
 
 setup_libs=true
 ci=false
+prep_testing=true
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
@@ -48,6 +49,10 @@ else
           --ci)
               shift
               ci=true
+          ;;
+          --skip-prep-testing)
+              shift
+              prep_testing=false
           ;;
           *)
               # unknown option
@@ -70,6 +75,9 @@ echo "All packages are in-place..."
 
 # create a default build directory
 mkdir -p ./build
+
+# this should fix --break-system-packages not being available in older distros
+export PIP_BREAK_SYSTEM_PACKAGES=1
 
 if [[ "$setup_libs" == "true" ]]; then
   # Setup libs (download).
@@ -96,13 +104,16 @@ else
   fi
 fi
 
-setup_virtualenv tests/gql_behave
-setup_virtualenv tests/stress
-setup_virtualenv tests/integration/ldap
-setup_virtualenv tests/query_modules
-cd tests
-./setup.sh
-cd ..
+if [[ "$prep_testing" == "true" ]]; then
+  setup_virtualenv tests/gql_behave
+  setup_virtualenv tests/stress
+  setup_virtualenv tests/integration/ldap
+  setup_virtualenv tests/query_modules
+  cd tests
+  ./setup.sh
+  cd ..
+fi
+
 echo "Done installing dependencies for Memgraph"
 
 echo "Linking git hooks OR skip if .git folder is not there"
@@ -120,14 +131,14 @@ fi
 # packages.
 if [[ "$ci" == "false" ]]; then
   if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
-    python3 -m pip install --break-system-packages --upgrade pip
-    python3 -m pip install --break-system-packages pre-commit
+    python3 -m pip install --upgrade pip
+    python3 -m pip install pre-commit
     python3 -m pre_commit install
     # Install py format tools for usage during the development.
     echo "Install black formatter"
-    python3 -m pip install --break-system-packages black==23.1.*
+    python3 -m pip install black==23.1.*
     echo "Install isort"
-    python3 -m pip install --break-system-packages isort==5.12.*
+    python3 -m pip install isort==5.12.*
   fi
 fi
 
