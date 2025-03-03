@@ -155,7 +155,8 @@ class UserImpersonation {
 
     friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
   };
-  using GrantedUsers = std::variant<bool, std::set<UserId>>;
+  struct GrantAllUsers {};
+  using GrantedUsers = std::variant<GrantAllUsers, std::set<UserId>>;
   using DeniedUsers = std::set<UserId>;
 
   UserImpersonation() = default;
@@ -181,13 +182,13 @@ class UserImpersonation {
 
   void deny_one(const User &user);
 
-  bool grants_all() const { return std::holds_alternative<bool>(granted_); }
+  bool grants_all() const { return std::holds_alternative<GrantAllUsers>(granted_); }
 
   std::optional<std::set<UserId>::iterator> find_granted(std::string_view username) const {
     DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
     auto &granted_set = std::get<std::set<UserId>>(granted_);
     auto res = std::find_if(granted_set.begin(), granted_set.end(),
-                            [&username](const auto &elem) { return elem.name == username; });
+                            [username](const auto &elem) { return elem.name == username; });
     if (res == granted_set.end()) return {};
     return res;
   }
@@ -206,7 +207,7 @@ class UserImpersonation {
 
   std::optional<std::set<UserId>::iterator> find_denied(std::string_view username) const {
     auto res =
-        std::find_if(denied_.begin(), denied_.end(), [&username](const auto &elem) { return elem.name == username; });
+        std::find_if(denied_.begin(), denied_.end(), [username](const auto &elem) { return elem.name == username; });
     if (res == denied_.end()) return {};
     return res;
   }
@@ -383,7 +384,7 @@ class Role {
 #ifdef MG_ENTERPRISE
   Role(const std::string &rolename, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {},
-       std::optional<UserImpersonation> usr_imp = {});
+       std::optional<UserImpersonation> usr_imp = std::nullopt);
 #endif
   Role(const Role &) = default;
   Role &operator=(const Role &) = default;
@@ -413,19 +414,12 @@ class Role {
 
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user) const {
-    if (!user_impersonation_) return false;
-    return permissions_.Has(Permission::IMPERSONATE_USER) == PermissionLevel::GRANT &&
+    return user_impersonation_ && permissions_.Has(Permission::IMPERSONATE_USER) == PermissionLevel::GRANT &&
            user_impersonation_->CanImpersonate(user);
   }
 
-  bool UserImpIsGranted(const User &user) const {
-    if (!user_impersonation_) return false;
-    return user_impersonation_->IsGranted(user);
-  }
-  bool UserImpIsDenied(const User &user) const {
-    if (!user_impersonation_) return false;
-    return user_impersonation_->IsDenied(user);
-  }
+  bool UserImpIsGranted(const User &user) const { return user_impersonation_ && user_impersonation_->IsGranted(user); }
+  bool UserImpIsDenied(const User &user) const { return user_impersonation_ && user_impersonation_->IsDenied(user); }
 
   void RevokeUserImp() { user_impersonation_.reset(); }
   void GrantUserImp() {
@@ -472,7 +466,7 @@ class User final {
 #ifdef MG_ENTERPRISE
   User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {}, utils::UUID uuid = {},
-       std::optional<UserImpersonation> usr_imp = {});
+       std::optional<UserImpersonation> usr_imp = std::nullopt);
 #endif
   User(const User &) = default;
   User &operator=(const User &) = default;

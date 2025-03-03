@@ -25,6 +25,7 @@
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::auth {
 namespace {
@@ -821,7 +822,7 @@ void UserImpersonation::GrantAll() {
   // Remove any denied users
   denied_.clear();
   // Set granted to all
-  granted_ = true;
+  granted_ = GrantAllUsers{};
 }
 // Overrides the previous granted set, but not the denied set
 void UserImpersonation::Grant(const std::vector<User> &users) {
@@ -924,26 +925,6 @@ void UserImpersonation::deny_one(const User &user) {
   denied_.emplace(user.username(), user.uuid());
 }
 
-void to_json(nlohmann::json &data, const UserImpersonation &usr_imp) {
-  data = nlohmann::json::object();
-
-  if (std::holds_alternative<bool>(usr_imp.granted_)) {
-    data[kUserImpGranted] = false;
-  } else {
-    auto res = nlohmann::json::array();
-    for (const auto &uid : std::get<std::set<UserImpersonation::UserId>>(usr_imp.granted_)) {
-      res.push_back({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
-    }
-    data[kUserImpGranted] = std::move(res);
-  }
-
-  auto res = nlohmann::json::array();
-  for (const auto &uid : usr_imp.denied_) {
-    res.emplace_back(uid);
-  }
-  data[kUserImpDenied] = std::move(res);
-}
-
 void to_json(nlohmann::json &data, const UserImpersonation::UserId &uid) {
   data = nlohmann::json::object({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
 }
@@ -952,11 +933,39 @@ void from_json(const nlohmann::json &data, UserImpersonation::UserId &uid) {
   uid = {data[kUserImpName], data[kUserImpId]};
 }
 
+void to_json(nlohmann::json &data, const UserImpersonation::GrantAllUsers & /* unused */) {
+  data = nlohmann::json::object();
+}
+
+void from_json(const nlohmann::json &data, UserImpersonation::GrantAllUsers & /* unused */) {
+  // Empty struct
+}
+
+void to_json(nlohmann::json &data, const UserImpersonation &usr_imp) {
+  data = nlohmann::json::object();
+
+  std::visit(utils::Overloaded{[&](UserImpersonation::GrantAllUsers obj) { data[kUserImpGranted] = obj; },
+                               [&](std::set<UserImpersonation::UserId> granted) {
+                                 auto res = nlohmann::json::array();
+                                 for (const auto &uid : granted) {
+                                   res.push_back({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
+                                 }
+                                 data[kUserImpGranted] = std::move(res);
+                               }},
+             usr_imp.granted_);
+
+  auto res = nlohmann::json::array();
+  for (const auto &uid : usr_imp.denied_) {
+    res.emplace_back(uid);
+  }
+  data[kUserImpDenied] = std::move(res);
+}
+
 void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user impersonation data!");
   }
-  if (!data[kUserImpGranted].is_boolean() && !data[kUserImpGranted].is_array()) {
+  if (!data[kUserImpGranted].is_object() && !data[kUserImpGranted].is_array()) {
     throw AuthException("Couldn't load user impersonation data!");
   }
   if (!data[kUserImpDenied].is_array()) {
@@ -964,11 +973,11 @@ void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   }
 
   UserImpersonation::GrantedUsers granted;
-  if (data[kUserImpGranted].is_boolean())
-    granted = true;
-  else
+  if (data[kUserImpGranted].is_object()) {
+    granted = UserImpersonation::GrantAllUsers{};
+  } else {
     granted = {data[kUserImpGranted].get<std::set<UserImpersonation::UserId>>()};
-
+  }
   UserImpersonation::DeniedUsers denied = data[kUserImpDenied];
 
   usr_imp = {std::move(granted), std::move(denied)};

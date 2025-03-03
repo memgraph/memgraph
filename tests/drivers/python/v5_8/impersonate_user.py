@@ -17,6 +17,21 @@ from neo4j.exceptions import ClientError, TransientError
 
 print("Checking user impersonation...")
 
+# Check user-less state
+with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
+    with driver.session() as session:
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == None
+    failed = False
+    try:
+        with driver.session(impersonated_user="user") as session:
+            assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+    except:
+        failed = True
+    assert failed
+    with driver.session() as session:
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == None
+
+
 # Setup
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
     with driver.session() as session:

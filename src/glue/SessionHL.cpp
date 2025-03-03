@@ -148,30 +148,20 @@ std::optional<std::string> SessionHL::GetDefaultDB() const {
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
-#endif
-
 std::string SessionHL::GetCurrentDB() const {
   if (!interpreter_.current_db_.db_acc_) return "";
   const auto *db = interpreter_.current_db_.db_acc_->get();
   return db->name();
 }
 
-std::optional<std::string> SessionHL::GetDefaultUser() const {
-  if (user_or_role_) {
-    // TODO Do we need to send back a name?
-    if (const auto &name = user_or_role_->username()) return *name;
-    if (const auto &name = user_or_role_->rolename()) return *name;
+std::string SessionHL::GetCurrentUser() const {
+  if (interpreter_.user_or_role_) {
+    if (const auto &name = interpreter_.user_or_role_->username()) return *name;
+    if (const auto &name = interpreter_.user_or_role_->rolename()) return *name;
   }
   return "";
 }
-
-std::string SessionHL::GetCurrentUser() const {
-  if (!interpreter_.user_or_role_) return "";
-  // TODO Do we need to send back a name?
-  if (const auto &name = interpreter_.user_or_role_->username()) return *name;
-  if (const auto &name = interpreter_.user_or_role_->rolename()) return *name;
-  return "";
-}
+#endif
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   const auto &name = flags::run_time::GetServerName();
@@ -441,23 +431,20 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
                       interpreter_.ResetDB();
                     }
                   }},
-      runtime_user_{"imp_user", [this]() { return GetCurrentUser(); }, [this]() { return GetDefaultUser(); },
+      runtime_user_{"imp_user", [this]() { return GetCurrentUser(); },
+                    []() {
+                      // Only one possible default
+                      return std::nullopt;
+                    },
                     [this](std::optional<std::string> defined_user, bool impersonate_user) {
-                      if (defined_user) {  // User connection
-                        if (impersonate_user) {
-                          ImpersonateUserAuth(user_or_role_.get(), *defined_user);
-                          const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
-                          if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
-                          interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
-                        } else {
-                          // Set our default user/role
-                          MG_ASSERT(
-                              *defined_user == user_or_role_->username() || *defined_user == user_or_role_->rolename(),
-                              "Trying to default to the wrong user");
-                          interpreter_.SetUser(user_or_role_);
-                        }
-                      } else {  // Non-user connection
-                        interpreter_.ResetUser();
+                      if (impersonate_user) {
+                        ImpersonateUserAuth(user_or_role_.get(), *defined_user);
+                        const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
+                        if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
+                        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
+                      } else {
+                        // Set our default user/role
+                        interpreter_.SetUser(user_or_role_);
                       }
                     }},
 #endif
