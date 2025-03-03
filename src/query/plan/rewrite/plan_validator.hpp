@@ -36,7 +36,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeType &op) override {
-    if (scope_.in_optional_expand_) {
+    if (scope_.should_forbid_scanallbyedge_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -44,7 +44,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
-    if (scope_.in_optional_expand_) {
+    if (scope_.should_forbid_scanallbyedge_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -52,7 +52,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
-    if (scope_.in_optional_expand_) {
+    if (scope_.should_forbid_scanallbyedge_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -60,7 +60,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
-    if (scope_.in_optional_expand_) {
+    if (scope_.should_forbid_scanallbyedge_) {
       is_valid_plan_ = false;
       return false;
     }
@@ -89,12 +89,12 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
 
     if (!intersection.empty()) {
       // we should now reject plans which use indexed edge scan since we would like to rather expand from existing
-      scope_.in_optional_expand_ = true;
+      scope_.should_forbid_scanallbyedge_ = true;
     }
 
     op.optional_->Accept(*this);
 
-    scope_.in_optional_expand_ = false;
+    scope_.should_forbid_scanallbyedge_ = false;
 
     // we have manually gotten through the input and the optional so we can quit the execution
     return false;
@@ -104,7 +104,7 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
 
  private:
   struct Scope {
-    bool in_optional_expand_{false};
+    bool should_forbid_scanallbyedge_{false};
   };
   const SymbolTable &symbol_table_;
   bool is_valid_plan_{true};
