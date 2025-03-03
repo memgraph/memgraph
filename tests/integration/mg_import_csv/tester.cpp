@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,8 +29,8 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
  */
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char **argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
   memgraph::logging::RedirectToStderr();
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   memgraph::communication::SSLInit sslInit;
 

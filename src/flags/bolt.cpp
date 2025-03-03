@@ -8,12 +8,14 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "flags/bolt.hpp"
 
-#include "utils/flag_validation.hpp"
+#include "flags/bolt.hpp"
 
 #include <limits>
 #include <thread>
+
+#include "spdlog/spdlog.h"
+#include "utils/flag_validation.hpp"
 
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
@@ -26,11 +28,14 @@ DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurre
                        "Number of workers used by the Bolt server. By default, this will be the "
                        "number of processing units available on the machine.",
                        FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
-                       "Time in seconds after which inactive Bolt sessions will be "
-                       "closed.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
+                       "Time in seconds after which inactive Bolt sessions will be closed.", {
+                         spdlog::warn(
+                             "The bolt_session_inactivity_timeout flag is deprecated. The feature has been removed, "
+                             "inactivity timeout is not supported as of v3.0.");
+                         return true;
+                       });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the Bolt server.");
