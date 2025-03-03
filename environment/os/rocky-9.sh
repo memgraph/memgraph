@@ -183,7 +183,7 @@ install() {
         fi
         if [ "$pkg" == doxygen ]; then
             if ! dnf list installed doxygen >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-11.el9.x86_64.rpm
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-12.el9_5.x86_64.rpm
             fi
             continue
         fi
