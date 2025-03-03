@@ -400,8 +400,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   recovery_failed = true;
                 }
               },
-              [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed, reset_needed,
-               main_uuid = main_uuid_](RecoveryWals const &wals) {
+              [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed,
+               do_reset = reset_needed && step_index == 0, main_uuid = main_uuid_](RecoveryWals const &wals) {
                 spdlog::debug("Sending the latest wal files to {}", client_.name_);
 
                 if (wals.empty()) {
@@ -412,7 +412,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // We don't care about partial progress when loading WAL files. We are only interested if everything
                 // passed so that possibly next step of recovering current wal can be executed
                 if (auto const wal_files_res =
-                        TransferWalFiles(main_uuid, main_mem_storage->uuid(), rpcClient, wals, reset_needed);
+                        TransferWalFiles(main_uuid, main_mem_storage->uuid(), rpcClient, wals, do_reset);
                     wal_files_res.current_commit_timestamp) {
                   replica_last_commit_ts = *wal_files_res.current_commit_timestamp;
                   spdlog::debug("Successful reply to WAL files received from {}. Updating replica commit to {}",
@@ -423,7 +423,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   recovery_failed = true;
                 }
               },
-              [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed, reset_needed,
+              [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed,
+               do_reset = reset_needed && step_index == 0,
                main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 if (main_mem_storage->wal_file_ &&
@@ -434,7 +435,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file to {}", client_.name_);
                   if (auto const response = TransferCurrentWal(main_uuid, main_mem_storage, rpcClient,
-                                                               *main_mem_storage->wal_file_, reset_needed);
+                                                               *main_mem_storage->wal_file_, do_reset);
                       response.current_commit_timestamp) {
                     replica_last_commit_ts = *response.current_commit_timestamp;
                     spdlog::debug("Successful reply to the current WAL received from {}. Current replica commit is {}",
