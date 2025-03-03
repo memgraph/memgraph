@@ -3659,7 +3659,7 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
         auto type = MgpValueGetType(elem);
         if (type == mgp_value_type::MGP_VALUE_TYPE_DOUBLE) {
           double value = 0.0;
-          if (mgp_value_get_double(&elem, &value); != mgp_error::MGP_ERROR_NO_ERROR) {
+          if (auto err = mgp_value_get_double(&elem, &value); err != mgp_error::MGP_ERROR_NO_ERROR) {
             throw std::logic_error("Failed extracting the Double value from the vector search input argument!");
           }
           search_query_vector.push_back(static_cast<float>(value));
@@ -3667,7 +3667,7 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
         }
         if (type == mgp_value_type::MGP_VALUE_TYPE_INT) {
           int64_t value = 0;
-          if (mgp_value_get_int(&elem, &value); != mgp_error::MGP_ERROR_NO_ERROR) {
+          if (auto err = mgp_value_get_int(&elem, &value); err != mgp_error::MGP_ERROR_NO_ERROR) {
             throw std::logic_error("Failed extracting the Int value from the vector search input argument!");
           }
           search_query_vector.push_back(static_cast<float>(value));
