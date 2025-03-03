@@ -185,7 +185,7 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::CreateIndex(
                                       spec});
   // Update the index with the vertices
   for (auto &vertex : vertices) {
-    if (!utils::Contains(vertex.labels, spec.label)) {
+    if (vertex.deleted || !utils::Contains(vertex.labels, spec.label)) {
       continue;
     }
     auto update_result = UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}, nullptr, &spec.index_name);
