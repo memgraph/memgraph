@@ -1595,3 +1595,4 @@ echo "    export PATH=$PREFIX/bin:\$PATH"
 echo "    export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64"
 echo
 echo "Enjoy!"
+
