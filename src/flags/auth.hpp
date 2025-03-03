@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,8 @@ const std::unordered_map<std::string, std::string> DEFAULT_SSO_MAPPINGS{
     {"saml-entra-id", "/usr/lib/memgraph/auth_module/saml.py"},
     {"saml-okta", "/usr/lib/memgraph/auth_module/saml.py"},
     {"oidc-entra-id", "/usr/lib/memgraph/auth_module/oidc.py"},
-    {"oidc-okta", "/usr/lib/memgraph/auth_module/oidc.py"}};
+    {"oidc-okta", "/usr/lib/memgraph/auth_module/oidc.py"},
+    {"oidc-custom", "/usr/lib/memgraph/auth_module/oidc.py"}};
 
 // Auth flags.
 

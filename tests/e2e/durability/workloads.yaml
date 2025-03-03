@@ -8,3 +8,6 @@ workloads:
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]
+  - name: "MT durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/multitenancy.py"]

@@ -11,6 +11,7 @@
    [tesser.core :as tesser]
    [memgraph.high-availability.bank.test :as habank]
    [memgraph.high-availability.create.test :as hacreate]
+   [memgraph.mtenancy.test :as ha-mt] ; multitenancy + HA test
    [memgraph.replication.bank :as bank]
    [memgraph.replication.large :as large]
    [memgraph.support :as support]))
@@ -56,7 +57,8 @@
   {:bank                      bank/workload
    :large                     large/workload
    :habank                    habank/workload
-   :hacreate                  hacreate/workload})
+   :hacreate                  hacreate/workload
+   :ha-mt                     ha-mt/workload})
 
 (defn compose-gen
   "Composes final generator used in the test from client generator and nemesis generator."
@@ -91,7 +93,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"[Aa]ssert*|Segmentation fault|core dumped|critical|NullPointerException|json.exception.parse_error" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"[Aa]ssert*|Segmentation fault|core dumped|critical|NullPointerException|json.exception.parse_error|Message response was of unexpected type|Received malformed message from cluster" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis         (:nemesis nemesis-config)
@@ -140,7 +142,7 @@
                    (:workload opts)
                    (throw (Exception. "Workload undefined!")))
         nodes-config (if (:nodes-config opts)
-                       (if (or (= workload :habank) (= workload :hacreate))
+                       (if (or (= workload :habank) (= workload :hacreate) (= workload :ha-mt))
                          (:nodes-config opts)
                          (validate-nodes-configuration (:nodes-config opts))) ; validate only for replication tests.
                        (throw (Exception. "Nodes config flag undefined!")))
@@ -152,12 +154,24 @@
                   (:license opts))
         organization (when (:organization opts)
                        (:organization opts))
+        num-tenants (when (:num-tenants opts)
+                      (Integer/parseInt (:num-tenants opts)))
+
+        recovery-time (when (:recovery-time opts)
+                        (Integer/parseInt (:recovery-time opts)))
+
+        nemesis-start-sleep (when (:nemesis-start-sleep opts)
+                              (Integer/parseInt (:nemesis-start-sleep opts)))
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
                           :sync-after-n-txn sync-after-n-txn
                           :license licence
-                          :organization organization})]
+                          :organization organization
+                          :num-tenants num-tenants
+                          :recovery-time recovery-time
+                          :nemesis-start-sleep nemesis-start-sleep})]
+
     (memgraph-test test-opts)))
 
 (def cli-opts
@@ -175,7 +189,10 @@
     :default nil]
    ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
-    :parse-fn #(-> % load-configuration)]])
+    :parse-fn #(-> % load-configuration)]
+   ["-nt" "--num-tenants NUMBER" "Number of tenants that will be used in multi-tenant env." :default nil]
+   ["-rt" "--recovery-time SECONDS" "Recovery time before calling final generator." :default nil]
+   ["-nss" "--nemesis-start-sleep SECONDS" "The number of seconds nemesis will sleep before starting its disruptions." :default nil]])
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
