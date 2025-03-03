@@ -253,6 +253,8 @@ class Storage {
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
+    virtual uint64_t ApproximateEdgeCount() const = 0;
+
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
