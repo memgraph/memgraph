@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,24 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
 }
 
 #ifdef MG_ENTERPRISE
+bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy) const {
+  auto locked_auth = auth_->Lock();
+  // Check policy and update if behind (and policy permits it)
+  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
+    if (user_) user_ = locked_auth->GetUser(user_->username());
+    if (role_) role_ = locked_auth->GetRole(role_->rolename());
+  }
+
+  auto user_to_impersonate = locked_auth->GetUser(target);
+  if (!user_to_impersonate) {
+    return false;
+  }
+
+  if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate);
+  if (role_) return AuthChecker::CanImpersonate(*role_, *user_to_impersonate);
+  return false;
+}
+
 std::string QueryUserOrRole::GetDefaultDB() const {
   if (user_) return user_->db_access().GetMain();
   if (role_) return role_->db_access().GetMain();

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -801,5 +801,85 @@ void AuthQueryHandler::EditPermissions(
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
+
+#ifdef MG_ENTERPRISE
+void AuthQueryHandler::GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
+                                            system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(user_or_role);
+    auto role = locked_auth->GetRole(user_or_role);
+    if (!user && !role) {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+    const bool all = targets.size() == 1 && targets[0] == "*";
+    std::vector<auth::User> users;  // TODO User or UserId?
+    if (!all) {
+      for (const auto &target : targets) {
+        auto user = locked_auth->GetUser(target);
+        if (!user) {
+          throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", target);
+        }
+        users.emplace_back(std::move(*user));
+      }
+    }
+    if (user) {
+      user->permissions().Grant(auth::Permission::IMPERSONATE_USER);
+      if (all) {
+        user->GrantUserImp();
+      } else {
+        user->GrantUserImp(users);
+      }
+      locked_auth->SaveUser(*user, system_tx);
+    }
+    if (role) {
+      role->permissions().Grant(auth::Permission::IMPERSONATE_USER);
+      if (all) {
+        role->GrantUserImp();
+      } else {
+        role->GrantUserImp(users);
+      }
+      locked_auth->SaveRole(*role, system_tx);
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
+                                           system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(user_or_role);
+    auto role = locked_auth->GetRole(user_or_role);
+    if (!user && !role) {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+    const bool all = targets.size() == 1 && targets[0] == "*";
+    if (all) {
+      throw memgraph::query::QueryRuntimeException(
+          "Cannot deny all users. Instead try to revoke the IMPERSONATE_USER privilege.");
+    }
+    std::vector<auth::User> users;  // TODO User or UserId?
+    for (const auto &target : targets) {
+      auto user = locked_auth->GetUser(target);
+      if (!user) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", target);
+      }
+      users.emplace_back(std::move(*user));
+    }
+    if (user) {
+      user->DenyUserImp(users);
+      locked_auth->SaveUser(*user, system_tx);
+    }
+    if (role) {
+      role->DenyUserImp(users);
+      locked_auth->SaveRole(*role, system_tx);
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+#endif
 
 }  // namespace memgraph::glue

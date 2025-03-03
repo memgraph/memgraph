@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -252,7 +252,8 @@ TEST(AuthChecker, Generate) {
       empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
 
   // Add user
-  auth->AddUser("new_user");
+  auto user = auth->AddUser("new_user");
+  ASSERT_TRUE(user);
 
   // ~Empty user should now fail~
   // NOTE: Cache invalidation has been disabled, so this will pass; change if it is ever turned on
@@ -346,5 +347,44 @@ TEST(AuthChecker, Generate) {
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
+
+  // User impersonation
+  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // grant all
+  new_user2.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  new_user2.GrantUserImp();
+  auth->SaveUser(new_user2);
+  EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // deny "new_user"
+  new_user2.DenyUserImp({*user});
+  auth->SaveUser(new_user2);
+  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // grant just "new_user"
+  new_user2.GrantUserImp({*user});
+  auth->SaveUser(new_user2);
+  EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // revoke permission
+  new_user2.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
+  auth->SaveUser(new_user2);
+  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+
+  // via role
+  // grant all
+  new_role.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  new_role.GrantUserImp();
+  auth->SaveRole(new_role);
+  EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // deny "new_user"
+  new_role.DenyUserImp({*user});
+  auth->SaveRole(new_role);
+  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // grant "new_user" to user
+  new_user2.GrantUserImp({*user});
+  auth->SaveUser(new_user2);
+  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  // revoke permission
+  new_role.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
+  auth->SaveRole(new_role);
+  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
 }
 #endif
