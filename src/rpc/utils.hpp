@@ -19,12 +19,12 @@
 namespace memgraph::rpc {
 
 template <typename TResponse>
-void SendFinalResponse(TResponse const &res, slk::Builder *builder) {
+void SendFinalResponse(TResponse const &res, slk::Builder *builder, std::string description = "") {
   slk::Save(TResponse::kType.id, builder);
   slk::Save(rpc::current_version, builder);
   slk::Save(res, builder);
   builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}", TResponse::kType.name);
+  spdlog::trace("[RpcServer] sent {}. {}", TResponse::kType.name, description);
 }
 
 inline void SendInProgressMsg(slk::Builder *builder) {

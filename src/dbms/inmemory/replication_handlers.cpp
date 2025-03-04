@@ -202,37 +202,30 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received HeartbeatRpc");
         InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received AppendDeltasRpc");
         InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SnapshotRpc");
         InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received WalFilesRpc");
         InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received CurrentWalRpc");
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::TimestampRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received TimestampRpc");
         InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SwapMainUUIDRpc");
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
       });
 }
@@ -280,7 +273,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   auto const *storage = db_acc->get()->storage();
   const storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
                                                std::string{storage->repl_storage_state_.epoch_.id()}};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
 void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
@@ -316,7 +309,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-    spdlog::trace("Set epoch id to {} in AppendDeltasHandler.", *maybe_epoch_id);
+    spdlog::trace("Set epoch id to {} in AppendDeltasHandler for db {}.", *maybe_epoch_id, storage->name());
     auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
@@ -329,7 +322,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
-      spdlog::trace("Current WAL file finalized successfully");
+      spdlog::trace("Current WAL file finalized successfully for db {}.", storage->name());
     }
   }
 
@@ -345,7 +338,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     }
 
     const storage::replication::AppendDeltasRes res{false};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
 
@@ -357,13 +350,12 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
         "unsuccessfully.",
         e.what());
     const storage::replication::AppendDeltasRes res{false};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
 
   const storage::replication::AppendDeltasRes res{true};
-  rpc::SendFinalResponse(res, res_builder);
-  spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
+  rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
@@ -399,7 +391,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   if (!maybe_backup_dirs.has_value()) {
     spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
     const storage::replication::SnapshotRes res{{}};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
   auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
@@ -410,7 +402,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   // If there are 0 WAL files, replica will be recovered.
   if (!maybe_curr_wal_files.has_value()) {
     spdlog::error("Cannot read current WAL files. Replica won't be recovered.");
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder);
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
   auto const &curr_wal_files = *maybe_curr_wal_files;
@@ -419,7 +411,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   const auto maybe_recovery_snapshot_path = decoder.ReadFile(current_snapshot_dir);
   if (!maybe_recovery_snapshot_path.has_value()) {
     spdlog::error("Failed to load snapshot from {}", current_snapshot_dir);
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder);
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
   auto const &recovery_snapshot_path = *maybe_recovery_snapshot_path;
@@ -427,7 +419,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   spdlog::info("Received snapshot saved to {}", recovery_snapshot_path);
   {
     auto storage_guard = std::lock_guard{storage->main_lock_};
-    spdlog::trace("Clearing database before recovering from snapshot.");
+    spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
 
     // Clear the database
     storage->Clear();
@@ -437,7 +429,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     snapshot_observer_info.emplace(std::move(snapshot_progress_observer), 1'000'000);
 
     try {
-      spdlog::debug("Loading snapshot");
+      spdlog::debug("Loading snapshot for db {}.", storage->name());
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
           recovery_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
@@ -453,7 +445,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
       storage->repl_storage_state_.last_durable_timestamp_ = snapshot_info.durable_timestamp;
 
-      spdlog::trace("Recovering indices and constraints from snapshot.");
       storage::durability::RecoverIndicesStatsAndConstraints(
           &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
           storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges,
@@ -465,14 +456,14 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           *maybe_recovery_snapshot_path, e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{{}};
-      Save(res, res_builder);
+      rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
   }
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_recovery_snapshot_path);
 
   const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   auto const not_recovery_snapshot = [&recovery_snapshot_path](auto const &snapshot_info) {
     return snapshot_info.path != recovery_snapshot_path;
@@ -522,7 +513,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
     spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-    rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder);
+    rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, storage->name());
     return;
   }
   auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
@@ -533,12 +524,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   if (req.reset_needed) {
     {
       auto storage_guard = std::lock_guard{storage->main_lock_};
-      spdlog::trace("Clearing replica storage because the reset is needed while recovering from WalFiles");
+      spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
+                    storage->name());
       storage->Clear();
     }
     if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
                              current_wal_directory)) {
-      rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder);
+      rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
   }
@@ -551,7 +543,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   for (auto i = 0; i < wal_file_number; ++i) {
     auto const [success, current_batch_counter] = LoadWal(storage, &decoder, res_builder, local_batch_counter);
     if (!success) {
-      spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files.");
+      spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
+                    storage->name());
       const storage::replication::WalFilesRes res{{}};
       rpc::SendFinalResponse(res, res_builder);
       return;
@@ -559,10 +552,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     local_batch_counter = current_batch_counter;
   }
 
-  spdlog::debug("Replication recovery from WAL files succeeded");
+  spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
     MoveDurabilityFiles(*maybe_old_snapshot_files, backup_snapshot_dir, *maybe_old_wal_files, backup_wal_dir,
@@ -603,7 +596,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
-    spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
+    spdlog::error("Couldn't create backup directories. Replica won't be recovered for db {}.", storage->name());
     rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
     return;
   }
@@ -615,12 +608,14 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   if (req.reset_needed) {
     {
       auto storage_guard = std::lock_guard{storage->main_lock_};
-      spdlog::trace("Clearing replica storage because the reset is needed while recovering from WalFiles");
+      spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
+                    storage->name());
       storage->Clear();
     }
     if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
                              current_wal_directory)) {
-      rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
+      rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder,
+                             fmt::format("db: {}", storage->name()));
       return;
     }
   }
@@ -630,14 +625,16 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
   // When loading a single WAL file, we don't care about saving number of deltas
   if (!LoadWal(storage, &decoder, res_builder).first) {
-    spdlog::debug("Replication recovery from current WAL didn't end successfully but the error is non-fatal error.");
+    spdlog::debug(
+        "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
+        storage->name());
   } else {
-    spdlog::debug("Replication recovery from current WAL ended successfully!");
+    spdlog::debug("Replication recovery from current WAL ended successfully! DB {}.", storage->name());
   }
 
   const storage::replication::CurrentWalRes res{
       storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
     MoveDurabilityFiles(*maybe_old_snapshot_files, backup_snapshot_dir, *maybe_old_wal_files, backup_wal_dir,
