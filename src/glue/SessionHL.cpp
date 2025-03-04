@@ -148,11 +148,6 @@ std::optional<std::string> SessionHL::GetDefaultDB() const {
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
-std::string SessionHL::GetCurrentDB() const {
-  if (!interpreter_.current_db_.db_acc_) return "";
-  const auto *db = interpreter_.current_db_.db_acc_->get();
-  return db->name();
-}
 
 std::string SessionHL::GetCurrentUser() const {
   if (interpreter_.user_or_role_) {
@@ -162,6 +157,12 @@ std::string SessionHL::GetCurrentUser() const {
   return "";
 }
 #endif
+
+std::string SessionHL::GetCurrentDB() const {
+  if (!interpreter_.current_db_.db_acc_) return "";
+  const auto *db = interpreter_.current_db_.db_acc_->get();
+  return db->name();
+}
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   const auto &name = flags::run_time::GetServerName();
