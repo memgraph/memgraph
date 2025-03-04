@@ -160,7 +160,8 @@ pushd build
 #modify CFLAGS for older CPU support
 CPUFLAGS=""
 if [[ "$for_arm" = false ]]; then
-    CPUFLAGS="-mavx"
+    # TODO(mattkjames7): pin down minimum CPU specs for future toolchain 
+    #CPUFLAGS="-mavx"
     export CFLAGS="$CFLAGS $CPUFLAGS"
     export CXXFLAGS="$CXXFLAGS $CPUFLAGS"
 fi
