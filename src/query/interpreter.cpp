@@ -3163,14 +3163,13 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
-        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error;
-        if (global_index) {
-          if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
-          maybe_index_error = dba->CreateGlobalEdgeIndex(properties[0]);
-        } else {
-          maybe_index_error =
-              properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
-        }
+        const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
+          if (global_index) {
+            if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+            return dba->CreateGlobalEdgeIndex(properties[0]);
+          }
+          return properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
+        });
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3189,13 +3188,13 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
-        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error;
-        if (global_index) {
-          if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
-          maybe_index_error = dba->DropGlobalEdgeIndex(properties[0]);
-        } else {
-          maybe_index_error = properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
-        }
+        const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
+          if (global_index) {
+            if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+            return dba->DropGlobalEdgeIndex(properties[0]);
+          }
+          return properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
+        });
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {

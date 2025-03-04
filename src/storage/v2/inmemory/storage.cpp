@@ -1453,14 +1453,13 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
     return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
   }
 
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
@@ -1525,6 +1524,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   if (!mem_edge_property_index->DropIndex(property)) {
