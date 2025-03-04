@@ -73,7 +73,9 @@ class PostProcessor final {
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
   }
 
-  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan) { return query::plan::ValidatePlan(*plan); }
+  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {
+    return query::plan::ValidatePlan(*plan, table);
+  }
 
   template <class TVertexCounts>
   PlanCost EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
@@ -139,7 +141,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       }
 
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      if (!post_process->IsValidPlan(rewritten_plan)) {
+      if (!post_process->IsValidPlan(rewritten_plan, *context->symbol_table)) {
         continue;
       }
       valid_plan_found = true;
