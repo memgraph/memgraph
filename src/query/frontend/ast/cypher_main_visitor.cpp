@@ -129,6 +129,10 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
     return info_query;
   }
+  if (ctx->vectorIndexInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::VECTOR_INDEX;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
@@ -1951,6 +1955,44 @@ antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::L
   return symbolic_names;
 }
 
+antlrcpp::Any CypherMainVisitor::visitListOfSymbolicNames(MemgraphCypher::ListOfSymbolicNamesContext *ctx) {
+  std::vector<std::string> symbolic_names;
+  for (auto *symbolic_name : ctx->symbolicName()) {
+    symbolic_names.push_back(std::any_cast<std::string>(symbolic_name->accept(this)));
+  }
+  return symbolic_names;
+}
+
+antlrcpp::Any CypherMainVisitor::visitWildcardListOfSymbolicNames(
+    MemgraphCypher::WildcardListOfSymbolicNamesContext *ctx) {
+  if (ctx->listOfSymbolicNames()) {
+    return ctx->listOfSymbolicNames()->accept(this);
+  }
+  return std::vector<std::string>{"*"};
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitGrantImpersonateUser(MemgraphCypher::GrantImpersonateUserContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_IMPERSONATE_USER;
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitDenyImpersonateUser(MemgraphCypher::DenyImpersonateUserContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::DENY_IMPERSONATE_USER;
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+  auth->impersonation_targets_ = std::any_cast<std::vector<std::string>>(ctx->targets->accept(this));
+  return auth;
+}
+
 /**
  * @return std::vector<std::string>
  */
@@ -2003,6 +2045,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MULTI_DATABASE_EDIT()) return AuthQuery::Privilege::MULTI_DATABASE_EDIT;
   if (ctx->MULTI_DATABASE_USE()) return AuthQuery::Privilege::MULTI_DATABASE_USE;
   if (ctx->COORDINATOR()) return AuthQuery::Privilege::COORDINATOR;
+  if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -2213,8 +2256,22 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
     } else if (label_name->parameter()) {
       // If we have a parameter, we have to resolve it.
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
-      const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
-      labels.emplace_back(storage_->GetLabelIx(label_name));
+      const auto &param_property = parameters_->AtTokenPosition(param_lookup->token_position_);
+
+      if (param_property.IsString()) {
+        const auto &label_name = param_property.ValueString();
+        labels.emplace_back(storage_->GetLabelIx(label_name));
+      } else if (param_property.IsList()) {
+        const auto labels_list = param_property.ValueList();
+        for (const auto &label_name : labels_list) {
+          if (!label_name.IsString()) {
+            throw SyntaxException("Dynamic node labels must be of type STRING!");
+          }
+          labels.emplace_back(storage_->GetLabelIx(label_name.ValueString()));
+        }
+      } else {
+        throw SyntaxException("Parameter for dynamic node labels must be of type STRING or LIST[STRING]");
+      }
 
       // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
       // The same parameter could be resolved to different values if the user changes its value.

@@ -3160,6 +3160,8 @@ class AuthQuery : public memgraph::query::Query {
     REVOKE_DATABASE_FROM_USER,
     SHOW_DATABASE_PRIVILEGES,
     SET_MAIN_DATABASE,
+    GRANT_IMPERSONATE_USER,
+    DENY_IMPERSONATE_USER,
   };
 
   enum class Privilege {
@@ -3188,7 +3190,8 @@ class AuthQuery : public memgraph::query::Query {
     TRANSACTION_MANAGEMENT,
     MULTI_DATABASE_EDIT,
     MULTI_DATABASE_USE,
-    COORDINATOR
+    COORDINATOR,
+    IMPERSONATE_USER,
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -3211,9 +3214,10 @@ class AuthQuery : public memgraph::query::Query {
       label_privileges_;
   std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       edge_type_privileges_;
+  std::vector<std::string> impersonation_targets_;
 
   AuthQuery *Clone(AstStorage *storage) const override {
-    AuthQuery *object = storage->Create<AuthQuery>();
+    auto *object = storage->Create<AuthQuery>();
     object->action_ = action_;
     object->user_ = user_;
     object->role_ = role_;
@@ -3226,6 +3230,7 @@ class AuthQuery : public memgraph::query::Query {
     object->privileges_ = privileges_;
     object->label_privileges_ = label_privileges_;
     object->edge_type_privileges_ = edge_type_privileges_;
+    object->impersonation_targets_ = impersonation_targets_;
     return object;
   }
 
@@ -3233,7 +3238,8 @@ class AuthQuery : public memgraph::query::Query {
   AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, bool if_not_exists,
             Expression *password, std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
-            std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges)
+            std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
+            std::vector<std::string> impersonation_targets)
       : action_(action),
         user_(user),
         role_(role),
@@ -3243,46 +3249,50 @@ class AuthQuery : public memgraph::query::Query {
         database_(database),
         privileges_(privileges),
         label_privileges_(label_privileges),
-        edge_type_privileges_(edge_type_privileges) {}
+        edge_type_privileges_(edge_type_privileges),
+        impersonation_targets_(impersonation_targets) {}
 
  private:
   friend class AstStorage;
 };
 
 /// Constant that holds all available privileges.
-const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::CREATE,
-                                                          AuthQuery::Privilege::DELETE,
-                                                          AuthQuery::Privilege::MATCH,
-                                                          AuthQuery::Privilege::MERGE,
-                                                          AuthQuery::Privilege::SET,
-                                                          AuthQuery::Privilege::REMOVE,
-                                                          AuthQuery::Privilege::INDEX,
-                                                          AuthQuery::Privilege::STATS,
-                                                          AuthQuery::Privilege::AUTH,
-                                                          AuthQuery::Privilege::CONSTRAINT,
-                                                          AuthQuery::Privilege::DUMP,
-                                                          AuthQuery::Privilege::REPLICATION,
-                                                          AuthQuery::Privilege::READ_FILE,
-                                                          AuthQuery::Privilege::DURABILITY,
-                                                          AuthQuery::Privilege::FREE_MEMORY,
-                                                          AuthQuery::Privilege::TRIGGER,
-                                                          AuthQuery::Privilege::CONFIG,
-                                                          AuthQuery::Privilege::STREAM,
-                                                          AuthQuery::Privilege::MODULE_READ,
-                                                          AuthQuery::Privilege::MODULE_WRITE,
-                                                          AuthQuery::Privilege::WEBSOCKET,
-                                                          AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
-                                                          AuthQuery::Privilege::STORAGE_MODE,
-                                                          AuthQuery::Privilege::MULTI_DATABASE_EDIT,
-                                                          AuthQuery::Privilege::MULTI_DATABASE_USE,
-                                                          AuthQuery::Privilege::COORDINATOR};
+const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
+    AuthQuery::Privilege::CREATE,
+    AuthQuery::Privilege::DELETE,
+    AuthQuery::Privilege::MATCH,
+    AuthQuery::Privilege::MERGE,
+    AuthQuery::Privilege::SET,
+    AuthQuery::Privilege::REMOVE,
+    AuthQuery::Privilege::INDEX,
+    AuthQuery::Privilege::STATS,
+    AuthQuery::Privilege::AUTH,
+    AuthQuery::Privilege::CONSTRAINT,
+    AuthQuery::Privilege::DUMP,
+    AuthQuery::Privilege::REPLICATION,
+    AuthQuery::Privilege::READ_FILE,
+    AuthQuery::Privilege::DURABILITY,
+    AuthQuery::Privilege::FREE_MEMORY,
+    AuthQuery::Privilege::TRIGGER,
+    AuthQuery::Privilege::CONFIG,
+    AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::MODULE_READ,
+    AuthQuery::Privilege::MODULE_WRITE,
+    AuthQuery::Privilege::WEBSOCKET,
+    AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
+    AuthQuery::Privilege::STORAGE_MODE,
+    AuthQuery::Privilege::MULTI_DATABASE_EDIT,
+    AuthQuery::Privilege::MULTI_DATABASE_USE,
+    AuthQuery::Privilege::COORDINATOR,
+    AuthQuery::Privilege::IMPERSONATE_USER,
+};
 
 class DatabaseInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS };
+  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS, VECTOR_INDEX };
 
   DEFVISITABLE(QueryVisitor<void>);
 

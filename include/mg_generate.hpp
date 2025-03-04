@@ -30,7 +30,7 @@ namespace mg_generate {
 ///@param graph_type Directedness of the graph
 ///@return std::unique_ptr<mg_graph::Graph<>> Pointer to the created graph
 ///
-std::unique_ptr<mg_graph::Graph<>> BuildGraph(
+inline std::unique_ptr<mg_graph::Graph<>> BuildGraph(
     std::size_t num_nodes, const std::vector<std::pair<std::uint64_t, std::uint64_t>> &edges,
     const mg_graph::GraphType graph_type = mg_graph::GraphType::kUndirectedGraph) {
   auto G = std::make_unique<mg_graph::Graph<>>();
@@ -48,7 +48,7 @@ std::unique_ptr<mg_graph::Graph<>> BuildGraph(
 ///@param graph_type Directedness of the graph
 ///@return std::unique_ptr<mg_graph::Graph<>> Pointer to the created graph
 ///
-std::unique_ptr<mg_graph::Graph<>> BuildWeightedGraph(
+inline std::unique_ptr<mg_graph::Graph<>> BuildWeightedGraph(
     std::size_t num_nodes, const std::vector<std::pair<std::pair<std::uint64_t, std::uint64_t>, double>> &edges,
     const mg_graph::GraphType graph_type = mg_graph::GraphType::kUndirectedGraph) {
   auto G = std::make_unique<mg_graph::Graph<>>();
@@ -70,7 +70,7 @@ std::unique_ptr<mg_graph::Graph<>> BuildWeightedGraph(
 ///@param edges Edges in newly built graph
 ///@return std::unique_ptr<mg_graph::Graph<>> Pointer to the created graph
 ///
-std::unique_ptr<mg_graph::Graph<>> BuildGraph(
+inline std::unique_ptr<mg_graph::Graph<>> BuildGraph(
     const std::vector<std::uint64_t> &nodes, const std::vector<std::pair<std::uint64_t, std::uint64_t>> &edges,
     const mg_graph::GraphType graph_type = mg_graph::GraphType::kUndirectedGraph) {
   auto G = std::make_unique<mg_graph::Graph<>>();
@@ -88,7 +88,7 @@ std::unique_ptr<mg_graph::Graph<>> BuildGraph(
 ///@param num_edges Number of edges in graph
 ///@return std::unique_ptr<mg_graph::Graph<>> Pointer to the created graph
 ///
-std::unique_ptr<mg_graph::Graph<>> GenRandomGraph(
+inline std::unique_ptr<mg_graph::Graph<>> GenRandomGraph(
     std::size_t num_nodes, std::size_t num_edges,
     const mg_graph::GraphType graph_type = mg_graph::GraphType::kUndirectedGraph) {
   using IntPair = std::pair<std::uint64_t, std::uint64_t>;
@@ -115,7 +115,7 @@ std::unique_ptr<mg_graph::Graph<>> GenRandomGraph(
 ///@param num_nodes Number of nodes in graph
 ///@return std::unique_ptr<mg_graph::Graph<>> Pointer to the created graph
 ///
-std::unique_ptr<mg_graph::Graph<>> GenRandomTree(
+inline std::unique_ptr<mg_graph::Graph<>> GenRandomTree(
     std::size_t num_nodes, const mg_graph::GraphType graph_type = mg_graph::GraphType::kUndirectedGraph) {
   auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
   std::mt19937 rng(seed);

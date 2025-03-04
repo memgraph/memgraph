@@ -253,6 +253,8 @@ class Storage {
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
+    virtual uint64_t ApproximateEdgeCount() const = 0;
+
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
@@ -462,7 +464,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name, std::string_view value) -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name, std::string_view value) const
+        -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 
