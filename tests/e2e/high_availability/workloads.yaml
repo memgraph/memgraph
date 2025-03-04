@@ -22,3 +22,7 @@ workloads:
   - name: "Distributed coordinators"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/distributed_coords.py"]
+
+  - name: "HA durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/durability.py"]
