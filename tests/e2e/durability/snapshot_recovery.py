@@ -13,8 +13,6 @@ import os
 import shutil
 import sys
 import tempfile
-import time
-from typing import Any, Dict
 
 import interactive_mg_runner
 import pytest

@@ -3232,7 +3232,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS };
+  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS, VECTOR_INDEX };
 
   DEFVISITABLE(QueryVisitor<void>);
 

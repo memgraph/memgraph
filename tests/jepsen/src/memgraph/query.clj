@@ -3,6 +3,49 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
 
+(defn create-database
+  "Creates DB with name 'db'."
+  [db]
+  (dbclient/create-query
+   (let [query (str "CREATE DATABASE " db)]
+     query)))
+
+(dbclient/defquery create-label-idx
+  "
+  CREATE INDEX ON :User;
+  ")
+
+(dbclient/defquery create-label-property-idx
+  "
+  CREATE INDEX ON :User(id);
+  ")
+
+; Path inside the container
+(dbclient/defquery import-pokec-medium-nodes
+  "
+  LOAD CSV FROM '/opt/memgraph/datasets/pokec_medium/nodes.csv' WITH HEADER AS row
+  CREATE (:User {id: row.id});
+  ")
+
+; Path inside the container
+(dbclient/defquery import-pokec-medium-edges
+  "
+  LOAD CSV FROM '/opt/memgraph/datasets/pokec_medium/relationships.csv' WITH HEADER AS row
+  MATCH (n1:User {id: row.from_id})
+  MATCH (n2:User {id: row.to_id})
+  CREATE (n1)-[:KNOWS]->(n2);
+  ")
+
+(dbclient/defquery get-num-nodes
+  "
+  MATCH (n) RETURN count(n) as c;
+  ")
+
+(dbclient/defquery get-num-edges
+  "
+  MATCH (n)-[e]->(m) RETURN count(e) as c;
+  ")
+
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 

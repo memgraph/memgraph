@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
@@ -43,7 +44,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info);
+                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
