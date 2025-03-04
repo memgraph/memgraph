@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,11 @@ class AuthChecker : public query::AuthChecker {
   [[nodiscard]] static bool IsUserOrRoleAuthorized(const auth::UserOrRole &user_or_role,
                                                    const std::vector<query::AuthQuery::Privilege> &privileges,
                                                    std::string_view db_name = "");
+
+#ifdef MG_ENTERPRISE
+  [[nodiscard]] static bool CanImpersonate(const auth::User &user, const auth::User &target);
+  [[nodiscard]] static bool CanImpersonate(const auth::Role &role, const auth::User &target);
+#endif
 
  private:
   auth::SynchedAuth *auth_;

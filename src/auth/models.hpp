@@ -11,13 +11,16 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include <nlohmann/json.hpp>
 #include <utility>
+#include <variant>
 #include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
@@ -50,6 +53,7 @@ enum class Permission : uint64_t {
   MULTI_DATABASE_EDIT = 1U << 23U,
   MULTI_DATABASE_USE  = 1U << 24U,
   COORDINATOR  = 1U << 25U,
+  IMPERSONATE_USER    = 1U << 26U,
 };
 // clang-format on
 
@@ -137,6 +141,83 @@ class Permissions final {
 bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
+
+#ifdef MG_ENTERPRISE
+class User;
+class UserImpersonation {
+ public:
+  struct UserId {
+    std::string name;
+    utils::UUID uuid;
+
+    void to_json(nlohmann::json &data, const UserId &uid);
+    void from_json(const nlohmann::json &data, UserId &uid);
+
+    friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
+  };
+  struct GrantAllUsers {};
+  using GrantedUsers = std::variant<GrantAllUsers, std::set<UserId>>;
+  using DeniedUsers = std::set<UserId>;
+
+  UserImpersonation() = default;
+  UserImpersonation(GrantedUsers granted, DeniedUsers denied)
+      : granted_{std::move(granted)}, denied_{std::move(denied)} {}
+
+  void GrantAll();
+
+  void Grant(const std::vector<User> &users);
+
+  void Deny(const std::vector<User> &users);
+
+  bool CanImpersonate(const User &user) const;
+
+  bool IsDenied(const User &user) const;
+  bool IsGranted(const User &user) const;
+
+  friend void to_json(nlohmann::json &data, const UserImpersonation &usr_imp);
+  friend void from_json(const nlohmann::json &data, UserImpersonation &usr_imp);
+
+ private:
+  void grant_one(const User &user);
+
+  void deny_one(const User &user);
+
+  bool grants_all() const { return std::holds_alternative<GrantAllUsers>(granted_); }
+
+  std::optional<std::set<UserId>::iterator> find_granted(std::string_view username) const {
+    DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
+    auto &granted_set = std::get<std::set<UserId>>(granted_);
+    auto res = std::find_if(granted_set.begin(), granted_set.end(),
+                            [username](const auto &elem) { return elem.name == username; });
+    if (res == granted_set.end()) return {};
+    return res;
+  }
+
+  void erase_granted(auto itr) const {
+    DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
+    auto &granted_set = std::get<std::set<UserId>>(granted_);
+    granted_set.erase(itr);
+  }
+
+  void emplace_granted(auto &&...args) {
+    DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
+    auto &granted_set = std::get<std::set<UserId>>(granted_);
+    granted_set.emplace(std::forward<decltype(args)>(args)...);
+  }
+
+  std::optional<std::set<UserId>::iterator> find_denied(std::string_view username) const {
+    auto res =
+        std::find_if(denied_.begin(), denied_.end(), [username](const auto &elem) { return elem.name == username; });
+    if (res == denied_.end()) return {};
+    return res;
+  }
+
+  void erase_denied(auto itr) const { denied_.erase(itr); }
+
+  mutable GrantedUsers granted_;
+  mutable DeniedUsers denied_;
+};
+#endif
 
 #ifdef MG_ENTERPRISE
 class FineGrainedAccessPermissions final {
@@ -302,7 +383,8 @@ class Role {
   Role(const std::string &rolename, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
   Role(const std::string &rolename, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
+       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {},
+       std::optional<UserImpersonation> usr_imp = std::nullopt);
 #endif
   Role(const Role &) = default;
   Role &operator=(const Role &) = default;
@@ -330,6 +412,30 @@ class Role {
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const User &user) const {
+    return user_impersonation_ && permissions_.Has(Permission::IMPERSONATE_USER) == PermissionLevel::GRANT &&
+           user_impersonation_->CanImpersonate(user);
+  }
+
+  bool UserImpIsGranted(const User &user) const { return user_impersonation_ && user_impersonation_->IsGranted(user); }
+  bool UserImpIsDenied(const User &user) const { return user_impersonation_ && user_impersonation_->IsDenied(user); }
+
+  void RevokeUserImp() { user_impersonation_.reset(); }
+  void GrantUserImp() {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->GrantAll();
+  }
+  void GrantUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Grant(users);
+  }
+  void DenyUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Deny(users);
+  }
+#endif
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -343,6 +449,7 @@ class Role {
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
+  std::optional<UserImpersonation> user_impersonation_;
 #endif
 };
 
@@ -354,10 +461,12 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions);
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
+       utils::UUID uuid = {});
 #ifdef MG_ENTERPRISE
   User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
+       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {}, utils::UUID uuid = {},
+       std::optional<UserImpersonation> usr_imp = std::nullopt);
 #endif
   User(const User &) = default;
   User &operator=(const User &) = default;
@@ -424,6 +533,38 @@ class User final {
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const User &user) const {
+    if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
+    bool role_grants = false;
+    bool role_denies = false;
+    if (role_) {
+      role_denies = role_->UserImpIsDenied(user);
+      role_grants = role_->UserImpIsGranted(user);
+    }
+    if (!user_impersonation_) return !role_denies && role_grants;
+    bool user_grants = role_grants || user_impersonation_->IsGranted(user);
+    bool user_denies = role_denies || user_impersonation_->IsDenied(user);
+    return !user_denies && user_grants;
+  }
+
+  void RevokeUserImp() { user_impersonation_.reset(); }
+  void GrantUserImp() {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->GrantAll();
+  }
+  void GrantUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Grant(users);
+  }
+  void DenyUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Deny(users);
+  }
+#endif
+
+  const utils::UUID &uuid() const { return uuid_; }
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -438,8 +579,10 @@ class User final {
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases database_access_{};
+  std::optional<UserImpersonation> user_impersonation_{};
 #endif
   std::optional<Role> role_;
+  utils::UUID uuid_{};  // To uniquely identify a user
 };
 
 bool operator==(const User &first, const User &second);
