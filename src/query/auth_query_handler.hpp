@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -135,6 +135,13 @@ class AuthQueryHandler {
 #endif
       ,
       system::Transaction *system_tx) = 0;
+
+#ifdef MG_ENTERPRISE
+  virtual void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
+                                    system::Transaction *system_tx) = 0;
+  virtual void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
+                                   system::Transaction *system_tx) = 0;
+#endif
 };
 
 }  // namespace memgraph::query
