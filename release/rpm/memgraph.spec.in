@@ -140,3 +140,7 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 
 %changelog
 @CPACK_RPM_SPEC_CHANGELOG@
+
+# Skip signing the package
+%define _binary_filedigest_algorithm 8
+%define _binary_payload w7zip
