@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
 import time
 import typing
 
@@ -32,6 +33,27 @@ def get_logs_path(file: str, test: str):
 # Elapse time is the last element in results hence such slicing works.
 def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List[tuple]:
     return [result[:-1] for result in results]
+
+
+def execute_and_ignore_dead_replica(cursor, query):
+    """
+    Ignores At least one SYNC replica error
+    :param cursor: Cursor to the instance where you want to execute the query
+    :param query: Query to be executed
+    :return: nothing
+    """
+    try:
+        execute_and_fetch_all(cursor, query)
+    except Exception as e:
+        assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
+
+
+def count_files(directory):
+    return len([name for name in os.listdir(directory) if os.path.isfile(os.path.join(directory, name))])
+
+
+def list_directory_contents(directory):
+    return os.listdir(directory)
 
 
 def wait_until_main_writeable_assert_replica_down(cursor, query):
