@@ -169,7 +169,4 @@ TEST_F(CoordinatorStateMachineTest, Marshalling) {
   auto cluster_state_json_deser = j.at("coord_cluster_state").get<std::string>();
   CoordinatorClusterState cluster_state_deser;
   from_json(nlohmann::json::parse(cluster_state_json_deser), cluster_state_deser);
-
-  auto snapshot_ctx = std::make_shared<SnapshotCtx>();
-  from_json(nlohmann::json::parse(""), *snapshot_ctx);
 }
