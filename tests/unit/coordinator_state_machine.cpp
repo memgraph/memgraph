@@ -24,9 +24,11 @@
 #include <range/v3/view.hpp>
 #include "coordination/coordinator_communication_config.hpp"
 
+using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorInstanceAux;
 using memgraph::coordination::CoordinatorStateManager;
 using memgraph::coordination::CoordinatorStateManagerConfig;
+using memgraph::coordination::SnapshotCtx;
 
 using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorStateMachine;
@@ -157,3 +159,17 @@ INSTANTIATE_TEST_SUITE_P(ParameterizedLogStoreVersionTests, CoordinatorStateMach
                          ::testing::Values(memgraph::coordination::LogStoreVersion::kV1,
                                            memgraph::coordination::LogStoreVersion::kV2),
                          CoordinatorStateMachineTestParam::PrintLogVersionToInt());
+
+TEST_F(CoordinatorStateMachineTest, Marshalling) {
+  CoordinatorClusterState cluster_state_ser;
+  nlohmann::json cluster_state_json_ser;
+  to_json(cluster_state_json_ser, cluster_state_ser);
+  auto j = nlohmann::json{{"coord_cluster_state", cluster_state_json_ser.dump()}};
+
+  auto cluster_state_json_deser = j.at("coord_cluster_state").get<std::string>();
+  CoordinatorClusterState cluster_state_deser;
+  from_json(nlohmann::json::parse(cluster_state_json_deser), cluster_state_deser);
+
+  auto snapshot_ctx = std::make_shared<SnapshotCtx>();
+  from_json(nlohmann::json::parse(""), *snapshot_ctx);
+}
