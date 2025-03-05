@@ -15,8 +15,8 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
-#include "storage/v2/inmemory/property_constants.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/counter.hpp"
 
@@ -91,42 +91,7 @@ std::vector<PropertyId> InMemoryEdgePropertyIndex::ListIndices() const {
 }
 
 void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
-
-  for (auto &specific_index : index_) {
-    if (token.stop_requested()) return;
-
-    auto edges_acc = specific_index.second.access();
-    for (auto it = edges_acc.begin(); it != edges_acc.end();) {
-      if (maybe_stop() && token.stop_requested()) return;
-
-      auto next_it = it;
-      ++next_it;
-
-      if (it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
-      }
-
-      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
-      const bool edge_deleted = it->edge->deleted;
-      const bool has_next = next_it != edges_acc.end();
-
-      // When we update specific entries in the index, we don't delete the previous entry.
-      // The way they are removed from the index is through this check. The entries should
-      // be right next to each other(in terms of iterator semantics) and the older one
-      // should be removed here.
-      const bool redundant_duplicate = has_next && it->value == next_it->value &&
-                                       it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
-                                       it->edge == next_it->edge;
-      if (redundant_duplicate || vertices_deleted || edge_deleted ||
-          !AnyVersionHasProperty(*it->edge, specific_index.first, it->value, oldest_active_start_timestamp)) {
-        edges_acc.remove(*it);
-      }
-
-      it = next_it;
-    }
-  }
+  EdgePropertyIndexRemoveObsoleteEntries(index_, oldest_active_start_timestamp, token);
 }
 
 void InMemoryEdgePropertyIndex::AbortEntries(
@@ -246,90 +211,10 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor i
 
   // Set missing bounds.
   if (lower_bound_ && !upper_bound_) {
-    // Here we need to supply an upper bound. The upper bound is set to an
-    // exclusive lower bound of the following type.
-    switch (lower_bound_->value().type()) {
-      case PropertyValue::Type::Null:
-        // This shouldn't happen because of the nullopt-ing above.
-        LOG_FATAL("Invalid database state!");
-        break;
-      case PropertyValue::Type::Bool:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
-        break;
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-        // Both integers and doubles are treated as the same type in
-        // `PropertyValue` and they are interleaved when sorted.
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
-        break;
-      case PropertyValue::Type::String:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
-        break;
-      case PropertyValue::Type::List:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
-        break;
-      case PropertyValue::Type::Map:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
-        break;
-      case PropertyValue::Type::TemporalData:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
-        break;
-      case PropertyValue::Type::ZonedTemporalData:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
-        break;
-      case PropertyValue::Type::Enum:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-        break;
-      case PropertyValue::Type::Point2d:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-        break;
-      case PropertyValue::Type::Point3d:
-        // This is the last type in the order so we leave the upper bound empty.
-        break;
-    }
+    upper_bound_ = MaxBound(lower_bound_->value().type());
   }
   if (upper_bound_ && !lower_bound_) {
-    // Here we need to supply a lower bound. The lower bound is set to an
-    // inclusive lower bound of the current type.
-    switch (upper_bound_->value().type()) {
-      case PropertyValue::Type::Null:
-        // This shouldn't happen because of the nullopt-ing above.
-        LOG_FATAL("Invalid database state!");
-        break;
-      case PropertyValue::Type::Bool:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
-        break;
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-        // Both integers and doubles are treated as the same type in
-        // `PropertyValue` and they are interleaved when sorted.
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
-        break;
-      case PropertyValue::Type::String:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
-        break;
-      case PropertyValue::Type::List:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
-        break;
-      case PropertyValue::Type::Map:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
-        break;
-      case PropertyValue::Type::TemporalData:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
-        break;
-      case PropertyValue::Type::ZonedTemporalData:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
-        break;
-      case PropertyValue::Type::Enum:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
-        break;
-      case PropertyValue::Type::Point2d:
-        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-        break;
-      case PropertyValue::Type::Point3d:
-        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-        break;
-    }
+    lower_bound_ = MinBound(upper_bound_->value().type());
   }
 }
 
@@ -357,23 +242,10 @@ void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (self_->lower_bound_) {
-      if (index_iterator_->value < self_->lower_bound_->value()) {
-        continue;
-      }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-        continue;
-      }
-    }
-    if (self_->upper_bound_) {
-      if (self_->upper_bound_->value() < index_iterator_->value) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
+    if (!IsLowerBound(index_iterator_->value, self_->lower_bound_)) continue;
+    if (!IsUpperBound(index_iterator_->value, self_->upper_bound_)) {
+      index_iterator_ = self_->index_accessor_.end();
+      break;
     }
 
     if (!CurrentEdgeVersionHasProperty(*index_iterator_->edge, self_->property_, index_iterator_->value,
