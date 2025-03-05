@@ -165,13 +165,17 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstan
 auto CoordinatorStateMachine::DecodeLog(buffer &data)
     -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
   buffer_serializer bs(data);
-  auto const json = nlohmann::json::parse(bs.get_str());
-
-  auto const data_instances = json.at(kDataInstances.data());
-  auto const uuid = json.at(kUuid.data());
-  auto const coordinator_instances = json.at(kCoordInstances.data());
-  return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
-                         coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(), uuid.get<utils::UUID>());
+  try {
+    auto const json = nlohmann::json::parse(bs.get_str());
+    auto const data_instances = json.at(kDataInstances.data());
+    auto const uuid = json.at(kUuid.data());
+    auto const coordinator_instances = json.at(kCoordInstances.data());
+    return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
+                           coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(),
+                           uuid.get<utils::UUID>());
+  } catch (std::exception const &e) {
+    LOG_FATAL("Error occurred while decoding log {}.", e.what());
+  }
 }
 
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
