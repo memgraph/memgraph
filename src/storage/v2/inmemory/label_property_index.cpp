@@ -147,6 +147,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
+  // OLD
   for (auto &[label_prop, storage] : index_) {
     if (std::get<LabelId>(label_prop) != added_label) {
       continue;
@@ -157,6 +158,24 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
       acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
     }
   }
+
+  // NEW
+  auto const it = new_index_.find(added_label);
+  if (it == new_index_.end()) {
+    return;
+  }
+
+  for (auto &indices : it->second | std::ranges::views::filter([&](auto &each) {
+                         auto &[index_props, _] = each;
+                         return std::ranges::any_of(index_props, [&](PropertyId prop_id) {
+                           return vertex_after_update->properties.HasProperty(prop_id);
+                         });
+                       })) {
+    auto &[props, skiplist] = indices;
+    auto values = vertex_after_update->properties.ExtractPropertyValuesMissingAsNull(props);
+    auto acc = skiplist.access();
+    acc.insert({std::move(values), vertex_after_update, tx.start_timestamp});
+  }
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
@@ -165,15 +184,32 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
+  // OLD
   auto index = indices_by_property_.find(property);
-  if (index == indices_by_property_.end()) {
+  if (index != indices_by_property_.end()) {
+    for (const auto &[label, storage] : index->second) {
+      if (!utils::Contains(vertex->labels, label)) continue;
+      auto acc = storage->access();
+      acc.insert(Entry{value, vertex, tx.start_timestamp});
+    }
+  }
+
+  // NEW
+  auto const it = new_indices_by_property_.find(property);
+  if (it == new_indices_by_property_.end()) {
     return;
   }
 
-  for (const auto &[label, storage] : index->second) {
-    if (!utils::Contains(vertex->labels, label)) continue;
-    auto acc = storage->access();
-    acc.insert(Entry{value, vertex, tx.start_timestamp});
+  for (auto &lookup : it->second | std::ranges::views::filter([&](auto &&each) {
+                        return std::ranges::find(vertex->labels, each.first) != vertex->labels.cend();
+                      }) | std::ranges::views::filter([&](auto &&each) {
+                        PropertiesIds const &ids = *std::get<0>(each.second);
+                        return std::ranges::find(ids, property) != ids.cend();
+                      })) {
+    auto &[property_ids, skiplist] = lookup.second;
+    auto values = vertex->properties.ExtractPropertyValuesMissingAsNull(*property_ids);
+    auto acc = skiplist->access();
+    acc.insert({std::move(values), vertex, tx.start_timestamp});
   }
 }
 
