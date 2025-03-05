@@ -162,8 +162,18 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void DropGraphClearIndices() override;
 
+  struct PropertiesPermutationHelper {
+    explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
+
+    std::vector<size_t> inverse_permutation_;
+    std::vector<PropertyId> sorted_properties_;
+  };
+
  private:
-  using IndividualIndex = utils::SkipList<NewEntry>;
+  struct IndividualIndex {
+    PropertiesPermutationHelper permutations_helper;
+    utils::SkipList<NewEntry> skiplist;
+  };
   using PropertiesIds = std::vector<PropertyId>;
   using PropertiesIndices = std::map<PropertiesIds, IndividualIndex>;
   std::map<LabelId, PropertiesIndices, std::less<>> new_index_;
