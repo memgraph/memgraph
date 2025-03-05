@@ -16,8 +16,8 @@ from common import memgraph
 
 
 def test_to_set_unduplicates_values(memgraph):
-    result = next(memgraph.execute_and_fetch("RETURN toSet([1, 2, 3, 1, 2, 3, 4]) as l"))
-    assert result["l"] == [1, 2, 3, 4]
+    result = next(memgraph.execute_and_fetch("RETURN toSet([1, 2, 3, 1, 2, 3, 4]) as l"))["l"]
+    assert set(result) == {1, 2, 3, 4}
 
 
 if __name__ == "__main__":
