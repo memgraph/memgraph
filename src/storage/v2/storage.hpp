@@ -401,7 +401,7 @@ class Storage {
     virtual utils::BasicResult<storage::VectorIndexStorageError, void> CreateVectorIndex(
         VectorIndexSpec spec) = 0;
 
-    virtual utils::BasicResult<storage::VectorIndexStorageError, VectorIndex::DeletionStatus> DropVectorIndex(
+    virtual utils::BasicResult<storage::VectorIndexStorageError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(

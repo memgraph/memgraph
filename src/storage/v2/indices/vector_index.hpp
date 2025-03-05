@@ -33,7 +33,9 @@ enum struct VectorIndexStorageError : uint8_t {
   VertexPropertyNotList,
   VertexPropertyNotOfCorrectDimension,
   FailedToResizeIndex,
-  VertexPropertyValueNotOfCorrectType
+  VertexPropertyValueNotOfCorrectType,
+  InconsistentState,
+  VectorIndexNotFound
 };
 
 /// @struct VectorIndexConfigMap
@@ -104,8 +106,6 @@ class VectorIndex {
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
-  enum class DeletionStatus { SUCCESS, NOT_FOUND };
-
   /// @brief Converts a metric kind to a string.
   /// @param metric The metric kind to be converted.
   /// @return The string representation of the metric kind.
@@ -130,7 +130,7 @@ class VectorIndex {
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  utils::BasicResult<VectorIndexStorageError, DeletionStatus> DropIndex(std::string_view index_name);
+  utils::BasicResult<VectorIndexStorageError, void> DropIndex(std::string_view index_name);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -196,9 +196,9 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  utils::BasicResult<VectorIndexStorageError, void> UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop,
-                                                                      const PropertyValue *value = nullptr,
-                                                                      const std::string *specific_index = nullptr);
+  utils::BasicResult<VectorIndexStorageError, void> UpdateVectorIndex(
+      Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr,
+      const std::optional<std::string> specific_index = std::nullopt);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

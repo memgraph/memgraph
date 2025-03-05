@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <ranges>
 #include <shared_mutex>
 #include <stdexcept>
@@ -65,12 +66,9 @@ static const std::unordered_map<unum::usearch::metric_kind_t, std::function<doub
 /// The `Impl` structure follows the PIMPL (Pointer to Implementation) idiom to separate
 /// the interface of `VectorIndex` from its implementation
 struct VectorIndex::Impl {
-  /// Maps the index name to the associated IndexItem
-  std::map<std::string, IndexItem> index_;
-
   /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
   /// with the indexes associated with it
-  std::map<LabelPropKey, std::vector<std::string>> label_prop_to_index_names_;
+  std::map<LabelPropKey, std::vector<IndexItem>> index_;
 
   /// The `index_name_to_label_prop_` is a map that maps an index name (as a string) to the corresponding
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
@@ -157,7 +155,7 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::CreateIndex(
   // use the number of workers as the number of possible concurrent index operations
   const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
-  if (pimpl->index_.contains(spec.index_name)) {
+  if (pimpl->index_name_to_label_prop_.find(spec.index_name) != pimpl->index_name_to_label_prop_.end()) {
     return VectorIndexStorageError::VectorIndexAlreadyExists;
   }
 
@@ -174,21 +172,29 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::CreateIndex(
     return VectorIndexStorageError::UnableToReserveMemory;
   }
 
-  pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
-  if (!pimpl->label_prop_to_index_names_.contains(label_prop)) {
-    pimpl->label_prop_to_index_names_.try_emplace(label_prop, std::vector<std::string>{});
+  auto [_, did_insert_into_index_names_map] = pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
+  if (!did_insert_into_index_names_map) {
+    return VectorIndexStorageError::InconsistentState;
   }
-  pimpl->label_prop_to_index_names_[label_prop].push_back(spec.index_name);
-  pimpl->index_.try_emplace(spec.index_name,
-                            IndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
-                                          std::move(mg_vector_index.index)),
-                                      spec});
+
+  if (pimpl->index_.find(label_prop) == pimpl->index_.end()) {
+    auto [_, did_insert_into_index_map] = pimpl->index_.try_emplace(label_prop, std::vector<IndexItem>{});
+
+    if (!did_insert_into_index_map) {
+      return VectorIndexStorageError::InconsistentState;
+    }
+  }
+
+  pimpl->index_[label_prop].push_back(IndexItem{
+      std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(std::move(mg_vector_index.index)),
+      spec});
+
   // Update the index with the vertices
   for (auto &vertex : vertices) {
     if (vertex.deleted || !utils::Contains(vertex.labels, spec.label)) {
       continue;
     }
-    auto update_result = UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}, nullptr, &spec.index_name);
+    auto update_result = UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}, nullptr, spec.index_name);
     if (update_result.HasError()) {
       [[maybe_unused]] auto drop_result = DropIndex(spec.index_name);
       return update_result.GetError();
@@ -202,45 +208,51 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::CreateIndex(
   return {};
 }
 
-utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus> VectorIndex::DropIndex(
-    std::string_view index_name) {
-  if (!pimpl->index_.contains(index_name.data())) {
-    return VectorIndex::DeletionStatus::NOT_FOUND;
+utils::BasicResult<VectorIndexStorageError, void> VectorIndex::DropIndex(std::string_view index_name) {
+  auto label_prop_it = pimpl->index_name_to_label_prop_.find(index_name.data());
+  if (label_prop_it == pimpl->index_name_to_label_prop_.end()) {
+    return VectorIndexStorageError::VectorIndexNotFound;
   }
 
-  auto it = pimpl->index_name_to_label_prop_.find(index_name.data());
-  auto label_prop = it->second;
-
-  pimpl->index_.erase(index_name.data());
-  pimpl->index_name_to_label_prop_.erase(index_name.data());
-  if (pimpl->label_prop_to_index_names_.contains(label_prop)) {
-    auto &index_names = pimpl->label_prop_to_index_names_[label_prop];
-    index_names.erase(std::remove(index_names.begin(), index_names.end(), index_name), index_names.end());
-    if (pimpl->label_prop_to_index_names_[label_prop].empty()) {
-      pimpl->label_prop_to_index_names_.erase(label_prop);
-    }
+  auto label_prop = label_prop_it->second;
+  auto label_prop_indices_it = pimpl->index_.find(label_prop);
+  if (label_prop_indices_it == pimpl->index_.end()) {
+    return VectorIndexStorageError::InconsistentState;
   }
+  auto &vector_indices = label_prop_indices_it->second;
+  vector_indices.erase(
+      std::remove_if(vector_indices.begin(), vector_indices.end(),
+                     [&index_name](const IndexItem &item) { return item.spec.index_name == index_name.data(); }),
+      vector_indices.end());
+  if (vector_indices.empty()) {
+    pimpl->index_.erase(label_prop_indices_it);
+  }
+
+  pimpl->index_name_to_label_prop_.erase(label_prop_it);
+
   spdlog::info("Dropped vector index {}", index_name);
-
-  return VectorIndex::DeletionStatus::SUCCESS;
+  return {};
 }
 
 void VectorIndex::Clear() {
   pimpl->index_name_to_label_prop_.clear();
-  pimpl->label_prop_to_index_names_.clear();
   pimpl->index_.clear();
 }
 
-utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex(Vertex *vertex,
-                                                                                 const LabelPropKey &label_prop,
-                                                                                 const PropertyValue *value,
-                                                                                 const std::string *specific_index) {
-  for (const auto &index_name : pimpl->label_prop_to_index_names_[label_prop]) {
-    if (specific_index && index_name != *specific_index) {
+utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex(
+    Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value,
+    const std::optional<std::string> specific_index) {
+  auto vector_indices_it = pimpl->index_.find(label_prop);
+  if (vector_indices_it == pimpl->index_.end()) {
+    return VectorIndexStorageError::InconsistentState;
+  }
+
+  for (const auto &index_item : vector_indices_it->second) {
+    if (specific_index.has_value() && index_item.spec.index_name != specific_index.value()) {
       continue;
     }
 
-    auto &[mg_index, spec] = pimpl->index_.at(index_name);
+    auto &[mg_index, spec] = index_item;
     bool is_index_full = false;
     // try to remove entry (if it exists) and then add a new one + check if index is full
     {
@@ -303,7 +315,7 @@ utils::BasicResult<VectorIndexStorageError, void> VectorIndex::UpdateVectorIndex
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) {
-  std::ranges::for_each(pimpl->label_prop_to_index_names_ | std::views::keys, [&](const auto &label_prop) {
+  std::ranges::for_each(pimpl->index_ | std::views::keys, [&](const auto &label_prop) {
     if (label_prop.label() == added_label) {
       auto result = UpdateVectorIndex(vertex_after_update, label_prop);
       if (result.HasError()) {
@@ -315,11 +327,10 @@ void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_upd
 }
 
 void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update) {
-  std::ranges::for_each(pimpl->label_prop_to_index_names_ | std::views::keys, [&](const auto &label_prop) {
+  std::ranges::for_each(pimpl->index_ | std::views::keys, [&](const auto &label_prop) {
     if (label_prop.label() == removed_label) {
-      for (const auto &index_name : pimpl->label_prop_to_index_names_[label_prop]) {
-        auto &[mg_index, _] = pimpl->index_.at(index_name);
-        auto locked_index = mg_index->MutableSharedLock();
+      for (auto &index_item : pimpl->index_[label_prop]) {
+        auto locked_index = index_item.mg_index->MutableSharedLock();
         locked_index->remove(vertex_before_update);
       }
     }
@@ -330,8 +341,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
 
-  auto view = pimpl->label_prop_to_index_names_ | std::views::keys | std::views::filter(has_property) |
-              std::views::filter(has_label);
+  auto view = pimpl->index_ | std::views::keys | std::views::filter(has_property) | std::views::filter(has_label);
   for (const auto &label_prop : view) {
     auto result = UpdateVectorIndex(vertex, label_prop, &value);
     if (result.HasError()) {
@@ -343,33 +353,41 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
-  result.reserve(pimpl->index_.size());
-  for (const auto &[_, index_item] : pimpl->index_) {
-    const auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->ReadLock();
-    result.emplace_back(VectorIndexInfo{
-        spec.index_name, spec.label, spec.property, NameFromMetric(locked_index->metric().metric_kind()),
-        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size()});
+  result.reserve(pimpl->index_name_to_label_prop_.size());
+  for (const auto &[_, index_items] : pimpl->index_) {
+    for (const auto &[mg_index, spec] : index_items) {
+      auto locked_index = mg_index->ReadLock();
+      result.emplace_back(VectorIndexInfo{
+          spec.index_name, spec.label, spec.property, NameFromMetric(locked_index->metric().metric_kind()),
+          static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size()});
+    }
   }
   return result;
 }
 
 std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   std::vector<VectorIndexSpec> result;
-  result.reserve(pimpl->index_.size());
-  std::ranges::transform(pimpl->index_, std::back_inserter(result),
-                         [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
+  result.reserve(pimpl->index_name_to_label_prop_.size());
+  for (const auto &[_, index_items] : pimpl->index_) {
+    for (const auto &[_, spec] : index_items) {
+      result.push_back(spec);
+    }
+  }
   return result;
 }
 
 std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, PropertyId property) const {
   auto label_prop = LabelPropKey{label, property};
-  auto it = pimpl->label_prop_to_index_names_.find(label_prop);
-  if (it == pimpl->label_prop_to_index_names_.end()) {
+  auto vector_indices_it = pimpl->index_.find(label_prop);
+  if (vector_indices_it == pimpl->index_.end()) {
     return std::nullopt;
   }
 
-  auto &[mg_index, _] = pimpl->index_[pimpl->label_prop_to_index_names_[label_prop][0]];
+  if (vector_indices_it->second.empty()) {
+    return std::nullopt;
+  }
+
+  auto &[mg_index, _] = vector_indices_it->second[0];
   auto locked_index = mg_index->ReadLock();
   return locked_index->size();
 }
@@ -377,10 +395,27 @@ std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, Prope
 std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::string_view index_name,
                                                                       uint64_t result_set_size,
                                                                       const std::vector<float> &query_vector) const {
-  if (pimpl->index_.find(index_name.data()) == pimpl->index_.end()) {
+  auto label_prop_it = pimpl->index_name_to_label_prop_.find(index_name.data());
+  if (label_prop_it == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }
-  auto &[mg_index, _] = pimpl->index_.at(index_name.data());
+
+  auto label_prop = label_prop_it->second;
+  auto vector_indices_it = pimpl->index_.find(label_prop);
+  if (vector_indices_it == pimpl->index_.end() || vector_indices_it->second.empty()) {
+    throw query::VectorSearchException(fmt::format("No vector index found for label property {}.", index_name));
+  }
+
+  const auto &index_items = vector_indices_it->second;
+  auto vector_index_it = std::find_if(index_items.begin(), index_items.end(), [&index_name](const IndexItem &item) {
+    return item.spec.index_name == index_name;
+  });
+
+  if (vector_index_it == index_items.end()) {
+    throw query::VectorSearchException(fmt::format("Matching index name {} not found in vector index.", index_name));
+  }
+
+  auto &mg_index = (*vector_index_it).mg_index;
 
   // The result vector will contain pairs of vertices and their score.
   std::vector<std::tuple<Vertex *, double, double>> result;
@@ -402,9 +437,13 @@ std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::strin
 }
 
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) {
-  for (const auto &index_name : pimpl->label_prop_to_index_names_[label_prop]) {
-    auto &[mg_index, spec] = pimpl->index_.at(index_name);
-    auto locked_index = mg_index->MutableSharedLock();
+  auto vector_indices_it = pimpl->index_.find(label_prop);
+  if (vector_indices_it == pimpl->index_.end() || vector_indices_it->second.empty()) {
+    return;
+  }
+
+  for (const auto &index_item : vector_indices_it->second) {
+    auto locked_index = index_item.mg_index->MutableSharedLock();
     for (const auto &vertex : vertices) {
       locked_index->remove(vertex);
     }
@@ -424,28 +463,30 @@ void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
 
 void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
   auto maybe_stop = utils::ResettableCounter<2048>();
-  for (auto &[_, index_item] : pimpl->index_) {
-    if (maybe_stop() && token.stop_requested()) {
-      return;
-    }
-    auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->MutableSharedLock();
-    std::vector<Vertex *> vertices_to_remove(locked_index->size());
-    locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
+  for (auto &[_, index_items] : pimpl->index_) {
+    for (auto &index_item : index_items) {
+      if (maybe_stop() && token.stop_requested()) {
+        return;
+      }
 
-    auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) {
-                     auto guard = std::shared_lock{vertex->lock};
-                     return vertex->deleted;
-                   });
-    for (const auto &vertex : deleted) {
-      locked_index->remove(vertex);
+      auto locked_index = index_item.mg_index->MutableSharedLock();
+      std::vector<Vertex *> vertices_to_remove(locked_index->size());
+      locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
+
+      auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) {
+                       auto guard = std::shared_lock{vertex->lock};
+                       return vertex->deleted;
+                     });
+      for (const auto &vertex : deleted) {
+        locked_index->remove(vertex);
+      }
     }
   }
 }
 
 VectorIndex::IndexStats VectorIndex::Analysis() const {
   IndexStats res{};
-  for (const auto &[label_prop, _] : pimpl->label_prop_to_index_names_) {
+  for (const auto &[_, label_prop] : pimpl->index_name_to_label_prop_) {
     const auto label = label_prop.label();
     const auto property = label_prop.property();
     res.l2p[label].emplace_back(property);

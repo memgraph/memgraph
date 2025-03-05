@@ -3298,6 +3298,11 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
               throw QueryRuntimeException("Failed to resize vector index!");
             case storage::VectorIndexStorageError::VertexPropertyValueNotOfCorrectType:
               throw QueryRuntimeException("Vertex property values must be of type Double/Float or Int!");
+            case storage::VectorIndexStorageError::InconsistentState:
+              throw QueryRuntimeException(
+                  "Inconsistent state when creating vector index, please contact Memgraph support!");
+            default:
+              break;
           }
         }
 
@@ -3314,14 +3319,18 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         auto maybe_vector_index_error = dba->DropVectorIndex(index_name);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
-        switch (maybe_vector_index_error.GetValue()) {
-          case storage::VectorIndex::DeletionStatus::NOT_FOUND: {
-            index_notification.code = NotificationCode::NONEXISTENT_INDEX;
-            index_notification.title = fmt::format("Vector index {} does not exist.", index_name);
-            break;
+        if (maybe_vector_index_error.HasError()) {
+          switch (maybe_vector_index_error.GetError()) {
+            case storage::VectorIndexStorageError::VectorIndexNotFound: {
+              index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+              index_notification.title = fmt::format("Vector index {} does not exist.", index_name);
+              break;
+            }
+            case storage::VectorIndexStorageError::InconsistentState:
+            throw QueryRuntimeException("Inconsistent state when dropping vector index, please contact Memgraph support!");
+            default:
+              break;
           }
-          case storage::VectorIndex::DeletionStatus::SUCCESS:
-            break;
         }
 
         return index_notification;

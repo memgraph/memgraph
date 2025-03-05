@@ -1543,8 +1543,8 @@ utils::BasicResult<VectorIndexStorageError, void> InMemoryStorage::InMemoryAcces
   return {};
 }
 
-utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus>
-InMemoryStorage::InMemoryAccessor::DropVectorIndex(std::string_view index_name) {
+utils::BasicResult<VectorIndexStorageError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
+    std::string_view index_name) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
@@ -1554,15 +1554,11 @@ InMemoryStorage::InMemoryAccessor::DropVectorIndex(std::string_view index_name) 
     return result.GetError();
   }
 
-  if (result.GetValue() != VectorIndex::DeletionStatus::SUCCESS) {
-    return result.GetValue();
-  }
-
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
 
-  return VectorIndex::DeletionStatus::SUCCESS;
+  return {};
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>

@@ -393,11 +393,9 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
                                                                          storage::PropertyId property) override;
 
-    utils::BasicResult<VectorIndexStorageError, void> CreateVectorIndex(
-        VectorIndexSpec spec) override;
+    utils::BasicResult<VectorIndexStorageError, void> CreateVectorIndex(VectorIndexSpec spec) override;
 
-    utils::BasicResult<VectorIndexStorageError, VectorIndex::DeletionStatus> DropVectorIndex(
-        std::string_view index_name) override;
+    utils::BasicResult<VectorIndexStorageError, void> DropVectorIndex(std::string_view index_name) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:

@@ -657,7 +657,7 @@ class DbAccessor final {
     return accessor_->CreateVectorIndex(std::move(spec));
   }
 
-  utils::BasicResult<storage::VectorIndexStorageError, storage::VectorIndex::DeletionStatus> DropVectorIndex(
+  utils::BasicResult<storage::VectorIndexStorageError, void> DropVectorIndex(
       std::string_view index_name) {
     return accessor_->DropVectorIndex(index_name);
   }
