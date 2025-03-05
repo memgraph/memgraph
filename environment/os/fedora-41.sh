@@ -62,6 +62,7 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     cyrus-sasl-devel
     ninja-build
+    openblas-devel
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -93,7 +94,7 @@ check() {
             fi
             continue
         fi
-        if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
+        if ! rpm -q "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
     done
