@@ -27,6 +27,7 @@ struct IndexDefinitionConfigError {};
 
 struct ConstraintsPersistenceError {};
 
+
 struct SerializationError {};
 inline bool operator==(const SerializationError & /*err1*/, const SerializationError & /*err2*/) { return true; }
 
@@ -46,5 +47,4 @@ using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation,
 using StorageTypeConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
 using StorageTypeConstraintDroppingError = ConstraintDefinitionError;
-
 }  // namespace memgraph::storage

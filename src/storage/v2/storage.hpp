@@ -400,12 +400,11 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
+    virtual utils::BasicResult<storage::VectorIndexStorageError, void> CreateVectorIndex(
+        VectorIndexSpec spec) = 0;
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
+    virtual utils::BasicResult<storage::VectorIndexStorageError, void> DropVectorIndex(
         std::string_view index_name) = 0;
-
-    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
