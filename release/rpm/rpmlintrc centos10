@@ -1,0 +1,13 @@
+# from https://github.com/google/earthenterprise/blob/master/earth_enterprise/rpmlintrc
+
+# We are not packaging log dir
+addFilter("E: logrotate-log-dir-not-packaged")
+
+# skip depricated group tag
+addFilter("E: no-group-tag")
+
+# skip packager
+addFilter("E: no-packager-tag")
+
+# skip signing
+addFilter("E: no-signature")

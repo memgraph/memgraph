@@ -434,9 +434,14 @@ package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local package_command=""
+  # TODO (matt): tidy this
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+  fi
+  if [[ "$os" =~ ^"centos-10".* ]]; then
+    docker exec -u root "$build_container" bash -c "yum -y update"
+    package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm "
   fi
   if [[ "$os" =~ ^"fedora".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
