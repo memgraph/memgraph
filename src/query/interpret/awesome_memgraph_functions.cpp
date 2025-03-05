@@ -843,6 +843,20 @@ TypedValue Tail(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(std::move(list));
 }
 
+TypedValue ToSet(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List>>("toSet", args, nargs);
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  const auto &elements = value.ValueList();
+  using unique_collection = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+  auto unique_elements = unique_collection(elements.cbegin(), elements.cend(), elements.size() * 2, TypedValue::Hash{},
+                                           TypedValue::BoolEqual{}, ctx.memory);
+  return TypedValue{TypedValue::TVector(std::make_move_iterator(unique_elements.begin()),
+                                        std::make_move_iterator(unique_elements.end()), ctx.memory)};
+}
+
 TypedValue UniformSample(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List>, Or<Null, NonNegativeInteger>>("uniformSample", args, nargs);
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
@@ -1780,6 +1794,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"RANGE", Range},
     {"RELATIONSHIPS", Relationships},
     {"TAIL", Tail},
+    {"TOSET", ToSet},
     {"UNIFORMSAMPLE", UniformSample},
     {"VALUES", Values},
 
