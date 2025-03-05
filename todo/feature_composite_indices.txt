@@ -65,8 +65,8 @@ ROADMAP
 - parallel change approach
     - add new create DONE
     - add new drop   DONE
-    - add new update on label
-    - add new update on property
+    - add new update on label DONE
+    - add new update on property DONE
     - add new for list indices + update tests based on new approach
     - rewrite rules to use the composite index
     - ScanAllByLabelPropertyRange fix for composite

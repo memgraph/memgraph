@@ -53,18 +53,15 @@ bool InMemoryLabelPropertyIndex::NewEntry::operator==(std::vector<PropertyValue>
 template <int N>
 inline constexpr auto project = [](auto const &value) -> decltype(auto) { return (std::get<N>(value)); };
 
-struct PropertiesPermutationHelper {
-  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties)
-      : inverse_permutation_{std::ranges::views::iota(size_t{}, properties.size()) | ranges::to_vector},
-        sorted_properties_(properties.begin(), properties.end()) {
-    ranges::sort(ranges::views::zip(inverse_permutation_, sorted_properties_), std::less{}, project<1>);
-  }
+InMemoryLabelPropertyIndex::PropertiesPermutationHelper::PropertiesPermutationHelper(
+    std::span<PropertyId const> properties)
+    : inverse_permutation_{std::ranges::views::iota(size_t{}, properties.size()) | ranges::to_vector},
+      sorted_properties_(properties.begin(), properties.end()) {
+  ranges::sort(ranges::views::zip(inverse_permutation_, sorted_properties_), std::less{}, project<1>);
+}
 
-  std::vector<size_t> inverse_permutation_;
-  std::vector<PropertyId> sorted_properties_;
-};
-
-inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
+inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label,
+                                          InMemoryLabelPropertyIndex::PropertiesPermutationHelper const &props,
                                           auto &&index_accessor) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
@@ -114,7 +111,8 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
     auto [it1, _] = new_index_.try_emplace(label);
     auto &properties_map = it1->second;
-    auto [it2, emplaced] = properties_map.try_emplace(properties);
+    PropertiesPermutationHelper helper{properties};
+    auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
     if (!emplaced) {
       // Index already exists.
       return false;
@@ -129,8 +127,8 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
     }
 
     try {
-      auto accessor_factory = [&] { return it2->second.access(); };
-      auto props_permutation_helper = PropertiesPermutationHelper{properties};
+      auto accessor_factory = [&] { return it2->second.skiplist.access(); };
+      auto &props_permutation_helper = it2->second.permutations_helper;
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
       };
@@ -147,6 +145,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
+  // OLD
   for (auto &[label_prop, storage] : index_) {
     if (std::get<LabelId>(label_prop) != added_label) {
       continue;
@@ -157,6 +156,27 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
       acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
     }
   }
+
+  // NEW
+  auto const it = new_index_.find(added_label);
+  if (it == new_index_.end()) {
+    return;
+  }
+
+  for (auto &indices : it->second | std::ranges::views::filter([&](auto &each) {
+                         auto &[index_props, _] = each;
+                         return std::ranges::any_of(index_props, [&](PropertyId prop_id) {
+                           return vertex_after_update->properties.HasProperty(prop_id);
+                         });
+                       })) {
+    auto &[props, index] = indices;
+    auto values = vertex_after_update->properties.ExtractPropertyValuesMissingAsNull(
+        index.permutations_helper.sorted_properties_);
+    auto inverse_permutation = index.permutations_helper.inverse_permutation_;
+    ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
+    auto acc = index.skiplist.access();
+    acc.insert({std::move(values), vertex_after_update, tx.start_timestamp});
+  }
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
@@ -165,15 +185,37 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
+  // OLD
   auto index = indices_by_property_.find(property);
-  if (index == indices_by_property_.end()) {
+  if (index != indices_by_property_.end()) {
+    for (const auto &[label, storage] : index->second) {
+      if (!utils::Contains(vertex->labels, label)) continue;
+      auto acc = storage->access();
+      acc.insert(Entry{value, vertex, tx.start_timestamp});
+    }
+  }
+
+  // NEW
+  auto const it = new_indices_by_property_.find(property);
+  if (it == new_indices_by_property_.end()) {
     return;
   }
 
-  for (const auto &[label, storage] : index->second) {
-    if (!utils::Contains(vertex->labels, label)) continue;
-    auto acc = storage->access();
-    acc.insert(Entry{value, vertex, tx.start_timestamp});
+  for (auto &lookup : it->second | std::ranges::views::filter([&](auto &&each) {
+                        return std::ranges::find(vertex->labels, each.first) != vertex->labels.cend();
+                      }) | std::ranges::views::filter([&](auto &&each) {
+                        PropertiesIds const &ids = *std::get<0>(each.second);
+                        return std::ranges::find(ids, property) != ids.cend();
+                      })) {
+    auto &[property_ids, index] = lookup.second;
+
+    auto values = vertex->properties.ExtractPropertyValuesMissingAsNull(index->permutations_helper.sorted_properties_);
+
+    auto inverse_permutation = index->permutations_helper.inverse_permutation_;
+    ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
+
+    auto acc = index->skiplist.access();
+    acc.insert({std::move(values), vertex, tx.start_timestamp});
   }
 }
 
