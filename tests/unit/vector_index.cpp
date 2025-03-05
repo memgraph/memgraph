@@ -552,7 +552,7 @@ TYPED_TEST(VectorSearchTest, MultipleVectorIndicesPerLabelProperty) {
     auto acc = this->storage->Access();
     auto result = acc->ListAllVectorIndices();
     EXPECT_EQ(result.size(), 2);
-    EXPECT_EQ(result[0].metric, "haversine");
-    EXPECT_EQ(result[1].metric, "l2sq");
+    EXPECT_EQ(result[0].metric, "l2sq");
+    EXPECT_EQ(result[1].metric, "haversine");
   }
 }
