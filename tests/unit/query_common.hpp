@@ -709,3 +709,5 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COMMIT_FREQUENCY(expr) \
   memgraph::query::test_common::CommitFrequency { (expr) }
 #define LOAD_CSV(...) memgraph::query::test_common::GetLoadCSV(this->storage, __VA_ARGS__)
+#define LIST_COMPREHENSION(variable, list, where, expr) \
+  this->storage.template Create<memgraph::query::ListComprehension>(variable, list, where, expr)

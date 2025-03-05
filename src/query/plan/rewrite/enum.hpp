@@ -168,6 +168,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   void Visit(Single &op) override {}
   void Visit(Any &op) override {}
   void Visit(None &op) override {}
+  void Visit(ListComprehension &op) override {}
   void Visit(Identifier &op) override {}
   void Visit(PrimitiveLiteral &op) override {}
   void Visit(PropertyLookup &op) override { AcceptExpression(op.expression_); }
