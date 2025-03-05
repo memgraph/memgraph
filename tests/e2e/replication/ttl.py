@@ -182,7 +182,7 @@ def test_ttl_on_replica(connection, test_name):
         return execute_and_fetch_all(cursor, "MATCH(n:TTL) RETURN count(n);")[0][0]
 
     def n_edges():
-        return execute_and_fetch_all(cursor, "MATCH ()-[e]->() WHERE e.ttl > 0 RETURN count(n);")[0][0]
+        return execute_and_fetch_all(cursor, "MATCH ()-[e]->() WHERE e.ttl > 0 RETURN count(e);")[0][0]
 
     # 1/
     execute_and_fetch_all(
