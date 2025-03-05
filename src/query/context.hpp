@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,11 +29,12 @@ namespace memgraph::query {
 
 enum class TransactionStatus {
   IDLE,
-  ACTIVE,
-  VERIFYING,
-  TERMINATED,
-  STARTED_COMMITTING,
-  STARTED_ROLLBACK,
+  RUNNING,
+  COMMITTING,
+  ABORTING,
+
+  TERMINATING,  ///< Mark the interpreter as having been killed by TERMINATE TRANSACTIONS. The actual termination occurs
+                ///< during Abort(), when the state will change to ABORTING.
 };
 
 struct Scope {
@@ -92,7 +93,7 @@ static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext 
 
 inline auto MustAbort(const ExecutionContext &context) noexcept -> AbortReason {
   if (context.transaction_status != nullptr &&
-      context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
+      context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATING) {
     return AbortReason::TERMINATED;
   }
   if (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) {
