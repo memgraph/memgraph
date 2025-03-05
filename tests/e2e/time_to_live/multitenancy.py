@@ -26,7 +26,7 @@ def get_n(cursor):
 
 
 def get_n_edges(cursor):
-    return execute_and_fetch_all(cursor, "MATCH ()-[e]->() RETURN COUNT(n)")[0][0]
+    return execute_and_fetch_all(cursor, "MATCH ()-[e]->() RETURN COUNT(e)")[0][0]
 
 
 def test_ttl_on_default(connect):
