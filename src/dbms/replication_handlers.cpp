@@ -200,12 +200,10 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        spdlog::debug("Received CreateDatabaseRpc");
         CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
       [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        spdlog::debug("Received DropDatabaseRpc");
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
       });
 }

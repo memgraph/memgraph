@@ -82,14 +82,13 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
 }
 
 std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
-  spdlog::trace("Started resolving endpoint: {}:{}", address, port);
   auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
     char buffer[INET_ADDRSTRLEN];
     auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
     auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
     if (res == NULL) {    // NOLINT
       int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
-      spdlog::trace("inet_ntop failed with errno {} when resolving {} to ipv4 address.", errsv, address);
+      spdlog::error("inet_ntop failed with errno {} when resolving {} to ipv4 address.", errsv, address);
       return std::nullopt;
     }
     return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
@@ -101,7 +100,7 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
     auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
     if (res == NULL) {    // NOLINT
       int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
-      spdlog::trace("inet_ntop failed with errno {} when resolving {} to ipv6 address.", errsv, address);
+      spdlog::error("inet_ntop failed with errno {} when resolving {} to ipv6 address.", errsv, address);
       return std::nullopt;
     }
     return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
@@ -125,7 +124,7 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
 
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
-      spdlog::trace("getaddrinfo finished unsuccessfully while resolving {}:{}", address, port);
+      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}", address, port);
       return std::nullopt;
     }
 
@@ -143,10 +142,8 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
 
   auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
   if (ip_v4_family.has_value()) {
-    spdlog::trace("{}:{} successfully resolved to ipv4 address.", address, port);
     return std::move(*ip_v4_family);
   }
-  spdlog::trace("Failed to resolve {}:{} to ipv4 address, trying to resolve to ipv6 address.", address, port);
   return parse_ip_family(process_ipv6_family, AF_INET6);
 }
 

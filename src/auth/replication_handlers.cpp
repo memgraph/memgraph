@@ -177,12 +177,10 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
       [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
-        spdlog::debug("Received UpdateAuthDataRpc");
         UpdateAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
       [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
-        spdlog::debug("Received DropAuthDataRpc");
         DropAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
       });
 }
