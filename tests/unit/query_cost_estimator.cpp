@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,7 @@ class QueryCostEstimator : public ::testing::Test {
     }
     {
       auto unique_acc = db->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label, {property}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     storage_dba.emplace(db->Access());

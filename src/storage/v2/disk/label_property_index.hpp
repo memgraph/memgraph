@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
   explicit DiskLabelPropertyIndex(const Config &config);
 
-  bool CreateIndex(LabelId label, PropertyId property,
+  bool CreateIndex(LabelId label, PropertyId property /*maybe TODO*/,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
 
   std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction() const;
@@ -42,7 +42,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override{};
 
-  bool DropIndex(LabelId label, PropertyId property) override;
+  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
   bool IndexExists(LabelId label, PropertyId property) const override;
 

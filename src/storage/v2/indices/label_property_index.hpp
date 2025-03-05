@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,17 +41,18 @@ class LabelPropertyIndex {
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                    const Transaction &tx) = 0;
 
-  virtual bool DropIndex(LabelId label, PropertyId property) = 0;
+  virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
 
-  virtual bool IndexExists(LabelId label, PropertyId property) const = 0;
+  virtual bool IndexExists(LabelId label, PropertyId property /*TODO*/) const = 0;
 
-  virtual std::vector<std::pair<LabelId, PropertyId>> ListIndices() const = 0;
+  virtual std::vector<std::pair<LabelId, PropertyId /*TODO*/>> ListIndices() const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property /*TODO*/) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property /*TODO*/,
+                                          const PropertyValue &value) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property /*TODO*/,
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
