@@ -46,6 +46,7 @@ class LabelPropertyIndex {
   virtual bool IndexExists(LabelId label, PropertyId property /*TODO*/) const = 0;
 
   virtual std::vector<std::pair<LabelId, PropertyId /*TODO*/>> ListIndices() const = 0;
+  virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property /*TODO*/) const = 0;
 

@@ -3012,6 +3012,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
 
   return {mem_label_index->ListIndices(),
           mem_label_property_index->ListIndices(),
+          mem_label_property_index->ListIndicesNew(),
           mem_edge_type_index->ListIndices(),
           mem_edge_type_property_index->ListIndices(),
           mem_edge_property_index->ListIndices(),

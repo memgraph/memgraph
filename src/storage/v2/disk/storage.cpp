@@ -2313,6 +2313,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(),
           disk_label_property_index->ListIndices(),
+          disk_label_property_index->ListIndicesNew(),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

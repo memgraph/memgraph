@@ -311,6 +311,23 @@ void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::L
       << ");";
 }
 
+void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+                              std::span<storage::PropertyId const> properties) {
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(";
+
+  bool needs_comma = false;
+  for (auto const &property : properties) {
+    if (needs_comma) {
+      *os << ", ";
+    } else {
+      needs_comma = true;
+    }
+    *os << EscapeName(dba->PropertyToName(property));
+  }
+
+  *os << ");";
+}
+
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
   *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }

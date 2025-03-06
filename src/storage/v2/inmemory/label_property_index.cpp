@@ -315,6 +315,17 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
   return ret;
 }
 
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ListIndicesNew() const {
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ret;
+  ret.reserve(index_.size());
+  for (auto const &[label, indices] : new_index_) {
+    for (auto const &props : indices | std::views::keys) {
+      ret.emplace_back(label, props);
+    }
+  }
+  return ret;
+}
+
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
@@ -517,7 +528,6 @@ void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId,
 void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key,
                                                const LabelPropertyIndexStats &stats) {
   auto locked_stats = stats_.Lock();
-  // TODO(composite-index)
   // locked_stats->insert_or_assign(key, stats);
 }
 
