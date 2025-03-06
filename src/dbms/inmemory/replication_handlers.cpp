@@ -309,8 +309,8 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-    spdlog::trace("Set epoch id to {} in AppendDeltasHandler for db {}.", *maybe_epoch_id, storage->name());
     auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
+    spdlog::trace("Set epoch to {} for db {}", *maybe_epoch_id, storage->name());
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
@@ -439,6 +439,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
+      spdlog::trace("Set epoch to {} for db {}", snapshot_info.epoch_id, storage->name());
       storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
@@ -677,7 +678,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     }
     // We trust only WAL files which contain changes we are interested in (newer changes)
     if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
-      spdlog::trace("Set epoch id to {} while loading wal file {}.", wal_info.epoch_id, *maybe_wal_path);
+      spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
       auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }
