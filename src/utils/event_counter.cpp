@@ -123,16 +123,16 @@ EventCounters global_counters(global_counters_array);
 
 const Event EventCounters::num_counters = END;
 
-void EventCounters::Increment(const Event event, Count amount) {
+void EventCounters::Increment(const Event event, Count const amount) {
   counters_[event].fetch_add(amount, std::memory_order_relaxed);
 }
 
-void EventCounters::Decrement(const Event event, Count amount) {
+void EventCounters::Decrement(const Event event, Count const amount) {
   counters_[event].fetch_sub(amount, std::memory_order_relaxed);
 }
 
-void IncrementCounter(const Event event, Count amount) { global_counters.Increment(event, amount); }
-void DecrementCounter(const Event event, Count amount) { global_counters.Decrement(event, amount); }
+void IncrementCounter(const Event event, Count const amount) { global_counters.Increment(event, amount); }
+void DecrementCounter(const Event event, Count const amount) { global_counters.Decrement(event, amount); }
 Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }
 
 const char *GetCounterName(const Event event) {
