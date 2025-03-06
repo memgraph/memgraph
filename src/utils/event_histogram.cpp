@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ const Event EventHistograms::num_histograms = END;
 
 void Measure(const Event event, Value value) { global_histograms.Measure(event, value); }
 
-void EventHistograms::Measure(const Event event, Value value) { histograms_[event].Measure(value); }
+void EventHistograms::Measure(const Event event, Value const value) { histograms_[event].Measure(value); }
 
 const char *GetHistogramName(const Event event) {
   static const char *strings[] = {
