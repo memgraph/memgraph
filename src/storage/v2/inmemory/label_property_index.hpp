@@ -140,8 +140,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStatsNew();
 
   std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStats(const storage::LabelId &label);
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteIndexStatsNew(const storage::LabelId &label);
 
   void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                      const storage::LabelPropertyIndexStats &stats);

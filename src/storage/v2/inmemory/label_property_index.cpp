@@ -503,6 +503,26 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearInd
   return deleted_indexes;
 }
 
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ClearIndexStatsNew() {
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> deleted_indexes;
+  auto locked_stats = new_stats_.Lock();
+
+  auto const num_stats = std::accumulate(
+      locked_stats->cbegin(), locked_stats->cend(), size_t{},
+      [](auto sum, auto const &properties_indices_stats) { return sum + properties_indices_stats.second.size(); });
+
+  deleted_indexes.reserve(num_stats);
+  for (auto &[label, properties_indices_stats] : *locked_stats) {
+    for (auto &properties : properties_indices_stats | ranges::views::keys) {
+      deleted_indexes.emplace_back(label, properties);
+    }
+  }
+
+  locked_stats->clear();
+
+  return deleted_indexes;
+}
+
 // stats_ is a map where the key is a pair of label and property, so for one label many pairs can be deleted
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
@@ -519,6 +539,25 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIn
   return deleted_indexes;
 }
 
+// TODO(composite-index) Seems suspicious to me that this deletes all stats
+// based on the just the label. Why do properties not matter?
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::DeleteIndexStatsNew(
+    const storage::LabelId &label) {
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> deleted_indexes;
+  auto locked_stats = new_stats_.Lock();
+  for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
+    if (it->first == label) {
+      for (auto &properties : it->second | ranges::views::keys) {
+        deleted_indexes.emplace_back(it->first, properties);
+      }
+      it = locked_stats->erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return deleted_indexes;
+}
+
 void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                                                const LabelPropertyIndexStats &stats) {
   auto locked_stats = stats_.Lock();
@@ -527,8 +566,8 @@ void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId,
 
 void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key,
                                                const LabelPropertyIndexStats &stats) {
-  auto locked_stats = stats_.Lock();
-  // locked_stats->insert_or_assign(key, stats);
+  auto locked_stats = new_stats_.Lock();
+  (*locked_stats)[key.first].insert_or_assign(key.second, stats);
 }
 
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
@@ -542,6 +581,12 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 
 std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
     const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key) const {
+  auto locked_stats = new_stats_.ReadLock();
+  if (auto it = locked_stats->find(key.first); it != locked_stats->end()) {
+    if (auto it2 = it->second.find(key.second); it2 != it->second.end()) {
+      return it2->second;
+    }
+  }
   return {};
 }
 
@@ -613,6 +658,10 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.clear();
   indices_by_property_.clear();
   stats_->clear();
+
+  new_index_.clear();
+  new_indices_by_property_.clear();
+  new_stats_->clear();
 }
 
 LabelPropertyIndex::IndexStats InMemoryLabelPropertyIndex::Analysis() const {
