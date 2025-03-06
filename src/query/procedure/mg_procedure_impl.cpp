@@ -2820,13 +2820,14 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
     }
 
-    for (const auto &label_property_pair : index_res) {
-      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
-          err != mgp_error::MGP_ERROR_NO_ERROR) {
-        throw std::logic_error(
-            "Listing all label+property indices failed due to failure of appending label+property value");
-      }
-    }
+    // TODO(composite_index)
+    // for (const auto &label_property_pair : index_res) {
+    //   if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+    //       err != mgp_error::MGP_ERROR_NO_ERROR) {
+    //     throw std::logic_error(
+    //         "Listing all label+property indices failed due to failure of appending label+property value");
+    //   }
+    // }
   });
 }
 

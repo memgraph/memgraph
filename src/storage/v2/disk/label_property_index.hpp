@@ -47,6 +47,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool IndexExists(LabelId label, PropertyId property) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const override;
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
 
