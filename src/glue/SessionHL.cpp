@@ -82,8 +82,24 @@ class TypedValueResultStream : public TypedValueResultStreamBase {
       : TypedValueResultStreamBase{storage}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
-    DecodeValues(values);
-    if (!encoder_->MessageRecord(AccessValues())) {
+    encoder_->MessageRecordHeader(values.size());
+    for (const auto &v : values) {
+      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
+          case memgraph::storage::Error::DELETED_OBJECT:
+            throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
+          case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
+          case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          case memgraph::storage::Error::SERIALIZATION_ERROR:
+          case memgraph::storage::Error::PROPERTIES_DISABLED:
+            throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
+        }
+      }
+      encoder_->MessageRecordAppendValue(maybe_value.GetValue());
+    }
+    if (!encoder_->MessageRecordFinalize()) {
       throw memgraph::communication::bolt::ClientError("Failed to send result to client!");
     }
   }

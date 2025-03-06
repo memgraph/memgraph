@@ -30,7 +30,8 @@ class IOContextThreadPool final {
   using IOContextGuard = boost::asio::executor_work_guard<boost::asio::io_context::executor_type>;
 
  public:
-  explicit IOContextThreadPool(size_t pool_size) : guard_{io_context_.get_executor()}, pool_size_{pool_size} {
+  explicit IOContextThreadPool(size_t pool_size)
+      : io_context_(pool_size), guard_{io_context_.get_executor()}, pool_size_{pool_size} {
     MG_ASSERT(pool_size != 0, "Pool size must be greater then 0!");
   }
 

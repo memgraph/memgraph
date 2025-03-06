@@ -29,6 +29,8 @@ class Encoder : private BaseEncoder<Buffer> {
   using BaseEncoder<Buffer>::WriteRAW;
   using BaseEncoder<Buffer>::WriteList;
   using BaseEncoder<Buffer>::WriteMap;
+  using BaseEncoder<Buffer>::WriteTypeSize;
+  using BaseEncoder<Buffer>::WriteValue;
   using BaseEncoder<Buffer>::buffer_;
 
  public:
@@ -50,6 +52,25 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Record));
     WriteList(values);
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done. Here we tell
+    // the buffer that there will be more data because this is a Record message
+    // and it will surely be followed by either a Record, Success or Failure
+    // message.
+    return buffer_.Flush(true);
+  }
+
+  void MessageRecordHeader(size_t n_values) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Record));
+    WriteTypeSize(n_values, MarkerList);
+  }
+
+  void MessageRecordAppendValue(const Value &value) { WriteValue(value); }
+
+  bool MessageRecordFinalize() {
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (buffer_.HasData() && !buffer_.Flush(true)) return false;
