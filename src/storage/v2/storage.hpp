@@ -290,9 +290,15 @@ class Storage {
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId &label, const storage::PropertyId &property) const = 0;
 
+    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+        const storage::LabelId &label, std::vector<storage::PropertyId> const &property) const = 0;
+
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                               const LabelPropertyIndexStats &stats) = 0;
+
+    virtual void SetIndexStats(const storage::LabelId &label, std::vector<storage::PropertyId> const &property,
                                const LabelPropertyIndexStats &stats) = 0;
 
     virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(

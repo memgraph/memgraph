@@ -514,12 +514,24 @@ void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId,
   locked_stats->insert_or_assign(key, stats);
 }
 
+void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key,
+                                               const LabelPropertyIndexStats &stats) {
+  auto locked_stats = stats_.Lock();
+  // TODO(composite-index)
+  // locked_stats->insert_or_assign(key, stats);
+}
+
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
     const std::pair<storage::LabelId, storage::PropertyId> &key) const {
   auto locked_stats = stats_.ReadLock();
   if (auto it = locked_stats->find(key); it != locked_stats->end()) {
     return it->second;
   }
+  return {};
+}
+
+std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
+    const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key) const {
   return {};
 }
 

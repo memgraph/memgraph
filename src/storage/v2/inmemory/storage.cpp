@@ -3039,6 +3039,16 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, property, stats);
 }
 
+void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
+                                                      std::vector<storage::PropertyId> const &properties,
+                                                      const LabelPropertyIndexStats &stats) {
+  SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
+                        std::make_pair(label, properties), stats);
+
+  // TODO(composite-index)
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, properties, stats);
+}
+
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   const auto res =
       DeleteIndexStatsForIndex<bool>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label);

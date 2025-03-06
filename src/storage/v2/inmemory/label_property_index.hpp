@@ -145,8 +145,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                      const storage::LabelPropertyIndexStats &stats);
 
+  void SetIndexStats(std::pair<storage::LabelId, std::vector<storage::PropertyId>> const &key,
+                     const storage::LabelPropertyIndexStats &stats);
+
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       const std::pair<storage::LabelId, storage::PropertyId> &key) const;
+
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key) const;
 
   void RunGC();
 
