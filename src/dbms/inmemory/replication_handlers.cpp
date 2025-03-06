@@ -789,7 +789,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   auto current_durable_commit_timestamp = max_delta_timestamp;
   spdlog::trace("Current durable commit timestamp: {}", current_durable_commit_timestamp);
 
-  auto prev_printed_timestamp = 0;
+  uint64_t prev_printed_timestamp = 0;
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == kDeltasBatchProgressSize) {
