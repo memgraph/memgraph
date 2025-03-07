@@ -305,9 +305,11 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
           continue;
         }
         pre_query_directives.index_hints_.emplace_back(
+            /*TODO make hints composite*/
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
                       .label_ = label,
-                      .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+                      .properties_ =
+                          std::vector{std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))}});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
