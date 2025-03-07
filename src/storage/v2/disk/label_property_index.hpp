@@ -57,6 +57,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
+  uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties) const override;
+
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadIndexInfo(const std::vector<std::string> &keys);
