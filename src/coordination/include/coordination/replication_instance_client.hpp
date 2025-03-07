@@ -30,7 +30,7 @@ class ReplicationInstanceClient {
   explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
                                      std::chrono::seconds instance_health_check_frequency_sec);
 
-  virtual ~ReplicationInstanceClient() = default;
+  ~ReplicationInstanceClient() = default;
 
   ReplicationInstanceClient(ReplicationInstanceClient &) = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient const &) = delete;
@@ -38,24 +38,23 @@ class ReplicationInstanceClient {
   ReplicationInstanceClient(ReplicationInstanceClient &&) noexcept = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient &&) noexcept = delete;
 
-  virtual void StartStateCheck();
-  virtual void StopStateCheck();
-  virtual void PauseStateCheck();
-  virtual void ResumeStateCheck();
+  void StartStateCheck();
+  void StopStateCheck();
+  void PauseStateCheck();
+  void ResumeStateCheck();
 
-  virtual auto InstanceName() const -> std::string;
-  virtual auto BoltSocketAddress() const -> std::string;
-  virtual auto ManagementSocketAddress() const -> std::string;
-  virtual auto ReplicationSocketAddress() const -> std::string;
+  auto InstanceName() const -> std::string;
+  auto BoltSocketAddress() const -> std::string;
+  auto ManagementSocketAddress() const -> std::string;
+  auto ReplicationSocketAddress() const -> std::string;
 
-  virtual auto SendDemoteToReplicaRpc() const -> bool;
+  auto SendDemoteToReplicaRpc() const -> bool;
 
-  virtual auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const
-      -> bool;
+  auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const -> bool;
 
-  virtual auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
+  auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 
-  virtual auto SendEnableWritingOnMainRpc() const -> bool;
+  auto SendEnableWritingOnMainRpc() const -> bool;
 
   auto SendRegisterReplicaRpc(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
 

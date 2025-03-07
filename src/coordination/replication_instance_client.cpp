@@ -142,18 +142,6 @@ auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
   return false;
 }
 
-auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
-  try {
-    auto stream{rpc_client_.Stream<StateCheckRpc>()};
-    auto res = stream.AwaitResponse();
-    metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
-    return res.state;
-  } catch (rpc::RpcFailedException const &) {
-    metrics::IncrementCounter(metrics::StateCheckRpcFail);
-    return {};
-  }
-}
-
 auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
   try {
     if (auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)}; !stream.AwaitResponse().success) {
@@ -184,6 +172,18 @@ auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
     metrics::IncrementCounter(metrics::EnableWritingOnMainRpcFail);
   }
   return false;
+}
+
+auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
+  try {
+    auto stream{rpc_client_.Stream<StateCheckRpc>()};
+    auto res = stream.AwaitResponse();
+    metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
+    return res.state;
+  } catch (rpc::RpcFailedException const &) {
+    metrics::IncrementCounter(metrics::StateCheckRpcFail);
+    return {};
+  }
 }
 
 // TODO: (andi) Try to unify with a bit of templating magic functions from above
