@@ -109,7 +109,6 @@ print_help () {
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
-  echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
   echo -e "  --init-only                   Only run init script"
   echo -e "  --no-copy                     Don't copy the memgraph repo from host."
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
@@ -293,7 +292,6 @@ build_memgraph () {
   local init_only=false
   local cmake_only=false
   local for_docker=false
-  local for_platform=false
   local copy_from_host=true
   local init_flags="--ci"
 
@@ -313,20 +311,7 @@ build_memgraph () {
       ;;
       --for-docker)
         for_docker=true
-        if [[ "$for_platform" == "true" ]]; then
-          echo "Error: Cannot combine --for-docker and --for-platform flags"
-          exit 1
-        fi
         telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
-        shift 1
-      ;;
-      --for-platform)
-        for_platform=true
-        if [[ "$for_docker" == "true" ]]; then
-          echo "Error: Cannot combine --for-docker and --for-platform flags"
-          exit 1
-        fi
-        telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM "
         shift 1
       ;;
       --coverage)
