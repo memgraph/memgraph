@@ -61,7 +61,7 @@ class ReplicationInstanceClient {
 
   auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
-  auto SendGetInstanceTimestampsRpc() const -> std::optional<replication_coordination_glue::DatabaseHistories>;
+  auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::DatabaseHistories>;
 
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
 

@@ -101,7 +101,8 @@ class CoordinatorInstance {
   static auto GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
       -> std::optional<std::string>;
 
-  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
+  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
+      -> std::optional<NewMainRes>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

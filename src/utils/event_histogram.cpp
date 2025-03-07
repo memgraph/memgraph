@@ -12,10 +12,14 @@
 #include "utils/event_histogram.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define APPLY_FOR_HISTOGRAMS(M)                                                                    \
-  M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 50, 90, 99)        \
-  M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 99) \
-  M(SnapshotRecoveryLatency_us, Snapshot, "Snapshot recovery latency in microseconds", 50, 90, 99)
+#define APPLY_FOR_HISTOGRAMS(M)                                                                                   \
+  M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 50, 90, 99)                       \
+  M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 99)                \
+  M(SnapshotRecoveryLatency_us, Snapshot, "Snapshot recovery latency in microseconds", 50, 90, 99)                \
+  M(InstanceSuccCallback_us, HighAvailability, "Instance success callback in microseconds", 50, 90, 99)           \
+  M(InstanceFailCallback_us, HighAvailability, "Instance failure callback in microseconds", 50, 90, 99)           \
+  M(ChooseMostUpToDateInstance_us, HighAvailability, "Latency of choosing next main in microseconds", 50, 90, 99) \
+  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)
 
 namespace memgraph::metrics {
 

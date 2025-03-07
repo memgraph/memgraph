@@ -12,6 +12,11 @@
 #include "utils/event_counter.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define GenerateHARpcCounters(NAME)                                                     \
+  M(NAME##Success, HighAvailability, "Number of times " #NAME " finished successfully") \
+  M(NAME##Fail, HighAvailability, "Number of times " #NAME " finished unsuccessfully")
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define APPLY_FOR_COUNTERS(M)                                                                                          \
   M(ReadQuery, QueryType, "Number of read-only queries executed.")                                                     \
   M(WriteQuery, QueryType, "Number of write-only queries executed.")                                                   \
@@ -108,13 +113,26 @@
   M(RaftFailedFailovers, HighAvailability, "Number of failed failovers because of Raft on the coordinator.")           \
   M(NoAliveInstanceFailedFailovers, HighAvailability, "Number of failed failovers, no data instance was alive.")       \
   M(BecomeLeaderSuccess, HighAvailability, "Number of times the coordinator successfuly became the leader.")           \
-  M(FailedToBecomeLeader, HighAvailability, "Number of times the coordinator failed to become the leader.")
+  M(FailedToBecomeLeader, HighAvailability, "Number of times the coordinator failed to become the leader.")            \
+  M(ShowInstance, HighAvailability, "Number of times the user called \"SHOW INSTANCE\" query.")                        \
+  M(ShowInstances, HighAvailability, "Number of times the user called \"SHOW INSTANCES\" query.")                      \
+  M(DemoteInstance, HighAvailability, "Number of times the user called \"DEMOTE INSTANCE ...\" query.")                \
+  M(UnregisterReplInstance, HighAvailability, "Number of times the user called \"UNREGISTER INSTANCE ...\" query.")    \
+  M(RemoveCoordInstance, HighAvailability, "Number of times the user called \"REMOVE COORDINATOR ...\" query.")        \
+  GenerateHARpcCounters(StateCheckRpc) GenerateHARpcCounters(UnregisterReplicaRpc)                                     \
+      GenerateHARpcCounters(EnableWritingOnMainRpc) GenerateHARpcCounters(PromoteToMainRpc)                            \
+          GenerateHARpcCounters(DemoteToReplicaRpc) GenerateHARpcCounters(RegisterReplicaRpc)                          \
+              GenerateHARpcCounters(GetDatabaseHistoriesRpc)
 
 namespace memgraph::metrics {
+
 // define every Event as an index in the array of counters
+
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
+
 APPLY_FOR_COUNTERS(M)
+
 #undef M
 
 inline constexpr Event END = __COUNTER__;
