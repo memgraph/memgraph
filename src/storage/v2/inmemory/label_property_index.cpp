@@ -493,6 +493,17 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
+                                                            std::vector<PropertyId> const &properties) const {
+  auto const it = new_index_.find(label);
+  MG_ASSERT(it != new_index_.end(), "Index for label {} doesn't exist", label.AsUint());
+
+  auto const it2 = it->second.find(properties);
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties doesn't exist", label.AsUint());
+
+  return it2->second.skiplist.size();
+}
+
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   auto locked_stats = stats_.Lock();

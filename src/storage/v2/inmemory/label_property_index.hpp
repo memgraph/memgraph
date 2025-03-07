@@ -139,6 +139,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
+  uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties) const override;
+
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStatsNew();
 
