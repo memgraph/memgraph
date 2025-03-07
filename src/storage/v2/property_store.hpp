@@ -102,6 +102,10 @@ class PropertyStore {
   /// @throw std::bad_alloc
   std::map<PropertyId, ExtendedPropertyType> ExtendedPropertyTypes() const;
 
+  /// Returns property ids currently stored.
+  /// @throw std::bad_alloc
+  std::vector<PropertyId> ExtractPropertyIds() const;
+
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is
   /// O(n).
