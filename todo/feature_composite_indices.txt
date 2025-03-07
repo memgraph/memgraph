@@ -67,24 +67,15 @@ ROADMAP
     - add new drop   DONE
     - add new update on label DONE
     - add new update on property DONE
-    - add new for list indices + update tests based on new approach
+    - add new for list indices + update tests based on new approach (WIP)
     - rewrite rules to use the composite index
     - ScanAllByLabelPropertyRange fix for composite
-
 
 MVCC CurrentVersionHasLabelProperty for the InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid
 - IsPropertyEqual -> ArePropertiesEqual
 - many delta cache -> GetProperty needs GetProperties
 
-# Performance
-- Property values used in the index are permuted once per property update. At
-  worst, this will be an n * log_2(n!) operation. As our argsort impl has the
-  expected indexes, we could use these to permute the property order in a much
-  more performant manner.
-
 # Sharp edges
-- We need to take a copy of the indices in `PropertiesPermutationHelper` to order
-  the properties, otherwise an in-place sort will wreck the permutation.
 - `ExtractPropertyValuesMissingAsNull` requires the properties be specified in
    order. Could we enforce this either via an assert and/or a note in the
    function docstring.

@@ -19,10 +19,46 @@
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
-namespace r = std::ranges;
+namespace r = ranges;
 namespace rv = r::views;
 
 namespace memgraph::storage {
+
+namespace {
+
+auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
+    -> PropertiesPermutationHelper::permutation_cycles {
+  auto const n = permutation_index.size();
+
+  auto visited = std::vector(n, false);
+  auto cycle = std::vector<std::size_t>{};
+  auto cycles = PropertiesPermutationHelper::permutation_cycles{};
+
+  for (auto i = std::size_t{}; i != n; ++i) {
+    if (visited[i]) [[unlikely]] {
+      // already part of a cycle
+      continue;
+    }
+
+    // build a cycle
+    cycle.clear();
+    auto current = i;
+    do {
+      visited[current] = true;
+      cycle.push_back(current);
+      current = permutation_index[current];
+    } while (current != i);
+
+    if (cycle.size() == 1) {
+      // Ignore self-mapped elements
+      continue;
+    }
+    cycles.emplace_back(std::move(cycle));
+  }
+  return cycles;
+}
+
+}  // namespace
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
   return std::tie(value, vertex, timestamp) < std::tie(rhs.value, rhs.vertex, rhs.timestamp);
@@ -52,31 +88,25 @@ bool InMemoryLabelPropertyIndex::NewEntry::operator==(std::vector<PropertyValue>
   return values == rhs;
 }
 
-// TODO(composite_index): move to somewhere more generic
-template <int N>
-inline constexpr auto project = [](auto const &value) -> decltype(auto) { return (std::get<N>(value)); };
-
-InMemoryLabelPropertyIndex::PropertiesPermutationHelper::PropertiesPermutationHelper(
-    std::span<PropertyId const> properties)
-    : inverse_permutation_{rv::iota(size_t{}, properties.size()) | ranges::to_vector},
-      sorted_properties_(properties.begin(), properties.end()) {
-  ranges::sort(ranges::views::zip(inverse_permutation_, sorted_properties_), std::less{}, project<1>);
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyId const> properties)
+    : sorted_properties_(properties.begin(), properties.end()) {
+  auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
+  r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
+          [](auto const &value) -> decltype(auto) { return (std::get<1>(value)); });
+  cycles_ = build_permutation_cycles(inverse_permutation);
 }
 
-inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label,
-                                          InMemoryLabelPropertyIndex::PropertiesPermutationHelper const &props,
+inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
 
-  auto values = vertex.properties.ExtractPropertyValuesMissingAsNull(props.sorted_properties_);
+  auto values = props.extract(vertex.properties);
   if (r::all_of(values, [](auto const &each) { return each.IsNull(); })) {
     return;
   }
-
-  auto inverse_permutation = props.inverse_permutation_;
-  ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
+  props.apply_permutation(values);
 
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x.
@@ -176,11 +206,9 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
 
   for (auto &indices : it->second | rv::filter(relevant_index)) {
     auto &[props, index] = indices;
-    auto values = vertex_after_update->properties.ExtractPropertyValuesMissingAsNull(
-        index.permutations_helper.sorted_properties_);
+    auto values = index.permutations_helper.extract(vertex_after_update->properties);
+    index.permutations_helper.apply_permutation(values);
     DMG_ASSERT(r::any_of(values, [](auto &&val) { return !val.IsNull(); }), "At least one value should be non-null");
-    auto inverse_permutation = index.permutations_helper.inverse_permutation_;
-    ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
     auto acc = index.skiplist.access();
     acc.insert({std::move(values), vertex_after_update, tx.start_timestamp});
   }
@@ -221,11 +249,8 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     for (auto &lookup : it->second | rv::filter(relevant_index)) {
       auto &[property_ids, index] = lookup.second;
 
-      auto values =
-          vertex->properties.ExtractPropertyValuesMissingAsNull(index->permutations_helper.sorted_properties_);
-
-      auto inverse_permutation = index->permutations_helper.inverse_permutation_;
-      ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
+      auto values = index->permutations_helper.extract(vertex->properties);
+      index->permutations_helper.apply_permutation(values);
 
       auto acc = index->skiplist.access();
       acc.insert({std::move(values), vertex, tx.start_timestamp});
@@ -542,7 +567,7 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
 
   deleted_indexes.reserve(num_stats);
   for (auto &[label, properties_indices_stats] : *locked_stats) {
-    for (auto &properties : properties_indices_stats | ranges::views::keys) {
+    for (auto &properties : properties_indices_stats | rv::keys) {
       deleted_indexes.emplace_back(label, properties);
     }
   }
@@ -579,7 +604,7 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
   if (it != locked_stats->cend()) {
     return {};
   }
-  for (auto &properties : it->second | ranges::views::keys) {
+  for (auto &properties : it->second | rv::keys) {
     deleted_indexes.emplace_back(label, properties);
   }
   locked_stats->erase(it);
@@ -700,6 +725,10 @@ LabelPropertyIndex::IndexStats InMemoryLabelPropertyIndex::Analysis() const {
     res.p2l[property].emplace_back(label);
   }
   return res;
+}
+
+auto PropertiesPermutationHelper::extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
+  return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
 }
 
 }  // namespace memgraph::storage
