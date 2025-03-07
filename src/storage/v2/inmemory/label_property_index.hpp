@@ -25,6 +25,27 @@
 
 namespace memgraph::storage {
 
+struct PropertiesPermutationHelper {
+  using permutation_cycles = std::vector<std::vector<std::size_t>>;
+  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
+
+  void apply_permutation(std::ranges::random_access_range auto &arr) const {
+    for (const auto &cycle : cycles_) {
+      auto tmp = std::move(arr[cycle.front()]);
+      for (auto pos : std::span{cycle}.subspan<1>()) {
+        tmp = std::exchange(arr[pos], tmp);
+      }
+      arr[cycle.front()] = std::move(tmp);
+    }
+  }
+
+  auto extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
+
+ private:
+  std::vector<PropertyId> sorted_properties_;
+  permutation_cycles cycles_;
+};
+
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
@@ -172,13 +193,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                     Transaction *transaction);
 
   void DropGraphClearIndices() override;
-
-  struct PropertiesPermutationHelper {
-    explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
-
-    std::vector<size_t> inverse_permutation_;
-    std::vector<PropertyId> sorted_properties_;
-  };
 
  private:
   struct IndividualIndex {
