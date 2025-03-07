@@ -260,7 +260,7 @@ atom : literal
      | ( ANY '(' filterExpression ')' )
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
-     | ( EXISTS '(' existsExpression ')' )
+     | ( EXISTS existsAtom )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -302,7 +302,15 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
+existsAtom : '(' existsExpression ')'
+           | '{' existsSubquery '}'
+           | '{' existsExpression '}'
+           ;
+
+
 existsExpression : forcePatternPart | .* ;
+
+existsSubquery : cypherQuery ;
 
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern
