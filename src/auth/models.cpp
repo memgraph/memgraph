@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -9,9 +9,12 @@
 #include "auth/models.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <utility>
+#include <variant>
 
 #include <gflags/gflags.h>
+#include <nlohmann/json.hpp>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
@@ -21,6 +24,8 @@
 #include "spdlog/spdlog.h"
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
+#include "utils/uuid.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::auth {
 namespace {
@@ -30,6 +35,7 @@ constexpr auto kPermissions = "permissions";
 constexpr auto kGrants = "grants";
 constexpr auto kDenies = "denies";
 constexpr auto kUsername = "username";
+constexpr auto kUUID = "uuid";
 constexpr auto kPasswordHash = "password_hash";
 
 #ifdef MG_ENTERPRISE
@@ -38,35 +44,43 @@ constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
 constexpr auto kAllowAll = "allow_all";
 constexpr auto kDefault = "default";
 constexpr auto kDatabases = "databases";
+constexpr auto kUserImp = "user_imp";
+constexpr auto kUserImpGranted = "user_imp_granted";
+constexpr auto kUserImpDenied = "user_imp_denied";
+constexpr auto kUserImpId = "user_imp_id";
+constexpr auto kUserImpName = "user_imp_name";
 #endif
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {Permission::MATCH,
-                                                 Permission::CREATE,
-                                                 Permission::MERGE,
-                                                 Permission::DELETE,
-                                                 Permission::SET,
-                                                 Permission::REMOVE,
-                                                 Permission::INDEX,
-                                                 Permission::STATS,
-                                                 Permission::CONSTRAINT,
-                                                 Permission::DUMP,
-                                                 Permission::AUTH,
-                                                 Permission::REPLICATION,
-                                                 Permission::DURABILITY,
-                                                 Permission::READ_FILE,
-                                                 Permission::FREE_MEMORY,
-                                                 Permission::TRIGGER,
-                                                 Permission::CONFIG,
-                                                 Permission::STREAM,
-                                                 Permission::MODULE_READ,
-                                                 Permission::MODULE_WRITE,
-                                                 Permission::WEBSOCKET,
-                                                 Permission::TRANSACTION_MANAGEMENT,
-                                                 Permission::STORAGE_MODE,
-                                                 Permission::MULTI_DATABASE_EDIT,
-                                                 Permission::MULTI_DATABASE_USE,
-                                                 Permission::COORDINATOR};
+const std::vector<Permission> kPermissionsAll = {
+    Permission::MATCH,
+    Permission::CREATE,
+    Permission::MERGE,
+    Permission::DELETE,
+    Permission::SET,
+    Permission::REMOVE,
+    Permission::INDEX,
+    Permission::STATS,
+    Permission::CONSTRAINT,
+    Permission::DUMP,
+    Permission::AUTH,
+    Permission::REPLICATION,
+    Permission::DURABILITY,
+    Permission::READ_FILE,
+    Permission::FREE_MEMORY,
+    Permission::TRIGGER,
+    Permission::CONFIG,
+    Permission::STREAM,
+    Permission::MODULE_READ,
+    Permission::MODULE_WRITE,
+    Permission::WEBSOCKET,
+    Permission::TRANSACTION_MANAGEMENT,
+    Permission::STORAGE_MODE,
+    Permission::MULTI_DATABASE_EDIT,
+    Permission::MULTI_DATABASE_USE,
+    Permission::COORDINATOR,
+    Permission::IMPERSONATE_USER,
+};
 
 }  // namespace
 
@@ -124,6 +138,8 @@ std::string PermissionToString(Permission permission) {
       return "MULTI_DATABASE_USE";
     case Permission::COORDINATOR:
       return "COORDINATOR";
+    case Permission::IMPERSONATE_USER:
+      return "IMPERSONATE_USER";
   }
 }
 
@@ -425,11 +441,13 @@ Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 #ifdef MG_ENTERPRISE
 Role::Role(const std::string &rolename, const Permissions &permissions,
-           FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
+           FineGrainedAccessHandler fine_grained_access_handler, Databases db_access,
+           std::optional<UserImpersonation> usr_imp)
     : rolename_(utils::ToLowerCase(rolename)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
-      db_access_(std::move(db_access)) {}
+      db_access_(std::move(db_access)),
+      user_impersonation_{std::move(usr_imp)} {}
 #endif
 
 const std::string &Role::rolename() const { return rolename_; }
@@ -460,6 +478,10 @@ nlohmann::json Role::Serialize() const {
     data[kFineGrainedAccessHandler] = {};
     data[kDatabases] = {};
   }
+  if (!user_impersonation_)
+    data[kUserImp] = nlohmann::json();
+  else
+    data[kUserImp] = *user_impersonation_;
 #endif
   return data;
 }
@@ -488,7 +510,9 @@ Role Role::Deserialize(const nlohmann::json &data) {
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access)};
+    auto usr_imp = data[kUserImp].is_null() ? std::nullopt : std::make_optional<UserImpersonation>(data[kUserImp]);
+    return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access),
+            std::move(usr_imp)};
   }
 #endif
   return {data[kRoleName], permissions};
@@ -590,17 +614,24 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
 User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
-User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions)
-    : username_(utils::ToLowerCase(username)), password_hash_(std::move(password_hash)), permissions_(permissions) {}
+User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
+           utils::UUID uuid)
+    : username_(utils::ToLowerCase(username)),
+      password_hash_(std::move(password_hash)),
+      permissions_(permissions),
+      uuid_(uuid) {}
 
 #ifdef MG_ENTERPRISE
 User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
-           FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
+           FineGrainedAccessHandler fine_grained_access_handler, Databases db_access, utils::UUID uuid,
+           std::optional<UserImpersonation> usr_imp)
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
-      database_access_(std::move(db_access)) {}
+      database_access_(std::move(db_access)),
+      user_impersonation_{std::move(usr_imp)},
+      uuid_(uuid) {}
 #endif
 
 bool User::CheckPassword(const std::string &password) {
@@ -701,6 +732,7 @@ const Role *User::role() const {
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
+  data[kUUID] = uuid_;
   if (password_hash_.has_value()) {
     data[kPasswordHash] = *password_hash_;
   } else {
@@ -715,6 +747,10 @@ nlohmann::json User::Serialize() const {
     data[kFineGrainedAccessHandler] = {};
     data[kDatabases] = {};
   }
+  if (!user_impersonation_)
+    data[kUserImp] = nlohmann::json();
+  else
+    data[kUserImp] = *user_impersonation_;
 #endif
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
@@ -729,6 +765,10 @@ User User::Deserialize(const nlohmann::json &data) {
       !data[kPermissions].is_object()) {
     throw AuthException("Couldn't load user data!");
   }
+
+  // Version with user UUID
+  utils::UUID uuid{};
+  if (data[kUUID].is_array()) uuid = data[kUUID];
 
   std::optional<HashedPassword> password_hash{};
   if (password_hash_json.is_object()) {
@@ -752,11 +792,16 @@ User User::Deserialize(const nlohmann::json &data) {
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data[kUsername], std::move(password_hash), permissions, std::move(fine_grained_access_handler),
-            std::move(db_access)};
+
+    auto usr_imp = data[kUserImp].is_null() ? std::nullopt : std::make_optional<UserImpersonation>(data[kUserImp]);
+
+    return {data[kUsername],      std::move(password_hash),
+            permissions,          std::move(fine_grained_access_handler),
+            std::move(db_access), uuid,
+            std::move(usr_imp)};
   }
 #endif
-  return {data[kUsername], std::move(password_hash), permissions};
+  return {data[kUsername], std::move(password_hash), permissions, uuid};
 }
 
 bool operator==(const User &first, const User &second) {
@@ -770,5 +815,173 @@ bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
          first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
+
+#ifdef MG_ENTERPRISE
+// Overrides any pervious granted or denied sets
+void UserImpersonation::GrantAll() {
+  // Remove any denied users
+  denied_.clear();
+  // Set granted to all
+  granted_ = GrantAllUsers{};
+}
+// Overrides the previous granted set, but not the denied set
+void UserImpersonation::Grant(const std::vector<User> &users) {
+  granted_ = std::set<UserId>{};
+  for (const auto &user : users) {
+    grant_one(user);
+  }
+}
+
+// Overrides the previous denied set, but not the granted set
+void UserImpersonation::Deny(const std::vector<User> &users) {
+  denied_.clear();
+  for (const auto &user : users) {
+    deny_one(user);
+  }
+}
+
+bool UserImpersonation::CanImpersonate(const User &user) const { return !IsDenied(user) && IsGranted(user); }
+
+bool UserImpersonation::IsDenied(const User &user) const {
+  const std::string_view username = user.username();
+  // Check denied
+  //  check if username is denied
+  //    check if uuid is the same
+  //      yes -> return true
+  //      no -> remove user from the list and return false
+  auto user_denied = find_denied(username);
+  if (user_denied) {
+    if (user_denied.value()->uuid == user.uuid()) return true;
+    erase_denied(*user_denied);  // Stale user; remove
+  }
+  return false;
+}
+
+bool UserImpersonation::IsGranted(const User &user) const {
+  const std::string_view username = user.username();
+  // Check grant
+  //  all -> return true
+  //  check if username is in the list
+  //    check if uuid is the same
+  //      yes -> return true
+  //      no -> remove user from the list and proceed
+  if (grants_all()) return true;
+  auto user_granted = find_granted(username);
+  if (user_granted) {
+    if (user_granted.value()->uuid == user.uuid()) return true;
+    erase_granted(*user_granted);  // Stale user; remove
+  }
+  return false;
+}
+
+void UserImpersonation::grant_one(const User &user) {
+  // Check if user is denied
+  //  update denied_
+  auto denied_user = find_denied(user.username());
+  if (denied_user) {
+    erase_denied(*denied_user);  // Stale user; remove
+  }
+
+  // Check if all are granted
+  //  yes -> return
+  //  no
+  //    check if current username is in the list
+  //      no -> add
+  //      yes -> remove old one and add the current one
+  if (grants_all()) return;
+  auto granted_user = find_granted(user.username());
+  if (granted_user) {
+    if (granted_user.value()->uuid == user.uuid()) return;
+    erase_granted(*granted_user);  // Stale user; remove
+  }
+  emplace_granted(user.username(), user.uuid());
+}
+
+void UserImpersonation::deny_one(const User &user) {
+  // Check granted
+  //  all -> skip
+  //  check if user is granted
+  //    remove irelevent of the uuid
+  if (!grants_all()) {
+    auto granted_user = find_granted(user.username());
+    if (granted_user) {
+      // remove user irrelevant of the uuid
+      erase_granted(*granted_user);  // Stale user; remove
+    }
+  }
+
+  // Check denied
+  //  check if user is in the list
+  //    no -> add
+  //    yes
+  //      check if uuids match
+  //        no -> remove and add
+  //        yes -> return
+  auto denied_user = find_denied(user.username());
+  if (denied_user) {
+    if (denied_user.value()->uuid == user.uuid()) return;
+    erase_denied(*denied_user);  // Stale user; remove
+  }
+  denied_.emplace(user.username(), user.uuid());
+}
+
+void to_json(nlohmann::json &data, const UserImpersonation::UserId &uid) {
+  data = nlohmann::json::object({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
+}
+
+void from_json(const nlohmann::json &data, UserImpersonation::UserId &uid) {
+  uid = {data[kUserImpName], data[kUserImpId]};
+}
+
+void to_json(nlohmann::json &data, const UserImpersonation::GrantAllUsers & /* unused */) {
+  data = nlohmann::json::object();
+}
+
+void from_json(const nlohmann::json &data, UserImpersonation::GrantAllUsers & /* unused */) {
+  // Empty struct
+}
+
+void to_json(nlohmann::json &data, const UserImpersonation &usr_imp) {
+  data = nlohmann::json::object();
+
+  std::visit(utils::Overloaded{[&](UserImpersonation::GrantAllUsers obj) { data[kUserImpGranted] = obj; },
+                               [&](std::set<UserImpersonation::UserId> granted) {
+                                 auto res = nlohmann::json::array();
+                                 for (const auto &uid : granted) {
+                                   res.push_back({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
+                                 }
+                                 data[kUserImpGranted] = std::move(res);
+                               }},
+             usr_imp.granted_);
+
+  auto res = nlohmann::json::array();
+  for (const auto &uid : usr_imp.denied_) {
+    res.emplace_back(uid);
+  }
+  data[kUserImpDenied] = std::move(res);
+}
+
+void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
+  if (!data.is_object()) {
+    throw AuthException("Couldn't load user impersonation data!");
+  }
+  if (!data[kUserImpGranted].is_object() && !data[kUserImpGranted].is_array()) {
+    throw AuthException("Couldn't load user impersonation data!");
+  }
+  if (!data[kUserImpDenied].is_array()) {
+    throw AuthException("Couldn't load user impersonation data!");
+  }
+
+  UserImpersonation::GrantedUsers granted;
+  if (data[kUserImpGranted].is_object()) {
+    granted = UserImpersonation::GrantAllUsers{};
+  } else {
+    granted = {data[kUserImpGranted].get<std::set<UserImpersonation::UserId>>()};
+  }
+  UserImpersonation::DeniedUsers denied = data[kUserImpDenied];
+
+  usr_imp = {std::move(granted), std::move(denied)};
+}
+#endif
 
 }  // namespace memgraph::auth

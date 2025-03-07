@@ -48,16 +48,17 @@ bool EdgeAccessor::IsDeleted() const {
 }
 
 bool EdgeAccessor::IsVisible(const View view) const {
+  if (for_deleted_) return true;
+
   auto check_from_vertex_integrity = [&view, this]() -> bool {
     bool attached = true;
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
-      attached =
-          std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
-            return std::get<2>(out_edge) == edge_ && std::get<0>(out_edge) == edge_type_;
-          }) != from_vertex_->out_edges.end();
+      attached = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(),
+                              [&](const auto &out_edge) { return std::get<EdgeRef>(out_edge) == edge_; }) !=
+                 from_vertex_->out_edges.end();
       delta = from_vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
@@ -72,50 +73,12 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::DELETE_OBJECT:
           break;
         case Delta::Action::ADD_OUT_EDGE: {
-          if (delta.vertex_edge.edge == edge_ && delta.vertex_edge.edge_type == edge_type_) {
+          if (delta.vertex_edge.edge == edge_) {
             attached = true;
           }
           break;
         }
         case Delta::Action::REMOVE_OUT_EDGE: {
-          if (delta.vertex_edge.edge == edge_) {
-            attached = false;
-          }
-          break;
-        }
-      }
-    });
-    return attached;
-  };
-  auto check_to_vertex_integrity = [&view, this]() -> bool {
-    bool attached = true;
-    Delta *delta = nullptr;
-    {
-      auto guard = std::shared_lock{to_vertex_->lock};
-      // Initialize deleted by checking if out edges contain edge_
-      attached = std::find_if(to_vertex_->in_edges.begin(), to_vertex_->in_edges.end(), [&](const auto &in_edge) {
-                   return std::get<2>(in_edge) == edge_ && std::get<0>(in_edge) == edge_type_;
-                 }) != to_vertex_->in_edges.end();
-      delta = to_vertex_->delta;
-    }
-    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
-      switch (delta.action) {
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::REMOVE_OUT_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-          break;
-        case Delta::Action::ADD_IN_EDGE: {
-          if (delta.vertex_edge.edge == edge_ && delta.vertex_edge.edge_type == edge_type_) {
-            attached = true;
-          }
-          break;
-        }
-        case Delta::Action::REMOVE_IN_EDGE: {
           if (delta.vertex_edge.edge == edge_) {
             attached = false;
           }
@@ -155,7 +118,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
       }
     });
 
-    return !deleted || for_deleted_;
+    return !deleted;
   };
 
   // When edges don't have properties, their isolation level is still dictated by MVCC ->
@@ -164,18 +127,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
     return check_from_vertex_integrity();
   }
 
-  bool visible = check_presence_of_edge();
-  // We don't want to check detachment for the already deleted edges
-  // That functionality is reserved for custom behaviour like triggers
-  if (!visible || for_deleted_) return visible;
-
-  // Otherwise, in normal workloads when testing versions of indices
-  // We need to check for attachment with vertices
-  visible = check_from_vertex_integrity();
-  if (!visible) return false;
-
-  visible = check_to_vertex_integrity();
-  return visible;
+  return check_presence_of_edge();
 }
 
 VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_vertex_, storage_, transaction_}; }

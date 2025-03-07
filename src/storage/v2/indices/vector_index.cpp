@@ -22,6 +22,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
@@ -138,7 +139,8 @@ unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) 
                   name));
 }
 
-bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices) {
+bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     // Create the index
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, unum::usearch::scalar_kind_t::f32_k);
@@ -169,7 +171,12 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
 
     // Update the index with the vertices
     for (auto &vertex : vertices) {
-      UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property});
+      if (!utils::Contains(vertex.labels, spec.label)) {
+        continue;
+      }
+      if (UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property}) && snapshot_info) {
+        snapshot_info->Update(UpdateType::VECTOR_IDX);
+      }
     }
   } catch (const std::exception &e) {
     spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
@@ -195,7 +202,7 @@ void VectorIndex::Clear() {
   pimpl->index_.clear();
 }
 
-void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) {
+bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) {
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
   bool is_index_full = false;
   // try to remove entry (if it exists) and then add a new one + check if index is full
@@ -208,7 +215,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
   if (property.IsNull()) {
     // if property is null, that means that the vertex should not be in the index and we shouldn't do any other updates
-    return;
+    return false;
   }
   if (!property.IsList()) {
     throw query::VectorSearchException("Vector index property must be a list.");
@@ -245,6 +252,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     auto locked_index = mg_index->MutableSharedLock();
     locked_index->add(vertex, vector.data(), mg_vector_index_t::any_thread(), false);
   }
+  return true;
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) {

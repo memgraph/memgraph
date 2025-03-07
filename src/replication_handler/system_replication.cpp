@@ -92,7 +92,6 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   // System
   data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
       [&data, system_state_access](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SystemHeartbeatRpc");
         SystemHeartbeatHandler(system_state_access.LastCommitedTS(), data.uuid_, req_reader, res_builder);
       });
 
@@ -100,7 +99,6 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
-        spdlog::debug("Received SystemRecoveryRpc");
         SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, req_reader, res_builder);
       });
 

@@ -5,6 +5,7 @@ copy_e2e_python_files(durability common.py)
 copy_e2e_python_files(durability durability_with_property_compression_used.py)
 copy_e2e_python_files(durability periodic_snapshot.py)
 copy_e2e_python_files(durability snapshot_recovery.py)
+copy_e2e_python_files(durability multitenancy.py)
 
 copy_e2e_python_files_from_parent_folder(durability ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(durability ".." interactive_mg_runner.py)

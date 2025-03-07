@@ -15,6 +15,7 @@
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/utils.hpp"
+#include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -123,9 +124,13 @@ void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
     spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return;
   }
-  const auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
+  try {
+    const auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
+    from_json(cluster_config_json, cluster_config_);
+  } catch (std::exception const &e) {
+    LOG_FATAL("Error occurred while parsing cluster config {}", e.what());
+  }
 
-  from_json(cluster_config_json, cluster_config_);
   spdlog::trace("Loaded cluster config from the durable storage.");
 }
 
@@ -141,12 +146,16 @@ auto CoordinatorStateManager::GetCoordinatorInstancesAux() const -> std::vector<
   std::vector<CoordinatorInstanceAux> coord_instances_aux;
   coord_instances_aux.reserve(cluster_config_servers.size());
 
-  std::ranges::transform(cluster_config_servers, std::back_inserter(coord_instances_aux),
-                         [](auto const &server) -> CoordinatorInstanceAux {
-                           spdlog::trace("Aux read: {}", server->get_aux());
-                           auto j = nlohmann::json::parse(server->get_aux());
-                           return j.template get<CoordinatorInstanceAux>();
-                         });
+  try {
+    std::ranges::transform(cluster_config_servers, std::back_inserter(coord_instances_aux),
+                           [](auto const &server) -> CoordinatorInstanceAux {
+                             auto j = nlohmann::json::parse(server->get_aux());
+                             return j.template get<CoordinatorInstanceAux>();
+                           });
+  } catch (std::exception const &e) {
+    LOG_FATAL("Error occurred while parsing aux field {}", e.what());
+  }
+
   return coord_instances_aux;
 }
 
@@ -194,9 +203,13 @@ auto CoordinatorStateManager::read_state() -> std::shared_ptr<srv_state> {
     return saved_state_;
   }
 
-  saved_state_ = std::make_shared<srv_state>();
-  auto const server_state_json = nlohmann::json::parse(maybe_server_state.value());
-  from_json(server_state_json, *saved_state_);
+  try {
+    saved_state_ = std::make_shared<srv_state>();
+    auto const server_state_json = nlohmann::json::parse(maybe_server_state.value());
+    from_json(server_state_json, *saved_state_);
+  } catch (std::exception const &e) {
+    LOG_FATAL("Error occurred while reading server state {}", e.what());
+  }
 
   return saved_state_;
 }

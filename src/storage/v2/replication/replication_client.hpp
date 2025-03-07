@@ -171,54 +171,54 @@ class ReplicationStorageClient {
    *
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    * @param replica_stream replica stream to finalize the transaction on
+   * @param durability_commit_timestamp
    * @return true
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
                                                     std::optional<ReplicaStream> &&replica_stream,
-                                                    uint64_t timestamp) const;
+                                                    uint64_t durability_commit_timestamp) const;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
    *
-   * @param storage pointer to the storage associated with the client
+   * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);
+  void TryCheckReplicaStateAsync(Storage *main_storage, DatabaseAccessProtector db_acc);
 
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
    *
-   * @param replica_commit the commit up to which we should recover to
-   * @param storage pointer to the storage associated with the client
+   * @param replica_last_commit_ts the commit up to which we should recover to
+   * @param main_storage pointer to the storage associated with the client
+   * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
    */
-  void RecoverReplica(uint64_t replica_commit, Storage *storage) const;
+  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, bool reset_needed = false) const;
 
   /**
    * @brief Check replica state
    *
-   * @param storage pointer to the storage associated with the client
+   * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
+  void UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc);
 
   /**
    * @brief Forcefully reset storage to as it is when started from scratch.
    *
    * @param storage pointer to the storage associated with the client
    */
-  bool ForceResetStorage(Storage *storage) const;
-
   void LogRpcFailure() const;
 
   /**
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary
    *
-   * @param storage pointer to the storage associated with the client
+   * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
+  void TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc);
 
   ::memgraph::replication::ReplicationClient &client_;
   mutable std::atomic<uint64_t> last_known_ts_{0};

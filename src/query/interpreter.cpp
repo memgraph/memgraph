@@ -440,6 +440,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case IS_MAIN:
         throw QueryRuntimeException(
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
+      case NO_MAIN:
+        throw QueryRuntimeException(
+            "The replica cannot be unregisted because the current main is down. Retry when the cluster has an active "
+            "leader!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
@@ -742,6 +746,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       auth_query->label_privileges_;
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges =
       auth_query->edge_type_privileges_;
+  auto impersonation_targets = auth_query->impersonation_targets_;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
@@ -1147,6 +1152,54 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           const auto db =
               db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           auth->SetMainDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+#else
+      callback.fn = [] {
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::GRANT_IMPERSONATE_USER:
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException(
+            license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
+      }
+      forbid_on_replica();
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth, user_or_role = std::move(user_or_role), targets = std::move(impersonation_targets),
+                     interpreter = &interpreter] {  // NOLINT
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+        try {
+          auth->GrantImpersonateUser(user_or_role, targets,
+                                     &*interpreter->system_transaction_);  // Can throws query exception
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+#else
+      callback.fn = [] {
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::DENY_IMPERSONATE_USER:
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException(
+            license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
+      }
+      forbid_on_replica();
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth, user_or_role = std::move(user_or_role), targets = std::move(impersonation_targets),
+                     interpreter = &interpreter] {  // NOLINT
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+        try {
+          auth->DenyImpersonateUser(user_or_role, targets,
+                                    &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -4674,6 +4727,26 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
 
+      break;
+    }
+    case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
+      header = {"index_name", "label", "property", "capacity", "dimension", "metric", "size"};
+      handler = [database, dba] {
+        auto *storage = database->storage();
+        auto vector_indices = dba->ListAllVectorIndices();
+        auto storage_acc = database->Access();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(vector_indices.size());
+
+        for (const auto &spec : vector_indices) {
+          results.push_back({TypedValue(spec.index_name), TypedValue(storage->LabelToName(spec.label)),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
+                             TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size))});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
       break;
     }
   }

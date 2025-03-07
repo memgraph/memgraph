@@ -228,12 +228,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
           [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
             bool const success = std::invoke([state = client->State()]() {
               // We force sync replicas in other situation
+              // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
+              // set the state to RECOVERY
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
-#ifdef MG_ENTERPRISE
-                return flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator();
-#else
                 return false;
-#endif
               }
               return true;
             });
