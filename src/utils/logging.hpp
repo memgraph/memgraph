@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,13 +54,14 @@ namespace memgraph::logging {
 #define GET_MESSAGE(...) \
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
 
-#define MG_ASSERT(expr, ...)                                                                  \
-  do {                                                                                        \
-    if (expr) [[likely]] {                                                                    \
-      (void)0;                                                                                \
-    } else {                                                                                  \
-      ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
-    }                                                                                         \
+#define MG_ASSERT(expr, ...)                                                                    \
+  do {                                                                                          \
+    if (expr) [[unlikely]] {                                                                    \
+      [&]() __attribute((noinline, cold)) {                                                     \
+        ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
+      }                                                                                         \
+      ();                                                                                       \
+    }                                                                                           \
   } while (false)
 
 #ifndef NDEBUG
