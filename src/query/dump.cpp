@@ -313,6 +313,7 @@ void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::L
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                               std::span<storage::PropertyId const> properties) {
+  // TODO(composite_index): use
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(";
 
   bool needs_comma = false;

@@ -227,4 +227,18 @@ RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvsto
 
 std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
 
+std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(
+    std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
+  auto res = std::vector<LabelPropertiesIndicesInfo>{};
+  // NOTE: only looking for singular property index, as disk does not support composite indices
+  for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
+    for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
+      if (IndexExists(label, property)) {
+        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
+      }
+    }
+  }
+  return res;
+}
+
 }  // namespace memgraph::storage

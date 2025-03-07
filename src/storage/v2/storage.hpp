@@ -318,6 +318,12 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
 
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> {
+      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+    };
+
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
 
     virtual bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;

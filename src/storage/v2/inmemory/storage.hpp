@@ -195,22 +195,20 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->ApproximateVertexCount(label);
+      return storage_->indices_.label_index_->ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(label,
-                                                                                                              property);
+      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
-          label, property, value);
+      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, property, value);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -219,34 +217,28 @@ class InMemoryStorage final : public Storage {
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                     const std::optional<utils::Bound<PropertyValue>> &lower,
                                     const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
-          label, property, lower, upper);
+      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, property, lower, upper);
     }
 
-    uint64_t ApproximateEdgeCount() const override {
-      return static_cast<InMemoryStorage *>(storage_)->edge_count_.load(std::memory_order_acquire);
-    }
+    uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->ApproximateEdgeCount(edge_type);
+      return storage_->indices_.edge_type_index_->ApproximateEdgeCount(edge_type);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
-          edge_type, property);
+      return storage_->indices_.edge_type_property_index_->ApproximateEdgeCount(edge_type, property);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const PropertyValue &value) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
-          edge_type, property, value);
+      return storage_->indices_.edge_type_property_index_->ApproximateEdgeCount(edge_type, property, value);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
-          edge_type, property, lower, upper);
+      return storage_->indices_.edge_type_property_index_->ApproximateEdgeCount(edge_type, property, lower, upper);
     }
 
     uint64_t ApproximateEdgeCount(PropertyId property) const override {
@@ -328,21 +320,18 @@ class InMemoryStorage final : public Storage {
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                          VertexAccessor *to_vertex) override;
 
-    bool LabelIndexExists(LabelId label) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);
-    }
+    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
+      return storage_->indices_.label_property_index_->IndexExists(label, property);
     }
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->IndexExists(edge_type);
+      return storage_->indices_.edge_type_index_->IndexExists(edge_type);
     }
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->IndexExists(edge_type,
-                                                                                                       property);
+      return storage_->indices_.edge_type_property_index_->IndexExists(edge_type, property);
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {

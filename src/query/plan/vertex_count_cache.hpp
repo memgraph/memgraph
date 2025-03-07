@@ -152,6 +152,12 @@ class VertexCountCache {
     return db_->LabelPropertyIndexExists(label, property);
   }
 
+  auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
+                                          std::span<storage::PropertyId const> properties) const
+      -> std::vector<storage::LabelPropertiesIndicesInfo> {
+    return db_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+  }
+
   bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexExists(edge_type); }
 
   bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) {

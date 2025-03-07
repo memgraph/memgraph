@@ -282,6 +282,12 @@ class InteractiveDbAccessor {
 
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
+  auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
+                                          std::span<memgraph::storage::PropertyId const> properties) const
+      -> std::vector<memgraph::storage::LabelPropertiesIndicesInfo> {
+    return dba_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+  }
+
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);

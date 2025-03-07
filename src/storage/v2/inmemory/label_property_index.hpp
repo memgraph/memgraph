@@ -93,6 +93,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool IndexExists(LabelId label, PropertyId property) const override;
 
+  auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
+      -> std::vector<LabelPropertiesIndicesInfo> override;
+
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const override;
 

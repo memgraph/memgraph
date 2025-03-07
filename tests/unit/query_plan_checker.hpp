@@ -734,6 +734,21 @@ class FakeDbAccessor {
     return false;
   }
 
+  auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
+                                          std::span<storage::PropertyId const> properties) const
+      -> std::vector<storage::LabelPropertiesIndicesInfo> {
+    auto res = std::vector<storage::LabelPropertiesIndicesInfo>{};
+    // TODO: use update for composite indices when we need to test that
+    for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
+      for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
+        if (LabelPropertyIndexExists(label, property)) {
+          res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
+        }
+      }
+    }
+    return res;
+  }
+
   bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) const {
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
   }

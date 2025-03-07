@@ -79,3 +79,6 @@ MVCC CurrentVersionHasLabelProperty for the InMemoryLabelPropertyIndex::Iterable
 - `ExtractPropertyValuesMissingAsNull` requires the properties be specified in
    order. Could we enforce this either via an assert and/or a note in the
    function docstring.
+
+
+Point index can not be composite (ANTLR grammar) or check and deny in cypher visitor
