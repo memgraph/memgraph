@@ -354,7 +354,7 @@ repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_ty
 
 # usearch
 usearch_ref="v2.15.3"
-repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref"
+repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref" true
 pushd usearch
 git submodule update --init --recursive
 popd
