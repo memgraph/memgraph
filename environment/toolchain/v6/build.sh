@@ -157,11 +157,12 @@ popd
 mkdir -p build
 pushd build
 
-#modify CFLAGS for older CPU support
+# Modify CFLAGS for older CPU support.
 CPUFLAGS=""
 if [[ "$for_arm" = false ]]; then
-    # TODO(mattkjames7): pin down minimum CPU specs for future toolchain 
-    #CPUFLAGS="-mavx"
+    # NOTE: As soon as we upgrade all build machines to the new hardware we
+    # should add the CPUFLAGS below.
+    # CPUFLAGS="-mavx"
     export CFLAGS="$CFLAGS $CPUFLAGS"
     export CXXFLAGS="$CXXFLAGS $CPUFLAGS"
 fi
@@ -477,13 +478,8 @@ if [ ! -f $PREFIX/bin/cmake ]; then
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=cmake&arch=amd64&ver=3.13.4-1&stamp=1549799837
     echo 'set(CMAKE_SKIP_RPATH ON CACHE BOOL "Skip rpath" FORCE)' >> build-flags.cmake
     echo 'set(CMAKE_USE_RELATIVE_PATHS ON CACHE BOOL "Use relative paths" FORCE)' >> build-flags.cmake
-    if [[ "$for_arm" = true ]]; then
-        echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
-        echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
-    else
-        echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
-        echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
-    fi
+    echo 'set(CMAKE_C_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C flags" FORCE)' >> build-flags.cmake
+    echo 'set(CMAKE_CXX_FLAGS "-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wdate-time -D_FORTIFY_SOURCE=2" CACHE STRING "C++ flags" FORCE)' >> build-flags.cmake
     echo 'set(CMAKE_SKIP_BOOTSTRAP_TEST ON CACHE BOOL "Skip BootstrapTest" FORCE)' >> build-flags.cmake
     echo 'set(BUILD_CursesDialog ON CACHE BOOL "Build curses GUI" FORCE)' >> build-flags.cmake
     mkdir build && pushd build
@@ -556,55 +552,29 @@ if [ ! -f $PREFIX/bin/clang ]; then
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
-    if [[ "$for_arm" = false ]]; then
-        cmake -S llvm -B build -G "Unix Makefiles" \
-            -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-            -DCMAKE_C_COMPILER=$PREFIX/bin/gcc \
-            -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
-            -DCMAKE_CXX_LINK_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64" \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
-            -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
-            -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
-            -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
-            -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
-            -DLLVM_LINK_LLVM_DYLIB=ON \
-            -DLLVM_INSTALL_UTILS=ON \
-            -DLLVM_VERSION_SUFFIX= \
-            -DLLVM_BUILD_LLVM_DYLIB=ON \
-            -DLLVM_ENABLE_RTTI=ON \
-            -DLLVM_ENABLE_FFI=ON \
-            -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
-            -DLLVM_INCLUDE_BENCHMARKS=OFF \
-            -DLLVM_USE_PERF=yes \
-            -DCOMPILER_RT_INCLUDE_TESTS=OFF \
-            -DLIBCXX_INCLUDE_BENCHMARKS=OFF
-    else
-        cmake -S llvm -B build -G "Unix Makefiles" \
-            -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-            -DCMAKE_C_COMPILER=$PREFIX/bin/gcc \
-            -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
-            -DCMAKE_CXX_LINK_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64" \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
-            -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
-            -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
-            -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
-            -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
-            -DLLVM_LINK_LLVM_DYLIB=ON \
-            -DLLVM_INSTALL_UTILS=ON \
-            -DLLVM_VERSION_SUFFIX= \
-            -DLLVM_BUILD_LLVM_DYLIB=ON \
-            -DLLVM_ENABLE_RTTI=ON \
-            -DLLVM_ENABLE_FFI=ON \
-            -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
-            -DLLVM_INCLUDE_BENCHMARKS=OFF \
-            -DLLVM_USE_PERF=yes \
-            -DCOMPILER_RT_INCLUDE_TESTS=OFF \
-            -DLIBCXX_INCLUDE_BENCHMARKS=OFF
-    fi
+    cmake -S llvm -B build -G "Unix Makefiles" \
+        -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+        -DCMAKE_C_COMPILER=$PREFIX/bin/gcc \
+        -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
+        -DCMAKE_CXX_LINK_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64" \
+        -DCMAKE_INSTALL_PREFIX=$PREFIX \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
+        -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
+        -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
+        -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
+        -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
+        -DLLVM_LINK_LLVM_DYLIB=ON \
+        -DLLVM_INSTALL_UTILS=ON \
+        -DLLVM_VERSION_SUFFIX= \
+        -DLLVM_BUILD_LLVM_DYLIB=ON \
+        -DLLVM_ENABLE_RTTI=ON \
+        -DLLVM_ENABLE_FFI=ON \
+        -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_USE_PERF=yes \
+        -DCOMPILER_RT_INCLUDE_TESTS=OFF \
+        -DLIBCXX_INCLUDE_BENCHMARKS=OFF
     pushd build
     make -j$CPUS
     if [[ "$for_arm" = false ]]; then
@@ -695,9 +665,9 @@ if [[ "\$USER" == "root" ]]; then
     return 0
 fi
 
-# cehck whether we are running the script on an ARM processor or not
-arch=$(uname -m)
-if [[ "$arch" =~ arm|aarch64 ]]; then
+# Check whether we are running the script on an ARM processor or not.
+arch=\$(uname -m)
+if [[ "\$arch" =~ arm|aarch64 ]]; then
   isarm=true
   echo "CPU arch: ARM"
 else
