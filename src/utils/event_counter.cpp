@@ -102,7 +102,13 @@
   M(DeletedNodes, TTL, "Number of nodes deleted via TTL")                                                              \
   M(DeletedEdges, TTL, "Number of edges deleted via TTL")                                                              \
                                                                                                                        \
-  M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")
+  M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")                              \
+                                                                                                                       \
+  M(SuccessfulFailovers, HighAvailability, "Number of successful failovers performed on the coordinator.")             \
+  M(RaftFailedFailovers, HighAvailability, "Number of failed failovers because of Raft on the coordinator.")           \
+  M(NoAliveInstanceFailedFailovers, HighAvailability, "Number of failed failovers, no data instance was alive.")       \
+  M(BecomeLeaderSuccess, HighAvailability, "Number of times the coordinator successfuly became the leader.")           \
+  M(FailedToBecomeLeader, HighAvailability, "Number of times the coordinator failed to become the leader.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters
