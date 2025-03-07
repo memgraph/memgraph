@@ -62,3 +62,4 @@ src/transactions/distributed/engine_rpc_messages.hpp
 /tests/manual/js/transaction_timeout/node_modules/
 .vscode/
 src/query/frontend/opencypher/grammar/.antlr/*
+tests/jepsen/src/memgraph/mtenancy/datasets/

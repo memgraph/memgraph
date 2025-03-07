@@ -1563,7 +1563,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
   if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
-                                                                          property, std::nullopt);
+                                                                          property, std::nullopt, std::nullopt);
       violation.has_value()) {
     return StorageExistenceConstraintDefinitionError{violation.value()};
   }
@@ -2532,7 +2532,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return tx_replication.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc));
+  return tx_replication.FinalizeTransaction(durability_commit_timestamp, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

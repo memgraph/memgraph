@@ -29,8 +29,9 @@ using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::utils::UUID;
-;
 
+using nuraft::buffer;
+using nuraft::buffer_serializer;
 using nuraft::log_entry;
 
 // No networking communication in this test.
@@ -316,4 +317,22 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
     auto entry = log_store.entry_at(i);
     ASSERT_EQ(entry->get_term(), 0);
   }
+}
+
+TEST_F(CoordinatorLogStoreTests, TestConf) {
+  // Define a CoordinatorLogStore instance
+  auto log_store_storage = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestConf");
+  memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+  CoordinatorLogStore log_store{GetLogger(), log_store_durability};
+
+  // conf log gets serialized as empty string, check that on restart reading from disk works correctly
+  std::string data = "anything";
+  auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
+  buffer_serializer bs{log_term_buffer};
+  bs.put_str(data);
+  auto log_entry_obj = cs_new<log_entry>(1, log_term_buffer, nuraft::log_val_type::conf);
+  log_store.append(log_entry_obj);
+
+  CoordinatorLogStore log_store2{GetLogger(), log_store_durability};
+  auto entry = log_store2.entry_at(1);
 }

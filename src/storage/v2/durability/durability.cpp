@@ -37,11 +37,11 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/timer.hpp"
+
 namespace memgraph::metrics {
 extern const Event SnapshotRecoveryLatency_us;
 }  // namespace memgraph::metrics
@@ -126,7 +126,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     try {
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
-          "Reading wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
+          "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
           "sequence "
           "number {}.",
@@ -134,11 +134,10 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
-        spdlog::trace("Wal file {} will be used for recovery.", item.path());
+        spdlog::trace("Wal file {} will be used.", item.path());
       } else {
-        spdlog::trace(
-            "Wal file {} won't be used for recovery. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
-            item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
+        spdlog::trace("Wal file {} won't be used. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
+                      item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
       }
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read WAL file {}.", item.path());
@@ -159,94 +158,109 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-  RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
-  RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
-  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info);
+                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
+                              snapshot_info);
+  RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
+                           snapshot_info);
+  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
 }
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            const std::optional<std::filesystem::path> &storage_dir) {
-  spdlog::info("Recreating indices from metadata.");
-
-  // Recover label indices.
-  spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
+                            const std::optional<std::filesystem::path> &storage_dir,
+                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
-  for (const auto &item : indices_metadata.label) {
-    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info)) {
-      throw RecoveryFailure("The label index must be created here!");
+  // Recover label indices.
+  {
+    spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
+    for (const auto &item : indices_metadata.label) {
+      if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info, snapshot_info)) {
+        throw RecoveryFailure("The label index must be created here!");
+      }
+      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
     }
-    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+    spdlog::info("Label indices are recreated.");
   }
-  spdlog::info("Label indices are recreated.");
-
-  spdlog::info("Recreating index statistics from metadata.");
-
   // Recover label indices statistics.
-  spdlog::info("Recreating {} label index statistics from metadata.", indices_metadata.label_stats.size());
-  for (const auto &item : indices_metadata.label_stats) {
-    mem_label_index->SetIndexStats(item.first, item.second);
-    spdlog::info("Statistics for index on :{} are recreated from metadata",
-                 name_id_mapper->IdToName(item.first.AsUint()));
+  {
+    spdlog::info("Recreating {} label index statistics from metadata.", indices_metadata.label_stats.size());
+    for (const auto &item : indices_metadata.label_stats) {
+      mem_label_index->SetIndexStats(item.first, item.second);
+      spdlog::info("Statistics for index on :{} are recreated from metadata",
+                   name_id_mapper->IdToName(item.first.AsUint()));
+    }
+    spdlog::info("Label indices statistics are recreated.");
   }
-  spdlog::info("Label indices statistics are recreated.");
 
   // Recover label+property indices.
-  spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
-  for (const auto &item : indices_metadata.label_property) {
-    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
-      throw RecoveryFailure("The label+property index must be created here!");
-    spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                 name_id_mapper->IdToName(item.second.AsUint()));
+  {
+    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
+    for (const auto &item : indices_metadata.label_property) {
+      if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
+                                                 snapshot_info))
+        throw RecoveryFailure("The label+property index must be created here!");
+      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                   name_id_mapper->IdToName(item.second.AsUint()));
+    }
+    spdlog::info("Label+property indices are recreated.");
   }
-  spdlog::info("Label+property indices are recreated.");
 
   // Recover label+property indices statistics.
-  spdlog::info("Recreating {} label+property indices statistics from metadata.",
-               indices_metadata.label_property_stats.size());
-  for (const auto &item : indices_metadata.label_property_stats) {
-    const auto label_id = item.first;
-    const auto property_id = item.second.first;
-    const auto &stats = item.second.second;
-    mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
-    spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
-                 name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
+  {
+    spdlog::info("Recreating {} label+property indices statistics from metadata.",
+                 indices_metadata.label_property_stats.size());
+    for (const auto &item : indices_metadata.label_property_stats) {
+      const auto label_id = item.first;
+      const auto property_id = item.second.first;
+      const auto &stats = item.second.second;
+      mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+      spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
+                   name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
+    }
+    spdlog::info("Label+property indices statistics are recreated.");
   }
-  spdlog::info("Label+property indices statistics are recreated.");
 
   // Recover edge-type indices.
-  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
-  MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
-            "Trying to recover edge type indices while properties on edges are disabled.");
-  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
-  for (const auto &item : indices_metadata.edge) {
-    // TODO: parallel execution
-    if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
-      throw RecoveryFailure("The edge-type index must be created here!");
+  {
+    spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+    auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
+    MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
+              "Trying to recover edge type indices while properties on edges are disabled.");
+
+    for (const auto &item : indices_metadata.edge) {
+      // TODO: parallel execution
+      if (!mem_edge_type_index->CreateIndex(item, vertices->access(), snapshot_info)) {
+        throw RecoveryFailure("The edge-type index must be created here!");
+      }
+      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
     }
-    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+    spdlog::info("Edge-type indices are recreated.");
   }
-  spdlog::info("Edge-type indices are recreated.");
 
   // Recover edge-type + property indices.
-  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
-  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
-            "Trying to recover edge type+property indices while properties on edges are disabled.");
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
-  for (const auto &item : indices_metadata.edge_property) {
-    // TODO: parallel execution
-    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access())) {
-      throw RecoveryFailure("The edge-type property index must be created here!");
-    }
-    spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                 name_id_mapper->IdToName(item.second.AsUint()));
-  }
-  spdlog::info("Edge-type + property indices are recreated.");
+  {
+    spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
+    MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
+              "Trying to recover edge type+property indices while properties on edges are disabled.");
+    auto *mem_edge_type_property_index =
+        static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
 
+    for (const auto &item : indices_metadata.edge_property) {
+      // TODO: parallel execution
+      if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_info)) {
+        throw RecoveryFailure("The edge-type property index must be created here!");
+      }
+      spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                   name_id_mapper->IdToName(item.second.AsUint()));
+    }
+    spdlog::info("Edge-type + property indices are recreated.");
+  }
+
+  // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     // Recover text indices.
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
@@ -257,7 +271,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -267,26 +281,32 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Text indices are recreated.");
   }
 
-  spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
-  for (const auto &[label, property] : indices_metadata.point_label_property) {
-    // TODO: parallel execution
-    if (!indices->point_index_.CreatePointIndex(label, property, vertices->access()))
-      throw RecoveryFailure("The point index must be created here!");
-    spdlog::info("Point index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                 name_id_mapper->IdToName(property.AsUint()));
-  }
-  spdlog::info("Point indices are recreated.");
-
-  spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
-  auto vertices_acc = vertices->access();
-  for (const auto &spec : indices_metadata.vector_indices) {
-    if (!indices->vector_index_.CreateIndex(spec, vertices_acc)) {
-      throw RecoveryFailure("The vector index must be created here!");
+  // Point idx
+  {
+    spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
+    for (const auto &[label, property] : indices_metadata.point_label_property) {
+      // TODO: parallel execution
+      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_info)) {
+        throw RecoveryFailure("The point index must be created here!");
+      }
+      spdlog::info("Point index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                   name_id_mapper->IdToName(property.AsUint()));
     }
-    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
-                 name_id_mapper->IdToName(spec.property.AsUint()));
+    spdlog::info("Point indices are recreated.");
   }
-  spdlog::info("Vector indices are recreated.");
+  // Vector idx
+  {
+    spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
+    auto vertices_acc = vertices->access();
+    for (const auto &spec : indices_metadata.vector_indices) {
+      if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
+        throw RecoveryFailure("The vector index must be created here!");
+      }
+      spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
+                   name_id_mapper->IdToName(spec.property.AsUint()));
+    }
+    spdlog::info("Vector indices are recreated.");
+  }
 
   spdlog::info("Indices are recreated.");
 }
@@ -294,15 +314,16 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
                                  NameIdMapper *name_id_mapper,
-                                 const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+                                 const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                                 std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
   for (const auto &[label, property] : constraints_metadata.existence) {
     if (constraints->existence_constraints_->ConstraintExists(label, property)) {
       throw RecoveryFailure("The existence constraint already exists!");
     }
 
-    if (auto violation =
-            ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property, parallel_exec_info);
+    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
+                                                                            parallel_exec_info, snapshot_info);
         violation.has_value()) {
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
@@ -316,12 +337,14 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                               Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                              const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+                              const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
 
   for (const auto &[label, properties] : constraints_metadata.unique) {
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
-    auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info);
+    auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info,
+                                                        snapshot_info);
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
@@ -340,7 +363,8 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                             Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                            const std::optional<ParallelizedSchemaCreationInfo> & /**/) {
+                            const std::optional<ParallelizedSchemaCreationInfo> & /**/,
+                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
@@ -350,7 +374,8 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   }
 
   if (constraints->HasTypeConstraints()) {
-    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access()); violation.has_value()) {
+    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
+        violation.has_value()) {
       throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
     }
   }
@@ -362,16 +387,17 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
                                        RecoveredIndicesAndConstraints const &indices_constraints,
-                                       bool properties_on_edges) {
+                                       bool properties_on_edges,
+                                       std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto storage_dir = std::optional<std::filesystem::path>{};
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     storage_dir = config.durability.storage_directory;
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config), storage_dir);
+                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_info);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config));
+                     GetParallelExecInfo(recovery_info, config), snapshot_info);
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,

@@ -23,53 +23,44 @@ namespace memgraph::dbms {
 void DataInstanceManagementServerHandlers::Register(memgraph::coordination::DataInstanceManagementServer &server,
                                                     replication::ReplicationHandler &replication_handler) {
   server.Register<coordination::StateCheckRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    spdlog::trace("Received StateCheckRpc");
     DataInstanceManagementServerHandlers::StateCheckHandler(replication_handler, req_reader, res_builder);
   });
 
   server.Register<coordination::PromoteToMainRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    spdlog::info("Received PromoteToMainRpc");
     DataInstanceManagementServerHandlers::PromoteToMainHandler(replication_handler, req_reader, res_builder);
   });
 
   server.Register<coordination::DemoteMainToReplicaRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received DemoteMainToReplicaRpc");
         DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received SwapMainUUIDRPC");
         DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::UnregisterReplicaRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received UnregisterReplicaRpc");
         DataInstanceManagementServerHandlers::UnregisterReplicaHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::EnableWritingOnMainRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received EnableWritingOnMainRpc");
         DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::GetInstanceUUIDRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received GetInstanceUUIDRpc");
         DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::GetDatabaseHistoriesRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received GetDatabasesHistoryRpc");
         DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(replication_handler, req_reader, res_builder);
       });
   server.Register<coordination::RegisterReplicaOnMainRpc>([&replication_handler](slk::Reader *req_reader,
                                                                                  slk::Builder *res_builder) -> void {
-    spdlog::info("Received RegisterReplicaOnMainRpc");
     DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(replication_handler, req_reader, res_builder);
   });
 }

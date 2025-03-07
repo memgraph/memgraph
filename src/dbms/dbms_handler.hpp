@@ -534,10 +534,16 @@ class DbmsHandler {
 
     // Add in-memory paths
     // Some directories are redundant (skip those)
-    const std::vector<std::string> skip{".lock", "audit_log", "auth", "databases", "internal_modules", "settings"};
+    using namespace std::string_view_literals;
+    constexpr std::array<std::string_view, 5> skip{"audit_log"sv, "auth"sv, "databases"sv, "internal_modules"sv,
+                                                   "settings"sv};
     for (auto const &item : std::filesystem::directory_iterator{*dir}) {
       const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
-      if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
+      auto const dir_name_str = dir_name.string();
+      if (std::find(skip.begin(), skip.end(), dir_name_str) != skip.end() || dir_name_str.starts_with(".")) {
+        spdlog::trace("{} won't be used for symlinking.", dir_name_str);
+        continue;
+      }
       to_link.push_back(item.path());
     }
 

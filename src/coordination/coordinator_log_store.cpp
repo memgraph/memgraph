@@ -76,16 +76,20 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
           continue;
         }
 
-        auto const j = nlohmann::json::parse(entry.value());
-        auto const term = j.at(kLogEntryTermKey).get<int>();
-        auto const data = j.at(kLogEntryDataKey).get<std::string>();
-        auto const value_type = j.at("val_type").get<int>();
-        auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
-        buffer_serializer bs{log_term_buffer};
-        bs.put_str(data);
-        logs_[id] = std::make_shared<log_entry>(term, log_term_buffer, static_cast<nuraft::log_val_type>(value_type));
-        logger_.Log(nuraft_log_level::TRACE,
-                    fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ", j.dump(), id, data));
+        try {
+          auto const j = nlohmann::json::parse(entry.value());
+          auto const term = j.at(kLogEntryTermKey).get<int>();
+          auto const data = j.at(kLogEntryDataKey).get<std::string>();
+          auto const value_type = j.at("val_type").get<int>();
+          auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
+          buffer_serializer bs{log_term_buffer};
+          bs.put_str(data);
+          logs_[id] = std::make_shared<log_entry>(term, log_term_buffer, static_cast<nuraft::log_val_type>(value_type));
+          logger_.Log(nuraft_log_level::TRACE,
+                      fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ", j.dump(), id, data));
+        } catch (std::exception const &e) {
+          LOG_FATAL("Error occurred while parsing JSON {}", e.what());
+        }
       }
       return true;
     }
@@ -318,8 +322,7 @@ bool CoordinatorLogStore::StoreEntryToDisk(const std::shared_ptr<log_entry> &clo
     if (clone->get_val_type() != nuraft::log_val_type::app_log) {
       // this is only our log, others nuraft creates and we
       // don't have actions for them
-      logger->Log(nuraft_log_level::TRACE,
-                  "Received non-application log, data will be empty string.");  // TODO: (andi) Not sure this is correct
+      logger->Log(nuraft_log_level::TRACE, "Received non-application log, data will be empty string.");
       // behavior.
       return {};
     }

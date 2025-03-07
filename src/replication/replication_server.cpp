@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,6 @@ ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationSer
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{config.repl_server, &rpc_server_context_, kReplicationServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received FrequentHeartbeatRpc");
     replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
   });
 }

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,7 +73,9 @@ class PostProcessor final {
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
   }
 
-  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan) { return query::plan::ValidatePlan(*plan); }
+  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan, const SymbolTable &table) {
+    return query::plan::ValidatePlan(*plan, table);
+  }
 
   template <class TVertexCounts>
   PlanCost EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
@@ -117,6 +119,8 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   auto &vertex_counts = *context->db;
   double total_cost = std::numeric_limits<double>::max();
   bool curr_uses_index_hint = false;
+  auto logger = spdlog::default_logger();
+  auto should_log_query_plans = flags::run_time::GetDebugQueryPlans() && logger->should_log(spdlog::level::debug);
 
   using ProcessedPlan = typename TPlanPostProcess::ProcessedPlan;
   ProcessedPlan plan_with_least_cost;
@@ -129,12 +133,26 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       if (!plan) continue;
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
+
+      if (should_log_query_plans) {
+        std::stringstream printed_pre_plan;
+        plan::PrettyPrint(*context->db, plan.get(), &printed_pre_plan);
+        logger->debug("Pre-rewrite plan\n{}", printed_pre_plan.str());
+      }
+
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      if (!post_process->IsValidPlan(rewritten_plan)) {
+      if (!post_process->IsValidPlan(rewritten_plan, *context->symbol_table)) {
         continue;
       }
       valid_plan_found = true;
       auto plan_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
+
+      if (should_log_query_plans) {
+        std::stringstream printed_post_plan;
+        plan::PrettyPrint(*context->db, rewritten_plan.get(), &printed_post_plan);
+        logger->debug("Post-rewrite plan\n{}\nEstimated cost: {}", printed_post_plan.str(), plan_cost.cost);
+      }
+
       // if we have a plan that uses index hints, we reject all the plans that don't use index hinting because we want
       // to force the plan using the index hints to be executed
       if (curr_uses_index_hint && !plan_cost.use_index_hints) continue;

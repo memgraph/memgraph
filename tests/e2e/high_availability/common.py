@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
 import time
 import typing
 
@@ -34,6 +35,27 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
     return [result[:-1] for result in results]
 
 
+def execute_and_ignore_dead_replica(cursor, query):
+    """
+    Ignores At least one SYNC replica error
+    :param cursor: Cursor to the instance where you want to execute the query
+    :param query: Query to be executed
+    :return: nothing
+    """
+    try:
+        execute_and_fetch_all(cursor, query)
+    except Exception as e:
+        assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
+
+
+def count_files(directory):
+    return len([name for name in os.listdir(directory) if os.path.isfile(os.path.join(directory, name))])
+
+
+def list_directory_contents(directory):
+    return os.listdir(directory)
+
+
 def wait_until_main_writeable_assert_replica_down(cursor, query):
     """
     After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try
@@ -47,7 +69,7 @@ def wait_until_main_writeable_assert_replica_down(cursor, query):
             execute_and_fetch_all(cursor, query)
             break
         except Exception as e:
-            if "Write query forbidden on the main" in str(e):
+            if "Write queries currently forbidden on the main instance" in str(e):
                 continue
             assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
             break
