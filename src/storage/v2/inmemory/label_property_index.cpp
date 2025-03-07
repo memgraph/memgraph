@@ -19,6 +19,9 @@
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
+namespace r = std::ranges;
+namespace rv = r::views;
+
 namespace memgraph::storage {
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
@@ -55,7 +58,7 @@ inline constexpr auto project = [](auto const &value) -> decltype(auto) { return
 
 InMemoryLabelPropertyIndex::PropertiesPermutationHelper::PropertiesPermutationHelper(
     std::span<PropertyId const> properties)
-    : inverse_permutation_{std::ranges::views::iota(size_t{}, properties.size()) | ranges::to_vector},
+    : inverse_permutation_{rv::iota(size_t{}, properties.size()) | ranges::to_vector},
       sorted_properties_(properties.begin(), properties.end()) {
   ranges::sort(ranges::views::zip(inverse_permutation_, sorted_properties_), std::less{}, project<1>);
 }
@@ -68,7 +71,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label,
   }
 
   auto values = vertex.properties.ExtractPropertyValuesMissingAsNull(props.sorted_properties_);
-  if (std::ranges::all_of(values, [](auto const &each) { return each.IsNull(); })) {
+  if (r::all_of(values, [](auto const &each) { return each.IsNull(); })) {
     return;
   }
 
@@ -163,15 +166,19 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
     return;
   }
 
-  for (auto &indices : it->second | std::ranges::views::filter([&](auto &each) {
-                         auto &[index_props, _] = each;
-                         return std::ranges::any_of(index_props, [&](PropertyId prop_id) {
-                           return vertex_after_update->properties.HasProperty(prop_id);
-                         });
-                       })) {
+  auto const prop_ids = vertex_after_update->properties.ExtractPropertyIds();
+
+  auto const relevant_index = [&](auto &&each) {
+    auto &[index_props, _] = each;
+    auto vector_has_property = [&](auto &&index_prop) { return r::binary_search(prop_ids, index_prop); };
+    return r::any_of(index_props, vector_has_property);
+  };
+
+  for (auto &indices : it->second | rv::filter(relevant_index)) {
     auto &[props, index] = indices;
     auto values = vertex_after_update->properties.ExtractPropertyValuesMissingAsNull(
         index.permutations_helper.sorted_properties_);
+    DMG_ASSERT(r::any_of(values, [](auto &&val) { return !val.IsNull(); }), "At least one value should be non-null");
     auto inverse_permutation = index.permutations_helper.inverse_permutation_;
     ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
     auto acc = index.skiplist.access();
@@ -186,36 +193,43 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   }
 
   // OLD
-  auto index = indices_by_property_.find(property);
-  if (index != indices_by_property_.end()) {
-    for (const auto &[label, storage] : index->second) {
-      if (!utils::Contains(vertex->labels, label)) continue;
-      auto acc = storage->access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
+  {
+    auto index = indices_by_property_.find(property);
+    if (index != indices_by_property_.end()) {
+      for (const auto &[label, storage] : index->second) {
+        if (!utils::Contains(vertex->labels, label)) continue;
+        auto acc = storage->access();
+        acc.insert(Entry{value, vertex, tx.start_timestamp});
+      }
     }
   }
 
   // NEW
-  auto const it = new_indices_by_property_.find(property);
-  if (it == new_indices_by_property_.end()) {
-    return;
-  }
+  {
+    auto const it = new_indices_by_property_.find(property);
+    if (it == new_indices_by_property_.end()) {
+      return;
+    }
 
-  for (auto &lookup : it->second | std::ranges::views::filter([&](auto &&each) {
-                        return std::ranges::find(vertex->labels, each.first) != vertex->labels.cend();
-                      }) | std::ranges::views::filter([&](auto &&each) {
-                        PropertiesIds const &ids = *std::get<0>(each.second);
-                        return std::ranges::find(ids, property) != ids.cend();
-                      })) {
-    auto &[property_ids, index] = lookup.second;
+    auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
+    auto const has_property = [&](auto &&each) {
+      auto &ids = *std::get<PropertiesIds const *>(each.second);
+      return r::find(ids, property) != ids.cend();
+    };
+    auto const relevant_index = [&](auto &&each) { return has_label(each) && has_property(each); };
 
-    auto values = vertex->properties.ExtractPropertyValuesMissingAsNull(index->permutations_helper.sorted_properties_);
+    for (auto &lookup : it->second | rv::filter(relevant_index)) {
+      auto &[property_ids, index] = lookup.second;
 
-    auto inverse_permutation = index->permutations_helper.inverse_permutation_;
-    ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
+      auto values =
+          vertex->properties.ExtractPropertyValuesMissingAsNull(index->permutations_helper.sorted_properties_);
 
-    auto acc = index->skiplist.access();
-    acc.insert({std::move(values), vertex, tx.start_timestamp});
+      auto inverse_permutation = index->permutations_helper.inverse_permutation_;
+      ranges::sort(ranges::views::zip(inverse_permutation, values), std::less<>{}, project<0>);
+
+      auto acc = index->skiplist.access();
+      acc.insert({std::move(values), vertex, tx.start_timestamp});
+    }
   }
 }
 
@@ -317,7 +331,12 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
 
 std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ListIndicesNew() const {
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ret;
-  ret.reserve(index_.size());
+
+  auto const num_indexes =
+      std::accumulate(new_index_.cbegin(), new_index_.cend(), size_t{},
+                      [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
+
+  ret.reserve(num_indexes);
   for (auto const &[label, indices] : new_index_) {
     for (auto const &props : indices | std::views::keys) {
       ret.emplace_back(label, props);
@@ -518,9 +537,8 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> deleted_indexes;
   auto locked_stats = new_stats_.Lock();
 
-  auto const num_stats = std::accumulate(
-      locked_stats->cbegin(), locked_stats->cend(), size_t{},
-      [](auto sum, auto const &properties_indices_stats) { return sum + properties_indices_stats.second.size(); });
+  auto const num_stats = std::accumulate(locked_stats->cbegin(), locked_stats->cend(), size_t{},
+                                         [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
 
   deleted_indexes.reserve(num_stats);
   for (auto &[label, properties_indices_stats] : *locked_stats) {
@@ -556,16 +574,15 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
     const storage::LabelId &label) {
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> deleted_indexes;
   auto locked_stats = new_stats_.Lock();
-  for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
-    if (it->first == label) {
-      for (auto &properties : it->second | ranges::views::keys) {
-        deleted_indexes.emplace_back(it->first, properties);
-      }
-      it = locked_stats->erase(it);
-    } else {
-      ++it;
-    }
+
+  auto const it = locked_stats->find(label);
+  if (it != locked_stats->cend()) {
+    return {};
   }
+  for (auto &properties : it->second | ranges::views::keys) {
+    deleted_indexes.emplace_back(label, properties);
+  }
+  locked_stats->erase(it);
   return deleted_indexes;
 }
 
@@ -598,7 +615,7 @@ std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetI
       return it2->second;
     }
   }
-  return {};
+  return std::nullopt;
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {

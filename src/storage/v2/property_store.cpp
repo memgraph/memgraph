@@ -2078,6 +2078,21 @@ std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes(
   return WithReader(get_properties);
 }
 
+std::vector<PropertyId> PropertyStore::ExtractPropertyIds() const {
+  auto get_properties = [&](Reader &reader) {
+    std::vector<PropertyId> props;
+    while (true) {
+      // TODO: no need to capture ExtendedPropertyType, make dedicated DecodeAny
+      ExtendedPropertyType type{PropertyValue::Type::Null};
+      auto prop = DecodeAnyExtendedPropertyType(&reader, type);
+      if (!prop) break;
+      props.emplace_back(*prop);
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
   uint32_t property_size = 0;
   if (!value.IsNull()) {
