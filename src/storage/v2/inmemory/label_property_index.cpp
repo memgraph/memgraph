@@ -345,6 +345,21 @@ bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property)
   return index_.contains({label, property});
 }
 
+auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                                                    std::span<PropertyId const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
+  auto res = std::vector<LabelPropertiesIndicesInfo>{};
+  // TODO: use new_index
+  for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
+    for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
+      if (IndexExists(label, property)) {
+        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
+      }
+    }
+  }
+  return res;
+}
+
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, PropertyId>> ret;
   ret.reserve(index_.size());

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -269,6 +269,12 @@ class InteractiveDbAccessor {
   }
 
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
+
+  auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
+                                          std::span<memgraph::storage::PropertyId const> properties) const
+      -> std::vector<memgraph::storage::LabelPropertiesIndicesInfo> {
+    return dba_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+  }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
