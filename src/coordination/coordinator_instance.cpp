@@ -570,11 +570,11 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
                            ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main->SendPromoteToMainRpc(new_main_uuid, std::move(repl_clients_info))) {
+  if (!new_main->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
-  if (!new_main->SendEnableWritingOnMainRpc()) {
+  if (!new_main->SendRpc<EnableWritingOnMainRpc>()) {
     return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
   }
 
@@ -620,7 +620,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
     return DemoteInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  if (!instance->SendDemoteToReplicaRpc()) {
+  if (!instance->SendRpc<DemoteMainToReplicaRpc>()) {
     return DemoteInstanceCoordinatorStatus::RPC_FAILED;
   }
 
@@ -674,7 +674,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
       &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
 
   // We do this here not under callbacks because we need to add replica to the current main.
-  if (!new_instance->SendDemoteToReplicaRpc()) {
+  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>()) {
     spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
     repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
@@ -685,7 +685,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     MG_ASSERT(maybe_current_main.has_value(), "Couldn't find instance {} in local storage.", *main_name);
 
     if (auto const &current_main = maybe_current_main->get();
-        !current_main.SendRegisterReplicaRpc(curr_main_uuid, new_instance->GetReplicationClientInfo())) {
+        !current_main.SendRpc<RegisterReplicaOnMainRpc>(curr_main_uuid, new_instance->GetReplicationClientInfo())) {
       spdlog::error("Failed to register instance {} on main instance {}.", config.instance_name, main_name);
       repl_instances_.pop_back();
       return RegisterInstanceCoordinatorStatus::RPC_FAILED;
@@ -762,7 +762,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
   // The network could be down or the request could fail because of some strange reason. In that case, we try to bring
   // back old raft state
-  if (curr_main->SendUnregisterReplicaRpc(instance_name)) {
+  if (curr_main->SendRpc<UnregisterReplicaRpc>(instance_name)) {
     std::erase_if(repl_instances_, name_matches);
     return UnregisterInstanceCoordinatorStatus::SUCCESS;
   }
@@ -945,7 +945,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
                              ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                              ranges::to<ReplicationClientsInfo>();
 
-    if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
+    if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
       spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
                     std::string{curr_main_uuid});
       switch (TryFailover()) {
@@ -969,7 +969,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     if (!instance_state->is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
-      if (!instance.SendDemoteToReplicaRpc()) {
+      if (!instance.SendRpc<DemoteMainToReplicaRpc>()) {
         spdlog::error("Couldn't demote instance {} to replica.", instance_name);
         return;
       }

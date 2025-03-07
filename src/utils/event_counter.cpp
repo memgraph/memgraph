@@ -121,7 +121,7 @@
   M(RemoveCoordInstance, HighAvailability, "Number of times the user called \"REMOVE COORDINATOR ...\" query.")        \
   GenerateHARpcCounters(StateCheckRpc) GenerateHARpcCounters(UnregisterReplicaRpc)                                     \
       GenerateHARpcCounters(EnableWritingOnMainRpc) GenerateHARpcCounters(PromoteToMainRpc)                            \
-          GenerateHARpcCounters(DemoteToReplicaRpc) GenerateHARpcCounters(RegisterReplicaRpc)                          \
+          GenerateHARpcCounters(DemoteMainToReplicaRpc) GenerateHARpcCounters(RegisterReplicaOnMainRpc)                \
               GenerateHARpcCounters(GetDatabaseHistoriesRpc)
 
 namespace memgraph::metrics {

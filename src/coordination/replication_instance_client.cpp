@@ -22,26 +22,33 @@
 
 #include <string>
 
-namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GenerateRpcCounterEvents(NAME) \
-  extern const Event NAME##Success;    \
-  extern const Event NAME##Fail;
+#define GenerateRpcCounterEvents(RPC) \
+  extern const Event RPC##Success;    \
+  extern const Event RPC##Fail;
 
-}  // namespace
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define RpcInfoMetrics(RPC)                                     \
+  template <>                                                   \
+  auto const RpcInfo<RPC>::succCounter = metrics::RPC##Success; \
+  template <>                                                   \
+  auto const RpcInfo<RPC>::failCounter = metrics::RPC##Fail;
 
 namespace memgraph::metrics {
-GenerateRpcCounterEvents(StateCheckRpc) GenerateRpcCounterEvents(UnregisterReplicaRpc)
-    GenerateRpcCounterEvents(EnableWritingOnMainRpc) GenerateRpcCounterEvents(PromoteToMainRpc)
-        GenerateRpcCounterEvents(DemoteToReplicaRpc) GenerateRpcCounterEvents(RegisterReplicaRpc)
+GenerateRpcCounterEvents(PromoteToMainRpc) GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
+    GenerateRpcCounterEvents(RegisterReplicaOnMainRpc) GenerateRpcCounterEvents(UnregisterReplicaRpc)
+        GenerateRpcCounterEvents(EnableWritingOnMainRpc) GenerateRpcCounterEvents(StateCheckRpc)
             GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
 
 }  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
 
-ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
-                                                     const std::chrono::seconds instance_health_check_frequency_sec)
+RpcInfoMetrics(PromoteToMainRpc) RpcInfoMetrics(DemoteMainToReplicaRpc) RpcInfoMetrics(
+    RegisterReplicaOnMainRpc) RpcInfoMetrics(UnregisterReplicaRpc) RpcInfoMetrics(EnableWritingOnMainRpc)
+
+    ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+                                                         const std::chrono::seconds instance_health_check_frequency_sec)
     : rpc_context_{communication::ClientContext{}},
       rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
@@ -84,94 +91,6 @@ void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return config_.replication_client_info;
-}
-
-auto ReplicationInstanceClient::SendPromoteToMainRpc(const utils::UUID &uuid,
-                                                     ReplicationClientsInfo replication_clients_info) const -> bool {
-  try {
-    if (auto stream{rpc_client_.Stream<PromoteToMainRpc>(uuid, std::move(replication_clients_info))};
-        !stream.AwaitResponse().success) {
-      metrics::IncrementCounter(metrics::PromoteToMainRpcFail);
-      spdlog::error("Failed to receive successful PromoteToMainRpc response!");
-      return false;
-    }
-    metrics::IncrementCounter(metrics::PromoteToMainRpcSuccess);
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending PromoteToMainRpc!");
-    metrics::IncrementCounter(metrics::PromoteToMainRpcFail);
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
-  auto const &instance_name = config_.instance_name;
-  try {
-    if (auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
-        !stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
-      metrics::IncrementCounter(metrics::DemoteToReplicaRpcFail);
-      return false;
-    }
-    metrics::IncrementCounter(metrics::DemoteToReplicaRpcSuccess);
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when demoting instance {} to replica!", instance_name);
-    metrics::IncrementCounter(metrics::DemoteToReplicaRpcFail);
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
-                                                       ReplicationClientInfo replication_client_info) const -> bool {
-  auto const instance_name = replication_client_info.instance_name;
-  try {
-    if (auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
-        !stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for registering replica instance {} on main!",
-                    instance_name);
-      metrics::IncrementCounter(metrics::RegisterReplicaRpcFail);
-      return false;
-    }
-    metrics::IncrementCounter(metrics::RegisterReplicaRpcSuccess);
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);
-    metrics::IncrementCounter(metrics::RegisterReplicaRpcFail);
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
-  try {
-    if (auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)}; !stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for unregistering replica!");
-      metrics::IncrementCounter(metrics::UnregisterReplicaRpcFail);
-      return false;
-    }
-    metrics::IncrementCounter(metrics::UnregisterReplicaRpcSuccess);
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when unregistering replica!");
-    metrics::IncrementCounter(metrics::UnregisterReplicaRpcFail);
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
-  try {
-    if (auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()}; !stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for enabling writing on main!");
-      metrics::IncrementCounter(metrics::EnableWritingOnMainRpcFail);
-      return false;
-    }
-    metrics::IncrementCounter(metrics::EnableWritingOnMainRpcSuccess);
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when enabling writing on main!");
-    metrics::IncrementCounter(metrics::EnableWritingOnMainRpcFail);
-  }
-  return false;
 }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
