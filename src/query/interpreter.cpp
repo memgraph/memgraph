@@ -2311,6 +2311,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
         SetupInterpreterTransaction(extras);
+        // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
+        current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
         in_explicit_transaction_ = true;
         expect_rollback_ = false;
         if (!current_db_.db_acc_)
@@ -5735,7 +5737,6 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
                             current_db_.name()});
 
   if (is_begin) {
-    current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
     return TransactionQuery::BEGIN;
   }
   if (trimmed_query == "COMMIT") {
@@ -5747,6 +5748,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 
   try {
     if (!in_explicit_transaction_) {
+      // BEGIN has a different execution path; for implicit transaction start the timer as soon as possible
       current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
