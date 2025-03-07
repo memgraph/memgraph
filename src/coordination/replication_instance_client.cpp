@@ -35,11 +35,15 @@
   auto const RpcInfo<RPC>::failCounter = metrics::RPC##Fail;
 
 namespace memgraph::metrics {
-GenerateRpcCounterEvents(PromoteToMainRpc) GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
-    GenerateRpcCounterEvents(RegisterReplicaOnMainRpc) GenerateRpcCounterEvents(UnregisterReplicaRpc)
-        GenerateRpcCounterEvents(EnableWritingOnMainRpc) GenerateRpcCounterEvents(StateCheckRpc)
-            GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
-
+// clang-format off
+GenerateRpcCounterEvents(PromoteToMainRpc)
+GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
+GenerateRpcCounterEvents(RegisterReplicaOnMainRpc)
+GenerateRpcCounterEvents(UnregisterReplicaRpc)
+GenerateRpcCounterEvents(EnableWritingOnMainRpc)
+GenerateRpcCounterEvents(StateCheckRpc)
+GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
+// clang-format on
 }  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
@@ -105,8 +109,6 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
   }
 }
 
-// TODO: (andi) Try to unify with a bit of templating magic functions from above
-// TODO: (andi) Test everything before weekend
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     -> std::optional<replication_coordination_glue::DatabaseHistories> {
   try {
