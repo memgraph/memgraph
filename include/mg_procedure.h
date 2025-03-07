@@ -640,6 +640,10 @@ enum mgp_error mgp_result_record_insert(struct mgp_result_record *record, const 
                                         struct mgp_value *val);
 ///@}
 
+/// TODO
+enum mgp_error mgp_result_record_create_and_bulk_insert(mgp_result *res, const char *field_name[], mgp_value *val[],
+                                                        size_t n);
+
 /// @name Graph Constructs
 ///@{
 
