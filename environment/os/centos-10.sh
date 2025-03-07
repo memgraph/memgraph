@@ -215,13 +215,6 @@ install() {
             continue
         fi
 
-        # if [ "$pkg" == rpmlint ]; then
-        #     if ! dnf list installed rpmlint >/dev/null 2>/dev/null; then
-        #         dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/rpmlint-1.11-17.el9.noarch.rpm
-        #     fi
-        #     continue
-        # fi
-
         if [ "$pkg" == java-11-openjdk-headless ]; then
             if ! dnf list installed java-11-openjdk-headless >/dev/null 2>/dev/null; then
                 dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-headless-11.0.20.1.1-2.el9.x86_64.rpm
