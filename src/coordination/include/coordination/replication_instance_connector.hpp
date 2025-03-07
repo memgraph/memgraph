@@ -46,19 +46,19 @@ class ReplicationInstanceConnector {
   auto ManagementSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 
-  auto SendDemoteToReplicaRpc() const -> bool;
-  auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info) const -> bool;
   auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool;
-  auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
-  auto SendStateCheckRpc() const -> std::optional<InstanceState>;
-  auto SendRegisterReplicaRpc(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
-  auto SendEnableWritingOnMainRpc() const -> bool;
+
+  template <IsRpc T, typename... Args>
+  auto SendRpc(Args &&...args) const -> bool {
+    return client_.SendRpc<T>(std::forward<Args>(args)...);
+  }
 
   auto StartStateCheck() -> void;
   auto StopStateCheck() -> void;
   auto PauseStateCheck() -> void;
   auto ResumeStateCheck() -> void;
 
+  auto SendStateCheckRpc() const -> std::optional<InstanceState>;
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto GetClient() const -> ReplicationInstanceClient const &;
 
