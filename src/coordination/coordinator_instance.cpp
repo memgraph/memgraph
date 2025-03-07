@@ -42,9 +42,11 @@
 #include "dbms/constants.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
+#include "utils/metrics_timer.hpp"
 
 #include <spdlog/spdlog.h>
 #include <range/v3/range/conversion.hpp>
@@ -52,11 +54,22 @@
 #include <range/v3/view/transform.hpp>
 
 namespace memgraph::metrics {
+// Counters
 extern const Event SuccessfulFailovers;
 extern const Event RaftFailedFailovers;
 extern const Event NoAliveInstanceFailedFailovers;
 extern const Event BecomeLeaderSuccess;
 extern const Event FailedToBecomeLeader;
+extern const Event ShowInstance;
+extern const Event ShowInstances;
+extern const Event DemoteInstance;
+extern const Event UnregisterReplInstance;
+extern const Event RemoveCoordInstance;
+// Histogram
+extern const Event InstanceSuccCallback_us;
+extern const Event InstanceFailCallback_us;
+extern const Event ChooseMostUpToDateInstance_us;
+extern const Event GetHistories_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
@@ -277,6 +290,7 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
 }
 
 auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
+  metrics::IncrementCounter(metrics::ShowInstance);
   auto const curr_leader_id = raft_state_->GetLeaderId();
   auto const my_context = raft_state_->GetMyCoordinatorInstanceAux();
   std::string const role = std::invoke([curr_leader_id, my_id = raft_state_->GetMyCoordinatorId()] {
@@ -291,8 +305,8 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  auto const leader_results = ShowInstancesAsLeader();
-  if (leader_results.has_value()) {
+  metrics::IncrementCounter(metrics::ShowInstances);
+  if (auto const leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
     return *leader_results;
   }
 
@@ -312,8 +326,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   {
     auto connectors = coordinator_connectors_.Lock();
 
-    auto connector =
-        std::ranges::find_if(*connectors, [&leader_id](auto &&connector) { return connector.first == leader_id; });
+    auto connector = std::ranges::find_if(
+        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
     if (connector != connectors->end()) {
       leader = &connector->second;
     }
@@ -592,6 +606,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 }
 
 auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+  metrics::IncrementCounter(metrics::DemoteInstance);
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -695,6 +710,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
+  metrics::IncrementCounter(metrics::UnregisterReplInstance);
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
@@ -763,6 +779,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 }
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
+  metrics::IncrementCounter(metrics::RemoveCoordInstance);
   spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
@@ -891,6 +908,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
                                                   const std::optional<InstanceState> &instance_state) {
+  utils::MetricsTimer const timer{metrics::InstanceSuccCallback_us};
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance success callback.");
     return;
@@ -968,6 +987,8 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
 void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
                                                const std::optional<InstanceState> & /*instance_state*/) {
+  utils::MetricsTimer const timer{metrics::InstanceFailCallback_us};
+
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     spdlog::trace("Leader is not ready, not executing instance fail callback.");
     return;
@@ -1008,6 +1029,8 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
     -> std::optional<NewMainRes> {
+  utils::MetricsTimer timer{metrics::ChooseMostUpToDateInstance_us};
+
   std::optional<NewMainRes> new_main_res;
 
   for (auto const &instance_res_pair : instance_database_histories) {
@@ -1016,11 +1039,11 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
     // Find default db for instance and its history
     auto default_db_history_data = std::ranges::find_if(
         instance_db_histories,
-        [default_db = memgraph::dbms::kDefaultDB](auto &&db_history) { return db_history.name == default_db; });
+        [default_db = dbms::kDefaultDB](auto &&db_history) { return db_history.name == default_db; });
 
     std::ranges::for_each(instance_db_histories, [&instance_name](auto &&db_history) {
       spdlog::debug("Instance {}: db_history_name {}, default db {}.", instance_name, db_history.name,
-                    memgraph::dbms::kDefaultDB);
+                    dbms::kDefaultDB);
     });
 
     MG_ASSERT(default_db_history_data != instance_db_histories.end(), "No history for instance");
@@ -1070,6 +1093,8 @@ auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_
 
 auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
     -> std::optional<std::string> {
+  utils::MetricsTimer timer{metrics::GetHistories_us};
+
   if (instances.empty()) {
     return std::nullopt;
   }
@@ -1077,8 +1102,8 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(const std::list<R
   spdlog::trace("{} data instances can become new main.", instances.size());
 
   auto const get_ts = [](auto const &instance) {
-    spdlog::trace("Sending get instance timestamp to {}.", instance.InstanceName());
-    return instance.GetClient().SendGetInstanceTimestampsRpc();
+    spdlog::trace("Sending get db histories to {}.", instance.InstanceName());
+    return instance.GetClient().SendGetDatabaseHistoriesRpc();
   };
 
   std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>> instance_db_histories;

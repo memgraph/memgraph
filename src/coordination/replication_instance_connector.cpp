@@ -14,7 +14,6 @@
 #include "coordination/replication_instance_connector.hpp"
 
 #include "replication_coordination_glue/handler.hpp"
-#include "utils/result.hpp"
 
 #include <chrono>
 #include <string>
