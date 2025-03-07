@@ -17,6 +17,7 @@
   M(NAME##Fail, HighAvailability, "Number of times " #NAME " finished unsuccessfully")
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+// clang-format off
 #define APPLY_FOR_COUNTERS(M)                                                                                          \
   M(ReadQuery, QueryType, "Number of read-only queries executed.")                                                     \
   M(WriteQuery, QueryType, "Number of write-only queries executed.")                                                   \
@@ -119,11 +120,14 @@
   M(DemoteInstance, HighAvailability, "Number of times the user called \"DEMOTE INSTANCE ...\" query.")                \
   M(UnregisterReplInstance, HighAvailability, "Number of times the user called \"UNREGISTER INSTANCE ...\" query.")    \
   M(RemoveCoordInstance, HighAvailability, "Number of times the user called \"REMOVE COORDINATOR ...\" query.")        \
-  GenerateHARpcCounters(StateCheckRpc) GenerateHARpcCounters(UnregisterReplicaRpc)                                     \
-      GenerateHARpcCounters(EnableWritingOnMainRpc) GenerateHARpcCounters(PromoteToMainRpc)                            \
-          GenerateHARpcCounters(DemoteMainToReplicaRpc) GenerateHARpcCounters(RegisterReplicaOnMainRpc)                \
-              GenerateHARpcCounters(GetDatabaseHistoriesRpc)
-
+  GenerateHARpcCounters(StateCheckRpc)                                                                                 \
+  GenerateHARpcCounters(UnregisterReplicaRpc)                                                                          \
+  GenerateHARpcCounters(EnableWritingOnMainRpc)                                                                        \
+  GenerateHARpcCounters(PromoteToMainRpc)                                                                              \
+  GenerateHARpcCounters(DemoteMainToReplicaRpc)                                                                        \
+  GenerateHARpcCounters(RegisterReplicaOnMainRpc)                                                                      \
+  GenerateHARpcCounters(GetDatabaseHistoriesRpc)
+// clang-format on
 namespace memgraph::metrics {
 
 // define every Event as an index in the array of counters
