@@ -41,6 +41,7 @@
 #include "coordination/replication_instance_connector.hpp"
 #include "dbms/constants.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
@@ -49,6 +50,14 @@
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
+
+namespace memgraph::metrics {
+extern const Event SuccessfulFailovers;
+extern const Event RaftFailedFailovers;
+extern const Event NoAliveInstanceFailedFailovers;
+extern const Event BecomeLeaderSuccess;
+extern const Event FailedToBecomeLeader;
+}  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
 
@@ -340,6 +349,7 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
         if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_READY)) {
           if (expected == CoordinatorStatus::FOLLOWER) {
             spdlog::trace("Reconcile cluster state finished successfully but coordinator isn't leader anymore.");
+            metrics::IncrementCounter(metrics::FailedToBecomeLeader);
             return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
           }
           // We should never get into such state, but we log it for observability.
@@ -347,15 +357,19 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
           return result;
         }
         spdlog::trace("Reconcile cluster state finished successfully. Leader is ready now.");
+        metrics::IncrementCounter(metrics::BecomeLeaderSuccess);
         return result;
       }
       case ReconcileClusterStateStatus::FAIL:
         spdlog::trace("ReconcileClusterState_ failed!");
+        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         break;
       case ReconcileClusterStateStatus::SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
+        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         return result;
       case ReconcileClusterStateStatus::NOT_LEADER_ANYMORE: {
+        metrics::IncrementCounter(metrics::FailedToBecomeLeader);
         MG_ASSERT(false, "Invalid status handling. Crashing the database.");
       }
     }
@@ -469,6 +483,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   auto const maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(repl_instances_);
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
+    metrics::IncrementCounter(metrics::NoAliveInstanceFailedFailovers);
     return FailoverStatus::NO_INSTANCE_ALIVE;
   }
 
@@ -496,9 +511,11 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 
   if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), new_main_uuid)) {
     spdlog::error("Aborting failover. Writing to Raft failed.");
+    metrics::IncrementCounter(metrics::RaftFailedFailovers);
     return FailoverStatus::RAFT_FAILURE;
   }
 
+  metrics::IncrementCounter(metrics::SuccessfulFailovers);
   return FailoverStatus::SUCCESS;
 }
 
