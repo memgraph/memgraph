@@ -802,8 +802,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertyIndex {
     LabelIx label;
-    // FilterInfo with PropertyFilter.
-    FilterInfo filter;
+    // FilterInfos, each with a PropertyFilter.
+    std::vector<FilterInfo> filters;
     int64_t vertex_count;
     std::optional<storage::LabelPropertyIndexStats> index_stats;
   };
@@ -1005,17 +1005,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
     auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
 
+    // TODO: what about if multiple filters valid on on property?
+    //  eg. 10 < n.a, n.a < 60 <- both match `a`
+    //  eg. "a" <= n.a, n.a ~= "hat.*?" <- RANGE + REGEX not compatible
     for (auto const &[label_pos, properties_poses] : db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
+      // properties_poses: [5,3,-1,4]
       constexpr long MISSING = -1;
       auto first_missing = std::ranges::find(properties_poses, MISSING);
       auto properties_prefix = std::ranges::subrange{properties_poses.begin(), first_missing};
+      // properties_prefix: [5,3]
       if (properties_prefix.empty()) continue;
 
       auto to_filters = [&](auto &&property_position) { return property_filters[property_position]; };
       auto prop_filters = properties_prefix | rv::transform(to_filters) | r::to_vector;
+      // prop_filters [n.E < 42, 10 < n.C]
       auto prop_ixs = prop_filters | rv::transform(as_propertyIX) | r::to_vector;
+      // prop_ixs [E, C]
 
       bool is_exact = properties_prefix.size() == properties_poses.size();
+      // is_exact: false (becasue real index is over 4 properties)
 
       auto const &label = labelIXs[label_pos];
       candidate_indices.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
@@ -1023,6 +1031,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                .properties_ = prop_ixs,
                                                .is_exact_ = is_exact},
                                      prop_filters);
+      // why not store the index?
       candidate_index_lookup.insert({std::make_pair(label, prop_ixs), prop_filters});
     }
 
@@ -1052,7 +1061,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return 0;
       }
 
-      if (vertex_count / 10.0 > found->vertex_count) {
+      if (found->vertex_count < vertex_count / 10.0) {
         return 1;
       }
       int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
@@ -1067,26 +1076,44 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto property = *maybe_property;
       if (candidate_index_lookup.contains(std::make_pair(label, property))) {
         return LabelPropertyIndex{.label = label,
-                                  .filter = candidate_index_lookup.at(std::make_pair(label, property))[0] /*TODO*/,
+                                  .filters = candidate_index_lookup.at(std::make_pair(label, property)),
                                   .vertex_count = std::numeric_limits<std::int64_t>::max()};
       }
     }
 
     std::optional<LabelPropertyIndex> found;
-    // for (const auto &[label_and_property, filter] : candidate_indices) {
-    //   const auto &[label, property] = label_and_property;
-    for (const auto &[candidate, filter] : candidate_indices) {
-      const auto &[_, label, maybe_property, _1] = candidate;
-      auto property = *maybe_property;
 
-      auto is_better_type = [&found](PropertyFilter::Type type) {
-        // Order the types by the most preferred index lookup type.
-        static const PropertyFilter::Type kFilterTypeOrder[] = {
-            PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
-        auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
-        auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
-        return type_sort_ix < found_sort_ix;
+    namespace r = ranges;
+    namespace rv = r::views;
+
+    auto is_better_type = [](std::span<FilterInfo const> candidate_filters, LabelPropertyIndex const &found) {
+      auto to_score = [](auto const &filters) {
+        auto filter_type_score = [](FilterInfo const &fi) -> double {
+          // Given cardinality is the same which would be prefered as the cost of a per element cost
+          switch (fi.property_filter->type_) {
+            using enum PropertyFilter::Type;
+            case IS_NOT_NULL:
+              return 20.0;  // cheapest, just a raw scan of the index skip list
+            case EQUAL:
+              return 10.0;
+            case RANGE:
+              return 7.0;
+            case REGEX_MATCH:
+              return 5.0;  // REGEX compare is more expensive
+            case IN:
+              return 1.0;  // ATM multiple scans...not a good prederence
+          }
+        };
+
+        return r::fold_left(filters | rv::transform(filter_type_score), 0.0, std::multiplies<>{});
       };
+
+      return to_score(found.filters) < to_score(candidate_filters);
+    };
+
+    for (const auto &[candidate, filters] : candidate_indices) {
+      const auto &[_, label, maybe_property, _1] = candidate;
+      auto properties = *maybe_property;
 
       // Conditions, from more to less important:
       // the index with 10x less vertices is better.
@@ -1095,20 +1122,35 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with less vertices is better.
       // the index with same number of vertices but more optimized filter is better.
 
-      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property[0] /*TODO*/));
-      std::optional<storage::LabelPropertyIndexStats> new_stats =
-          db_->GetIndexStats(GetLabel(label), GetProperty(property[0] /*TODO*/));
+      // We can do approximate...but for composite there are gaps in skip list which should be discounted
+      // vertex_count would be an over estimate??? HOW TO SOLVE ???
 
-      if (!found || vertex_count * 10 < found->vertex_count) {
-        found = LabelPropertyIndex{label, filter[0] /*TODO*/, vertex_count, new_stats};
+      // Property id prefix
+      // WIP TODO
+      auto props_ids = properties |
+                       rv::transform([&](const PropertyIx &prop) { return db_->NameToProperty(prop.name); }) |
+                       r::to_vector;
+
+      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(properties[0] /*TODO*/));
+      std::optional<storage::LabelPropertyIndexStats> new_stats =
+          db_->GetIndexStats(GetLabel(label), GetProperty(properties[0] /*TODO*/));
+
+      if (!found) {
+        // this sets LabelPropertyIndex which communitcates which fiters are to be replaced by a LabelPropertyIndex
+        found = LabelPropertyIndex{label, filters, vertex_count, new_stats};
+        continue;
+      }
+
+      // Obvious order of magnitude better?
+      if (vertex_count * 10 < found->vertex_count) {
+        found = LabelPropertyIndex{label, filters, vertex_count, new_stats};
         continue;
       }
 
       if (int cmp_res = compare_indices(found, new_stats, vertex_count);
-          cmp_res == -1 || cmp_res == 0 && (found->vertex_count > vertex_count ||
-                                            found->vertex_count == vertex_count &&
-                                                is_better_type(filter[0] /*TODO*/.property_filter->type_))) {
-        found = LabelPropertyIndex{label, filter[0] /*TODO*/, vertex_count, new_stats};
+          cmp_res == -1 || cmp_res == 0 && (vertex_count < found->vertex_count ||
+                                            vertex_count == found->vertex_count && is_better_type(filters, *found))) {
+        found = LabelPropertyIndex{label, filters, vertex_count, new_stats};
       }
     }
     return found;
@@ -1205,14 +1247,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
       // Copy the property filter and then erase it from filters.
-      const PropertyFilter prop_filter = *found_index->filter.property_filter;
+      const PropertyFilter prop_filter = *found_index->filters[0] /*TODO*/.property_filter;
       if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
         // Remove the original expression from Filter operation only if it's not
         // a regex match. In such a case we need to perform the matching even
         // after we've scanned the index.
-        filter_exprs_for_removal_.insert(found_index->filter.expression);
+        filter_exprs_for_removal_.insert(found_index->filters[0] /*TODO*/.expression);
       }
-      filters_.EraseFilter(found_index->filter);
+      // TODO: multiple filters to remove
+      filters_.EraseFilter(found_index->filters[0] /*TODO*/);
       std::vector<Expression *> removed_expressions;
       filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
@@ -1225,6 +1268,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // Generate index scan using the empty string as a lower bound.
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
+        // TODO why not upper bound?...follow up
         return std::make_unique<ScanAllByLabelPropertyRange>(input, node_symbol, GetLabel(found_index->label),
                                                              GetProperty(prop_filter.property_),
                                                              std::make_optional(lower_bound), std::nullopt, view);
@@ -1236,11 +1280,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
         expression->MapTo(symbol);
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
+        // TODO: this could be better performance
         return std::make_unique<ScanAllByLabelPropertyValue>(std::move(unwind_operator), node_symbol,
                                                              GetLabel(found_index->label),
                                                              GetProperty(prop_filter.property_), expression, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+        // TODO: composite index will change this, exact and all filter asking for not_null
         return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
                                                         GetProperty(prop_filter.property_), view);
       }
