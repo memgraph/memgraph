@@ -1347,6 +1347,7 @@ class LabelsTest : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   std::vector<memgraph::query::LabelIx> labels_;
+  bool labels_expression_{false};
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1355,6 +1356,7 @@ class LabelsTest : public memgraph::query::Expression {
     for (auto i = 0; i < object->labels_.size(); ++i) {
       object->labels_[i] = storage->GetLabelIx(labels_[i].name);
     }
+    object->labels_expression_ = labels_expression_;
     return object;
   }
 
@@ -1881,6 +1883,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
+  bool label_expresion_{false};
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
@@ -1902,6 +1905,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
+    object->label_expresion_ = label_expresion_;
     return object;
   }
 

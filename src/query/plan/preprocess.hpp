@@ -440,6 +440,8 @@ struct FilterInfo {
   std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
   std::vector<LabelIx> labels{};
+  /// Label expression for Type::Label filtering.
+  bool is_label_expression{false};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.

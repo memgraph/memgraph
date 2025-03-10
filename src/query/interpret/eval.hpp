@@ -528,7 +528,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                 throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
-          if (!*has_label) {
+          if (has_label.GetValue() && labels_test.labels_expression_) {
+            return TypedValue(true, ctx_->memory);
+          }
+          if (!*has_label && !labels_test.labels_expression_) {
             return TypedValue(false, ctx_->memory);
           }
         }

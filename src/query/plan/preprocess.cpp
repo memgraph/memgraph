@@ -376,6 +376,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         label_filter.labels = labels;
+        labels_test->labels_expression_ = node->label_expresion_;
+        label_filter.is_label_expression = node->label_expresion_;
         all_filters_.emplace_back(label_filter);
       } else {
         // Add these labels to existing LabelsTest
@@ -923,7 +925,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part = &query_parts.back();
       }
       if (match->optional_) {
-        query_part->optional_matching.emplace_back(Matching{});
+        query_part->optional_matching.emplace_back();
         AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());
       } else {
         DMG_ASSERT(query_part->optional_matching.empty(), "Match clause cannot follow optional match.");
