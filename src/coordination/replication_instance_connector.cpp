@@ -60,10 +60,6 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
   return client_.ReplicationSocketAddress();
 }
 
-auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
-  return client_.SendStateCheckRpc();
-}
-
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
 }

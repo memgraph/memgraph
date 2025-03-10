@@ -110,7 +110,8 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
     auto res = stream.AwaitResponse();
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
     return res.state;
-  } catch (rpc::RpcFailedException const &) {
+  } catch (rpc::RpcFailedException const &e) {
+    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
     metrics::IncrementCounter(metrics::StateCheckRpcFail);
     return {};
   }
@@ -125,8 +126,8 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
     return res.database_histories;
 
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetDatabaseHistoriesRpc");
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
     return {};
   }
