@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,6 +59,7 @@ extern const Event ActiveSessions;
 extern const Event ActiveTCPSessions;
 extern const Event ActiveSSLSessions;
 extern const Event ActiveWebSocketSessions;
+extern const Event ConnectionsAccepted;
 }  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
@@ -382,6 +383,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     });
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
     spdlog::info("Accepted a connection from {}: {}", service_name_, remote_endpoint_);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ConnectionsAccepted);
   }
 
   void DoRead() {

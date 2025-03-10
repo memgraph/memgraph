@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,9 +24,14 @@
 #include "communication/listener.hpp"
 #include "io/network/fmt.hpp"
 #include "io/network/socket.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/thread.hpp"
+
+namespace memgraph::metrics {
+  extern const Event ConnectionsAccepted;
+} // namespace memgraph::metrics
 
 namespace memgraph::communication {
 
@@ -150,6 +155,7 @@ class Server final {
     }
     auto const endpoint = s->endpoint();
     spdlog::info("Accepted a {} connection from {}:{}.", service_name_, endpoint.GetAddress(), endpoint.GetPort());
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ConnectionsAccepted);
     listener_.AddConnection(std::move(*s));
   }
 
