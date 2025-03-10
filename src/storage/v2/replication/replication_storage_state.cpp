@@ -22,22 +22,23 @@ namespace memgraph::storage {
 
 auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
     -> TransactionReplication {
-  return {seq_num, storage, db_acc, replication_clients_};
+  return {seq_num, storage, db_acc, replication_storage_clients_};
 }
 
 std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view name) const {
-  return replication_clients_.WithReadLock([&](auto const &clients) -> std::optional<replication::ReplicaState> {
-    auto const name_matches = [=](ReplicationClientPtr const &client) { return client->Name() == name; };
-    auto const client_it = std::find_if(clients.cbegin(), clients.cend(), name_matches);
-    if (client_it == clients.cend()) {
-      return std::nullopt;
-    }
-    return (*client_it)->State();
-  });
+  return replication_storage_clients_.WithReadLock(
+      [&](auto const &clients) -> std::optional<replication::ReplicaState> {
+        auto const name_matches = [=](ReplicationStorageClientPtr const &client) { return client->Name() == name; };
+        auto const client_it = std::find_if(clients.cbegin(), clients.cend(), name_matches);
+        if (client_it == clients.cend()) {
+          return std::nullopt;
+        }
+        return (*client_it)->State();
+      });
 }
 
 void ReplicationStorageState::Reset() {
-  replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 
 void ReplicationStorageState::TrackLatestHistory() {

@@ -54,7 +54,7 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
       spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
                    instance_client.name_);
     }
-    db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
+    db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock(
         [client = std::move(client)](auto &storage_clients) mutable { storage_clients.push_back(std::move(client)); });
     spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->name());
   }

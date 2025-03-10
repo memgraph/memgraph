@@ -16,24 +16,16 @@
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/delta.hpp"
-#include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/result.hpp"
 
 /// REPLICATION ///
-#include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/global.hpp"
-#include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/synchronized.hpp"
-
-#include <range/v3/view.hpp>
-#include <span>
 
 namespace memgraph::storage {
 
@@ -59,15 +51,16 @@ struct ReplicationStorageState {
 
   template <typename F>
   bool WithClient(std::string_view replica_name, F &&callback) {
-    return replication_clients_.WithReadLock([replica_name, cb = std::forward<F>(callback)](auto const &clients) {
-      for (const auto &client : clients) {
-        if (client->Name() == replica_name) {
-          cb(*client);
-          return true;
-        }
-      }
-      return false;
-    });
+    return replication_storage_clients_.WithReadLock(
+        [replica_name, cb = std::forward<F>(callback)](auto const &clients) {
+          for (const auto &client : clients) {
+            if (client->Name() == replica_name) {
+              cb(*client);
+              return true;
+            }
+          }
+          return false;
+        });
   }
 
   // Questions:
@@ -89,10 +82,10 @@ struct ReplicationStorageState {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientPtr = std::unique_ptr<ReplicationStorageClient>;
-  using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
+  using ReplicationStorageClientPtr = std::unique_ptr<ReplicationStorageClient>;
+  using ReplicationStorageClientList = utils::Synchronized<std::vector<ReplicationStorageClientPtr>, utils::RWSpinLock>;
 
-  ReplicationClientList replication_clients_;
+  ReplicationStorageClientList replication_storage_clients_;
 
   memgraph::replication::ReplicationEpoch epoch_;
 };

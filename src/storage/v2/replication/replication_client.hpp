@@ -208,7 +208,6 @@ class ReplicationStorageClient {
   /**
    * @brief Forcefully reset storage to as it is when started from scratch.
    *
-   * @param storage pointer to the storage associated with the client
    */
   void LogRpcFailure() const;
 
