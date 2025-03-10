@@ -1675,6 +1675,10 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       result);
 }
 
+mgp_error mgp_result_reserve(mgp_result *res, size_t n) {
+  return WrapExceptions([res, n] { res->rows.reserve(res->rows.size() + n); });
+}
+
 mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   return WrapExceptions([=] {
     auto *memory = record->values.get_allocator().GetMemoryResource();
