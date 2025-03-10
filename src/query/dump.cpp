@@ -311,6 +311,7 @@ void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::L
       << ");";
 }
 
+// NOLINTNEXTLINE(clang-diagnostic-unused-function)
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                               std::span<storage::PropertyId const> properties) {
   // TODO(composite_index): use

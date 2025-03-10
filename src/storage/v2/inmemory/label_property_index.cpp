@@ -145,14 +145,14 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
     auto [it1, _] = new_index_.try_emplace(label);
     auto &properties_map = it1->second;
-    PropertiesPermutationHelper helper{properties};
+    auto helper = PropertiesPermutationHelper{properties};
     auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
     if (!emplaced) {
       // Index already exists.
       return false;
     }
 
-    auto &properties_key = it2->first;
+    auto const &properties_key = it2->first;
     auto &index = it2->second;
 
     auto de = EntryDetail{&properties_key, &index};
@@ -161,14 +161,15 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
     }
 
     try {
-      auto accessor_factory = [&] { return it2->second.skiplist.access(); };
+      auto &index_skip_list = it2->second.skiplist;
+      auto accessor_factory = [&] { return index_skip_list.access(); };
       auto &props_permutation_helper = it2->second.permutations_helper;
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
       };
       PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     } catch (const utils::OutOfMemoryException &) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+      utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
       properties_map.erase(it2);
       throw;
     }
@@ -260,7 +261,7 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  bool res;
+  bool res = false;
 
   {
     // OLD approach
@@ -354,6 +355,7 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
   for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
     for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
       if (IndexExists(label, property)) {
+        // NOLINTNEXTLINE(google-runtime-int)
         res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
       }
     }
@@ -583,7 +585,7 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
 
   deleted_indexes.reserve(num_stats);
   for (auto &[label, properties_indices_stats] : *locked_stats) {
-    for (auto &properties : properties_indices_stats | rv::keys) {
+    for (auto const &properties : properties_indices_stats | rv::keys) {
       deleted_indexes.emplace_back(label, properties);
     }
   }
@@ -620,7 +622,7 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
   if (it != locked_stats->cend()) {
     return {};
   }
-  for (auto &properties : it->second | rv::keys) {
+  for (auto const &properties : it->second | rv::keys) {
     deleted_indexes.emplace_back(label, properties);
   }
   locked_stats->erase(it);
