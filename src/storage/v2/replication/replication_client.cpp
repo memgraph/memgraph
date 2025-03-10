@@ -72,7 +72,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   replication::HeartbeatRes const heartbeat_res = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
-    utils::MetricsTimer timer{metrics::HeartbeatRpc_us};
+    utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, main_storage->uuid(),
                                                                            replStorageState.last_durable_timestamp_,
                                                                            std::string{replStorageState.epoch_.id()});
@@ -563,7 +563,7 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() {
-  utils::MetricsTimer timer{metrics::AppendDeltasRpc_us};
+  utils::MetricsTimer const timer{metrics::AppendDeltasRpc_us};
   return stream_.AwaitResponseWhileInProgress();
 }
 }  // namespace memgraph::storage

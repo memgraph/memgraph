@@ -86,7 +86,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
   try {
-    utils::MetricsTimer timer{metrics::SystemRecoveryRpc_us};
+    utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
     auto stream = std::invoke([&]() {
       // Handle only default database is no license
       if (!is_enterprise) {
