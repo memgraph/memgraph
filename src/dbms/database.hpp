@@ -61,13 +61,15 @@ class Database {
    * @return std::unique_ptr<storage::Storage::Accessor>
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
-      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(override_isolation_level);
+      std::optional<storage::IsolationLevel> override_isolation_level = {},
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    return storage_->Access(override_isolation_level, timeout);
   }
 
   std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
-      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(override_isolation_level);
+      std::optional<storage::IsolationLevel> override_isolation_level = {},
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    return storage_->UniqueAccess(override_isolation_level, timeout);
   }
 
   /**
