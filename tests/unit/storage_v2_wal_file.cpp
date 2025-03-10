@@ -181,9 +181,9 @@ class DeltaGenerator final {
                        const std::string &vector_index_name = {}, std::uint16_t vector_dimension = 2,
                        std::size_t vector_capacity = 100) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
-    std::set<memgraph::storage::PropertyId> property_ids;
+    std::vector<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {
-      property_ids.insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
+      property_ids.emplace_back(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
     }
     memgraph::storage::LabelIndexStats l_stats{};
     memgraph::storage::LabelPropertyIndexStats lp_stats{};
@@ -278,7 +278,12 @@ class DeltaGenerator final {
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_CREATE:
-      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, mapper_, label_id, property_ids);
+        });
+        break;
+      }
       case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_DROP:
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
@@ -314,7 +319,8 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, mapper_, label_id, property_ids);
+          auto as_set = std::set(property_ids.begin(), property_ids.end());
+          EncodeLabelProperties(encoder, mapper_, label_id, as_set);
         });
         break;
       }
@@ -745,7 +751,7 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(TYPE_CONSTRAINT_CREATE, "hello", {"world"})
   OPERATION_TX(TYPE_CONSTRAINT_DROP, "hello", {"world"});
   OPERATION_TX(VECTOR_INDEX_CREATE, "hello", {"world"}, {}, {}, {}, {}, {}, "vector_index", 2, 100);
-  OPERATION_TX(VECTOR_INDEX_DROP, {}, {}, {}, {}, {}, {}, {}, "vector_index");
+  OPERATION_TX(VECTOR_INDEX_DROP, "hello", {"world"}, {}, {}, {}, {}, {}, "vector_index");
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

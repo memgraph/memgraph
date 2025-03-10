@@ -133,9 +133,10 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
     };
 
     if (parallel_exec_info) {
-      CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func, snapshot_info);
+      CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func,
+                                   std::nullopt /*leave it to the new approach to observe*/);
     } else {
-      CreateIndexOnSingleThread(vertices, it, index_, func, snapshot_info);
+      CreateIndexOnSingleThread(vertices, it, index_, func, std::nullopt /*leave it to the new approach to observe*/);
     }
   }
 
