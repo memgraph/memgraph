@@ -6455,7 +6455,7 @@ void Interpreter::Commit() {
     }
     current_db_.CleanupDBTransaction(false);
   };
-  utils::OnScopeExit reset_members(reset_necessary_members);
+  utils::OnScopeExit const reset_members(reset_necessary_members);
 
   auto commit_confirmed_by_all_sync_replicas = true;
 

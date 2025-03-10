@@ -76,6 +76,7 @@ class Client {
           res_load_(res_load) {}
 
    public:
+    // NOLINTNEXTLINE
     StreamHandler(StreamHandler &&other) noexcept
         : self_{std::exchange(other.self_, nullptr)},
           timeout_ms_{std::move(other.timeout_ms_)},
@@ -83,6 +84,8 @@ class Client {
           guard_{std::move(other.guard_)},
           req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_)},
           res_load_{std::move(other.res_load_)} {}
+
+    // NOLINTNEXTLINE
     StreamHandler &operator=(StreamHandler &&other) noexcept {
       if (&other != this) {
         self_ = std::exchange(other.self_, nullptr);
