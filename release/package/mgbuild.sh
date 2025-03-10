@@ -109,7 +109,6 @@ print_help () {
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
-  echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
   echo -e "  --init-only                   Only run init script"
   echo -e "  --no-copy                     Don't copy the memgraph repo from host."
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
@@ -293,8 +292,9 @@ build_memgraph () {
   local init_only=false
   local cmake_only=false
   local for_docker=false
-  local for_platform=false
   local copy_from_host=true
+  local init_flags="--ci"
+
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -311,20 +311,7 @@ build_memgraph () {
       ;;
       --for-docker)
         for_docker=true
-        if [[ "$for_platform" == "true" ]]; then
-          echo "Error: Cannot combine --for-docker and --for-platform flags"
-          exit 1
-        fi
         telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
-        shift 1
-      ;;
-      --for-platform)
-        for_platform=true
-        if [[ "$for_docker" == "true" ]]; then
-          echo "Error: Cannot combine --for-docker and --for-platform flags"
-          exit 1
-        fi
-        telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM "
         shift 1
       ;;
       --coverage)
@@ -341,6 +328,10 @@ build_memgraph () {
       ;;
       --no-copy)
         copy_from_host=false
+        shift 1
+      ;;
+      --init-skip-prep-testing)
+        init_flags="$init_flags --skip-prep-testing"
         shift 1
       ;;
       --disable-jemalloc)
@@ -380,7 +371,7 @@ build_memgraph () {
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init --ci"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
@@ -428,9 +419,14 @@ package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local package_command=""
+  # TODO (matt): tidy this
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+  fi
+  if [[ "$os" =~ ^"centos-10".* ]]; then
+    docker exec -u root "$build_container" bash -c "yum -y update"
+    package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm "
   fi
   if [[ "$os" =~ ^"fedora".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
