@@ -211,8 +211,8 @@ uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label,
-                                                        std::vector<PropertyId> const &properties) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
+                                                        std::vector<PropertyId> const & /*properties*/) const {
   return 10;
 }
 
@@ -234,6 +234,7 @@ std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPro
   for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
     for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
       if (IndexExists(label, property)) {
+        // NOLINTNEXTLINE(google-runtime-int)
         res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
       }
     }
