@@ -157,7 +157,7 @@ install() {
             continue
         fi
         if [ "$pkg" == tzdata ]; then
-            apt install -y tzdata=2024a-1ubuntu1 # specific version for timezone bug
+            apt install -y tzdata=2024a-2ubuntu1 # specific version for timezone bug
         fi
         apt install -y "$pkg"
     done
