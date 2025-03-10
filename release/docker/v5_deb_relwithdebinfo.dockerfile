@@ -11,6 +11,14 @@ RUN apt-get update && apt-get install -y \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+RUN apt update && \
+  apt install wget && \
+  TEMP_DEB="$(mktemp)" && \
+  wget -O "$TEMP_DEB" 'https://snapshot.debian.org/archive/debian/20240204T221334Z/pool/main/t/tzdata/tzdata_2024a-0+deb12u1_all.deb' && \
+  dpkg -i "$TEMP_DEB" && \
+  apt-mark hold tzdata && \
+  rm -f "$TEMP_DEB"
+
 RUN pip3 install --break-system-packages  numpy==1.26.4 scipy==1.12.0 networkx==3.2.1 gensim==4.3.3
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /

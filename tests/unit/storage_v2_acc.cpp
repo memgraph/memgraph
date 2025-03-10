@@ -14,22 +14,26 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 
+namespace {
+constexpr auto kTimeout = std::chrono::milliseconds(100);
+}  // namespace
+
 /// Test that unqiue/shared accessors can timeout and not deadlock
 TEST(StorageV2Acc, Timeouts) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{}));
 
   {
-    auto shared_acc = storage->Access();
+    auto shared_acc = storage->Access({}, kTimeout);
     ASSERT_TRUE(shared_acc);
-    ASSERT_THROW(storage->UniqueAccess(), memgraph::storage::UniqueAccessTimeout);
-    auto shared_acc2 = storage->Access();
+    ASSERT_THROW(storage->UniqueAccess({}, kTimeout), memgraph::storage::UniqueAccessTimeout);
+    auto shared_acc2 = storage->Access({}, kTimeout);
     ASSERT_TRUE(shared_acc2);
   }
   {
-    auto unique_acc = storage->UniqueAccess();
+    auto unique_acc = storage->UniqueAccess({}, kTimeout);
     ASSERT_TRUE(unique_acc);
-    ASSERT_THROW(storage->Access(), memgraph::storage::SharedAccessTimeout);
-    ASSERT_THROW(storage->UniqueAccess(), memgraph::storage::UniqueAccessTimeout);
+    ASSERT_THROW(storage->Access({}, kTimeout), memgraph::storage::SharedAccessTimeout);
+    ASSERT_THROW(storage->UniqueAccess({}, kTimeout), memgraph::storage::UniqueAccessTimeout);
   }
 }
