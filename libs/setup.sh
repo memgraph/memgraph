@@ -34,6 +34,7 @@ clone () {
   local dir_name=$2
   local checkout_id=$3
   local shallow=$4
+
   shift 4
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
@@ -351,9 +352,9 @@ skip_if_under_toolchain "mgcxx" repo_clone_try_double "${primary_urls[mgcxx]}" "
 strong_type_ref="v14"
 repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
 
-# usearch
+# usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
-repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref"
+repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref" true
 pushd usearch
 git submodule update --init --recursive
 popd
