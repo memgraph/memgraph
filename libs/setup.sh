@@ -34,7 +34,7 @@ clone () {
   local dir_name=$2
   local checkout_id=$3
   local shallow=$4
-  git config --global http.version HTTP/1.1
+
   shift 4
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
