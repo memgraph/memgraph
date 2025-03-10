@@ -55,7 +55,7 @@ struct ReplicationClient {
                            [this, succ_cb = std::forward<FS>(success_callback),
                             fail_cb = std::forward<FF>(fail_callback), failed_attempts = 0UL]() mutable {
                              // Measure callbacks also to see how long it takes between scheduled runs
-                             utils::MetricsTimer timer{metrics::FrequentHeartbeatRpc_us};
+                             utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
                              try {
                                {
                                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};

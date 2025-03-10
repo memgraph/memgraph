@@ -1029,7 +1029,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
     -> std::optional<NewMainRes> {
-  utils::MetricsTimer timer{metrics::ChooseMostUpToDateInstance_us};
+  utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
 
   std::optional<NewMainRes> new_main_res;
 
@@ -1093,7 +1093,7 @@ auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_
 
 auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
     -> std::optional<std::string> {
-  utils::MetricsTimer timer{metrics::GetHistories_us};
+  utils::MetricsTimer const timer{metrics::GetHistories_us};
 
   if (instances.empty()) {
     return std::nullopt;
