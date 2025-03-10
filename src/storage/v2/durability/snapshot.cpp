@@ -3966,10 +3966,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           return std::vector{get_property_from_id(*property)};
         });
 
-        auto properties_string = properties | ranges::views::transform([&](PropertyId prop_id) {
-                                   return name_id_mapper->IdToName(snapshot_id_map.at(prop_id.AsUint()));
-                                 }) |
-                                 ranges::views::join(", ") | ranges::_to_::to<std::string>;
+        auto properties_string =
+            properties |
+            ranges::views::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
+            ranges::views::join(", ") | ranges::_to_::to<std::string>;
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
                                     {get_label_from_id(*label), std::move(properties)},
