@@ -176,7 +176,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Remove database specific clients
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+      storage->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
     });
 
     spdlog::trace("Replication storage clients destroyed.");
@@ -232,7 +232,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
       client->Start(storage, db_acc);
 
-      all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
+      all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
           [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
             bool const success = std::invoke([state = client->State()]() {
               // We force sync replicas in other situation

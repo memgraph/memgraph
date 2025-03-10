@@ -56,6 +56,7 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 namespace memgraph::metrics {
 extern const Event HeartbeatRpc_us;
 extern const Event AppendDeltasRpc_us;
+extern const Event ReplicaStream_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -198,9 +199,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
   TimestampInfo info;
-  auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   info.current_timestamp_of_replica = last_known_ts_.load(std::memory_order::acquire);
-  info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_time_stamp;
+  info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_timestamp;
   return info;
 }
 
@@ -271,6 +272,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case READY: {
       auto replica_stream = std::optional<ReplicaStream>{};
       try {
+        utils::MetricsTimer const timer{metrics::ReplicaStream_us};
         replica_stream.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
         *locked_state = REPLICATING;
       } catch (const rpc::RpcFailedException &) {
