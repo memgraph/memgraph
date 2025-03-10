@@ -352,7 +352,7 @@ skip_if_under_toolchain "mgcxx" repo_clone_try_double "${primary_urls[mgcxx]}" "
 strong_type_ref="v14"
 repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
 
-# usearch
+# usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
 repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref" true
 pushd usearch
