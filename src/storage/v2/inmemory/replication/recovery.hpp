@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -17,17 +18,37 @@
 namespace memgraph::storage {
 class InMemoryStorage;
 
-////// ReplicationClient Helpers //////
+template <typename T>
+std::enable_if_t<std::is_same_v<T, std::filesystem::path>, bool> WriteFiles(const T &path,
+                                                                            replication::Encoder &encoder) {
+  if (!encoder.WriteFile(path)) {
+    spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
+    return false;
+  }
+  return true;
+}
 
-replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
-                                          const std::vector<std::filesystem::path> &wal_files, bool reset_needed);
+template <typename T>
+std::enable_if_t<std::is_same_v<T, std::vector<std::filesystem::path>>, bool> WriteFiles(
+    const T &paths, replication::Encoder &encoder) {
+  for (const auto &path : paths) {
+    if (!encoder.WriteFile(path)) {
+      spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
+      return false;
+    }
+    spdlog::debug("Loaded file: {}", path);
+  }
+  return true;
+}
 
-replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &storage_uuid,
-                                          rpc::Client &client, const std::filesystem::path &path);
-
-replication::CurrentWalRes TransferCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
-                                              rpc::Client &client, durability::WalFile const &wal_file,
-                                              bool reset_needed);
+template <rpc::IsRpc T, typename R, typename... Args>
+std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client, Args &&...args) {
+  auto stream = client.Stream<T>(std::forward<Args>(args)...);
+  if (replication::Encoder encoder(stream.GetBuilder()); !WriteFiles(files, encoder)) {
+    return std::nullopt;
+  }
+  return stream.AwaitResponseWhileInProgress();
+}
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                       const InMemoryStorage *main_storage) -> std::optional<std::vector<RecoveryStep>>;
