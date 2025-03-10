@@ -10,7 +10,9 @@ RUN apt-get update && apt-get install -y \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# Bugfix for timezone issues - pin the package
 RUN apt install tzdata=2024a-2ubuntu1
+RUN sudo apt-mark hold tzdata
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
