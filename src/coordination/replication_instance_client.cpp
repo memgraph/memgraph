@@ -17,22 +17,23 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/uuid.hpp"
 
 #include <string>
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GenerateRpcCounterEvents(RPC) \
   extern const Event RPC##Success;    \
-  extern const Event RPC##Fail;
+  extern const Event RPC##Fail;       \
+  extern const Event RPC##_us;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define RpcInfoMetrics(RPC)                                     \
   template <>                                                   \
   auto const RpcInfo<RPC>::succCounter = metrics::RPC##Success; \
   template <>                                                   \
-  auto const RpcInfo<RPC>::failCounter = metrics::RPC##Fail;
+  auto const RpcInfo<RPC>::failCounter = metrics::RPC##Fail;    \
+  template <>                                                   \
+  auto const RpcInfo<RPC>::timerLabel = metrics::RPC##_us;
 
 namespace memgraph::metrics {
 // clang-format off
@@ -48,8 +49,13 @@ GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
 
 namespace memgraph::coordination {
 
-RpcInfoMetrics(PromoteToMainRpc) RpcInfoMetrics(DemoteMainToReplicaRpc) RpcInfoMetrics(
-    RegisterReplicaOnMainRpc) RpcInfoMetrics(UnregisterReplicaRpc) RpcInfoMetrics(EnableWritingOnMainRpc)
+// clang-format off
+RpcInfoMetrics(PromoteToMainRpc)
+RpcInfoMetrics(DemoteMainToReplicaRpc)
+RpcInfoMetrics(RegisterReplicaOnMainRpc)
+RpcInfoMetrics(UnregisterReplicaRpc)
+RpcInfoMetrics(EnableWritingOnMainRpc)
+    // clang-format on
 
     ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
                                                          const std::chrono::seconds instance_health_check_frequency_sec)
@@ -93,12 +99,13 @@ void ReplicationInstanceClient::StartStateCheck() {
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
-auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+auto ReplicationInstanceClient::GetReplicationClientInfo() const -> ReplicationClientInfo {
   return config_.replication_client_info;
 }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   try {
+    utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     auto res = stream.AwaitResponse();
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
@@ -112,6 +119,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     -> std::optional<replication_coordination_glue::DatabaseHistories> {
   try {
+    utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.AwaitResponse();
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);

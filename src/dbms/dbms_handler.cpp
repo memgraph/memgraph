@@ -236,7 +236,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
       return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
     };
 
-    return client.SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+    return client.StreamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
         check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
         uuid_);
   }
@@ -322,7 +322,7 @@ struct CreateDatabase : memgraph::system::ISystemAction {
       return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
     };
 
-    return client.SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+    return client.StreamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
         check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
         config_);
   }
