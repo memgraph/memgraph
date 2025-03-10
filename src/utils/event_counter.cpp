@@ -126,6 +126,7 @@
   GenerateHARpcCounters(PromoteToMainRpc)                                                                              \
   GenerateHARpcCounters(DemoteMainToReplicaRpc)                                                                        \
   GenerateHARpcCounters(RegisterReplicaOnMainRpc)                                                                      \
+  GenerateHARpcCounters(SwapMainUUIDRpc)                                                                               \
   GenerateHARpcCounters(GetDatabaseHistoriesRpc)
 // clang-format on
 namespace memgraph::metrics {

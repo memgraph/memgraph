@@ -16,7 +16,9 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -51,9 +53,14 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 }
 }  // namespace
 
+namespace memgraph::metrics {
+extern const Event HeartbeatRpc_us;
+extern const Event AppendDeltasRpc_us;
+}  // namespace memgraph::metrics
+
 namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
-                                                   utils::UUID main_uuid)
+                                                   utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc) {
@@ -64,6 +71,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   replication::HeartbeatRes const heartbeat_res = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
+    utils::MetricsTimer timer{metrics::HeartbeatRpc_us};
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, main_storage->uuid(),
                                                                            replStorageState.last_durable_timestamp_,
                                                                            std::string{replStorageState.epoch_.id()});
@@ -536,21 +544,24 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const ui
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
 
-void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, storage_->name_id_mapper_.get(), storage_->config_.salient.items, delta, vertex,
               final_commit_timestamp);
 }
 
-void ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
+auto ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t const final_commit_timestamp) -> void {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
-void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponseWhileInProgress(); }
+replication::AppendDeltasRes ReplicaStream::Finalize() {
+  utils::MetricsTimer timer{metrics::AppendDeltasRpc_us};
+  return stream_.AwaitResponseWhileInProgress();
+}
 }  // namespace memgraph::storage

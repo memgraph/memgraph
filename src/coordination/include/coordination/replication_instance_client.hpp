@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #pragma once
-#include "coordinator_rpc.hpp"
 
 #ifdef MG_ENTERPRISE
 
@@ -19,8 +18,8 @@
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
@@ -34,6 +33,7 @@ template <IsRpc T>
 struct RpcInfo {
   static const metrics::Event succCounter;
   static const metrics::Event failCounter;
+  static const metrics::Event timerLabel;
 };
 
 class CoordinatorInstance;
@@ -73,6 +73,7 @@ class ReplicationInstanceClient {
 
   template <IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
+    utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
       if (auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...); !stream.AwaitResponse().success) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);

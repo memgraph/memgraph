@@ -16,8 +16,16 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/event_histogram.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotRpc_us;
+extern const Event CurrentWalRpc_us;
+extern const Event WalFilesRpc_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
