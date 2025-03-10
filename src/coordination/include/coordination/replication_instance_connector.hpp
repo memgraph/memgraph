@@ -15,7 +15,6 @@
 
 #include "coordination/replication_instance_client.hpp"
 
-#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
@@ -58,7 +57,6 @@ class ReplicationInstanceConnector {
   auto PauseStateCheck() -> void;
   auto ResumeStateCheck() -> void;
 
-  auto SendStateCheckRpc() const -> std::optional<InstanceState>;
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto GetClient() const -> ReplicationInstanceClient const &;
 

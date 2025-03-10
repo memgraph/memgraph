@@ -14,14 +14,19 @@
 
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "flags/coord_flag_env_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
+#include "utils/event_histogram.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/result.hpp"
+
+namespace memgraph::metrics {
+extern const Event SystemRecoveryRpc_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::replication {
 
@@ -81,6 +86,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
   try {
+    utils::MetricsTimer timer{metrics::SystemRecoveryRpc_us};
     auto stream = std::invoke([&]() {
       // Handle only default database is no license
       if (!is_enterprise) {
@@ -195,6 +201,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
           return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
         case ClientRegisterReplicaStatus::SUCCESS:
           break;
+        default:
+          LOG_FATAL("Unknown register replica status.");
       }
     }
 
