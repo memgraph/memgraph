@@ -108,11 +108,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [debian-12]
+        os: [ubuntu-24.04]
         arch: [amd, arm]
         build_type: [Release]
         include: # Add RelwithDebInfo build for amd docker image
-          - os: debian-12
+          - os: ubuntu-24.04
             arch: amd
             build_type: RelWithDebInfo
     uses: ./.github/workflows/reusable_package.yaml
