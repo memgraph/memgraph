@@ -687,13 +687,28 @@ class FakeDbAccessor {
     return 0;
   }
 
+  // TODO(composite_index) Remove these methods taking a single property
   int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (const auto &index : label_property_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+    std::vector const properties{property};
+    for (const auto &index : label_properties_index_) {
+      if (std::get<0>(index) == label && std::get<1>(index) == properties) {
         return std::get<2>(index);
       }
     }
     return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::LabelId label,
+                        std::span<memgraph::storage::PropertyId const> properties) const {
+    auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+      return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+    });
+
+    if (it != label_properties_index_.end()) {
+      return std::get<2>(*it);
+    } else {
+      return 0;
+    }
   }
 
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
@@ -726,26 +741,54 @@ class FakeDbAccessor {
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (const auto &index : label_property_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+    std::vector const properties{property};
+    for (const auto &index : label_properties_index_) {
+      if (std::get<0>(index) == label && std::get<1>(index) == properties) {
         return true;
       }
     }
     return false;
   }
 
+  bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
+                                std::span<memgraph::storage::PropertyId const> properties) const {
+    return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+             return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+           }) != label_properties_index_.end();
+  }
+
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
                                           std::span<storage::PropertyId const> properties) const
       -> std::vector<storage::LabelPropertiesIndicesInfo> {
     auto res = std::vector<storage::LabelPropertiesIndicesInfo>{};
-    // TODO: use update for composite indices when we need to test that
-    for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
-      for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
-        if (LabelPropertyIndexExists(label, property)) {
-          res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
+
+    for (auto const &[label, props, _] : label_properties_index_) {
+      auto label_it = std::ranges::find(labels, label);
+      if (label_it == labels.end()) {
+        continue;
+      }
+
+      std::vector<long> properties_poses;
+      properties_poses.reserve(properties.size());
+      bool is_meaningful = false;
+      for (auto prop : props) {
+        auto prop_it = std::ranges::find(properties, prop);
+        if (prop_it == properties.end()) {
+          properties_poses.emplace_back(-1);
+        } else {
+          is_meaningful = true;
+          auto distance = std::distance(properties.begin(), prop_it);
+          // NOLINTNEXTLINE(google-runtime-int)
+          properties_poses.emplace_back(static_cast<long>(distance));
         }
       }
+
+      if (is_meaningful) {
+        auto l_pos = std::distance(labels.begin(), label_it);
+        res.emplace_back(l_pos, std::move(properties_poses), label, props);
+      }
     }
+
     return res;
   }
 
@@ -770,6 +813,11 @@ class FakeDbAccessor {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
   }
 
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties) const {
+    return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
+  }
+
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return memgraph::storage::LabelIndexStats{.count = 0, .avg_degree = 0};  // unique id
   }
@@ -777,13 +825,27 @@ class FakeDbAccessor {
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
 
   void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
-    for (auto &index : label_property_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+    std::vector properties{property};
+    for (auto &index : label_properties_index_) {
+      if (std::get<0>(index) == label && std::get<1>(index) == properties) {
         std::get<2>(index) = count;
         return;
       }
     }
-    label_property_index_.emplace_back(label, property, count);
+    label_properties_index_.emplace_back(label, std::move(properties), count);
+  }
+
+  void SetIndexCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties,
+                     int64_t count) {
+    auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+      return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+    });
+
+    if (it != label_properties_index_.end()) {
+      std::get<2>(*it) = count;
+    } else {
+      label_properties_index_.emplace_back(label, std::vector(properties.begin(), properties.end()), count);
+    }
   }
 
   void SetIndexCount(memgraph::storage::EdgeTypeId edge_type, int64_t count) { edge_type_index_[edge_type] = count; }
@@ -843,7 +905,8 @@ class FakeDbAccessor {
   std::unordered_map<std::string, memgraph::storage::PropertyId> properties_;
 
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
-  std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
+  std::vector<std::tuple<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyId>, int64_t>>
+      label_properties_index_;
   std::unordered_map<memgraph::storage::EdgeTypeId, int64_t> edge_type_index_;
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
       edge_type_property_index_;
