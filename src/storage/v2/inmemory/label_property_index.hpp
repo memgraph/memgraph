@@ -92,6 +92,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
   bool IndexExists(LabelId label, PropertyId property) const override;
+  bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> override;
@@ -203,7 +204,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     utils::SkipList<NewEntry> skiplist;
   };
   using PropertiesIds = std::vector<PropertyId>;
-  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex>;
+  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, std::less<>>;
   std::map<LabelId, PropertiesIndices, std::less<>> new_index_;
 
   using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;

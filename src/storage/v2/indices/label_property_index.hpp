@@ -51,6 +51,7 @@ class LabelPropertyIndex {
   virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
 
   virtual bool IndexExists(LabelId label, PropertyId property /*TODO*/) const = 0;
+  virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties /*TODO*/) const = 0;
 
   virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                                   std::span<PropertyId const> properties) const

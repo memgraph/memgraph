@@ -347,19 +347,73 @@ bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property)
   return index_.contains({label, property});
 }
 
+template <typename T, typename U>
+bool operator<(T const &lhs, U const &rhs) {
+  return std::ranges::lexicographical_compare(lhs, rhs);
+}
+
+bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
+  auto it = new_index_.find(label);
+  if (it != new_index_.end()) {
+    return it->second.contains(properties);
+  }
+
+  return false;
+}
+
 auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                                                     std::span<PropertyId const> properties) const
     -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
-  // TODO: use new_index
+  auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
+  auto properties_vec = properties | ranges::to_vector;
+
+  // Given new_index_ of:
+  // :L1 a, b, c
+  // :L1 b, c, d
+
+  // When:
+  // labels = :L1 (0)
+  // properties = b c e
+
+  // Expect:
+  // [-1, 0, 1]
+  // [0, 1, -1]
+
+  // When:
+  // properties = c b
+  // Expect:
+  // [-1, 1, 0]
+  // [1, 0, -1]
+
+  r::sort(rv::zip(properties_vec, ppos_indices), std::less{},
+          [](auto const &val) -> PropertyId const & { return std::get<0>(val); });
+
   for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
-    for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
-      if (IndexExists(label, property)) {
-        // NOLINTNEXTLINE(google-runtime-int)
-        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
+    auto it = new_index_.find(label);
+    if (it == new_index_.end()) continue;
+
+    for (auto props : it->second | std::ranges::views::keys) {
+      bool is_meaningful = false;
+      auto positions = std::vector<long>();
+      for (auto prop : props) {
+        auto it = r::lower_bound(properties_vec, prop);
+        if (it != properties_vec.end() && *it == prop) {
+          auto distance = std::distance(properties_vec.begin(), it);
+          // NOLINTNEXTLINE(google-runtime-int)
+          positions.emplace_back(static_cast<long>(ppos_indices[distance]));
+          is_meaningful = true;
+        } else {
+          positions.emplace_back(-1);
+        }
+      }
+
+      if (is_meaningful) {
+        res.emplace_back(l_pos, std::move(positions));
       }
     }
   }
+
   return res;
 }
 

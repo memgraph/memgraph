@@ -316,7 +316,7 @@ class Storage {
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
+    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyId const> properties) const

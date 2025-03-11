@@ -322,8 +322,8 @@ class InMemoryStorage final : public Storage {
 
     bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
 
-    bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      return storage_->indices_.label_property_index_->IndexExists(label, property);
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
+      return storage_->indices_.label_property_index_->IndexExists(label, properties);
     }
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {

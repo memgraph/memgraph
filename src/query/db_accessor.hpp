@@ -492,8 +492,8 @@ class DbAccessor final {
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {
-    return accessor_->LabelPropertyIndexExists(label, prop);
+  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+    return accessor_->LabelPropertyIndexExists(label, properties);
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,

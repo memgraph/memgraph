@@ -192,6 +192,10 @@ bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) con
   return utils::Contains(index_, std::make_pair(label, property));
 }
 
+bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
+  return utils::Contains(index_, std::make_pair(label, properties[0]));
+}
+
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
   return {index_.begin(), index_.end()};
 }
