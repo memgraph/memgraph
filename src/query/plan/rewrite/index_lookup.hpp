@@ -71,7 +71,7 @@ struct IndexHints {
                           ranges::to_vector;
 
         // Fetching the corresponding index to the hint
-        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties[0] /*TODO*/)) {
+        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
           auto property_names = *index_hint.properties_ |
                                 ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; }) |
                                 ranges::views::join(", ") | ranges::to<std::string>;
