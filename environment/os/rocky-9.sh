@@ -137,8 +137,13 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    yum update -y
-    yum install -y wget git python3 python3-pip
+
+    # enable CRB repo 
+    dnf install -y dnf-plugins-core
+    dnf config-manager --set-enabled crb
+    
+    dnf update -y
+    dnf install -y wget git python3 python3-pip
 
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
@@ -157,18 +162,6 @@ install() {
             install_node "20"
             continue
         fi
-        if [ "$pkg" == perl-Unicode-EastAsianWidth ]; then
-            if ! dnf list installed perl-Unicode-EastAsianWidth >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/p/perl-Unicode-EastAsianWidth-12.0-7.el9.noarch.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == texinfo ]; then
-            if ! dnf list installed texinfo >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/t/texinfo-6.7-15.el9.x86_64.rpm
-            fi
-            continue
-        fi
         if [ "$pkg" == libbabeltrace-devel ]; then
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
                 dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
@@ -178,12 +171,6 @@ install() {
         if [ "$pkg" == libipt-devel ]; then
             if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
                 dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libipt-devel-2.0.4-5.el9.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == doxygen ]; then
-            if ! dnf list installed doxygen >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-11.el9.x86_64.rpm
             fi
             continue
         fi

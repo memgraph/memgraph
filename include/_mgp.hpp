@@ -334,9 +334,13 @@ inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memo
   return MgInvoke<mgp_vertices_iterator *>(mgp_graph_iter_vertices, g, memory);
 }
 
-inline size_t graph_count_vertices(mgp_graph *g) { return MgInvoke<size_t>(mgp_graph_count_vertices, g); }
+inline size_t graph_approximate_vertex_count(mgp_graph *g) {
+  return MgInvoke<size_t>(mgp_graph_approximate_vertex_count, g);
+}
 
-inline size_t graph_count_edges(mgp_graph *g) { return MgInvoke<size_t>(mgp_graph_count_edges, g); }
+inline size_t graph_approximate_edge_count(mgp_graph *g) {
+  return MgInvoke<size_t>(mgp_graph_approximate_edge_count, g);
+}
 
 // vector index
 

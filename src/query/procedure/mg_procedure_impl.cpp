@@ -3747,11 +3747,11 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
-mgp_error mgp_graph_count_vertices(mgp_graph *graph, size_t *result) {
+mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] { *result = graph->getImpl()->VerticesCount(); });
 }
 
-mgp_error mgp_graph_count_edges(mgp_graph *graph, size_t *result) {
+mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] { *result = graph->getImpl()->EdgesCount(); });
 }
 
@@ -4413,7 +4413,7 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
 }
 
 mgp_execution_headers::mgp_execution_headers(memgraph::utils::pmr::vector<memgraph::utils::pmr::string> &&storage)
-    : headers(std::move(storage)) {};
+    : headers(std::move(storage)){};
 
 mgp_error mgp_execution_headers_size(mgp_execution_headers *headers, size_t *result) {
   static_assert(noexcept(headers->headers.size()));

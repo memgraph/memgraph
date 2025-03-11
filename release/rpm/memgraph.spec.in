@@ -140,3 +140,4 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 
 %changelog
 @CPACK_RPM_SPEC_CHANGELOG@
+
