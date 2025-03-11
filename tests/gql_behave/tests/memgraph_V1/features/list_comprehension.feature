@@ -92,3 +92,13 @@ Feature: ListComprehension
     Then the result should be:
       | processed |
       | [1, 2, 3] |
+
+  Scenario: Using a list comprehension without WHERE or expression part - nested
+    Given an empty graph
+    When executing query:
+      """
+      RETURN [[x in [1, 2, 3]]] as processed
+      """
+    Then the result should be:
+      | processed   |
+      | [[1, 2, 3]] |
