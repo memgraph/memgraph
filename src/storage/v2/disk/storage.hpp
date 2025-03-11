@@ -94,6 +94,10 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const override { return 10; }
 
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/) const override {
+      return 10;
+    }
+
     uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
                                     const PropertyValue & /*value*/) const override {
       return 10;
@@ -145,7 +149,7 @@ class DiskStorage final : public Storage {
     }
 
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId & /*label*/, std::vector<storage::PropertyId> const & /*property*/) const override {
+        const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/) const override {
       return {};
     }
 
