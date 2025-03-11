@@ -7,7 +7,7 @@ ARG TARGETARCH
 ARG SOURCE_CODE
 
 # Bugfix for timezone issues - pin the package
-RUN DEBIAN_FRONTEND=noninteractive apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
+RUN DEBIAN_FRONTEND=noninteractive apt udpate && apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
 RUN apt-mark hold tzdata
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
