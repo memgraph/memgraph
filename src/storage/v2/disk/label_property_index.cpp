@@ -204,6 +204,11 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex:
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const { return 10; }
 
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
+                                                        std::span<PropertyId const> /*properties*/) const {
+  return 10;
+}
+
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
                                                         const PropertyValue & /*value*/) const {
   return 10;
