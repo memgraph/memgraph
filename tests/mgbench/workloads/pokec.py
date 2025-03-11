@@ -182,8 +182,11 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        else:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return neo4j
+        raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__arango__shortest_path_with_filter(self):
         vertex_from, vertex_to = self._get_random_from_to()
@@ -203,8 +206,11 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        else:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return neo4j
+        raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__arango__allshortest_paths(self):
         vertex_from, vertex_to = self._get_random_from_to()
@@ -222,8 +228,11 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        else:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return neo4j
+        raise Exception(f"Unknown vendor type {self._vendor}")
 
     # Our benchmark queries
 
