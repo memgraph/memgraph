@@ -45,6 +45,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
   bool IndexExists(LabelId label, PropertyId property) const override;
+  bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> override;
