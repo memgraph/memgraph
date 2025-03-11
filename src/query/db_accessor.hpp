@@ -551,6 +551,11 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                std::span<storage::PropertyId const> properties) const {
+    return accessor_->GetIndexStats(label, properties);
+  }
+
   std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
       const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
@@ -573,6 +578,10 @@ class DbAccessor final {
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVertexCount(label, property);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+    return accessor_->ApproximateVertexCount(label, properties);
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {

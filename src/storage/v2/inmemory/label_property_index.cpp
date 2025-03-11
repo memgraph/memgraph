@@ -347,11 +347,6 @@ bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property)
   return index_.contains({label, property});
 }
 
-template <typename T, typename U>
-bool operator<(T const &lhs, U const &rhs) {
-  return std::ranges::lexicographical_compare(lhs, rhs);
-}
-
 bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
   auto it = new_index_.find(label);
   if (it != new_index_.end()) {
@@ -409,7 +404,7 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
       }
 
       if (is_meaningful) {
-        res.emplace_back(l_pos, std::move(positions));
+        res.emplace_back(l_pos, std::move(positions), label, props);
       }
     }
   }
@@ -580,6 +575,15 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, Prope
   return it->second.size();
 }
 
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
+                                                            std::span<PropertyId const> properties) const {
+  auto it = new_index_.find(label);
+  MG_ASSERT(it != new_index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  auto it2 = it->second.find(properties);
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} doesn't exist", label.AsUint());
+  return it2->second.skiplist.size();
+}
+
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                             const PropertyValue &value) const {
   auto it = index_.find({label, property});
@@ -705,7 +709,7 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 }
 
 std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
-    const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key) const {
+    const std::pair<storage::LabelId, std::span<storage::PropertyId const>> &key) const {
   auto locked_stats = new_stats_.ReadLock();
   if (auto it = locked_stats->find(key.first); it != locked_stats->end()) {
     if (auto it2 = it->second.find(key.second); it2 != it->second.end()) {

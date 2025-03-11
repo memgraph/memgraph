@@ -18,11 +18,13 @@
 
 namespace memgraph::storage {
 
-// These possitions are in refernce to the
-// labels + properties passed into `RelevantLabelPropertiesIndicesInfo`
+// These positions are in reference to the // labels + properties passed into
+// `RelevantLabelPropertiesIndicesInfo`
 struct LabelPropertiesIndicesInfo {
   std::size_t label_pos_;
   std::vector<long> properties_pos_;  // -1 means missing
+  LabelId label_;
+  std::vector<PropertyId> properties_;
 };
 
 class LabelPropertyIndex {
@@ -61,6 +63,8 @@ class LabelPropertyIndex {
   virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property /*TODO*/) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property /*TODO*/,
                                           const PropertyValue &value) const = 0;

@@ -56,6 +56,12 @@ class VertexCountCache {
     return label_property_vertex_count_.at(key);
   }
 
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) {
+    // TODO(composite_index) Not caching: direct read from the db. Does that
+    // matter?
+    return db_->VerticesCount(label, properties);
+  }
+
   std::optional<int64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) {
     auto key = std::make_pair(label, property);
     auto it = label_property_vertex_point_count_.find(key);
@@ -179,6 +185,11 @@ class VertexCountCache {
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
                                                                 const storage::PropertyId &property) const {
     return db_->GetIndexStats(label, property);
+  }
+
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                std::span<storage::PropertyId const> properties) const {
+    return db_->GetIndexStats(label, properties);
   }
 
   operator DbAccessor const &() const { return *db_; }

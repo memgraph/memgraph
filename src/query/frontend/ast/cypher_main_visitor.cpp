@@ -301,14 +301,14 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         if (!index_hint_ctx->propertyKeyName()) {
           pre_query_directives.index_hints_.emplace_back(
-              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
           continue;
         }
         pre_query_directives.index_hints_.emplace_back(
             /*TODO make hints composite*/
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
-                      .label_ = label,
-                      .properties_ =
+                      .label_ix_ = label,
+                      .property_ixs_ =
                           std::vector{std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))}});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {

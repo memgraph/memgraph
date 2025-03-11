@@ -81,6 +81,7 @@ target_sources(mg-storage-v2
         vertex_info_cache_fwd.hpp
         schema_info.hpp
         edge_ref.hpp
+        id_types.hpp
 )
 
 find_package(gflags REQUIRED)

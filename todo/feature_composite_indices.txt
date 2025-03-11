@@ -82,3 +82,9 @@ MVCC CurrentVersionHasLabelProperty for the InMemoryLabelPropertyIndex::Iterable
 
 
 Point index can not be composite (ANTLR grammar) or check and deny in cypher visitor
+
+Stats for chi-squared scoring and groups need to be binned on a per-prefix
+basis:
+- [a]
+- [a, b]
+- [a, b, c] ...

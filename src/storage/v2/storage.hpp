@@ -256,6 +256,8 @@ class Storage {
 
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
 
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
+
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
 
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
@@ -292,7 +294,7 @@ class Storage {
         const storage::LabelId &label, const storage::PropertyId &property) const = 0;
 
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, std::vector<storage::PropertyId> const &property) const = 0;
+        const storage::LabelId &label, std::span<storage::PropertyId const> properties) const = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 

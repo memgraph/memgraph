@@ -204,6 +204,12 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, property);
     }
 
+    /// Return approximate number of vertices with the given label and property.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override {
+      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties);
+    }
+
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
@@ -283,7 +289,7 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, std::vector<storage::PropertyId> const &properties) const override {
+        const storage::LabelId &label, std::span<storage::PropertyId const> properties) const override {
       return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(
           static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
           std::make_pair(label, properties));
