@@ -3442,15 +3442,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4444,7 +4442,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }  // end loop over all aggregations
+    }    // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -4690,8 +4688,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -5596,6 +5595,7 @@ class CallProcedureCursor : public Cursor {
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
     // `mgp_result_record_insert`.
+    // TODO Ivan: remove comment
     if (values.size() != result_signature_size_) {
       throw QueryRuntimeException(
           "Procedure '{}' did not yield all fields as required by its "
@@ -5604,12 +5604,10 @@ class CallProcedureCursor : public Cursor {
     }
     for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
       std::string_view field_name(self_->result_fields_[i]);
-      auto result_it = values.find(field_name);
-      if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
-                                    field_name);
-      }
-      frame[self_->result_symbols_[i]] = std::move(result_it->second);
+      auto field_id_it = result_.signature->find(field_name);
+      MG_ASSERT(field_id_it != result_.signature->end());
+
+      frame[self_->result_symbols_[i]] = std::move(values[field_id_it->second.second]);
       if (context.frame_change_collector &&
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -592,10 +592,9 @@ struct mgp_graph {
 };
 
 struct mgp_result_record {
-  /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                  std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+                                  std::pair<const memgraph::query::procedure::CypherType *, int>> *signature;
+  memgraph::utils::pmr::vector<memgraph::query::TypedValue> values;
   bool ignore_deleted_values = false;
   bool has_deleted_values = false;
 };
@@ -605,11 +604,19 @@ struct mgp_result {
       const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                       std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature,
       memgraph::utils::MemoryResource *mem)
-      : signature(signature), rows(mem) {}
+      : signature(signature), field_to_id(mem), rows(mem) {
+    int id = 0;
+    for (const auto &[field, pair] : *signature) {
+      field_to_id.emplace(field, std::make_pair(pair.first, id++));
+    }
+  }
 
   /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
+  memgraph::utils::pmr::map<memgraph::utils::pmr::string,
+                            std::pair<const memgraph::query::procedure::CypherType *, int>>
+      field_to_id;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
   bool is_transactional = true;
