@@ -1105,7 +1105,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         };
 
-        return r::fold_left(filters | rv::transform(filter_type_score), 0.0, std::multiplies<>{});
+        return r::fold_left(filters | rv::transform(filter_type_score), 1.0, std::multiplies<>{});
       };
 
       return to_score(found.filters) < to_score(candidate_filters);
