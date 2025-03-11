@@ -388,14 +388,14 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
     auto it = new_index_.find(label);
     if (it == new_index_.end()) continue;
 
-    for (auto props : it->second | std::ranges::views::keys) {
+    for (auto const &props : it->second | std::ranges::views::keys) {
       bool is_meaningful = false;
+      // NOLINTNEXTLINE(google-runtime-int)
       auto positions = std::vector<long>();
       for (auto prop : props) {
         auto it = r::lower_bound(properties_vec, prop);
         if (it != properties_vec.end() && *it == prop) {
           auto distance = std::distance(properties_vec.begin(), it);
-          // NOLINTNEXTLINE(google-runtime-int)
           positions.emplace_back(static_cast<long>(ppos_indices[distance]));
           is_meaningful = true;
         } else {
