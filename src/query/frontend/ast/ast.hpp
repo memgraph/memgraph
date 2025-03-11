@@ -2248,21 +2248,23 @@ struct IndexHint {
   enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
 
   memgraph::query::IndexHint::IndexType index_type_;
-  memgraph::query::LabelIx label_;
+  memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::optional<std::vector<memgraph::query::PropertyIx>> properties_{std::nullopt};
-  bool is_exact_;
+  std::optional<std::vector<memgraph::query::PropertyIx>> property_ixs_{std::nullopt};
+  storage::LabelId label_;
+  std::vector<storage::PropertyId> properties_;
 
   IndexHint Clone(AstStorage *storage) const {
     IndexHint object;
     object.index_type_ = index_type_;
-    object.label_ = storage->GetLabelIx(label_.name);
-    if (properties_) {
-      object.properties_ = *properties_ |
-                           ranges::views::transform([&](auto &&v) { return storage->GetPropertyIx(v.name); }) |
-                           ranges::to_vector;
+    object.label_ix_ = storage->GetLabelIx(label_ix_.name);
+    if (property_ixs_) {
+      object.property_ixs_ = *property_ixs_ |
+                             ranges::views::transform([&](auto &&v) { return storage->GetPropertyIx(v.name); }) |
+                             ranges::to_vector;
     }
-    object.is_exact_ = is_exact_;
+    object.label_ = label_;
+    object.properties_ = properties_;
     return object;
   }
 };

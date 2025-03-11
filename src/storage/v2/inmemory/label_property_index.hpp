@@ -154,6 +154,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
 
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
+
   /// Supplying a specific value into the count estimation function will return
   /// an estimated count of nodes which have their property's value set to
   /// `value`. If the `value` specified is `Null`, then an average number of
@@ -182,7 +184,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       const std::pair<storage::LabelId, storage::PropertyId> &key) const;
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-      const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &key) const;
+      std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const;
 
   void RunGC();
 
@@ -198,20 +200,30 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void DropGraphClearIndices() override;
 
- private:
   struct IndividualIndex {
     PropertiesPermutationHelper permutations_helper;
     utils::SkipList<NewEntry> skiplist;
   };
+
+ private:
+  struct Compare {
+    template <std::ranges::forward_range T, std::ranges::forward_range U>
+    bool operator()(T const &lhs, U const &rhs) const {
+      return std::ranges::lexicographical_compare(lhs, rhs);
+    }
+
+    using is_transparent = void;
+  };
+
   using PropertiesIds = std::vector<PropertyId>;
-  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, std::less<>>;
+  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, Compare>;
   std::map<LabelId, PropertiesIndices, std::less<>> new_index_;
 
   using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;
   using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
   std::unordered_map<PropertyId, PropToIndexLookup> new_indices_by_property_;
 
-  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats>;
+  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> new_stats_;
 
   //*** OLD to remove
