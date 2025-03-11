@@ -72,7 +72,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
   try {
     for (const auto &it : AddrInfo{endpoint}) {
       utils::MetricsTimer const timer{metrics::SocketConnect_us};
-      int const sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
+      int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
         spdlog::trace("Socket creation failed in Socket::Connect for socket address {}. File descriptor is -1",
                       endpoint.SocketAddress());
@@ -94,7 +94,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
     return false;
   }
 
-  return socket_ != -1;
+  return !(socket_ == -1);
 }
 
 bool Socket::Bind(const Endpoint &endpoint) {
