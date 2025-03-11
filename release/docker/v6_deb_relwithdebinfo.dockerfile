@@ -8,12 +8,14 @@ ARG SOURCE_CODE
 
 RUN apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
-  gdb procps linux-perf libc6-dbg --no-install-recommends \
-  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+  gdb procps linux-perf libc6-dbg --no-install-recommends 
 
 # Bugfix for timezone issues - pin the package
 RUN apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
 RUN sudo apt-mark hold tzdata
+
+# do this after apt, not before!
+RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
