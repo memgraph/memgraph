@@ -8,8 +8,7 @@ ARG SOURCE_CODE
 
 RUN apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.11 python3-pip gdb procps linux-perf libc6-dbg\
-  --no-install-recommends \
-  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+  --no-install-recommends
 
 RUN apt update && \
   apt install wget && \
@@ -18,6 +17,9 @@ RUN apt update && \
   dpkg -i "$TEMP_DEB" && \
   apt-mark hold tzdata && \
   rm -f "$TEMP_DEB"
+
+# do this after apt, not before!
+RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN pip3 install --break-system-packages  numpy==1.26.4 scipy==1.12.0 networkx==3.2.1 gensim==4.3.3
 
