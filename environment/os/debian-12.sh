@@ -39,7 +39,6 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline8 # for cmake and llvm
     libffi8 libxml2 # for llvm
     libssl-dev # for libevent
-    tzdata # for timezone bug
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -146,10 +145,6 @@ install() {
         fi
         if [ "$pkg" == custom-node ]; then
             install_node "20"
-            continue
-        fi
-        if [ "$pkg" == tzdata ]; then
-            apt install -y tzdata=2024a-0+deb12u1 --allow-downgrades # specific version for timezone bug
             continue
         fi
         apt install -y "$pkg"
