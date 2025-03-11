@@ -84,8 +84,8 @@ struct ReplicationClient {
   template <typename RPC, typename... Args>
   bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
     try {
-      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
       auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
+      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
       auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
         if (stream.IsDefunct()) {
           state_.WithLock([](auto &state) { state = State::BEHIND; });
