@@ -94,7 +94,7 @@ class Reader {
   void Finalize();
 
  private:
-  void GetSegment(bool should_be_final = false);
+  void GetSegment();
 
   const uint8_t *data_;
   size_t size_;

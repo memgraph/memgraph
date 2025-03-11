@@ -78,13 +78,10 @@ void Reader::Load(uint8_t *data, uint64_t size) {
   }
 }
 
-void Reader::Finalize() { GetSegment(true); }
+void Reader::Finalize() { have_ = 0; }
 
-void Reader::GetSegment(bool should_be_final) {
+void Reader::GetSegment() {
   if (have_ != 0) {
-    if (should_be_final) {
-      throw SlkReaderException("There is still leftover data in the SLK stream!");
-    }
     return;
   }
 
@@ -95,10 +92,7 @@ void Reader::GetSegment(bool should_be_final) {
   }
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
 
-  if (should_be_final && len != 0) {
-    throw SlkReaderException("Got a non-empty SLK segment when expecting the final segment!");
-  }
-  if (!should_be_final && len == 0) {
+  if (len == 0) {
     throw SlkReaderException("Got an empty SLK segment when expecting a non-empty segment!");
   }
 
