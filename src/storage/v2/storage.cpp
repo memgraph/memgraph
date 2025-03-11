@@ -53,7 +53,7 @@ Storage::Storage(Config config, StorageMode storage_mode)
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode)
+                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
@@ -63,13 +63,18 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {
-  if (!storage_guard_.try_lock_for(kAccessTimeout)) {
+  if (!timeout) {
+    storage_guard_.lock();
+    return;
+  }
+  // If a timeout is allowed, try to acquire the lock for the specified time.
+  if (!storage_guard_.try_lock_for(*timeout)) {
     throw SharedAccessTimeout();
   }
 }
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode)
+                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
@@ -79,7 +84,12 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {
-  if (!unique_guard_.try_lock_for(kAccessTimeout)) {
+  if (!timeout) {
+    unique_guard_.lock();
+    return;
+  }
+  // If a timeout is allowed, try to acquire the lock for the specified time.
+  if (!unique_guard_.try_lock_for(*timeout)) {
     throw UniqueAccessTimeout();
   }
 }

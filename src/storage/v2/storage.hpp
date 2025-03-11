@@ -76,8 +76,6 @@ class UniqueAccessTimeout : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
 };
 
-constexpr std::chrono::milliseconds kAccessTimeout{1000};
-
 struct Transaction;
 class EdgeAccessor;
 
@@ -195,8 +193,10 @@ class Storage {
     static constexpr struct UniqueAccess {
     } unique_access;
 
-    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
-    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -552,12 +552,19 @@ class Storage {
     }
   }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
+  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                           std::optional<std::chrono::milliseconds> timeout) = 0;
+  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
+    return Access(override_isolation_level, std::nullopt);
+  }
+  std::unique_ptr<Accessor> Access() { return Access({}, std::nullopt); }
 
-  std::unique_ptr<Accessor> Access() { return Access({}); }
-
-  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess({}); }
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                 std::optional<std::chrono::milliseconds> timeout) = 0;
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
+    return UniqueAccess(override_isolation_level, std::nullopt);
+  }
+  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess({}, std::nullopt); }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 

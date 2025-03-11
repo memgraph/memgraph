@@ -3,6 +3,9 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
+source "$DIR/../../../util.sh"
+setup_node
+
 if ! which node >/dev/null; then
     echo "Please install nodejs!"
     exit 1
