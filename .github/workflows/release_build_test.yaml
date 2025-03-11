@@ -80,10 +80,7 @@ jobs:
           - os: ubuntu-24.04
             build_type: Release
             arch: arm
-          - os: debian-11
-            build_type: RelWithDebInfo
-            arch: amd
-          - os: debian-11
+          - os: ubuntu-24.04
             build_type: RelWithDebInfo
             arch: arm
     uses: ./.github/workflows/reusable_package.yaml
