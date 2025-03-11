@@ -1703,32 +1703,6 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
   });
 }
 
-// mgp_error mgp_result_record_create_and_bulk_insert(mgp_result *res, size_t N_param, size_t N_records,
-//                                                    const char *field_name[], mgp_value **val[]) {
-//   return WrapExceptions([=] {
-//     auto *memory = res->rows.get_allocator().GetMemoryResource();
-//     MG_ASSERT(res->signature, "Expected to have a valid signature");
-
-//     res->rows.reserve(res->rows.size() + N_records);
-
-//     for (size_t i = 0; i < N_records; ++i) {
-//       res->rows.push_back(mgp_result_record{
-//           .signature = res->signature,
-//           .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
-//           .ignore_deleted_values = !res->is_transactional});
-
-//       auto &record = res->rows.back();
-//       for (size_t j = 0; j < N_param; ++j) {
-//         if (record.ignore_deleted_values && ContainsDeleted(val[j][i])) [[unlikely]] {
-//           record.has_deleted_values = true;
-//           break;
-//         }
-//         record.values.emplace(field_name[j], ToTypedValue(*val[j][i], memory));
-//       }
-//     }
-//   });
-// }
-
 mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
   return WrapExceptions([=] {
     // We are copying error message string here, that includes the out of memory message
