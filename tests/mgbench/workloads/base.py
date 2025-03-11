@@ -103,7 +103,7 @@ class Workload(ABC):
         """
         self.benchmark_context = benchmark_context
         self._variant = variant
-        self._vendor = benchmark_context.vendor_name
+        self._vendor = benchmark_context.vendor_type
         self._file = None
         self._node_file = None
         self._edge_file = None
