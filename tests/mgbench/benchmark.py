@@ -228,8 +228,8 @@ def parse_args():
     parser_vendor_docker.add_argument(
         "--vendor-name",
         default="memgraph-docker",
-        choices=["memgraph-docker", "neo4j-docker"],
-        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker)",
+        choices=["memgraph-docker", "neo4j-docker", "falkordb-docker"],
+        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker, falkordb-docker)",
     )
 
     return parser.parse_args()
@@ -892,13 +892,15 @@ def log_output_summary(benchmark_context, ret, usage, funcname, sample_query):
         else:
             log.success("{:<10} {:>10.06f} seconds".format(key, value))
     log.success("Throughput: {:02f} QPS\n\n".format(ret[THROUGHPUT]))
-    
-    
+
+
 def get_vendor_type(vendor_name):
     if "memgraph" in vendor_name.lower():
         return "memgraph"
     if "neo4j" in vendor_name.lower():
         return "neo4j"
+    if "falkordb" in vendor_name.lower():
+        return "falkordb"
     raise Exception(f"Vendor name {vendor_name} not recognized")
 
 
@@ -909,7 +911,7 @@ if __name__ == "__main__":
 
     temp_dir = pathlib.Path.cwd() / ".temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    
+
     vendor_type = get_vendor_type(args.vendor_name)
 
     benchmark_context = BenchmarkContext(
