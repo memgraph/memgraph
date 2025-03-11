@@ -59,8 +59,10 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
-    const std::string_view stream_name) {
+    const utils::pmr::vector<TypedValue> &values,
+    const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
+                                    std::pair<const memgraph::query::procedure::CypherType *, int>> &field_to_id,
+    const std::string_view transformation_name, const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
@@ -68,12 +70,12 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
   }
 
   auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
-    auto it = values.find(field_name);
-    if (it == values.end()) {
+    auto it = field_to_id.find(field_name);
+    if (it == field_to_id.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
                              transformation_name, stream_name, field_name};
     };
-    return it->second;
+    return values[it->second.second];
   };
 
   const auto &query_value = get_value(query_param_name);
@@ -540,7 +542,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+          auto [query_value, params_value] =
+              ExtractTransformationResult(row.values, result.field_to_id, transformation_name, stream_name);
           storage::PropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
@@ -833,7 +836,8 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
           auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
           std::transform(
               result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
-                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+                auto [query, parameters] =
+                    ExtractTransformationResult(row.values, result.field_to_id, transformation_name, stream_name);
 
                 return std::map<std::string, TypedValue>{{"query", std::move(query)},
                                                          {"parameters", std::move(parameters)}};

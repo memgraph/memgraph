@@ -1666,10 +1666,10 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       [res] {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
-        res->rows.push_back(mgp_result_record{
-            .signature = res->signature,
-            .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
-            .ignore_deleted_values = !res->is_transactional});
+        res->rows.push_back(mgp_result_record{.signature = &res->field_to_id,
+                                              .values = memgraph::utils::pmr::vector<memgraph::query::TypedValue>(
+                                                  res->field_to_id.size(), memgraph::query::TypedValue(memory), memory),
+                                              .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
       result);
@@ -1684,49 +1684,46 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
+    auto const field_id = find_it->second.second;
     if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
       record->has_deleted_values = true;
       return;
     }
-    const auto *type = find_it->second.first;
-    if (!type->SatisfiesType(*val)) {
+    auto const *field_type = find_it->second.first;
+    if (!field_type->SatisfiesType(*val)) [[unlikely]] {
       throw std::logic_error{
-          fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
+          fmt::format("The type of value doesn't satisfy the type '{}'!", field_type->GetPresentableName())};
     }
-    record->values.emplace(field_name, ToTypedValue(*val, memory));
+
+    record->values[field_id] = ToTypedValue(*val, memory);
   });
 }
 
-mgp_error mgp_result_record_create_and_bulk_insert(mgp_result *res, const char *field_name[], mgp_value *val[],
-                                                   size_t n) {
-  return WrapExceptions([=] {
-    auto *memory = res->rows.get_allocator().GetMemoryResource();
-    MG_ASSERT(res->signature, "Expected to have a valid signature");
-    res->rows.push_back(mgp_result_record{
-        .signature = res->signature,
-        .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
-        .ignore_deleted_values = !res->is_transactional});
-    auto *record = &res->rows.back();
+// mgp_error mgp_result_record_create_and_bulk_insert(mgp_result *res, size_t N_param, size_t N_records,
+//                                                    const char *field_name[], mgp_value **val[]) {
+//   return WrapExceptions([=] {
+//     auto *memory = res->rows.get_allocator().GetMemoryResource();
+//     MG_ASSERT(res->signature, "Expected to have a valid signature");
 
-    for (int i = 0; i < n; ++i) {
-      MG_ASSERT(record->signature, "Expected to have a valid signature");
-      auto find_it = record->signature->find(field_name[i]);
-      if (find_it == record->signature->end()) {
-        throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name[i])};
-      }
-      if (record->ignore_deleted_values && ContainsDeleted(val[i])) [[unlikely]] {
-        record->has_deleted_values = true;
-        return;
-      }
-      const auto *type = find_it->second.first;
-      if (!type->SatisfiesType(*val[i])) {
-        throw std::logic_error{
-            fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
-      }
-      record->values.emplace(field_name[i], ToTypedValue(*val[i], memory));
-    }
-  });
-}
+//     res->rows.reserve(res->rows.size() + N_records);
+
+//     for (size_t i = 0; i < N_records; ++i) {
+//       res->rows.push_back(mgp_result_record{
+//           .signature = res->signature,
+//           .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
+//           .ignore_deleted_values = !res->is_transactional});
+
+//       auto &record = res->rows.back();
+//       for (size_t j = 0; j < N_param; ++j) {
+//         if (record.ignore_deleted_values && ContainsDeleted(val[j][i])) [[unlikely]] {
+//           record.has_deleted_values = true;
+//           break;
+//         }
+//         record.values.emplace(field_name[j], ToTypedValue(*val[j][i], memory));
+//       }
+//     }
+//   });
+// }
 
 mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
   return WrapExceptions([=] {

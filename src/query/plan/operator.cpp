@@ -5810,6 +5810,7 @@ class CallProcedureCursor : public Cursor {
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
     // `mgp_result_record_insert`.
+    // TODO Ivan: remove comment
     if (values.size() != result_signature_size_) {
       throw QueryRuntimeException(
           "Procedure '{}' did not yield all fields as required by its "
@@ -5818,12 +5819,10 @@ class CallProcedureCursor : public Cursor {
     }
     for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
       std::string_view field_name(self_->result_fields_[i]);
-      auto result_it = values.find(field_name);
-      if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
-                                    field_name);
-      }
-      frame[self_->result_symbols_[i]] = std::move(result_it->second);
+      auto field_id_it = result_.signature->find(field_name);
+      MG_ASSERT(field_id_it != result_.signature->end());
+
+      frame[self_->result_symbols_[i]] = std::move(values[field_id_it->second.second]);
       if (context.frame_change_collector &&
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
