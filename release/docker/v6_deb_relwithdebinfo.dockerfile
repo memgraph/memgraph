@@ -6,13 +6,15 @@ ARG EXTENSION
 ARG TARGETARCH
 ARG SOURCE_CODE
 
-RUN apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
-  gdb procps linux-perf libc6-dbg --no-install-recommends 
-
 # Bugfix for timezone issues - pin the package
-RUN apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
+RUN DEBIAN_FRONTEND=noninteractive apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
 RUN apt-mark hold tzdata
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
+  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
+  gdb procps linux-tools-common linux-tools-generic linux-tools-$(uname -r)  libc6-dbg \
+  --no-install-recommends 
+
 
 # do this after apt, not before!
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
