@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,7 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
     return true;
   }
 #ifdef MG_ENTERPRISE
+  virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy) const { return true; }
   std::string GetDefaultDB() const { return "memgraph"; }
 #endif
 };
@@ -104,7 +105,8 @@ class StreamsTestFixture : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
@@ -122,7 +124,7 @@ class StreamsTestFixture : public ::testing::Test {
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
                                                            nullptr,
-                                                           &repl_state,
+                                                           repl_state,
                                                            system_state,
 #ifdef MG_ENTERPRISE
                                                            std::nullopt,

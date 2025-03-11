@@ -50,6 +50,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       // TODO: Reconsider priviliges, this 4 should have the same.
       case DatabaseInfoQuery::InfoType::EDGE_TYPES:
       case DatabaseInfoQuery::InfoType::NODE_LABELS:
+      case DatabaseInfoQuery::InfoType::VECTOR_INDEX:
         // TODO: This should be INDEX | STATS, but we don't have support for
         // *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::INDEX);
@@ -88,25 +89,29 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  void Visit(DumpQuery &dump_query) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
+  void Visit(DumpQuery & /*dump_query*/) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
 
-  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(LockPathQuery & /*lock_path_query*/) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
-  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
+  void Visit(FreeMemoryQuery & /*free_memory_query*/) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
   void Visit(ShowConfigQuery & /*show_config_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
-  void Visit(TriggerQuery &trigger_query) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
+  void Visit(TriggerQuery & /*trigger_query*/) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
 
-  void Visit(StreamQuery &stream_query) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
+  void Visit(StreamQuery & /*stream_query*/) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
 
-  void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+  void Visit(ReplicationQuery & /*replication_query*/) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
 
-  void Visit(IsolationLevelQuery &isolation_level_query) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+  void Visit(ReplicationInfoQuery & /*replication_query*/) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+
+  void Visit(IsolationLevelQuery & /*isolation_level_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
   void Visit(StorageModeQuery & /*storage_mode_query*/) override { AddPrivilege(AuthQuery::Privilege::STORAGE_MODE); }
 
-  void Visit(CreateSnapshotQuery &create_snapshot_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(CreateSnapshotQuery & /*create_snapshot_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::DURABILITY);
+  }
 
   void Visit(RecoverSnapshotQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 

@@ -14,7 +14,7 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "utils/uuid.hpp"
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
 
 namespace memgraph::coordination {

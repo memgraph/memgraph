@@ -150,6 +150,9 @@ constexpr utils::TypeInfo query::Any::kType{utils::TypeId::AST_ANY, "Any", &quer
 
 constexpr utils::TypeInfo query::None::kType{utils::TypeId::AST_NONE, "None", &query::Expression::kType};
 
+constexpr utils::TypeInfo query::ListComprehension::kType{utils::TypeId::AST_LIST_COMPREHENSION, "ListComprehension",
+                                                          &query::Expression::kType};
+
 constexpr utils::TypeInfo query::ParameterLookup::kType{utils::TypeId::AST_PARAMETER_LOOKUP, "ParameterLookup",
                                                         &query::Expression::kType};
 
@@ -260,6 +263,9 @@ constexpr utils::TypeInfo query::DumpQuery::kType{utils::TypeId::AST_DUMP_QUERY,
 
 constexpr utils::TypeInfo query::ReplicationQuery::kType{utils::TypeId::AST_REPLICATION_QUERY, "ReplicationQuery",
                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::ReplicationInfoQuery::kType{utils::TypeId::AST_REPLICATION_INFO_QUERY,
+                                                             "ReplicationInfoQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COORDINATOR_QUERY, "CoordinatorQuery",
                                                          &query::Query::kType};

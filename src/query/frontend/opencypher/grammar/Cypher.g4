@@ -58,9 +58,11 @@ nodelabelInfo : NODE_LABELS INFO ;
 
 metricsInfo : METRICS INFO ;
 
+vectorIndexInfo : VECTOR INDEX INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo | vectorIndexInfo ) ;
 
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
 
@@ -244,11 +246,11 @@ expression2a : expression2b ( nodeLabels )? ;
 
 expression2b : atom ( propertyLookup )* ;
 
-atom : literal
+atom : listComprehension
+     | literal
      | parameter
      | caseExpression
      | ( COUNT '(' '*' ')' )
-     | listComprehension
      | patternComprehension
      | ( FILTER '(' filterExpression ')' )
      | ( EXTRACT '(' extractExpression ')' )

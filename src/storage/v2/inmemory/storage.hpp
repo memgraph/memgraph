@@ -125,7 +125,8 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode);
+                              StorageMode storage_mode,
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -206,6 +207,10 @@ class InMemoryStorage final : public Storage {
                                     const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, lower, upper);
+    }
+
+    uint64_t ApproximateEdgeCount() const override {
+      return static_cast<InMemoryStorage *>(storage_)->edge_count_.load(std::memory_order_acquire);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
@@ -501,9 +506,11 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                   std::optional<std::chrono::milliseconds> timeout) override;
   using Storage::UniqueAccess;
-  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                         std::optional<std::chrono::milliseconds> timeout) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 

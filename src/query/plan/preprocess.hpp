@@ -71,6 +71,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(ListComprehension &list_comprehension) override {
+    // Remove the symbol which is bound by list comprehension, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*list_comprehension.identifier_));
+    return true;
+  }
+
   bool Visit(Identifier &ident) override {
     if (!in_exists || ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));

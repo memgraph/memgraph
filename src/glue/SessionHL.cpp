@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -115,13 +115,29 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
 }
+
+void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    throw memgraph::communication::bolt::ClientError(memgraph::license::LicenseCheckErrorToString(
+        memgraph::license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
+  }
+  if (!user_or_role) {
+    throw memgraph::communication::bolt::ClientError(
+        "No session userYou must be logged-in in order to use the impersonate-user feature.");
+  }
+  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy)) {
+    throw memgraph::communication::bolt::ClientError(
+        "Failed to impersonate user '{}'. Make sure you have the right privileges and that the user exists.",
+        impersonated_user);
+  }
+}
 #endif
 }  // namespace
 
 namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
-std::optional<std::string> SessionHL::GetDefaultDB() {
+std::optional<std::string> SessionHL::GetDefaultDB() const {
   if (user_or_role_) {
     try {
       return user_or_role_->GetDefaultDB();
@@ -131,6 +147,14 @@ std::optional<std::string> SessionHL::GetDefaultDB() {
     }
   }
   return std::string{memgraph::dbms::kDefaultDB};
+}
+
+std::string SessionHL::GetCurrentUser() const {
+  if (interpreter_.user_or_role_) {
+    if (const auto &name = interpreter_.user_or_role_->username()) return *name;
+    if (const auto &name = interpreter_.user_or_role_->rolename()) return *name;
+  }
+  return "";
 }
 #endif
 
@@ -157,9 +181,9 @@ void SessionHL::TryDefaultDB() {
   }
   auto db = GetCurrentDB();
   if (db.empty())
-    implicit_db_.reset();
+    runtime_db_.implicit_config_.reset();
   else
-    implicit_db_.emplace(std::move(db));
+    runtime_db_.implicit_config_.emplace(std::move(db));
 #else
   // Community has to connect to the default database
   interpreter_.SetCurrentDB();
@@ -176,7 +200,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
+        interpreter_.SetUser(user_or_role_);
         interpreter_.SetSessionInfo(
             UUID(),
             interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
@@ -187,7 +211,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
     } else {
       // No access control -> give empty user
       user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
-      interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
+      interpreter_.SetUser(user_or_role_);
       interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
@@ -207,7 +231,7 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
   }
 
   user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-  interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
+  interpreter_.SetUser(user_or_role_);
 
   TryDefaultDB();
   return true;
@@ -378,42 +402,10 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
-  std::optional<std::string> db{};
-  bool update = false;
-  // Check if user explicitly defined the database to use
-  if (run_time_info.contains("db")) {
-    const auto &db_info = run_time_info.at("db");
-    if (!db_info.IsString()) {
-      throw memgraph::communication::bolt::ClientError("Malformed database name.");
-    }
-    db = db_info.ValueString();
-    const auto &current = GetCurrentDB();
-    update = db != current;
-    if (!in_explicit_db_) {
-      implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
-      update = true;
-    }
-    in_explicit_db_ = true;
-    // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
-  } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
-    if (implicit_db_) {
-      db = *implicit_db_;
-    } else {
-      db = GetDefaultDB();
-    }
-    update = true;  // We have to update in order to update the explicit flag
-    in_explicit_db_ = false;
-  }
-
-  // Check if the underlying database needs to be updated
-  if (update) {
-    if (db) {  // Db connection
-      MultiDatabaseAuth(user_or_role_.get(), *db);
-      interpreter_.SetCurrentDB(*db, in_explicit_db_);
-    } else {  // Non-db connection
-      interpreter_.ResetDB();
-    }
-  }
+  runtime_user_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
+  runtime_db_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
+#else
+  (void)run_time_info;
 #endif
 }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
@@ -431,10 +423,34 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
       audit_log_(audit_log),
+      runtime_db_{"db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
+                  [this](std::optional<std::string> defined_db, bool user_defined) {
+                    if (defined_db) {  // Db connection
+                      MultiDatabaseAuth(user_or_role_.get(), *defined_db);
+                      interpreter_.SetCurrentDB(*defined_db, user_defined);
+                    } else {  // Non-db connection
+                      interpreter_.ResetDB();
+                    }
+                  }},
+      runtime_user_{"imp_user", [this]() { return GetCurrentUser(); },
+                    []() {
+                      // Only one possible default
+                      return std::nullopt;
+                    },
+                    [this](std::optional<std::string> defined_user, bool impersonate_user) {
+                      if (impersonate_user) {
+                        ImpersonateUserAuth(user_or_role_.get(), *defined_user);
+                        const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
+                        if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
+                        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
+                      } else {
+                        // Set our default user/role
+                        interpreter_.SetUser(user_or_role_);
+                      }
+                    }},
 #endif
       auth_(auth),
-      endpoint_(std::move(endpoint)),
-      implicit_db_(std::nullopt) {
+      endpoint_(std::move(endpoint)) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
@@ -473,5 +489,40 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   decoded_summary.emplace("run_id", memgraph::glue::run_id_);
 
   return decoded_summary;
+}
+
+void RunTimeConfig::Configure(auto run_time_info, bool in_explicit_tx) {
+  std::optional<std::string> defined_config{};
+  bool update = false;
+
+  // Check if user explicitly defined this config
+  if (run_time_info.contains(key_)) {
+    const auto &info = run_time_info.at(key_);
+    if (!info.IsString()) {
+      throw memgraph::communication::bolt::ClientError("Malformed config input.");
+    }
+    defined_config = info.ValueString();
+    const auto &current_config = get_current_();
+    update = defined_config != current_config;
+    if (!explicit_) {
+      implicit_config_.emplace(current_config);  // Still not in an explicit database, save for recovery
+      update = true;
+    }
+    explicit_ = true;
+    // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
+  } else if (explicit_ && !in_explicit_tx) {  // Just on a switch
+    if (implicit_config_) {
+      defined_config = *implicit_config_;
+    } else {
+      defined_config = get_default_();
+    }
+    update = true;  // We have to update in order to update the explicit flag
+    explicit_ = false;
+  }
+
+  // Check if the underlying config needs updating
+  if (update) {
+    update_(defined_config, explicit_);
+  }
 }
 }  // namespace memgraph::glue

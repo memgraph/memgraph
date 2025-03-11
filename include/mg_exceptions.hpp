@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,23 +36,18 @@ struct UnknownException : public std::exception {
 };
 
 struct NotEnoughMemoryException : public std::exception {
-  NotEnoughMemoryException()
-      : message_{
-            StringSerialize("Not enough memory! For more details please visit", "https://memgr.ph/memory-control")} {}
-  const char *what() const noexcept override { return message_.c_str(); }
-
- private:
-  std::string message_;
+  NotEnoughMemoryException() {}
+  const char *what() const noexcept override {
+    return "Not enough memory! For more details please visit https://memgr.ph/memory-control";
+  }
 };
 
 struct AllocationException : public std::exception {
-  AllocationException()
-      : message_{StringSerialize("Could not allocate memory. For more details please visit",
-                                 "https://memgr.ph/memory-control")} {}
-  const char *what() const noexcept override { return message_.c_str(); }
-
- private:
-  std::string message_;
+  AllocationException(){};
+  const char *what() const noexcept override {
+    return "Could not allocate memory. For more details please visit "
+           "https://memgr.ph/memory-control";
+  }
 };
 
 struct InsufficientBufferException : public std::exception {

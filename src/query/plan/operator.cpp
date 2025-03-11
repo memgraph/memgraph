@@ -221,7 +221,17 @@ std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType>
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
       result.emplace_back(*label_atom);
     } else {
-      result.emplace_back(dba->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+      const auto value = std::get<Expression *>(label)->Accept(evaluator);
+      if (value.IsString()) {
+        result.emplace_back(dba->NameToLabel(value.ValueString()));
+      } else if (value.IsList()) {
+        for (const auto &label : value.ValueList()) {
+          result.emplace_back(dba->NameToLabel(label.ValueString()));
+        }
+      } else {
+        throw QueryRuntimeException(
+            fmt::format("Expected to evaluate labels of String or List[String] type, got {}.", value.type()));
+      }
     }
   }
   return result;
@@ -3432,13 +3442,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4432,7 +4444,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -4678,9 +4690,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -5720,13 +5731,13 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 namespace {
 // copy-pasted from interpreter.cpp
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
-  return expression ? expression->Accept(*eval) : TypedValue();
+  return expression ? expression->Accept(*eval) : TypedValue(eval->GetMemoryResource());
 }
 
 auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
-  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
+  auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return utils::pmr::string(evaluated_expr.ValueString(), utils::NewDeleteResource());
+    return utils::pmr::string(std::move(evaluated_expr).ValueString(), evaluator->GetMemoryResource());
   }
   return std::nullopt;
 };
@@ -5832,13 +5843,10 @@ class LoadCsvCursor : public Cursor {
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
-    // Note that the reader has to be given its own memory resource, as it
-    // persists between pulls, so it can't use the evalutation context memory
-    // resource.
     return csv::Reader(
         csv::CsvSource::Create(*maybe_file),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        utils::NewDeleteResource());
+        eval_context->memory);
   }
 
   std::optional<utils::pmr::string> ParseNullif(EvaluationContext *eval_context) {

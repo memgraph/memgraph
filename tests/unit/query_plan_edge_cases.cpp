@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,8 @@ class QueryExecution : public testing::Test {
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
-  std::optional<memgraph::replication::ReplicationState> repl_state;
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
   std::optional<memgraph::system::System> system_state;
 
@@ -69,7 +70,7 @@ class QueryExecution : public testing::Test {
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
     system_state.emplace();
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system_state
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, repl_state.value(), *system_state
 #ifdef MG_ENTERPRISE
                                  ,
                                  std::nullopt

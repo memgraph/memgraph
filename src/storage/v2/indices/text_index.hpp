@@ -11,10 +11,11 @@
 
 #pragma once
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
@@ -83,11 +84,11 @@ class TextIndex {
       Vertex *vertex,
       const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
 
-  void CreateIndex(std::string const &index_name, LabelId label, memgraph::storage::VerticesIterable vertices,
-                   NameIdMapper *nameIdMapper);
+  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices, NameIdMapper *nameIdMapper);
 
-  void RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper);
+  void RecoverIndex(const std::string &index_name, LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+                    NameIdMapper *name_id_mapper,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   LabelId DropIndex(const std::string &index_name);
 

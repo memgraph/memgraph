@@ -13,8 +13,8 @@ on:
         default: 'debian-12'
       toolchain:
         type: string
-        description: "Toolchain version (v4, v5). Default value is v5."
-        default: 'v5'
+        description: "Toolchain version (v4, v5, v6). Default value is v6."
+        default: 'v6'
       run_core:
         type: string
         description: "Should the core debug build tests be run? Default is true."
@@ -41,7 +41,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 70 
     steps:
       - name: Set up repository
         uses: actions/checkout@v4

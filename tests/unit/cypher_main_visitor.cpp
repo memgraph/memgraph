@@ -22,7 +22,7 @@
 // "json.hpp" uses libc's EOF macro while
 // "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 // Same is true for <boost/geometry.hpp> that is included by ast.hpp
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
@@ -236,9 +236,9 @@ class MockModule : public procedure::Module {
   std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
-void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
+void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {};
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
-                       mgp_memory * /*memory*/){};
+                       mgp_memory * /*memory*/) {};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -2599,15 +2599,15 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICATION ROLE";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICATION_ROLE);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICAS";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICAS);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICAS);
 }
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
@@ -5109,11 +5109,17 @@ TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
     ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
   }
 
-  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException);
+  }
 
-  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException);
+  }
 
-  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException);
+  }
 
   {
     ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
@@ -5223,5 +5229,76 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     ASSERT_TRUE(p.IsString() && p.ValueString() == "56m");
     auto st = ast_generator.LiteralValue(query->specific_time_);
     ASSERT_TRUE(st.IsString() && st.ValueString() == "16:45:00");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ListComprehension) {
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] WHERE x = 'one' | toUpper(x)] ;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_NE(lc->where_, nullptr);
+    ASSERT_NE(lc->expression_, nullptr);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] WHERE x = 'one'] ;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_NE(lc->where_, nullptr);
+    ASSERT_EQ(lc->expression_, nullptr);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] | toUpper(x)] ;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_EQ(lc->where_, nullptr);
+    ASSERT_NE(lc->expression_, nullptr);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three']] ;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_EQ(lc->where_, nullptr);
+    ASSERT_EQ(lc->expression_, nullptr);
   }
 }

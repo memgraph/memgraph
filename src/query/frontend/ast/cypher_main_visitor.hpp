@@ -231,6 +231,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) override;
 
   /**
+  @return std::vector<std::string>
+  */
+  antlrcpp::Any visitListOfSymbolicNames(MemgraphCypher::ListOfSymbolicNamesContext *ctx) override;
+
+  /**
+   * @return std::vector<std::string>
+   */
+  antlrcpp::Any visitWildcardListOfSymbolicNames(MemgraphCypher::WildcardListOfSymbolicNamesContext *ctx) override;
+
+  /**
    * @return AnalyzeGraphQuery*
    */
   antlrcpp::Any visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) override;
@@ -253,11 +263,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) override;
-
-  /**
-   * @return ReplicationQuery*
-   */
   antlrcpp::Any visitRegisterReplica(MemgraphCypher::RegisterReplicaContext *ctx) override;
 
   /**
@@ -266,7 +271,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) override;
 
   /**
-   * @return ReplicationQuery*
+   * @return ReplicationInfoQuery*
+   */
+  antlrcpp::Any visitReplicationInfoQuery(MemgraphCypher::ReplicationInfoQueryContext *ctx) override;
+
+  /**
+   * @return ReplicationInfoQuery*
+   */
+  antlrcpp::Any visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) override;
+
+  /**
+   * @return ReplicationInfoQuery*
    */
   antlrcpp::Any visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) override;
 
@@ -684,6 +699,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
                        std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
    */
   antlrcpp::Any visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitGrantImpersonateUser(MemgraphCypher::GrantImpersonateUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitDenyImpersonateUser(MemgraphCypher::DenyImpersonateUserContext *ctx) override;
 
   /**
    * @return std::vector<std::string>

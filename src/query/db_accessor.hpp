@@ -570,6 +570,8 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
+  int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }
+
   int64_t EdgesCount(storage::EdgeTypeId edge_type) const { return accessor_->ApproximateEdgeCount(edge_type); }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
@@ -699,7 +701,7 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name, std::string_view value)
+  auto GetEnumValue(std::string_view name, std::string_view value) const
       -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }

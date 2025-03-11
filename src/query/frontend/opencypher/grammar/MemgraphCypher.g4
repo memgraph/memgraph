@@ -88,6 +88,7 @@ memgraphCypherKeyword : cypherKeyword
                       | IDENTIFIED
                       | IF
                       | IGNORE
+                      | IMPERSONATE_USER
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -212,6 +213,7 @@ query : cypherQuery
       | dumpQuery
       | analyzeGraphQuery
       | replicationQuery
+      | replicationInfoQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
@@ -267,14 +269,18 @@ authQuery : createRole
           | revokeDatabaseFromUserOrRole
           | showDatabasePrivileges
           | setMainDatabase
+          | grantImpersonateUser
+          | denyImpersonateUser
           ;
 
 replicationQuery : setReplicationRole
-                 | showReplicationRole
                  | registerReplica
                  | dropReplica
-                 | showReplicas
                  ;
+
+replicationInfoQuery : showReplicationRole
+                     | showReplicas
+                     ;
 
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
@@ -410,6 +416,14 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
+listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
+
+wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
+
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+
+denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
+
 grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
 
 denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
@@ -448,6 +462,7 @@ privilege : CREATE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
           | COORDINATOR
+          | IMPERSONATE_USER
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;

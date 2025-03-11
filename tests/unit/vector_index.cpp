@@ -13,7 +13,6 @@
 #include <string_view>
 #include <thread>
 
-#include "query/db_accessor.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -43,13 +42,13 @@ class VectorSearchTest : public testing::Test {
 
   void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
     auto unique_acc = this->storage->UniqueAccess();
-    memgraph::query::DbAccessor dba(unique_acc.get());
-    const auto label = dba.NameToLabel(test_label.data());
-    const auto property = dba.NameToProperty(test_property.data());
+    const auto label = unique_acc->NameToLabel(test_label.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
     const auto spec =
         VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+
     EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -452,9 +451,12 @@ TYPED_TEST(VectorSearchTest, CreateIndexWhenNodesExistsAlreadyTest) {
     auto acc = this->storage->Access();
 
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    static constexpr std::string_view test_label_2 = "test_label2";
+    [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    [[maybe_unused]] const auto vertex2 = this->CreateVertex(acc.get(), test_property, properties, test_label_2);
     ASSERT_NO_ERROR(acc->Commit());
   }
+  // Index created with test_label. The vertex vertex2 shouldn't be seen
   this->CreateIndex(2, 10);
 
   // Expect the index to have 1 entry

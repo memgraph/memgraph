@@ -24,84 +24,33 @@ function(add_post_build_strip_in_release target build_type_var)
   endif()
 endfunction()
 
-add_library(example_c SHARED example.c)
-target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(example_c PRIVATE -Wall)
-target_link_libraries(example_c PRIVATE -static-libgcc -static-libstdc++)
+function(add_custom_library NAME SRC)
+    set(optional_libs ${ARGN})
 
-add_post_build_strip_in_release(example_c CMAKE_BUILD_TYPE)
-set_target_properties(example_c PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "example_c"
-)
-# Also install the source of the example, so user can read it.
-install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
+    add_library(${NAME} SHARED ${SRC})
+    target_include_directories(${NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
+    target_compile_options(${NAME} PRIVATE -Wall)
+    target_link_libraries(${NAME} PRIVATE -static-libgcc -static-libstdc++ ${optional_libs})
 
-add_library(example_cpp SHARED example.cpp)
-target_include_directories(example_cpp PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(example_cpp PRIVATE -Wall)
-target_link_libraries(example_cpp PRIVATE -static-libgcc -static-libstdc++)
-add_post_build_strip_in_release(example_cpp CMAKE_BUILD_TYPE)
+    # Apply post-build strip in release mode
+    add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
 
-set_target_properties(example_cpp PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "example_cpp"
-)
-# Also install the source of the example, so user can read it.
-install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
+    set_target_properties(${NAME} PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "${NAME}"
+    )
 
-add_library(schema SHARED schema.cpp)
-target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(schema PRIVATE -Wall)
-target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
-add_post_build_strip_in_release(schema CMAKE_BUILD_TYPE)
-set_target_properties(schema PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "schema"
-)
-# Also install the source of the example, so user can read it.
-install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
+    # Also install the source of the example, so user can read it.
+    install(FILES ${SRC} DESTINATION lib/memgraph/query_modules/src)
+endfunction()
 
-add_library(text_search SHARED text_search_module.cpp)
-target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(text_search PRIVATE -Wall)
-target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
-add_post_build_strip_in_release(text_search CMAKE_BUILD_TYPE)
-set_target_properties(text_search PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "text_search"
-)
-# Also install the source of the example, so user can read it.
-install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
+add_custom_library(example_c example.c)
+add_custom_library(example_cpp example.cpp)
+add_custom_library(schema schema.cpp)
+add_custom_library(text_search text_search_module.cpp fmt::fmt)
+add_custom_library(vector_search vector_search_module.cpp fmt::fmt)
+add_custom_library(convert convert.cpp fmt::fmt nlohmann_json::nlohmann_json)
 
-add_library(vector_search SHARED vector_search_module.cpp)
-target_include_directories(vector_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(vector_search PRIVATE -Wall)
-target_link_libraries(vector_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
-add_post_build_strip_in_release(vector_search CMAKE_BUILD_TYPE)
-set_target_properties(vector_search PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "vector_search"
-)
-# Also install the source of the example, so user can read it.
-install(FILES vector_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
-
-add_library(convert SHARED convert.cpp)
-target_include_directories(convert PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
-target_compile_options(convert PRIVATE -Wall)
-target_link_libraries(convert PRIVATE -static-libgcc -static-libstdc++ fmt::fmt json)
-
-add_post_build_strip_in_release(convert CMAKE_BUILD_TYPE)
-
-set_target_properties(convert PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "convert"
-)
-
-# mg utilities used in dynamic algos
-# TODO: this is currently copied from MAGE, need to somehow
-# include it in both repos without copying
-add_subdirectory(mg_utility)
 
 set(QUERY_MODULES_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
 set(QUERY_MODULES_DIR lib/memgraph/query_modules)
@@ -118,7 +67,6 @@ function(add_query_module target_name version src)
   target_link_libraries(${target_name} PRIVATE
       -static-libgcc
       -static-libstdc++
-      mg_utility # TODO: maybe move it somewhere else also maybe rename
   )
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
@@ -154,8 +102,6 @@ add_custom_target(copy_python_query_modules ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
     COMMENT "Copying Python query modules to build/query_modules"
 )
-
-install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install C++ query modules
 install(TARGETS convert example_c example_cpp schema text_search vector_search pagerank_online

@@ -22,3 +22,15 @@ def memgraph(**kwargs) -> Memgraph:
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
     memgraph.drop_database()
+    
+@pytest.fixture
+def memgraph_optional(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+    memgraph.execute("DROP EDGE INDEX ON :HAS_KID;")
+    memgraph.execute("DROP EDGE INDEX ON :ET1;")
+    memgraph.drop_indexes()
+    memgraph.ensure_constraints([])
+    memgraph.drop_database()
+

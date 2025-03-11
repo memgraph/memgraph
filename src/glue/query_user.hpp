@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
                     query::UserPolicy *policy) const override;
 
 #ifdef MG_ENTERPRISE
+  bool CanImpersonate(const std::string &target, query::UserPolicy *policy) const override;
   std::string GetDefaultDB() const override;
 #endif
 
@@ -44,6 +45,12 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
     std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
                                  [&](auth::Role &&role) { role_.emplace(std::move(role)); }},
                std::move(user_or_role));
+  }
+
+  std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
+    if (user_) return {*user_};
+    if (role_) return auth::RoleWUsername{*username_, *role_};
+    return {};
   }
 
  private:

@@ -17,8 +17,8 @@ on:
         default: 'X64'
       toolchain:
         type: string
-        description: "Toolchain version. Default value is v5."
-        default: 'v5'
+        description: "Toolchain version. Default value is v6."
+        default: 'v6'
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
@@ -505,7 +505,7 @@ jobs:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release End-to-end Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: 60
+    timeout-minutes: 70
 
     steps:
       - name: Set up repository

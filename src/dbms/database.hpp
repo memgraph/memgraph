@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,8 @@ class Database {
    *
    * @param config storage configuration
    */
-  explicit Database(storage::Config config, replication::ReplicationState &repl_state);
+  explicit Database(storage::Config config,
+                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -60,13 +61,15 @@ class Database {
    * @return std::unique_ptr<storage::Storage::Accessor>
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
-      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(override_isolation_level);
+      std::optional<storage::IsolationLevel> override_isolation_level = {},
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    return storage_->Access(override_isolation_level, timeout);
   }
 
   std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
-      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(override_isolation_level);
+      std::optional<storage::IsolationLevel> override_isolation_level = {},
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    return storage_->UniqueAccess(override_isolation_level, timeout);
   }
 
   /**
@@ -177,8 +180,6 @@ class Database {
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
-
-  const replication::ReplicationState *repl_state_;
 };
 
 }  // namespace memgraph::dbms
