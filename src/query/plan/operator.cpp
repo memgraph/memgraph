@@ -5775,7 +5775,7 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_.signature = &proc->results;
+      result_.SetSignature(&proc->results);
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
 
       auto *memory = context.evaluation_context.memory;
@@ -5792,7 +5792,7 @@ class CallProcedureCursor : public Cursor {
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
       result_signature_size_ = result_.signature->size();
-      result_.signature = nullptr;
+      result_.SetSignature(nullptr);
       if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);

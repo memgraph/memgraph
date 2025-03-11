@@ -604,10 +604,21 @@ struct mgp_result {
       const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                       std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature,
       memgraph::utils::MemoryResource *mem)
-      : signature(signature), field_to_id(mem), rows(mem) {
-    int id = 0;
-    for (const auto &[field, pair] : *signature) {
-      field_to_id.emplace(field, std::make_pair(pair.first, id++));
+      : field_to_id(mem), rows(mem) {
+    SetSignature(signature);
+  }
+
+  void SetSignature(const memgraph::utils::pmr::map<
+                    memgraph::utils::pmr::string, std::pair<const memgraph::query::procedure::CypherType *, bool>> *s) {
+    signature = s;
+
+    field_to_id.clear();
+    if (signature) {
+      // mg.procedures() don't have signature, so we need to check to not crash
+      int id = 0;
+      for (const auto &[field, pair] : *signature) {
+        field_to_id.emplace(field, std::make_pair(pair.first, id++));
+      }
     }
   }
 
