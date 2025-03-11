@@ -180,12 +180,18 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
+        falkordb = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) "
+            "WITH n, m, shortestPath((n)-[*..15]->(m)) AS p "
+            "RETURN [n in nodes(p) | n.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
         if self._vendor == "memgraph":
             return memgraph
         elif self._vendor == "neo4j":
             return neo4j
         elif self._vendor == "falkordb":
-            return neo4j
+            return falkordb
         raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__arango__shortest_path_with_filter(self):
