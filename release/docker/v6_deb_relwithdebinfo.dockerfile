@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 # Bugfix for timezone issues - pin the package
 RUN apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
-RUN sudo apt-mark hold tzdata
+RUN apt-mark hold tzdata
 
 # do this after apt, not before!
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
