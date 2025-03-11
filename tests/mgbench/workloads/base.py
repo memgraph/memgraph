@@ -200,12 +200,15 @@ class Workload(ABC):
 
     def _set_url_index_file(self) -> None:
         if self.URL_INDEX_FILE is not None:
-            self._url_index = self.URL_INDEX_FILE.get(self._vendor, None)
+            for vendor, url in self.URL_INDEX_FILE.items():
+                if vendor in self._vendor:
+                    self._url_index = url
+                    return
         else:
             self._url_index = None
 
     def prepare(self, directory):
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and "neo4j" not in self._vendor:
             self._prepare_dataset_for_on_disk_workload(directory)
         else:
             self._prepare_dataset_for_in_memory_workload(directory)

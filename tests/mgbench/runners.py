@@ -794,6 +794,7 @@ class MemgraphDocker(BaseRunner):
         self._container_name = "memgraph_benchmark"
         self._container_ip = None
         self._config_file = None
+        self._started_once = False
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
 
     def _set_args(self, **kwargs):
@@ -801,6 +802,10 @@ class MemgraphDocker(BaseRunner):
 
     def start_db_init(self, message):
         log.init("Starting database for import...")
+        if self._started_once:
+            self.start_db(message)
+            return
+
         try:
             command = [
                 "docker",
@@ -813,7 +818,7 @@ class MemgraphDocker(BaseRunner):
                 "-it",
                 "-p",
                 self._bolt_port + ":" + self._bolt_port,
-                "memgraph/memgraph:2.7.0",
+                "memgraph/memgraph:3.0.0",
                 "--storage_wal_enabled=false",
                 "--data_recovery_on_startup=true",
                 "--storage_snapshot_interval_sec",
@@ -861,6 +866,11 @@ class MemgraphDocker(BaseRunner):
         return usage
 
     def start_db(self, message):
+        if not self._started_once:
+            self.start_db_init(message)
+            self._started_once = True
+            return
+
         log.init("Starting database for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
