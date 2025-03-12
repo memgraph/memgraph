@@ -477,6 +477,7 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
+  auto OrExpression(const Symbol &symbol) const -> bool;
   auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
   /// Remove a filter; may invalidate iterators.
@@ -585,6 +586,17 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
     }
   }
   return labels;
+}
+
+// Returns if symbol is filtered with "OR" expression
+inline auto Filters::OrExpression(const Symbol &symbol) const -> bool {
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol) &&
+        filter.is_label_expression) {
+      return true;
+    }
+  }
+  return false;
 }
 
 inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {

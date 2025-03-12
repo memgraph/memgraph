@@ -125,6 +125,7 @@ class Optional;
 class Unwind;
 class Distinct;
 class Union;
+class UnionNodeByLabelScan;
 class Cartesian;
 class CallProcedure;
 class LoadCsv;
@@ -144,8 +145,8 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance,
     ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
     SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
-    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, UnionNodeByLabelScan, Cartesian, CallProcedure, LoadCsv, Foreach,
+    EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
