@@ -1,7 +1,7 @@
 import argparse
 import json
 import time
-from multiprocessing import Process, Manager, Lock, Value
+from multiprocessing import Array, Lock, Manager, Process, Queue, Value
 from falkordb import FalkorDB
 
 
@@ -14,35 +14,34 @@ def execute_query(graph, query, params, max_attempts):
             result = graph.query(query, params)
             return result, attempt
         except Exception as e:
-            if attempt == max_attempts - 1:
-                # print(f"Failed to execute query '{query}' after {max_attempts} attempts. Error: {e}")
-                return None, None
+            if attempt >= max_attempts - 1:
+                raise Exception(f"Could not execute query '{query}' {attempt} times! Error message: {e}")
             time.sleep(0.1)  # Brief pause before retrying
 
 
-def execute_validation_task(worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit):
+def execute_validation_task(
+    worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit
+):
     db = FalkorDB(host=host, port=port)
     graph = db.select_graph(GRAPH_NAME)
 
-    if len(queries) == 1:
-        query, params = queries[0]
-        start_time = time.time()
-        result, attempts = execute_query(graph, query, params, max_retries)
-        duration = time.time() - start_time
-        if result is not None:
-            results.append(
-                {
-                    "worker": worker_id,
-                    "query": query,
-                    "params": params,
-                    "latency": result.run_time_ms,
-                    "attempts": attempts,
-                    "duration": duration,
-                }
-            )
-            durations.append(duration)
-    else:
+    if len(queries) != 1:
         raise Exception("Validation query should be performed with only one query!")
+
+    query_start_time = time.time()
+    query, params = queries[0]
+    result, attempts = execute_query(graph, query, params, max_retries)
+    query_end_time = time.time()
+
+    duration = query_end_time - query_start_time
+    results[worker_id] = {
+        "worker": worker_id,
+        "latencies": [result.run_time_ms],
+        "attempts": attempts,
+        "durations": [duration],
+    }
+
+    durations[0] = duration
 
 
 def execute_queries_task(worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit):
@@ -51,40 +50,56 @@ def execute_queries_task(worker_id, host, port, queries, position, lock, results
 
     size = len(queries)
     pos = 0
-    
+
+    aggregate = {
+        "worker": worker_id,
+        "latencies": [],
+        "attempts": 0,
+        "durations": [],
+    }
+
+    worker_timer_start = time.time()
     while True:
         with lock:
             pos = position.value
             if pos >= size:
+                worker_timer_end = time.time()
+                durations[worker_id] = worker_timer_end - worker_timer_start
+                results[worker_id] = aggregate
                 return
+
             position.value += 1
 
         query, params = queries[pos]
-        start_time = time.time()
+
+        query_time_start = time.time()
         result, attempts = execute_query(graph, query, params, max_retries)
-        duration = time.time() - start_time
-        if result is not None:
-            results.append(
-                {
-                    "worker": worker_id,
-                    "query": query,
-                    "params": params,
-                    "latency": result.run_time_ms,
-                    "attempts": attempts,
-                    "duration": duration,
-                }
-            )
-            durations.append(duration)
+        query_time_end = time.time()
+
+        query_duration = query_time_end - query_time_start
+        aggregate["durations"].append(query_duration)
+        aggregate["latencies"].append(result.run_time_ms)
+        aggregate["attempts"] += attempts
 
 
-def execute_time_dependent_task(worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit):
+def execute_time_dependent_task(
+    worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit
+):
     db = FalkorDB(host=host, port=port)
     graph = db.select_graph(GRAPH_NAME)
 
     size = len(queries)
     pos = 0
 
+    aggregate = {
+        "worker": worker_id,
+        "latencies": [],
+        "attempts": 0,
+        "durations": [],
+    }
+
     workload_start_time = time.time()
+    worker_start_time = time.time()
     while time.time() - workload_start_time < time_limit:
         with lock:
             pos = position.value
@@ -94,30 +109,29 @@ def execute_time_dependent_task(worker_id, host, port, queries, position, lock, 
                 position.value += 1
 
         query, params = queries[pos]
-        start_time = time.time()
+        query_start_time = time.time()
         result, attempts = execute_query(graph, query, params, max_retries)
-        duration = time.time() - start_time
-        if result is not None:
-            results.append(
-                {
-                    "worker": worker_id,
-                    "query": query,
-                    "params": params,
-                    "latency": result.run_time_ms,
-                    "attempts": attempts,
-                    "duration": duration,
-                }
-            )
-            durations.append(duration)
+        query_end_time = time.time()
+
+        query_duration = query_end_time - query_start_time
+        aggregate["durations"].append(query_duration)
+        aggregate["latencies"].append(result.run_time_ms)
+        aggregate["attempts"] += attempts
+
+        worker_end_time = time.time()
+        durations[worker_id] = worker_end_time - worker_start_time
+
+    results[worker_id] = aggregate
 
 
 def execute_workload(queries, args):
-    manager = Manager()
-    results = manager.list()
-    durations = manager.list()
+    num_workers = args.num_workers
     validation = args.validation
     time_limit = args.time_dependent_execution
-    num_workers = args.num_workers
+    manager = Manager()
+
+    results = manager.list([[] for _ in range(num_workers)])
+    durations = Array("d", [0.0] * num_workers)
 
     lock = Lock()
     position = Value("i", 0)
@@ -155,21 +169,27 @@ def execute_workload(queries, args):
     return results, durations
 
 
-def calculate_latency_statistics(durations):
-    if not durations:
+def calculate_latency_statistics(results):
+    if not results:
         return {}
-    durations.sort()
-    total = len(durations)
+
+    query_durations = []
+    for result in results:
+        for duration in result["durations"]:
+            query_durations.append(duration)
+
+    query_durations.sort()
+    total = len(query_durations)
     return {
         "iterations": total,
-        "min": durations[0],
-        "max": durations[-1],
-        "mean": sum(durations) / total,
-        "p99": durations[int(total * 0.99) - 1],
-        "p95": durations[int(total * 0.95) - 1],
-        "p90": durations[int(total * 0.90) - 1],
-        "p75": durations[int(total * 0.75) - 1],
-        "p50": durations[int(total * 0.50) - 1],
+        "min": query_durations[0],
+        "max": query_durations[-1],
+        "mean": sum(query_durations) / total,
+        "p99": query_durations[int(total * 0.99) - 1],
+        "p95": query_durations[int(total * 0.95) - 1],
+        "p90": query_durations[int(total * 0.90) - 1],
+        "p75": query_durations[int(total * 0.75) - 1],
+        "p50": query_durations[int(total * 0.50) - 1],
     }
 
 
@@ -260,24 +280,39 @@ def main():
         print("Error: No queries provided. Exiting.")
         exit(1)
 
-    start_time = time.time()
-
     results, durations = execute_workload(queries, args)
     results = list(results)
     durations = list(durations)
 
-    total_time = time.time() - start_time
+    final_duration = 0.0
+    for duration in durations:
+        final_duration += duration
 
-    latency_stats = calculate_latency_statistics(durations)
-    throughput = len(results) / total_time if total_time > 0 else 0
+    final_retries = 0
+    for worker_result in results:
+        final_retries += worker_result["attempts"]
+
+    count = len(queries)
+    final_duration = final_duration / args.num_workers
+    total_iterations = sum([len(x["latencies"]) for x in results])
+    if args.time_dependent_execution > 0:
+        execution_delta = args.time_dependent_execution / final_duration
+        throughput = (total_iterations / final_duration) * execution_delta
+        raw_throughput = total_iterations / final_duration
+    else:
+        throughput = raw_throughput = count / final_duration
+
+    latency_stats = calculate_latency_statistics(results)
 
     summary = {
-        "duration": total_time,
-        "count": len(queries),
-        "queries_executed": len(results),
+        "count": count,
+        "duration": final_duration,
+        "time_limit": args.time_dependent_execution,
+        "queries_executed": total_iterations,
         "throughput": throughput,
+        "raw_throughput": raw_throughput,
         "latency_stats": latency_stats,
-        "retries": sum([x["attempts"] for x in results]),
+        "retries": final_retries,
         "num_workers": args.num_workers,
         "results": results,
     }

@@ -470,16 +470,17 @@ def get_query_cache_count(
         client.execute(queries=queries, num_workers=1)
         count = 1
         while True:
-            ret = client.execute(queries=get_queries(func, count), num_workers=1)
+            augmented_queries = get_queries(func, count)
+            ret = client.execute(queries=augmented_queries, num_workers=1)
             duration = ret[0][DURATION]
-            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
+            expected_throughput_for_count = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
             log.log(
                 "Executed_queries={}, total_duration={}, query_duration={}, estimated_count={}".format(
-                    count, duration, duration / count, should_execute
+                    count, duration, duration / count, expected_throughput_for_count
                 )
             )
-            if should_execute / (count * 10) < 10:
-                count = should_execute
+            if expected_throughput_for_count / (count * 10) < 10:
+                count = expected_throughput_for_count
                 break
             else:
                 count = count * 10

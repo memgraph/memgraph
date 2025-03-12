@@ -122,7 +122,7 @@ class BoltClient(BaseClient):
         queries=None,
         file_path=None,
         num_workers=1,
-        max_retries: int = 10000,
+        max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
     ):
@@ -389,7 +389,7 @@ class FalkorDBClient(BaseClient):
         queries=None,
         file_path=None,
         num_workers=1,
-        max_retries: int = 10000,
+        max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
     ):
