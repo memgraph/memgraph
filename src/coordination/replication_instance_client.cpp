@@ -20,12 +20,9 @@
 
 #include <string>
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GenerateRpcCounterEvents(RPC) \
-  extern const Event RPC##Success;    \
-  extern const Event RPC##Fail;       \
-  extern const Event RPC##_us;
+namespace memgraph::coordination {
 
+// clang-format off
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define RpcInfoMetrics(RPC)                                     \
   template <>                                                   \
@@ -35,21 +32,6 @@
   template <>                                                   \
   auto const RpcInfo<RPC>::timerLabel = metrics::RPC##_us;
 
-namespace memgraph::metrics {
-// clang-format off
-GenerateRpcCounterEvents(PromoteToMainRpc)
-GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
-GenerateRpcCounterEvents(RegisterReplicaOnMainRpc)
-GenerateRpcCounterEvents(UnregisterReplicaRpc)
-GenerateRpcCounterEvents(EnableWritingOnMainRpc)
-GenerateRpcCounterEvents(StateCheckRpc)
-GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
-// clang-format on
-}  // namespace memgraph::metrics
-
-namespace memgraph::coordination {
-
-// clang-format off
 RpcInfoMetrics(PromoteToMainRpc)
 RpcInfoMetrics(DemoteMainToReplicaRpc)
 RpcInfoMetrics(RegisterReplicaOnMainRpc)
