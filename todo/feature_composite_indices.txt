@@ -88,3 +88,7 @@ basis:
 - [a]
 - [a, b]
 - [a, b, c] ...
+
+
+Check, hints work for composite
+Check, hints work for point type (mutrally excluisive from label+properties hint)

@@ -2251,8 +2251,6 @@ struct IndexHint {
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
   std::optional<std::vector<memgraph::query::PropertyIx>> property_ixs_{std::nullopt};
-  storage::LabelId label_;
-  std::vector<storage::PropertyId> properties_;
 
   IndexHint Clone(AstStorage *storage) const {
     IndexHint object;
@@ -2263,17 +2261,21 @@ struct IndexHint {
                              ranges::views::transform([&](auto &&v) { return storage->GetPropertyIx(v.name); }) |
                              ranges::to_vector;
     }
-    object.label_ = label_;
-    object.properties_ = properties_;
     return object;
   }
 };
 
-// TODO: we added storage information to make retrival correct, maybe this is a 2nd type
-// struct IndexHintExtra : IndexHint{
-//   storage::LabelId label_{};
-//   std::vector<storage::PropertyId> properties_{};
-// };
+/// Information about an actual index that exists in storage
+struct IndexInfo {
+  storage::LabelId label_{};
+  std::vector<storage::PropertyId> properties_{};
+};
+
+/// Candidates are built from possible
+struct BoundIndexHint {
+  IndexHint hint_;
+  IndexInfo info_;
+};
 
 struct PreQueryDirectives {
   static const utils::TypeInfo kType;
