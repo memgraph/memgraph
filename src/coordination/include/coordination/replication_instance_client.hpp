@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
@@ -101,6 +102,27 @@ class ReplicationInstanceClient {
   std::chrono::seconds const instance_health_check_frequency_sec_{1};
   utils::Scheduler instance_checker_;
 };
+
+template <>
+inline bool ReplicationInstanceClient::SendRpc<DemoteMainToReplicaRpc>() const {
+  utils::MetricsTimer const timer{RpcInfo<DemoteMainToReplicaRpc>::timerLabel};
+  try {
+    // Specialize in order to send replication_client_info
+    if (auto stream = rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info);
+        !stream.AwaitResponse().success) {
+      spdlog::error("Received unsuccessful response to {}.", DemoteMainToReplicaRpc::Request::kType.name);
+      metrics::IncrementCounter(RpcInfo<DemoteMainToReplicaRpc>::failCounter);
+      return false;
+    }
+    metrics::IncrementCounter(RpcInfo<DemoteMainToReplicaRpc>::succCounter);
+    return true;
+  } catch (rpc::RpcFailedException const &e) {
+    spdlog::error("Failed to receive response to {}. Error occurred: {}", DemoteMainToReplicaRpc::Request::kType.name,
+                  e.what());
+    metrics::IncrementCounter(RpcInfo<DemoteMainToReplicaRpc>::failCounter);
+    return false;
+  }
+}
 
 }  // namespace memgraph::coordination
 #endif
