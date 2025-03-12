@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -49,6 +50,30 @@ struct hash<std::vector<T>> {
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
+
+namespace {
+// TODO: move to somewhere generic/utils
+template <typename T, typename CB>
+void cartesian_product_impl(std::vector<std::vector<T>> const &vecs, size_t depth, std::vector<T> &temp, CB const &cb) {
+  if (depth == vecs.size()) {
+    std::invoke(cb, temp);
+    return;
+  }
+
+  for (auto const &val : vecs[depth]) {
+    temp[depth] = val;
+    cartesian_product_impl(vecs, depth + 1, temp, cb);
+  }
+}
+
+template <typename T, typename CB>
+void cartesian_product(const std::vector<std::vector<T>> &vecs, CB const &cb) {
+  if (vecs.empty()) return;
+
+  std::vector<T> temp(vecs.size());
+  cartesian_product_impl<T>(vecs, 0, temp, cb);
+}
+}  // namespace
 
 /// Holds a given query's index hints after sorting them by type
 struct IndexHints {
@@ -982,8 +1007,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     namespace r = ranges;
     namespace rv = r::views;
 
-    auto as_storage_label = [&](auto &&label) { return GetLabel(label); };
-    auto valid_filter = [&](auto &&filter) {
+    auto as_storage_label = [&](auto const &label) { return GetLabel(label); };
+    auto valid_filter = [&](auto const &filter) {
       // Skip filter expressions which use the symbol whose property we are
       // looking up or aren't bound. We cannot scan by such expressions. For
       // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
@@ -995,14 +1020,29 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       //       remove the need for the filter
       return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
     };
-    auto as_propertyIX = [&](auto &&filter) -> auto const & { return filter.property_filter->property_; };
-    auto as_storage_property = [&](auto &&filter) { return GetProperty(as_propertyIX(filter)); };
+    auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_; };
+    auto as_storage_property = [&](auto const &filter) { return GetProperty(as_propertyIX(filter)); };
 
     auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
     auto property_filters1 = filters_.PropertyFilters(symbol);
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
     auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
+    ranges::sort(property_filters, {}, as_storage_property);
     auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
+
+    // TODO: extact as a common util
+    auto filters_grouped_by_property = std::map<storage::PropertyId, std::vector<FilterInfo>>{};
+    auto grouped = ranges::views::zip(properties, property_filters) |
+                   ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
+    for (auto &&group : grouped) {
+      auto prop = group.front().first;
+      auto &group_for_prop = filters_grouped_by_property[prop];
+      for (auto const &[_, filter] : group) {
+        group_for_prop.emplace_back(filter);
+      }
+    }
+
+    properties = filters_grouped_by_property | rv::keys | r::to_vector;
 
     // TODO: what about if multiple filters valid on on property?
     //  eg. 10 < n.a, n.a < 60 <- both match `a`
@@ -1012,25 +1052,31 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // properties_poses: [5,3,-1,4]
       constexpr long MISSING = -1;
       auto first_missing = std::ranges::find(properties_poses, MISSING);
-      auto properties_prefix = std::ranges::subrange{properties_poses.begin(), first_missing};
+      auto prop_positions_prefix = std::ranges::subrange{properties_poses.begin(), first_missing};
       // properties_prefix: [5,3]
-      if (properties_prefix.empty()) continue;
+      if (prop_positions_prefix.empty()) continue;
 
-      auto to_filters = [&](auto &&property_position) { return property_filters[property_position]; };
-      auto prop_filters = properties_prefix | rv::transform(to_filters) | r::to_vector;
-      // prop_filters [n.E < 42, 10 < n.C]
-      auto prop_ixs = prop_filters | rv::transform(as_propertyIX) | r::to_vector;
-      // prop_ixs [E, C]
+      auto to_filters = [&](auto &&property_position) {
+        return filters_grouped_by_property[properties[property_position]];
+      };
+      auto filters = prop_positions_prefix | rv::transform(to_filters) | r::to_vector;
 
       auto const &label = labelIXs[label_pos];
-      candidate_indices.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
-                                               .label_ix_ = label,
-                                               .property_ixs_ = prop_ixs,
-                                               .label_ = index_label,
-                                               .properties_ = std::move(index_properties)},
-                                     prop_filters);
-      // why not store the index?
-      candidate_index_lookup.insert({std::make_pair(label, prop_ixs), prop_filters});
+      cartesian_product(filters, [&](std::vector<FilterInfo> const &filters) {
+        // filters [n.E < 42, 10 < n.C]
+
+        auto prop_ixs = filters | rv::transform(as_propertyIX) | r::to_vector;
+        // prop_ixs [E, C]
+
+        candidate_indices.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+                                                 .label_ix_ = label,
+                                                 .property_ixs_ = prop_ixs,
+                                                 .label_ = index_label,
+                                                 .properties_ = std::move(index_properties)},
+                                       filters);
+        // why not store the index?
+        candidate_index_lookup.insert({std::make_pair(label, prop_ixs), filters});
+      });
     }
 
     return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};

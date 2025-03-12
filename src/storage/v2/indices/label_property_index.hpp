@@ -16,13 +16,15 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
+#include <cstdint>
+
 namespace memgraph::storage {
 
 // These positions are in reference to the // labels + properties passed into
 // `RelevantLabelPropertiesIndicesInfo`
 struct LabelPropertiesIndicesInfo {
   std::size_t label_pos_;
-  std::vector<long> properties_pos_;  // -1 means missing
+  std::vector<int64_t> properties_pos_;  // -1 means missing
   LabelId label_;
   std::vector<PropertyId> properties_;
 };
