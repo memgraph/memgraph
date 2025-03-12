@@ -22,6 +22,24 @@
 #include "utils/metrics_timer.hpp"
 #include "utils/scheduler.hpp"
 
+namespace memgraph::metrics {
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define GenerateRpcCounterEvents(RPC) \
+  extern const Event RPC##Success;    \
+  extern const Event RPC##Fail;       \
+  extern const Event RPC##_us;
+
+// clang-format off
+GenerateRpcCounterEvents(PromoteToMainRpc)
+GenerateRpcCounterEvents(DemoteMainToReplicaRpc)
+GenerateRpcCounterEvents(RegisterReplicaOnMainRpc)
+GenerateRpcCounterEvents(UnregisterReplicaRpc)
+GenerateRpcCounterEvents(EnableWritingOnMainRpc)
+GenerateRpcCounterEvents(StateCheckRpc)
+GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
+// clang-format on
+}  // namespace memgraph::metrics
+
 namespace memgraph::coordination {
 
 template <typename T>
@@ -90,6 +108,27 @@ class ReplicationInstanceClient {
     }
   }
 
+  template <>
+  bool SendRpc<DemoteMainToReplicaRpc>() const {
+    utils::MetricsTimer const timer{metrics::DemoteMainToReplicaRpc_us};
+    try {
+      // Specialize in order to send replication_client_info
+      if (auto stream = rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info);
+          !stream.AwaitResponse().success) {
+        spdlog::error("Received unsuccessful response to {}.", DemoteMainToReplicaRpc::Request::kType.name);
+        metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
+        return false;
+      }
+      metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcSuccess);
+      return true;
+    } catch (rpc::RpcFailedException const &e) {
+      spdlog::error("Failed to receive response to {}. Error occurred: {}", DemoteMainToReplicaRpc::Request::kType.name,
+                    e.what());
+      metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
+      return false;
+    }
+  }
+
  private:
   auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
@@ -99,30 +138,9 @@ class ReplicationInstanceClient {
   DataInstanceConfig config_;
   CoordinatorInstance *coord_instance_;
 
-  std::chrono::seconds const instance_health_check_frequency_sec_{1};
+  std::chrono::seconds instance_health_check_frequency_sec_{1};
   utils::Scheduler instance_checker_;
 };
-
-template <>
-inline bool ReplicationInstanceClient::SendRpc<DemoteMainToReplicaRpc>() const {
-  utils::MetricsTimer const timer{RpcInfo<DemoteMainToReplicaRpc>::timerLabel};
-  try {
-    // Specialize in order to send replication_client_info
-    if (auto stream = rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info);
-        !stream.AwaitResponse().success) {
-      spdlog::error("Received unsuccessful response to {}.", DemoteMainToReplicaRpc::Request::kType.name);
-      metrics::IncrementCounter(RpcInfo<DemoteMainToReplicaRpc>::failCounter);
-      return false;
-    }
-    metrics::IncrementCounter(RpcInfo<DemoteMainToReplicaRpc>::succCounter);
-    return true;
-  } catch (rpc::RpcFailedException const &e) {
-    spdlog::error("Failed to receive response to {}. Error occurred: {}", DemoteMainToReplicaRpc::Request::kType.name,
-                  e.what());
-    metrics::IncrementCounter(RpcInfo<DemoteMainToReplicaRpc>::failCounter);
-    return false;
-  }
-}
 
 }  // namespace memgraph::coordination
 #endif
