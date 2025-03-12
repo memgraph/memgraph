@@ -390,13 +390,12 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
 
     for (auto const &props : it->second | std::ranges::views::keys) {
       bool is_meaningful = false;
-      // NOLINTNEXTLINE(google-runtime-int)
-      auto positions = std::vector<long>();
+      auto positions = std::vector<int64_t>();
       for (auto prop : props) {
         auto it = r::lower_bound(properties_vec, prop);
         if (it != properties_vec.end() && *it == prop) {
           auto distance = std::distance(properties_vec.begin(), it);
-          positions.emplace_back(static_cast<long>(ppos_indices[distance]));
+          positions.emplace_back(static_cast<int64_t>(ppos_indices[distance]));
           is_meaningful = true;
         } else {
           positions.emplace_back(-1);
