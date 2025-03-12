@@ -6,7 +6,7 @@ ARG EXTENSION
 ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
+  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser libxmlsec1-dev xmlsec1 \
   --no-install-recommends 
 
 # Bugfix for timezone issues - pin the package

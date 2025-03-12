@@ -365,7 +365,7 @@ build_memgraph () {
 
   # Ubuntu and Debian builds fail because of missing xmlsec since the Python package xmlsec==1.3.15
   if [[ "$os" == debian* || "$os" == ubuntu* ]]; then
-    if [[ "$os" == debian-11 ]]; then
+    if [[ "$os" == debian-11* ]]; then
       # this should blacklist that version of xmlsec for debian-11
       docker exec -u root "$build_container" bash -c "echo 'xmlsec!=1.3.15' > /etc/pip_constraints.txt"
       docker exec -u root "$build_container" bash -c "echo '[global]' > /etc/pip.conf && echo 'constraint = /etc/pip_constraints.txt' >> /etc/pip.conf"
