@@ -85,8 +85,11 @@ void Session::Execute() {
     throw rpc::SlkRpcFailedException();
   }
 
-  // Finalize the SLK streams.
-  req_reader.Finalize();
+  // Finalize the SLK stream. It may fail because not all data has been read, that's fine.
+  try {
+    req_reader.Finalize();
+  } catch (const slk::SlkReaderLeftoverDataException &) {
+  }
 }
 
 }  // namespace memgraph::rpc

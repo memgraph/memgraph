@@ -82,6 +82,12 @@ class SlkReaderException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderException)
 };
 
+class SlkReaderLeftoverDataException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderLeftoverDataException)
+};
+
 /// Reader used to read data from a SLK segment stream.
 class Reader {
  public:
@@ -94,7 +100,7 @@ class Reader {
   void Finalize();
 
  private:
-  void GetSegment();
+  void GetSegment(bool should_be_final = false);
 
   const uint8_t *data_;
   size_t size_;
