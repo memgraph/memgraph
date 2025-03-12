@@ -363,11 +363,6 @@ build_memgraph () {
     copy_project_files
   fi
 
-  # Ubuntu-24.04 relwithdebinfo build fails because of missing xmlsec
-  if [[ "$os" == "ubuntu-24.04" && "$build_type" == "RelWithDebInfo" ]]; then
-    docker exec -u root "$build_container" bash -c "apt update && apt install -y libxmlsec1-dev xmlsec1"
-  fi
-
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
