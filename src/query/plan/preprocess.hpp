@@ -376,7 +376,9 @@ struct PointFilter {
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
-        withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value} {}
+        withinbbox_{
+            .bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value, .condition_ = {}} {
+  }
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
