@@ -418,16 +418,16 @@ void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) 
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, bool is_label_expression) {
   auto filters = SplitExpressionOnAnd(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table);
+    AnalyzeAndStoreFilter(filter, symbol_table, is_label_expression);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, bool is_label_expression) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -677,12 +677,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
         auto filter = make_filter(FilterInfo::Type::Label);
+        filter.is_label_expression = is_label_expression;
         filter.labels = labels_test->labels_;
+        labels_test->labels_expression_ = labels_test->labels_expression_;
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
         auto &existing_labels = existing_labels_test->labels_;
+        existing_labels_test->labels_expression_ = labels_test->labels_expression_;
         auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
         auto before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());

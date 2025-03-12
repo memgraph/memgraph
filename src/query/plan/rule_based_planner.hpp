@@ -1022,15 +1022,17 @@ class RuleBasedPlanner {
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
+    auto is_label_expression =
+        std::any_of(filters.begin(), filters.end(), [](const FilterInfo &fi) { return fi.is_label_expression; });
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
 
     if (filter_expr) {
       filter_expr = CompactFilters(filter_expr, storage);  // Can only compact; not delete the whole expression
                                                            // Could do in the future when we have parse-time constants
       Filters operator_filters;
-      operator_filters.CollectFilterExpression(filter_expr, symbol_table);
+      operator_filters.CollectFilterExpression(filter_expr, symbol_table, is_label_expression);
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr,
-                                         std::move(operator_filters));
+                                         std::move(operator_filters), is_label_expression);
     }
     return last_op;
   }

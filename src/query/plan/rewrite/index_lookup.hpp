@@ -133,7 +133,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_, op.is_label_expression_);
     return true;
   }
 
@@ -146,7 +146,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_, op.is_label_expression_);
       op.all_filters_ = std::move(leftover_filters);
     }
 
@@ -1164,6 +1164,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            GetProperty(prop_filter.property_), prop_filter.value_,
                                                            view);
     }
+    auto remove_label_filters = [&](const std::unordered_set<LabelIx> &labels) {
+      for (const auto &label : labels) {
+        std::vector<Expression *> removed_expressions;
+        filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+      }
+    };
     if (filters_.OrExpression(node_symbol)) {
       std::unique_ptr<LogicalOperator> prev;
       for (const auto &label : labels) {
@@ -1177,6 +1184,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           prev = std::move(scan);
         }
       }
+      remove_label_filters(labels);
       return prev;
     }
 
@@ -1188,9 +1196,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // than the allowed count.
       return nullptr;
     }
-    std::vector<Expression *> removed_expressions;
-    filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
-    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    remove_label_filters({label});
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };
