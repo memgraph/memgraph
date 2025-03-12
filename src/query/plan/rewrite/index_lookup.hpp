@@ -906,17 +906,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  struct IndexCandidate {
-    std::vector<FilterInfo> filters_;  // filters that can be replaced/augmented by a scan over a given index
-    IndexInfo info_;                   // exact label+properties used to lookup relevant index
+  struct PointIndexInfo {
+    storage::LabelId label_{};
+    storage::PropertyId property_{};
   };
 
-  struct CandidateIndices {
-    std::vector<std::pair<IndexHint, IndexCandidate>> candidate_indices_{};
-    std::unordered_map<std::pair<LabelIx, std::vector<PropertyIx>>, IndexCandidate, HashPair> candidate_index_lookup_{};
+  struct PointIndexCandidate {
+    FilterInfo filter_;    // filter that can be replaced/augmented by a scan over a given index
+    PointIndexInfo info_;  // exact label+property used to lookup relevant index
   };
 
-  CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+  using CandidatePointIndices = std::unordered_map<std::pair<LabelIx, PropertyIx>, PointIndexCandidate, HashPair>;
+
+  auto GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> CandidatePointIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -926,8 +929,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
-    std::vector<std::pair<IndexHint, IndexCandidate>> candidate_indices{};
-    std::unordered_map<std::pair<LabelIx, std::vector<PropertyIx>>, IndexCandidate, HashPair> candidate_index_lookup{};
+    auto candidate_point_indices = CandidatePointIndices{};
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PointFilters(symbol)) {
         if (!are_bound(filter.used_symbols)) {
@@ -945,23 +947,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (!db_->PointIndexExists(storage_label, storage_property)) {
           continue;
         }
-        candidate_indices.emplace_back(
-            IndexHint{
-                .index_type_ = IndexHint::IndexType::POINT, .label_ix_ = label, .property_ixs_ = std::vector{property}},
-            IndexCandidate{.filters_ = std::vector{filter},
-                           .info_ = {.label_ = storage_label, .properties_ = {storage_property}}});
-        candidate_index_lookup.insert(
-            {std::make_pair(label, std::vector{property}),
-             {std::vector{filter}, {.label_ = storage_label, .properties_ = {storage_property}}}});
+        candidate_point_indices.insert(
+            {std::pair{label, property}, {filter, {.label_ = storage_label, .property_ = storage_property}}});
       }
     }
 
-    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+    return candidate_point_indices;
   }
 
-  std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
-      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
-    auto [candidate_indices, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
+  auto FindBestPointLabelPropertyIndex(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> std::optional<PointLabelPropertyIndex> {
+    auto candidate_point_indices = GetCandidatePointIndices(symbol, bound_symbols);
 
     // TODO: Can point_index_hints_ be populated?
     //  indexHints: INDEX indexHint ( ',' indexHint )* ;
@@ -969,35 +965,48 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // First match with the provided hints
     for (const auto &[index_type, label, maybe_properties] : index_hints_.point_index_hints_) {
-      auto filter_it = candidate_index_lookup.find(std::make_pair(label, *maybe_properties));
-      if (filter_it != candidate_index_lookup.cend()) {
+      auto filter_it = candidate_point_indices.find(std::make_pair(label, (*maybe_properties)[0]));
+      if (filter_it != candidate_point_indices.cend()) {
         // TODO: isn't .vertex_count as max value wrong?
         return PointLabelPropertyIndex{.label = label,
-                                       .filter = filter_it->second.filters_[0],
+                                       .filter = filter_it->second.filter_,
                                        .vertex_count = std::numeric_limits<std::int64_t>::max()};
       }
     }
 
     // Second find a good candidate
     std::optional<PointLabelPropertyIndex> found;
-    for (const auto &[candidate, info] : candidate_indices) {
-      const auto &[_, label, maybe_property] = candidate;
-      auto labelId = GetLabel(label);
-      auto propertyId = GetProperty(maybe_property.value()[0] /*TODO*/);
+    for (const auto &[key, info] : candidate_point_indices) {
+      const auto &[label, _] = key;
 
       // TODO: ATM we are looking at index size, are there other situations to select a candidate index over another?
-      auto vertex_count = db_->VerticesPointCount(labelId, propertyId);
+      auto vertex_count = db_->VerticesPointCount(info.info_.label_, info.info_.property_);
       if (!vertex_count) continue;
 
       if (!found || vertex_count < found->vertex_count) {
-        found.emplace(label, info.filters_[0], *vertex_count);
+        // TODO: can we introduce stats for point indices?
+        found.emplace(label, info.filter_, *vertex_count);
         continue;
       }
     }
     return found;
   }
 
-  CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+  struct LabelPropertiesIndexInfo {
+    storage::LabelId label_{};
+    std::vector<storage::PropertyId> properties_{};
+  };
+
+  struct LabelPropertiesIndexCandidate {
+    std::vector<FilterInfo> filters_;  // filters that can be replaced/augmented by a scan over a given index
+    LabelPropertiesIndexInfo info_;    // exact label+properties used to lookup relevant index
+  };
+
+  using CandidateLabelPropertiesIndices =
+      std::unordered_multimap<std::pair<LabelIx, std::vector<PropertyIx>>, LabelPropertiesIndexCandidate, HashPair>;
+
+  auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> CandidateLabelPropertiesIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -1007,8 +1016,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
-    std::vector<std::pair<IndexHint, IndexCandidate>> candidate_indices{};
-    std::unordered_map<std::pair<LabelIx, std::vector<PropertyIx>>, IndexCandidate, HashPair> candidate_index_lookup{};
+    auto candidate_label_properties_indices = CandidateLabelPropertiesIndices{};
 
     namespace r = ranges;
     namespace rv = r::views;
@@ -1074,18 +1082,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto prop_ixs = filters | rv::transform(as_propertyIX) | r::to_vector;
         // prop_ixs [E, C]
 
-        candidate_indices.emplace_back(
-            IndexHint{
-                .index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ix_ = label, .property_ixs_ = prop_ixs},
-            IndexCandidate{.filters_ = filters, .info_ = {.label_ = index_label, .properties_ = index_properties}});
-
-        candidate_index_lookup.insert(
+        candidate_label_properties_indices.insert(
             {std::make_pair(label, prop_ixs),
-             IndexCandidate{.filters_ = filters, .info_ = {.label_ = index_label, .properties_ = index_properties}}});
+             LabelPropertiesIndexCandidate{.filters_ = filters,
+                                           .info_ = {.label_ = index_label, .properties_ = index_properties}}});
       });
     }
 
-    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+    return candidate_label_properties_indices;
   }
 
   // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
@@ -1093,8 +1097,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
   // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
   // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
-  std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
-                                                               const std::unordered_set<Symbol> &bound_symbols) {
+  auto FindBestLabelPropertyIndex(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> std::optional<LabelPropertyIndex> {
     /*
      * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be
      * better. If it is <= 10x in number of vertices, check average group size of property values. The index with
@@ -1119,12 +1123,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
     };
 
-    auto const &[candidate_indices, candidate_index_lookup] = GetCandidateIndices(symbol, bound_symbols);
+    auto const candidate_label_properties_indices = GetCandidateLabelPropertiesIndices(symbol, bound_symbols);
 
     // try and match requested hint with candidate index
     for (const auto &[index_type, label, maybe_properties] : index_hints_.label_property_index_hints_) {
-      auto it = candidate_index_lookup.find(std::make_pair(label, *maybe_properties));
-      if (it == candidate_index_lookup.end()) continue;
+      auto it = candidate_label_properties_indices.find(std::make_pair(label, *maybe_properties));
+      if (it == candidate_label_properties_indices.end()) continue;
       // Hints may only ask for exact matches on the candidate index
       if (it->second.info_.properties_.size() != maybe_properties->size()) continue;
 
@@ -1163,8 +1167,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return to_score(found.filters) < to_score(candidate_filters);
     };
 
-    for (const auto &[hint, candidate] : candidate_indices) {
-      const auto &[_1, label, _2] = hint;
+    for (const auto &[key, candidate] : candidate_label_properties_indices) {
+      const auto &[label, _] = key;
 
       auto const &storage_label = candidate.info_.label_;
       auto const &storage_properties = candidate.info_.properties_;

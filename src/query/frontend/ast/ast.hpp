@@ -2265,18 +2265,6 @@ struct IndexHint {
   }
 };
 
-/// Information about an actual index that exists in storage
-struct IndexInfo {
-  storage::LabelId label_{};
-  std::vector<storage::PropertyId> properties_{};
-};
-
-/// Candidates are built from possible
-struct BoundIndexHint {
-  IndexHint hint_;
-  IndexInfo info_;
-};
-
 struct PreQueryDirectives {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
