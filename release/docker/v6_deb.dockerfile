@@ -6,19 +6,16 @@ ARG EXTENSION
 ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser libxmlsec1-dev xmlsec1 \
-  --no-install-recommends 
-
-# Bugfix for timezone issues - pin the package
-RUN apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
-RUN apt-mark hold tzdata
-
-# do this after apt, not before!
-RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
+  --no-install-recommends && \
+  apt install libxmlsec1-dev xmlsec1 && \
+  apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades && \
+  apt-mark hold tzdata \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
-RUN pip3 install --break-system-packages  numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3
+RUN pip3 install --break-system-packages  numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.14
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 
