@@ -184,8 +184,8 @@ class PatternVisitor : public ExpressionVisitor<void> {
   // Unary operators
   void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
   void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
-  void Visit(UnaryPlusOperator &op) override{};
-  void Visit(UnaryMinusOperator &op) override{};
+  void Visit(UnaryPlusOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(UnaryMinusOperator &op) override { op.expression_->Accept(*this); }
 
   // Binary operators
   void Visit(OrOperator &op) override {
@@ -279,13 +279,34 @@ class PatternVisitor : public ExpressionVisitor<void> {
   }
 
   // Other
-  void Visit(ListSlicingOperator &op) override{};
-  void Visit(IfOperator &op) override{};
-  void Visit(ListLiteral &op) override{};
-  void Visit(MapLiteral &op) override{};
-  void Visit(MapProjectionLiteral &op) override{};
-  void Visit(LabelsTest &op) override{};
-  void Visit(Aggregation &op) override{};
+  void Visit(ListSlicingOperator &op) override {
+    op.list_->Accept(*this);
+    if (op.lower_bound_) op.lower_bound_->Accept(*this);
+    if (op.upper_bound_) op.upper_bound_->Accept(*this);
+  };
+  void Visit(IfOperator &op) override {
+    op.condition_->Accept(*this);
+    op.then_expression_->Accept(*this);
+    op.else_expression_->Accept(*this);
+  };
+  void Visit(ListLiteral &op) override {
+    for (auto element_expr : op.elements_) element_expr->Accept(*this);
+  }
+  void Visit(MapLiteral &op) override {
+    for (auto pair : op.elements_) {
+      pair.second->Accept(*this);
+    }
+  }
+  void Visit(MapProjectionLiteral &op) override {
+    for (auto pair : op.elements_) {
+      pair.second->Accept(*this);
+    }
+  }
+  void Visit(LabelsTest &op) override { op.expression_->Accept(*this); };
+  void Visit(Aggregation &op) override {
+    if (op.expression1_) op.expression1_->Accept(*this);
+    if (op.expression2_) op.expression2_->Accept(*this);
+  }
 
   void Visit(Function &op) override {
     for (auto *argument : op.arguments_) {
@@ -293,24 +314,55 @@ class PatternVisitor : public ExpressionVisitor<void> {
     }
   }
 
-  void Visit(Reduce &op) override{};
-  void Visit(Coalesce &op) override{};
-  void Visit(Extract &op) override{};
+  void Visit(Reduce &op) override {
+    if (op.initializer_) op.initializer_->Accept(*this);
+    if (op.expression_) op.expression_->Accept(*this);
+  }
+  void Visit(Coalesce &op) override {
+    for (auto element_expr : op.expressions_) element_expr->Accept(*this);
+  }
+  void Visit(Extract &op) override {
+    op.list_->Accept(*this);
+    op.expression_->Accept(*this);
+  }
   void Visit(Exists &op) override;
-  void Visit(All &op) override{};
-  void Visit(Single &op) override{};
-  void Visit(Any &op) override{};
-  void Visit(None &op) override{};
-  void Visit(ListComprehension &op) override{};
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(PropertyLookup &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
-  void Visit(RegexMatch &op) override{};
+  void Visit(All &op) override {
+    op.list_expression_->Accept(*this);
+    op.where_->expression_->Accept(*this);
+  }
+  void Visit(Single &op) override {
+    op.list_expression_->Accept(*this);
+    op.where_->expression_->Accept(*this);
+  }
+  void Visit(Any &op) override {
+    op.list_expression_->Accept(*this);
+    op.where_->expression_->Accept(*this);
+  }
+  void Visit(None &op) override {
+    op.list_expression_->Accept(*this);
+    op.where_->expression_->Accept(*this);
+  }
+  void Visit(ListComprehension &op) override {
+    op.list_->Accept(*this);
+    if (op.where_) {
+      op.where_->expression_->Accept(*this);
+    }
+    if (op.expression_) {
+      op.expression_->Accept(*this);
+    }
+  }
+  void Visit(Identifier &op) override {};
+  void Visit(PrimitiveLiteral &op) override {};
+  void Visit(PropertyLookup &op) override {};
+  void Visit(AllPropertiesLookup &op) override {};
+  void Visit(ParameterLookup &op) override {};
+  void Visit(RegexMatch &op) override {
+    op.string_expr_->Accept(*this);
+    op.regex_->Accept(*this);
+  }
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override{};
+  void Visit(EnumValueAccess &op) override {};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
