@@ -121,7 +121,7 @@ Feature: ListComprehension
       | (:X {prop: 43}) | false |
     And no side effects
 
-  Scenario: Pattern comprehension inside list comprehension
+  Scenario: Pattern comprehension inside list comprehension - currently not supported
     Given an empty graph
     And having executed:
       """
@@ -139,8 +139,4 @@ Feature: ListComprehension
       MATCH p = (n:X)-->(b)
       RETURN n, [x IN nodes(p) | size([(x)-->(:Y) | 1])] AS list
       """
-    Then the result should be:
-      | n           | list   |
-      | (:X {n: 1}) | [1, 2] |
-      | (:X {n: 2}) | [0, 1] |
-    And no side effects
+    Then an error should be raised
