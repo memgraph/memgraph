@@ -365,7 +365,11 @@ build_memgraph () {
 
   # Ubuntu and Debian builds fail because of missing xmlsec since the Python package xmlsec==1.3.15
   if [[ "$os" == debian* || "$os" == ubuntu* ]]; then
-    docker exec -u root "$build_container" bash -c "apt update && apt install -y libxmlsec1-dev xmlsec1"
+    if [[ "$os" == debian-11 ]]; then
+      docker exec -u root "$build_container" bash -c "apt update && apt install -y python3 python3-pip && pip install xmlsec==1.3.14"
+    else
+      docker exec -u root "$build_container" bash -c "apt update && apt install -y libxmlsec1-dev xmlsec1"
+    fi
   fi
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
