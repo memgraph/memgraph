@@ -11,7 +11,7 @@
 
 #include "utils/event_histogram.hpp"
 
-// clang-format on
+// clang-format off
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GenerateRpcTimer(RPC) \
   M(RPC##_us, HighAvailability, "Latency of sending and waiting for response from " #RPC " in microseconds", 50, 90, 99)
@@ -26,16 +26,22 @@
   M(ChooseMostUpToDateInstance_us, HighAvailability, "Latency of choosing next main in microseconds", 50, 90, 99) \
   M(SocketConnect_us, HighAvailability, "Latency of Socket::Connect in microseconds", 50, 90, 99)                 \
   M(ReplicaStream_us, HighAvailability, "Latency of creating replica stream in microseconds", 50, 90, 99)         \
-  GenerateRpcTimer(PromoteToMainRpc) GenerateRpcTimer(DemoteMainToReplicaRpc)                                     \
-      GenerateRpcTimer(RegisterReplicaOnMainRpc) GenerateRpcTimer(UnregisterReplicaRpc)                           \
-          GenerateRpcTimer(EnableWritingOnMainRpc) GenerateRpcTimer(StateCheckRpc)                                \
-              GenerateRpcTimer(GetDatabaseHistoriesRpc) GenerateRpcTimer(HeartbeatRpc)                            \
-                  GenerateRpcTimer(AppendDeltasRpc) GenerateRpcTimer(SnapshotRpc) GenerateRpcTimer(CurrentWalRpc) \
-                      GenerateRpcTimer(WalFilesRpc) GenerateRpcTimer(FrequentHeartbeatRpc)                        \
-                          GenerateRpcTimer(SystemRecoveryRpc)                                                     \
-                              M(GetHistories_us, HighAvailability,                                                \
-                                "Latency of retrieving instances' history in microseconds", 50, 90, 99)
-// clang-format off
+  GenerateRpcTimer(PromoteToMainRpc)                                                                              \
+  GenerateRpcTimer(DemoteMainToReplicaRpc)                                                                        \
+  GenerateRpcTimer(RegisterReplicaOnMainRpc)                                                                      \
+  GenerateRpcTimer(UnregisterReplicaRpc)                                                                          \
+  GenerateRpcTimer(EnableWritingOnMainRpc)                                                                        \
+  GenerateRpcTimer(StateCheckRpc)                                                                                 \
+  GenerateRpcTimer(GetDatabaseHistoriesRpc)                                                                       \
+  GenerateRpcTimer(HeartbeatRpc)                                                                                  \
+  GenerateRpcTimer(AppendDeltasRpc)                                                                               \
+  GenerateRpcTimer(SnapshotRpc)                                                                                   \
+  GenerateRpcTimer(CurrentWalRpc)                                                                                 \
+  GenerateRpcTimer(WalFilesRpc)                                                                                   \
+  GenerateRpcTimer(FrequentHeartbeatRpc)                                                                          \
+  GenerateRpcTimer(SystemRecoveryRpc)                                                                             \
+  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)
+// clang-format on
 
 namespace memgraph::metrics {
 
