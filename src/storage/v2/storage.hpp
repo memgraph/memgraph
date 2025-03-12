@@ -219,6 +219,9 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) = 0;
 
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+                                      const PropertyValue &value, View view) = 0;
+
     virtual VerticesIterable Vertices(LabelId label, PropertyId property,
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;

@@ -1708,6 +1708,16 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
                                                              &transaction_));
 }
 
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
+                                                             std::span<storage::PropertyId const> properties,
+                                                             PropertyValue const &value, View view) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  return VerticesIterable(mem_label_property_index->Vertices(label, properties, utils::MakeBoundInclusive(value),
+                                                             utils::MakeBoundInclusive(value), view, storage_,
+                                                             &transaction_));
+};
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
@@ -3119,6 +3129,6 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                       WithinBBoxCondition condition) -> PointIterable {
   return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, bottom_left,
                                                      top_right, condition);
-};
+}
 
 }  // namespace memgraph::storage

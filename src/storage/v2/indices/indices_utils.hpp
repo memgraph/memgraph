@@ -241,7 +241,7 @@ inline bool AnyVersionHasProperty(const Edge &edge, std::pair<EdgeTypeId, Proper
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
-inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key,
+inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, std::span<PropertyId const> properties,
                                            const PropertyValue &value, Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = false;
@@ -252,7 +252,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = vertex.properties.IsPropertyEqual(properties[0] /*TODO*/, value);
     delta = vertex.delta;
   }
 
@@ -267,21 +267,22 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
       if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
       auto resLabel = cache.GetHasLabel(view, &vertex, label);
       if (resLabel && *resLabel) {
-        auto resProp = cache.GetProperty(view, &vertex, key);
+        auto resProp = cache.GetProperty(view, &vertex, properties[0] /*TODO*/);
         if (resProp && resProp->get() == value) return true;
       }
     }
 
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, label, key](const Delta &delta) {
-      // clang-format off
+    auto const n_processed =
+        ApplyDeltasForRead(transaction, delta, view, [&, label, key = properties[0] /*TODO*/](const Delta &delta) {
+          // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
         Exists_ActionMethod(exists),
         HasLabel_ActionMethod(has_label, label),
         PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
       });
-      // clang-format on
-    });
+          // clang-format on
+        });
 
     if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
       auto &cache = transaction->manyDeltasCache;
@@ -289,7 +290,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
       cache.StoreDeleted(view, &vertex, deleted);
       cache.StoreHasLabel(view, &vertex, label, has_label);
       if (current_value_equal_to_value) {
-        cache.StoreProperty(view, &vertex, key, value);
+        cache.StoreProperty(view, &vertex, properties[0] /*TODO*/, value);
       }
     }
   }

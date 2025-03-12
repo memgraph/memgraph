@@ -2712,6 +2712,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
   using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
+  using LPIndexNew = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -2767,21 +2768,22 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   };
 
   auto populate_label_property_stats = [execution_db_accessor, view](auto &index_info) {
-    std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> label_property_counter;
-    std::map<LPIndex, uint64_t> vertex_degree_counter;
+    std::map<LPIndexNew, std::map<storage::PropertyValue, int64_t>> label_property_counter;
+    std::map<LPIndexNew, uint64_t> vertex_degree_counter;
     // Iterate over all label property indexed vertices
-    std::for_each(
-        index_info.begin(), index_info.end(),
-        [execution_db_accessor, &label_property_counter, &vertex_degree_counter, view](const LPIndex &index_element) {
-          auto &lp_counter = label_property_counter[index_element];
-          auto &vd_counter = vertex_degree_counter[index_element];
-          auto vertices = execution_db_accessor->Vertices(view, index_element.first, index_element.second);
-          std::for_each(vertices.begin(), vertices.end(),
-                        [&index_element, &lp_counter, &vd_counter, &view](const auto &vertex) {
-                          lp_counter[*vertex.GetProperty(view, index_element.second)]++;
-                          vd_counter += *vertex.OutDegree(view) + *vertex.InDegree(view);
-                        });
-        });
+    std::for_each(index_info.begin(), index_info.end(),
+                  [execution_db_accessor, &label_property_counter, &vertex_degree_counter,
+                   view](const LPIndexNew &index_element) {
+                    auto &lp_counter = label_property_counter[index_element];
+                    auto &vd_counter = vertex_degree_counter[index_element];
+                    auto vertices = execution_db_accessor->Vertices(
+                        view, index_element.first, index_element.second);  // TODO: add PICK UP FROM HERE
+                    std::for_each(vertices.begin(), vertices.end(),
+                                  [&index_element, &lp_counter, &vd_counter, &view](const auto &vertex) {
+                                    lp_counter[*vertex.GetProperty(view, index_element.second)]++;
+                                    vd_counter += *vertex.OutDegree(view) + *vertex.InDegree(view);
+                                  });
+                  });
 
     std::vector<std::pair<LPIndex, storage::LabelPropertyIndexStats>> label_property_stats;
     label_property_stats.reserve(label_property_counter.size());
@@ -2824,7 +2826,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   erase_not_specified_label_indices(label_indices_info);
   auto label_stats = populate_label_stats(label_indices_info);
 
-  std::vector<LPIndex> label_property_indices_info = index_info.label_property;
+  std::vector<LPIndexNew> label_property_indices_info = index_info.label_property_new;
   erase_not_specified_label_property_indices(label_property_indices_info);
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 

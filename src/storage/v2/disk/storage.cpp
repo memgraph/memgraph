@@ -2327,4 +2327,13 @@ ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
           disk_storage->constraints_.unique_constraints_->ListConstraints(),
           disk_storage->constraints_.type_constraints_->ListConstraints()};
 }
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+                                                     PropertyValue const &value, View view) {
+  if (properties.size() != 1) {
+    throw utils::NotYetImplemented("composite index");
+  }
+  return Vertices(label, properties[0], value, view);
+}
+
 }  // namespace memgraph::storage
