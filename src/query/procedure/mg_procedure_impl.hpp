@@ -612,9 +612,12 @@ struct mgp_result {
                     memgraph::utils::pmr::string, std::pair<const memgraph::query::procedure::CypherType *, bool>> *s) {
     signature = s;
 
-    field_to_id.clear();
+    // at one point signature will get set to nullptr due to
+    // releasing the lock on the module
+    // but we still need to field_to_id map to insert results correctly
     if (signature) {
       // mg.procedures() don't have signature, so we need to check to not crash
+      field_to_id.clear();
       int id = 0;
       for (const auto &[field, pair] : *signature) {
         field_to_id.emplace(field, std::make_pair(pair.first, id++));
