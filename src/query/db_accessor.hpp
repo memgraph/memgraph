@@ -337,6 +337,20 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
   }
 
+  EdgesIterable Edges(storage::View view, storage::PropertyId property) {
+    return EdgesIterable(accessor_->Edges(property, view));
+  }
+
+  EdgesIterable Edges(storage::View view, storage::PropertyId property, const storage::PropertyValue value) {
+    return EdgesIterable(accessor_->Edges(property, value, view));
+  }
+
+  EdgesIterable Edges(storage::View view, storage::PropertyId property,
+                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    return EdgesIterable(accessor_->Edges(property, lower, upper, view));
+  }
+
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
@@ -488,6 +502,10 @@ class DbAccessor final {
     return accessor_->EdgeTypePropertyIndexExists(edge_type, property);
   }
 
+  bool EdgePropertyIndexExists(storage::PropertyId property) const {
+    return accessor_->EdgePropertyIndexExists(property);
+  }
+
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
   void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
@@ -589,6 +607,21 @@ class DbAccessor final {
     return accessor_->ApproximateEdgeCount(edge_type, property, lower, upper);
   }
 
+  int64_t EdgesCount(storage::PropertyId property) const {
+    return accessor_->ApproximateEdgeCount(property);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property,
+                     const storage::PropertyValue &value) const {
+    return accessor_->ApproximateEdgeCount(property, value);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
+    return accessor_->ApproximateEdgeCount(property, lower, upper);
+  }
+
   std::vector<storage::LabelId> ListAllPossiblyPresentVertexLabels() const {
     return accessor_->ListAllPossiblyPresentVertexLabels();
   }
@@ -620,6 +653,10 @@ class DbAccessor final {
     return accessor_->CreateIndex(edge_type, property);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(storage::PropertyId property) {
+    return accessor_->CreateGlobalEdgeIndex(property);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
     return accessor_->DropIndex(label);
   }
@@ -636,6 +673,10 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type,
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(edge_type, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropGlobalEdgeIndex(storage::PropertyId property) {
+    return accessor_->DropGlobalEdgeIndex(property);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,

@@ -96,6 +96,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryLabelPropertyIndex;
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
+  friend class InMemoryEdgePropertyIndex;
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
@@ -171,6 +172,13 @@ class InMemoryStorage final : public Storage {
                         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    EdgesIterable Edges(PropertyId property, View view) override;
+
+    EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) override;
+
+    EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount() const override {
@@ -233,6 +241,21 @@ class InMemoryStorage final : public Storage {
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
           edge_type, property, lower, upper);
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId property) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->ApproximateEdgeCount(property);
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->ApproximateEdgeCount(property,
+                                                                                                           value);
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->ApproximateEdgeCount(
+          property, lower, upper);
     }
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
@@ -305,6 +328,10 @@ class InMemoryStorage final : public Storage {
                                                                                                        property);
     }
 
+    bool EdgePropertyIndexExists(PropertyId property) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->IndexExists(property);
+    }
+
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
@@ -364,6 +391,14 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       PropertyId property) override;
 
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index already exists.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) override;
+
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -391,6 +426,13 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
                                                                            storage::PropertyId property) override;

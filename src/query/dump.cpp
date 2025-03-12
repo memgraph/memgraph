@@ -301,6 +301,10 @@ void DumpEdgeTypePropertyIndex(std::ostream *os, query::DbAccessor *dba, const s
       << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
+void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::PropertyId property) {
+  *os << "CREATE GLOBAL EDGE INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
 void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                             storage::PropertyId property) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
@@ -394,7 +398,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all edge-type indices
                    CreateEdgeTypeIndicesPullChunk(),
                    // Dump all edge-type property indices
-                   CreateEdgeTypePropertyIndicesPullChunk()} {}
+                   CreateEdgeTypePropertyIndicesPullChunk(),
+                   // Dump all global edge property indices
+                   CreateEdgePropertyIndicesPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -525,6 +531,34 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypePropertyIndicesPullChunk() {
     }
 
     if (global_index == edge_type_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
+  // Dump all global edge property indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &edge_property = indices_info_->edge_property;
+
+    size_t local_counter = 0;
+    while (global_index < edge_property.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto edge_property_index = edge_property[global_index];
+      DumpEdgePropertyIndex(&os, dba_, edge_property_index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == edge_property.size()) {
       return local_counter;
     }
 

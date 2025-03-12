@@ -101,6 +101,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(EDGE_INDEX_DROP);
     add_case(EDGE_PROPERTY_INDEX_CREATE);
     add_case(EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
     add_case(ENUM_ALTER_ADD);
     add_case(ENUM_ALTER_UPDATE);
     add_case(ENUM_CREATE);
@@ -189,6 +191,8 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_EDGE_INDEX_DROP:
     case DELTA_EDGE_PROPERTY_INDEX_CREATE:
     case DELTA_EDGE_PROPERTY_INDEX_DROP:
+    case DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+    case DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
     case DELTA_TEXT_INDEX_CREATE:
     case DELTA_TEXT_INDEX_DROP:
     case DELTA_EXISTENCE_CONSTRAINT_CREATE:
@@ -439,6 +443,8 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(LABEL_PROPERTY_INDEX_STATS_SET, WalLabelPropertyIndexStatsSet);
     read_skip(EDGE_PROPERTY_INDEX_CREATE, WalEdgeTypePropertyIndexCreate);
     read_skip(EDGE_PROPERTY_INDEX_DROP, WalEdgeTypePropertyIndexDrop);
+    read_skip(GLOBAL_EDGE_PROPERTY_INDEX_CREATE, WalEdgePropertyIndexCreate);
+    read_skip(GLOBAL_EDGE_PROPERTY_INDEX_DROP, WalEdgePropertyIndexDrop);
     read_skip(UNIQUE_CONSTRAINT_CREATE, WalUniqueConstraintCreate);
     read_skip(UNIQUE_CONSTRAINT_DROP, WalUniqueConstraintDrop);
     read_skip(TYPE_CONSTRAINT_CREATE, WalTypeConstraintCreate);
@@ -915,14 +921,24 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       [&](WalEdgeTypePropertyIndexCreate const &data) {
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {edge_type_id, property_id},
+        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_type_property, {edge_type_id, property_id},
                                     "The edge-type + property index already exists!");
       },
       [&](WalEdgeTypePropertyIndexDrop const &data) {
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {edge_type_id, property_id},
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_type_property, {edge_type_id, property_id},
                                        "The edge-type + property index doesn't exist!");
+      },
+      [&](WalEdgePropertyIndexCreate const &data) {
+        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        AddRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {property_id},
+                                    "The global edge property index already exists!");
+      },
+      [&](WalEdgePropertyIndexDrop const &data) {
+        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {property_id},
+                                       "The global edge property index doesn't exist!");
       },
       [&](WalLabelIndexStatsSet const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1292,6 +1308,10 @@ void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Edg
 void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
                                  PropertyId prop) {
   encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+}
+
+void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop) {
   encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
 }
 

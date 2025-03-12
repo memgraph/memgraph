@@ -15,6 +15,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_constants.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -24,7 +25,7 @@
 
 namespace memgraph::storage {
 
-namespace {
+namespace details {
 
 template <Delta::Action... actions>
 struct ActionSet {
@@ -52,7 +53,7 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
   return false;
 }
 
-}  // namespace
+}  // namespace details
 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
@@ -70,42 +71,43 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
     return true;
   }
   constexpr auto interesting =
-      ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
-                Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-        if (delta.label.value == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      case Delta::Action::REMOVE_LABEL:
-        if (delta.label.value == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-    return !deleted && has_label;
-  });
+      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
+                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta,
+                                                            [&has_label, &deleted, label](const Delta &delta) {
+                                                              switch (delta.action) {
+                                                                case Delta::Action::ADD_LABEL:
+                                                                  if (delta.label.value == label) {
+                                                                    MG_ASSERT(!has_label, "Invalid database state!");
+                                                                    has_label = true;
+                                                                  }
+                                                                  break;
+                                                                case Delta::Action::REMOVE_LABEL:
+                                                                  if (delta.label.value == label) {
+                                                                    MG_ASSERT(has_label, "Invalid database state!");
+                                                                    has_label = false;
+                                                                  }
+                                                                  break;
+                                                                case Delta::Action::RECREATE_OBJECT: {
+                                                                  MG_ASSERT(deleted, "Invalid database state!");
+                                                                  deleted = false;
+                                                                  break;
+                                                                }
+                                                                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                                                                case Delta::Action::DELETE_OBJECT: {
+                                                                  MG_ASSERT(!deleted, "Invalid database state!");
+                                                                  deleted = true;
+                                                                  break;
+                                                                }
+                                                                case Delta::Action::SET_PROPERTY:
+                                                                case Delta::Action::ADD_IN_EDGE:
+                                                                case Delta::Action::ADD_OUT_EDGE:
+                                                                case Delta::Action::REMOVE_IN_EDGE:
+                                                                case Delta::Action::REMOVE_OUT_EDGE:
+                                                                  break;
+                                                              }
+                                                              return !deleted && has_label;
+                                                            });
 }
 
 /// Helper function for label-property index garbage collection. Returns true if
@@ -131,10 +133,11 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
     return true;
   }
 
-  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
-                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::SET_PROPERTY,
+                         Delta::Action::RECREATE_OBJECT, Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                         Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&has_label, &current_value_equal_to_value, &deleted, label, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
@@ -194,9 +197,10 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
     return true;
   }
 
-  constexpr auto interesting = ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::SET_PROPERTY:
@@ -225,6 +229,11 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
         }
         return !deleted && current_value_equal_to_value;
       });
+}
+
+inline bool AnyVersionHasProperty(const Edge &edge, std::pair<EdgeTypeId, PropertyId> key, const PropertyValue &value,
+                                  uint64_t timestamp) {
+  return AnyVersionHasProperty(edge, key.second, value, timestamp);
 }
 
 // Helper function for iterating through label-property index. Returns true if
@@ -432,6 +441,137 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
     return insertion_timestamp < original_start_timestamp;
   }
   return insertion_timestamp <= original_start_timestamp;
+}
+
+inline std::optional<utils::Bound<PropertyValue>> MaxBound(PropertyValue::Type type) {
+  switch (type) {
+    case PropertyValue::Type::Null:
+      // This shouldn't happen because of the nullopt-ing above.
+      LOG_FATAL("Invalid database state!");
+      break;
+    case PropertyValue::Type::Bool:
+      return utils::MakeBoundExclusive(kSmallestNumber);
+    case PropertyValue::Type::Int:
+    case PropertyValue::Type::Double:
+      // Both integers and doubles are treated as the same type in
+      // `PropertyValue` and they are interleaved when sorted.
+      return utils::MakeBoundExclusive(kSmallestString);
+    case PropertyValue::Type::String:
+      return utils::MakeBoundExclusive(kSmallestList);
+    case PropertyValue::Type::List:
+      return utils::MakeBoundExclusive(kSmallestMap);
+    case PropertyValue::Type::Map:
+      return utils::MakeBoundExclusive(kSmallestTemporalData);
+    case PropertyValue::Type::TemporalData:
+      return utils::MakeBoundExclusive(kSmallestZonedTemporalData);
+    case PropertyValue::Type::ZonedTemporalData:
+      return utils::MakeBoundExclusive(kSmallestEnum);
+    case PropertyValue::Type::Enum:
+      return utils::MakeBoundExclusive(kSmallestPoint2d);
+    case PropertyValue::Type::Point2d:
+      return utils::MakeBoundExclusive(kSmallestPoint3d);
+    case PropertyValue::Type::Point3d:
+      // This is the last type in the order so we leave the upper bound empty.
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<utils::Bound<PropertyValue>> MinBound(PropertyValue::Type type) {
+  switch (type) {
+    case PropertyValue::Type::Null:
+      // This shouldn't happen because of the nullopt-ing above.
+      LOG_FATAL("Invalid database state!");
+      break;
+    case PropertyValue::Type::Bool:
+      return utils::MakeBoundInclusive(kSmallestBool);
+    case PropertyValue::Type::Int:
+    case PropertyValue::Type::Double:
+      // Both integers and doubles are treated as the same type in
+      // `PropertyValue` and they are interleaved when sorted.
+      return utils::MakeBoundInclusive(kSmallestNumber);
+    case PropertyValue::Type::String:
+      return utils::MakeBoundInclusive(kSmallestString);
+    case PropertyValue::Type::List:
+      return utils::MakeBoundInclusive(kSmallestList);
+    case PropertyValue::Type::Map:
+      return utils::MakeBoundInclusive(kSmallestMap);
+    case PropertyValue::Type::TemporalData:
+      return utils::MakeBoundInclusive(kSmallestTemporalData);
+    case PropertyValue::Type::ZonedTemporalData:
+      return utils::MakeBoundInclusive(kSmallestZonedTemporalData);
+    case PropertyValue::Type::Enum:
+      return utils::MakeBoundInclusive(kSmallestEnum);
+    case PropertyValue::Type::Point2d:
+      return utils::MakeBoundExclusive(kSmallestPoint2d);
+    case PropertyValue::Type::Point3d:
+      return utils::MakeBoundExclusive(kSmallestPoint3d);
+  }
+  return std::nullopt;
+}
+
+inline bool IsLowerBound(const PropertyValue &value, std::optional<utils::Bound<PropertyValue>> const &bound) {
+  if (bound) {
+    if (value < bound->value()) {
+      return false;
+    }
+    if (!bound->IsInclusive() && value == bound->value()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline bool IsUpperBound(const PropertyValue &value, std::optional<utils::Bound<PropertyValue>> const &bound) {
+  if (bound) {
+    if (bound->value() < value) {
+      return false;
+    }
+    if (!bound->IsInclusive() && value == bound->value()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline void EdgePropertyIndexRemoveObsoleteEntries(auto &indices, uint64_t oldest_active_start_timestamp,
+                                                   std::stop_token token) {
+  auto maybe_stop = utils::ResettableCounter<2048>();
+
+  for (auto &specific_index : indices) {
+    if (token.stop_requested()) return;
+
+    auto edges_acc = specific_index.second.access();
+    for (auto it = edges_acc.begin(); it != edges_acc.end();) {
+      if (maybe_stop() && token.stop_requested()) return;
+
+      auto next_it = it;
+      ++next_it;
+
+      if (it->timestamp >= oldest_active_start_timestamp) {
+        it = next_it;
+        continue;
+      }
+
+      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
+      const bool edge_deleted = it->edge->deleted;
+      const bool has_next = next_it != edges_acc.end();
+
+      // When we update specific entries in the index, we don't delete the previous entry.
+      // The way they are removed from the index is through this check. The entries should
+      // be right next to each other(in terms of iterator semantics) and the older one
+      // should be removed here.
+      const bool redundant_duplicate = has_next && it->value == next_it->value &&
+                                       it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
+                                       it->edge == next_it->edge;
+      if (redundant_duplicate || vertices_deleted || edge_deleted ||
+          !AnyVersionHasProperty(*it->edge, specific_index.first, it->value, oldest_active_start_timestamp)) {
+        edges_acc.remove(*it);
+      }
+
+      it = next_it;
+    }
+  }
 }
 
 }  // namespace memgraph::storage
