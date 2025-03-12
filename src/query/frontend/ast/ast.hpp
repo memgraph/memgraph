@@ -2269,6 +2269,12 @@ struct IndexHint {
   }
 };
 
+// TODO: we added storage information to make retrival correct, maybe this is a 2nd type
+// struct IndexHintExtra : IndexHint{
+//   storage::LabelId label_{};
+//   std::vector<storage::PropertyId> properties_{};
+// };
+
 struct PreQueryDirectives {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
