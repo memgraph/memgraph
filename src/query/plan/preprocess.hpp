@@ -342,19 +342,27 @@ class PatternVisitor : public ExpressionVisitor<void> {
     op.list_expression_->Accept(*this);
     op.where_->expression_->Accept(*this);
   }
-  void Visit(ListComprehension &op) override{};
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(PropertyLookup &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
+  void Visit(ListComprehension &op) override {
+    op.list_->Accept(*this);
+    if (op.where_) {
+      op.where_->expression_->Accept(*this);
+    }
+    if (op.expression_) {
+      op.expression_->Accept(*this);
+    }
+  }
+  void Visit(Identifier &op) override {};
+  void Visit(PrimitiveLiteral &op) override {};
+  void Visit(PropertyLookup &op) override {};
+  void Visit(AllPropertiesLookup &op) override {};
+  void Visit(ParameterLookup &op) override {};
   void Visit(RegexMatch &op) override {
     op.string_expr_->Accept(*this);
     op.regex_->Accept(*this);
   }
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override{};
+  void Visit(EnumValueAccess &op) override {};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
