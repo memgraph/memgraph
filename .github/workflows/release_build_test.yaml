@@ -83,6 +83,9 @@ jobs:
           - os: ubuntu-24.04
             build_type: RelWithDebInfo
             arch: arm
+          - os: ubuntu-24.04
+            build_type: RelWithDebInfo
+            arch: amd
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
