@@ -535,7 +535,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             return TypedValue(false, ctx_->memory);
           }
         }
-        return TypedValue(true, ctx_->memory);
+        return TypedValue(!labels_test.labels_expression_, ctx_->memory);
       }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
