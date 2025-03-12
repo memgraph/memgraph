@@ -270,34 +270,21 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.vector_index_.ApproximateVectorCount(label, property);
     }
 
-    template <typename TResult, typename TIndex, typename TIndexKey>
-    std::optional<TResult> GetIndexStatsForIndex(TIndex *index, TIndexKey &&key) const {
-      return index->GetIndexStats(key);
-    }
-
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
-      return GetIndexStatsForIndex<storage::LabelIndexStats>(
-          static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label);
+      return static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->GetIndexStats(label);
     }
 
     // TODO(composite_index) Remove methods taking a single property
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
                                                                   const storage::PropertyId &property) const override {
-      return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-          std::make_pair(label, property));
+      return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+          ->GetIndexStats(std::make_pair(label, property));
     }
 
-    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, std::span<storage::PropertyId const> properties) const override {
-      return GetIndexStatsForIndex<storage::LabelPropertyIndexStats>(
-          static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-          std::make_pair(label, properties));
-    }
-
-    template <typename TIndex, typename TIndexKey, typename TIndexStats>
-    void SetIndexStatsForIndex(TIndex *index, TIndexKey &&key, TIndexStats &stats) const {
-      index->SetIndexStats(key, stats);
+    auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
+                       std::size_t prefix_level) const -> std::optional<storage::LabelPropertyIndexStats> override {
+      return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+          ->GetIndexStats(std::make_pair(label, properties), prefix_level);
     }
 
     void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
@@ -305,8 +292,8 @@ class InMemoryStorage final : public Storage {
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const LabelPropertyIndexStats &stats) override;
 
-    void SetIndexStats(const storage::LabelId &label, std::vector<storage::PropertyId> const &properties,
-                       const LabelPropertyIndexStats &stats) override;
+    void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
+                       std::size_t prefix_level, const LabelPropertyIndexStats &stats) override;
 
     template <typename TResult, typename TIndex>
     TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {

@@ -1168,7 +1168,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     };
 
     for (const auto &[key, candidate] : candidate_label_properties_indices) {
-      const auto &[label, _] = key;
+      const auto &[label_ix, prop_ixs] = key;
 
       auto const &storage_label = candidate.info_.label_;
       auto const &storage_properties = candidate.info_.properties_;
@@ -1184,17 +1184,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // vertex_count would be an over estimate??? HOW TO SOLVE ???
 
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
-      std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
+      std::optional<storage::LabelPropertyIndexStats> new_stats =
+          db_->GetIndexStats(storage_label, storage_properties, prop_ixs.size());
 
       if (!found) {
         // this sets LabelPropertyIndex which communitcates which fiters are to be replaced by a LabelPropertyIndex
-        found = LabelPropertyIndex{label, candidate.filters_, vertex_count, new_stats};
+        found = LabelPropertyIndex{label_ix, candidate.filters_, vertex_count, new_stats};
         continue;
       }
 
       // Obvious order of magnitude better?
       if (vertex_count * 10 < found->vertex_count) {
-        found = LabelPropertyIndex{label, candidate.filters_, vertex_count, new_stats};
+        found = LabelPropertyIndex{label_ix, candidate.filters_, vertex_count, new_stats};
         continue;
       }
 
@@ -1202,7 +1203,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           cmp_res == -1 ||
           cmp_res == 0 && (vertex_count < found->vertex_count ||
                            vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))) {
-        found = LabelPropertyIndex{label, candidate.filters_, vertex_count, new_stats};
+        found = LabelPropertyIndex{label_ix, candidate.filters_, vertex_count, new_stats};
       }
     }
     return found;

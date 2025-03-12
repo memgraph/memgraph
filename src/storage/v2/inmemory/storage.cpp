@@ -3028,23 +3028,23 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
+  static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
                                                       const storage::PropertyId &property,
                                                       const LabelPropertyIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-                        std::make_pair(label, property), stats);
+  static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+      ->SetIndexStats(std::make_pair(label, property), stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, property, stats);
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
-                                                      std::vector<storage::PropertyId> const &properties,
-                                                      const LabelPropertyIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-                        std::make_pair(label, properties), stats);
+                                                      std::span<storage::PropertyId const> properties,
+                                                      std::size_t prefix_level, const LabelPropertyIndexStats &stats) {
+  static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+      ->SetIndexStats(label, properties, prefix_level, stats);
 
   // TODO(composite-index)
   // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, properties, stats);

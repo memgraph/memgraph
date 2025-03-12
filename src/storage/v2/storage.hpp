@@ -242,13 +242,13 @@ class Storage {
     virtual EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
-    virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+    virtual auto DeleteVertex(VertexAccessor *vertex) -> Result<std::optional<VertexAccessor>>;
 
-    virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex);
+    virtual auto DetachDeleteVertex(VertexAccessor *vertex)
+        -> Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>;
 
-    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
+    virtual auto DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach)
+        -> Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>;
 
     virtual uint64_t ApproximateVertexCount() const = 0;
 
@@ -288,24 +288,24 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
-    virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
+    virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
-    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, const storage::PropertyId &property) const = 0;
+    virtual auto GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const
+        -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
-    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, std::span<storage::PropertyId const> properties) const = 0;
+    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
+                               std::size_t prefix_level) const -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                                const LabelPropertyIndexStats &stats) = 0;
 
-    virtual void SetIndexStats(const storage::LabelId &label, std::vector<storage::PropertyId> const &property,
-                               const LabelPropertyIndexStats &stats) = 0;
+    virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> property,
+                               std::size_t prefix_level, const LabelPropertyIndexStats &stats) = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const storage::LabelId &label) = 0;
+    virtual auto DeleteLabelPropertyIndexStats(const storage::LabelId &label)
+        -> std::vector<std::pair<LabelId, PropertyId>> = 0;
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
@@ -314,7 +314,7 @@ class Storage {
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                                  VertexAccessor *to_vertex) = 0;
 
-    virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
+    virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 

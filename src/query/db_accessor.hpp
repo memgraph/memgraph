@@ -552,8 +552,9 @@ class DbAccessor final {
   }
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                std::span<storage::PropertyId const> properties) const {
-    return accessor_->GetIndexStats(label, properties);
+                                                                std::span<storage::PropertyId const> properties,
+                                                                std::size_t prefix_level) const {
+    return accessor_->GetIndexStats(label, properties, prefix_level);
   }
 
   std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(

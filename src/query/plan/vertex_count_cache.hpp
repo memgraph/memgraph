@@ -188,8 +188,9 @@ class VertexCountCache {
   }
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                std::span<storage::PropertyId const> properties) const {
-    return db_->GetIndexStats(label, properties);
+                                                                std::span<storage::PropertyId const> properties,
+                                                                std::size_t prefix_level) const {
+    return db_->GetIndexStats(label, properties, prefix_level);
   }
 
   operator DbAccessor const &() const { return *db_; }
