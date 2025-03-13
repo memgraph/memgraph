@@ -333,7 +333,7 @@ jobs:
 
   malloc_build:
     if: ${{ inputs.run_release_tests == 'true' }}
-    name: "Release build"
+    name: "Malloc build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
