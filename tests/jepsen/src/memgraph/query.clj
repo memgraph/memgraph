@@ -15,7 +15,7 @@
   ")
 
 (dbclient/defquery delete-ttl-edges
-  "MATCH (n)-[r:KNOWS]->(m) where r.ttl < timestamp() DELETE r;
+  "MATCH (n)-[r:KNOWS]->(m) where r.ttl < timestamp() WITH r LIMIT 1000 DELETE r;
   ")
 
 (defn create-database
