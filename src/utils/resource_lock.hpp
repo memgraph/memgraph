@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,8 +99,7 @@ struct ResourceLock {
   }
 
   template <typename Rep, typename Period, bool Read = false>
-    requires(!Read)
-  bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
+  requires(!Read) bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
     // block until available
     if (!cv.wait_for(lock, time, [this] { return ro_count == 0 && state != UNIQUE; })) return false;
@@ -110,8 +109,7 @@ struct ResourceLock {
   }
 
   template <typename Rep, typename Period, bool Read>
-    requires(Read)
-  bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
+  requires(Read) bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
     // block until available
     if (!cv.wait_for(lock, time, [this] { return state != UNIQUE; })) return false;

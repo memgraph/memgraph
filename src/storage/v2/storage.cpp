@@ -54,12 +54,16 @@ Storage::Storage(Config config, StorageMode storage_mode)
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
+                            StorageMode storage_mode, RWType rw_type,
+                            const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, utils::SharedResourceLockGuard::Type::WRITE, std::defer_lock),
+      storage_guard_(storage_->main_lock_,
+                     rw_type == RWType::WRITE ? utils::SharedResourceLockGuard::Type::WRITE
+                                              : utils::SharedResourceLockGuard::Type::READ,
+                     std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -80,7 +84,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, utils::SharedResourceLockGuard::Type::WRITE, std::defer_lock),
+      storage_guard_(storage_->main_lock_, {}, std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
