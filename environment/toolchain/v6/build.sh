@@ -8,6 +8,10 @@ CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
 source "$DIR/../../util.sh"
 DISTRO="$(operating_system)"
+# this will remove the minor version from rocky linux
+if [[ "$DISTRO" =~ ^rocky-([0-9]+)\.[0-9]+$ ]]; then
+    DISTRO="rocky-${BASH_REMATCH[1]}"
+fi
 
 function log_tool_name () {
     echo ""
@@ -152,6 +156,16 @@ popd
 # create build directory
 mkdir -p build
 pushd build
+
+# Modify CFLAGS for older CPU support.
+CPUFLAGS=""
+if [[ "$for_arm" = false ]]; then
+    # NOTE: As soon as we upgrade all build machines to the new hardware we
+    # should add the CPUFLAGS below.
+    # CPUFLAGS="-mavx"
+    export CFLAGS="$CFLAGS $CPUFLAGS"
+    export CXXFLAGS="$CXXFLAGS $CPUFLAGS"
+fi
 
 log_tool_name "GCC $GCC_VERSION"
 if [ ! -f $PREFIX/bin/gcc ]; then
@@ -326,8 +340,8 @@ if [ ! -f $PREFIX/bin/ld.gold ]; then
         env \
             CC=gcc \
             CXX=g++ \
-            CFLAGS="-g -O2" \
-            CXXFLAGS="-g -O2" \
+            CFLAGS="-g -O2 $CPUFLAGS" \
+            CXXFLAGS="-g -O2 $CPUFLAGS" \
             LDFLAGS="" \
             ../configure \
                 --build=x86_64-linux-gnu \
@@ -392,8 +406,8 @@ if [[ ! -f "$PREFIX/bin/gdb" && "$DISTRO" != "amzn-2" ]]; then
         env \
             CC=gcc \
             CXX=g++ \
-            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security $CPUFLAGS" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security $CPUFLAGS" \
             CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
             LDFLAGS="-Wl,-z,relro" \
             PYTHON="" \
@@ -651,6 +665,17 @@ if [[ "\$USER" == "root" ]]; then
     return 0
 fi
 
+# Check whether we are running the script on an ARM processor or not.
+arch=\$(uname -m)
+if [[ "\$arch" =~ arm|aarch64 ]]; then
+  isarm=true
+  echo "CPU arch: ARM"
+else
+  isarm=false
+  echo "CPU arch: x86"
+fi
+
+
 # save original environment
 export ORIG_PATH=\$PATH
 export ORIG_PS1=\$PS1
@@ -662,10 +687,18 @@ export ORIG_CFLAGS=\$CFLAGS
 export PATH=\$PREFIX:\$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
-export CXXFLAGS=-isystem\ \$PREFIX/include\ \$CXXFLAGS
-export CFLAGS=-isystem\ \$PREFIX/include\ \$CFLAGS
+export CXXFLAGS="-isystem \$PREFIX/include  \$CXXFLAGS"
+export CFLAGS="-isystem \$PREFIX/include \$CFLAGS"
 export MG_TOOLCHAIN_ROOT=\$PREFIX
 export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
+
+# add CPU related flags if we're running on x86
+CPUFLAGS=""
+if [[ "\$isarm" = false ]]; then
+    CPUFLAGS=$CPUFLAGS
+    export CXXFLAGS="\$CPUFLAGS \$CXXFLAGS"
+    export CFLAGS="\$CPUFLAGS \$CFLAGS"
+fi
 
 # disable root
 function su () {
@@ -1043,13 +1076,14 @@ if [ ! -d $PREFIX/include/boost ]; then
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+        	cxxflags=$CPUFLAGS \
             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
             -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
             -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
             -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
     else
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-            cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
+            cxxflags="-stdlib=libc++ $CPUFLAGS" linkflags="-stdlib=libc++" \
             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
             -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
             -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \

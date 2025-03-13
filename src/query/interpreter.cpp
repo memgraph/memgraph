@@ -113,6 +113,10 @@
 namespace r = ranges;
 namespace rv = ranges::views;
 
+namespace {
+constexpr std::chrono::milliseconds kAccessTimeout{1000};
+}  // namespace
+
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -130,13 +134,16 @@ extern const Event ActiveTransactions;
 extern const Event ShowSchema;
 }  // namespace memgraph::metrics
 
+// Accessors need to be able to throw if unable to gain access. Otherwise there could be a deadlock, where some queries
+// gained access during prepare, but can't execute (in PULL) because other queries are still preparing/waiting for
+// access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
   auto &db_acc = *db_acc_;
   if (unique) {
-    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level);
+    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ kAccessTimeout);
   } else {
-    db_transactional_accessor_ = db_acc->Access(override_isolation_level);
+    db_transactional_accessor_ = db_acc->Access(override_isolation_level, /*allow timeout*/ kAccessTimeout);
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
