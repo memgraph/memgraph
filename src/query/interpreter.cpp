@@ -827,21 +827,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -5893,17 +5886,20 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool const unique_db_transaction =
+    bool const read_only_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
         utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
-        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
-        utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
+        utils::Downcast<TtlQuery>(parsed_query.query);
+
+    bool const unique_db_transaction = utils::Downcast<DropGraphQuery>(parsed_query.query) ||
+                                       utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+                                       utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
+                                       utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
+                                       utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
-        unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
+        read_only_db_transaction || unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
         utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<ProfileQuery>(parsed_query.query) ||
         utils::Downcast<DumpQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query) ||
         utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
