@@ -212,7 +212,7 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                bool unique = false);
+                                bool unique = false, bool read_only = false);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -453,7 +453,7 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
-  void SetupDatabaseTransaction(bool couldCommit, bool unique = false);
+  void SetupDatabaseTransaction(bool couldCommit, bool unique = false, bool read_only = false);
 };
 
 template <typename TStream>

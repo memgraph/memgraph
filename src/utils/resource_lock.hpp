@@ -13,6 +13,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <utility>
 
 namespace memgraph::utils {
 
@@ -57,56 +58,101 @@ struct ResourceLock {
     cv.notify_all();  // multiple lock_shared maybe waiting
   }
 
+  template <bool Read = false>
   void lock_shared() {
     auto lock = std::unique_lock{mtx};
     // block until available
-    cv.wait(lock, [this] { return state != UNIQUE && state != READ_ONLY; });
+    cv.wait(lock, [this] { return ro_count == 0 && state != UNIQUE; });
     state = SHARED;
-    ++count;
+    ++w_count;
   }
 
+  template <>
+  void lock_shared<true>() {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    cv.wait(lock, [this] { return state != UNIQUE; });
+    state = SHARED;
+    ++r_count;
+  }
+
+  template <bool Read = false>
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE && state != READ_ONLY) {
+    if (ro_count == 0 && state != UNIQUE) {
       state = SHARED;
-      ++count;
+      ++w_count;
       return true;
     }
     return false;
   }
 
-  template <typename Rep, typename Period>
+  template <>
+  bool try_lock_shared<true>() {
+    auto lock = std::unique_lock{mtx};
+    if (state != UNIQUE) {
+      state = SHARED;
+      ++r_count;
+      return true;
+    }
+    return false;
+  }
+
+  template <typename Rep, typename Period, bool Read = false>
+    requires(!Read)
   bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
     // block until available
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && state != READ_ONLY; })) return false;
+    if (!cv.wait_for(lock, time, [this] { return ro_count == 0 && state != UNIQUE; })) return false;
     state = SHARED;
-    ++count;
+    ++w_count;
     return true;
   }
 
+  template <typename Rep, typename Period, bool Read>
+    requires(Read)
+  bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE; })) return false;
+    state = SHARED;
+    ++r_count;
+    return true;
+  }
+
+  template <bool Read = false>
   void unlock_shared() {
     auto lock = std::unique_lock{mtx};
-    --count;
-    if (count == 0) {
+    --w_count;
+    if (w_count + r_count == 0) {
       state = UNLOCKED;
-      cv.notify_one();  // should be 0 waiting in lock_shared, only 1 wait in lock can progress
+      cv.notify_all();
+    }
+  }
+
+  template <>
+  void unlock_shared<true>() {
+    auto lock = std::unique_lock{mtx};
+    --r_count;
+    if (r_count + ro_count + w_count == 0) {
+      state = UNLOCKED;
+      cv.notify_all();
     }
   }
 
   void lock_read_only() {
     auto lock = std::unique_lock{mtx};
     // block until available
-    cv.wait(lock, [this] { return state != UNIQUE && state != SHARED; });
-    state = READ_ONLY;
-    ++count;
+    cv.wait(lock, [this] { return state != UNIQUE && w_count == 0; });
+    state = SHARED;
+    ++ro_count;
   }
 
   bool try_lock_read_only() {
     auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE && state != SHARED) {
-      state = READ_ONLY;
-      ++count;
+    if (state != UNIQUE && w_count == 0) {
+      state = SHARED;
+      ++ro_count;
       return true;
     }
     return false;
@@ -116,77 +162,124 @@ struct ResourceLock {
   bool try_lock_read_only_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
     // block until available
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && state != SHARED; })) return false;
-    state = READ_ONLY;
-    ++count;
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && w_count == 0; })) return false;
+    state = SHARED;
+    ++ro_count;
     return true;
   }
 
-  void unlock_read_only() { unlock_shared(); }
-
-  void upgrade_to_unique() {
+  void unlock_read_only() {
     auto lock = std::unique_lock{mtx};
-    cv.wait(lock, [this] { return count == 1; });
-    state = UNIQUE;
-    count = 0;
-  }
-
-  template <class Rep, class Period>
-  bool try_upgrade_to_unique(const std::chrono::duration<Rep, Period> &timeout_duration) {
-    auto lock = std::unique_lock{mtx};
-    if (!cv.wait_for(lock, timeout_duration, [this] { return count == 1; })) return false;
-    state = UNIQUE;
-    count = 0;
-    return true;
+    --ro_count;
+    if (ro_count == 0) {
+      if (r_count == 0) state = UNLOCKED;
+      cv.notify_all();  // allow shared writes to lock
+    }
   }
 
  private:
   std::mutex mtx;
   std::condition_variable cv;
   states state = UNLOCKED;
-  uint64_t count = 0;
+  uint64_t w_count = 0;
+  uint64_t r_count = 0;
+  uint64_t ro_count = 0;
 };
 
-struct ResourceLockGuard {
- private:
-  enum states { UNIQUE, SHARED };
-
+struct SharedResourceLockGuard {
  public:
-  explicit ResourceLockGuard(ResourceLock &thing)
-      : ptr{&thing}, state{[this]() {
-          ptr->lock_shared();
-          return SHARED;
-        }()} {}
+  enum Type { WRITE, READ, READ_ONLY };
+  explicit SharedResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
+  explicit SharedResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
 
-  void upgrade_to_unique() {
-    if (state == SHARED) {
-      ptr->upgrade_to_unique();
-      state = UNIQUE;
+  ~SharedResourceLockGuard() { unlock(); }
+
+  SharedResourceLockGuard(const SharedResourceLockGuard &) = delete;
+  SharedResourceLockGuard &operator=(const SharedResourceLockGuard &) = delete;
+
+  SharedResourceLockGuard(SharedResourceLockGuard &&other) noexcept : ptr_{other.ptr_} { other.ptr_ = nullptr; }
+  SharedResourceLockGuard &operator=(SharedResourceLockGuard &&other) noexcept {
+    if (this != &other) {
+      ptr_ = std::exchange(other.ptr_, nullptr);
+      type_ = other.type_;
+      locked_ = std::exchange(other.locked_, false);
+    }
+    return *this;
+  }
+
+  void lock() {
+    if (ptr_ && !locked_) {
+      switch (type_) {
+        case WRITE:
+          ptr_->lock_shared<false>();
+          break;
+        case READ:
+          ptr_->lock_shared<true>();
+          break;
+        case READ_ONLY:
+          ptr_->lock_read_only();
+          break;
+      }
+      locked_ = true;
     }
   }
 
-  template <class Rep, class Period>
-  bool try_upgrade_to_unique(const std::chrono::duration<Rep, Period> &timeout_duration) {
-    if (state != SHARED) return true;                                 // already locked
-    if (!ptr->try_upgrade_to_unique(timeout_duration)) return false;  // timeout
-    state = UNIQUE;
-    return true;
+  bool try_lock() {
+    if (ptr_ && !locked_) {
+      switch (type_) {
+        case WRITE:
+          locked_ = ptr_->try_lock_shared<false>();
+          break;
+        case READ:
+          locked_ = ptr_->try_lock_shared<true>();
+          break;
+        case READ_ONLY:
+          locked_ = ptr_->try_lock_read_only();
+          break;
+      }
+    }
+    return locked_;
   }
 
-  ~ResourceLockGuard() {
-    switch (state) {
-      case UNIQUE:
-        ptr->unlock();
-        break;
-      case SHARED:
-        ptr->unlock_shared();
-        break;
+  template <typename Rep, typename Period>
+  bool try_lock_for(std::chrono::duration<Rep, Period> const &time) {
+    if (ptr_ && !locked_) {
+      switch (type_) {
+        case WRITE:
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, false>(time);
+          break;
+        case READ:
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, true>(time);
+          break;
+        case READ_ONLY:
+          locked_ = ptr_->try_lock_read_only_for(time);
+          break;
+      }
+    }
+    return locked_;
+  }
+
+  void unlock() {
+    if (ptr_ && locked_) {
+      switch (type_) {
+        case WRITE:
+          ptr_->unlock_shared<false>();
+          break;
+        case READ:
+          ptr_->unlock_shared<true>();
+          break;
+        case READ_ONLY:
+          ptr_->unlock_read_only();
+          break;
+      }
+      locked_ = false;
     }
   }
 
  private:
-  ResourceLock *ptr;
-  states state;
+  ResourceLock *ptr_;
+  Type type_;
+  bool locked_{false};
 };
 
 }  // namespace memgraph::utils

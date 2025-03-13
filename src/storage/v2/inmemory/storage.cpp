@@ -2622,8 +2622,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      // For analytical no other txn can be in play
-      return UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION);
+      // For analytical no other write txn can be in play
+      return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
@@ -2850,6 +2850,12 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<Isolati
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, timeout});
+}
+std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
+    std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_, timeout});
 }

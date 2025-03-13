@@ -300,6 +300,10 @@ class DiskStorage final : public Storage {
   std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                          std::optional<std::chrono::milliseconds> timeout) override;
 
+  using Storage::ReadOnlyAccess;
+  std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                           std::optional<std::chrono::milliseconds> timeout) override;
+
   /// Flushing methods
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
 

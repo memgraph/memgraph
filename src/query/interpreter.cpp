@@ -134,14 +134,15 @@ extern const Event ShowSchema;
 // gained access during prepare, but can't execute (in PULL) because other queries are still preparing/waiting for
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
-    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
+    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique, bool read_only) {
   auto &db_acc = *db_acc_;
+  const auto timeout = std::chrono::seconds{FLAGS_storage_access_timeout_sec};
   if (unique) {
-    db_transactional_accessor_ =
-        db_acc->UniqueAccess(override_isolation_level, std::chrono::seconds{FLAGS_storage_access_timeout_sec});
+    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
+  } else if (read_only) {
+    db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
   } else {
-    db_transactional_accessor_ =
-        db_acc->Access(override_isolation_level, std::chrono::seconds{FLAGS_storage_access_timeout_sec});
+    db_transactional_accessor_ = db_acc->Access(override_isolation_level, /*allow timeout*/ timeout);
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
@@ -5931,7 +5932,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool const unique = unique_db_transaction || is_schema_assert_query;
-      SetupDatabaseTransaction(could_commit, unique);
+      SetupDatabaseTransaction(could_commit, unique, read_only_db_transaction);
     }
 
     if (current_db_.db_acc_) {
@@ -6186,8 +6187,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   }
 }
 
-void Interpreter::SetupDatabaseTransaction(bool couldCommit, bool unique) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, unique);
+void Interpreter::SetupDatabaseTransaction(bool couldCommit, bool unique, bool read_only) {
+  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, unique, read_only);
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
