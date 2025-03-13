@@ -142,7 +142,8 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   } else if (read_only) {
     db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
   } else {
-    db_transactional_accessor_ = db_acc->Access(override_isolation_level, /*allow timeout*/ timeout);
+    db_transactional_accessor_ = db_acc->Access(storage::Storage::Accessor::RWType::WRITE, override_isolation_level,
+                                                /*allow timeout*/ timeout);
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 

@@ -204,8 +204,10 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
+    enum RWType { READ, WRITE };
+
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+             RWType rw_type = RWType::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
@@ -585,12 +587,13 @@ class Storage {
     }
   }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+  virtual std::unique_ptr<Accessor> Access(storage::Storage::Accessor::RWType rw_type,
+                                           std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
   std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(override_isolation_level, std::nullopt);
+    return Access(storage::Storage::Accessor::RWType::WRITE, override_isolation_level, std::nullopt);
   }
-  std::unique_ptr<Accessor> Access() { return Access({}, std::nullopt); }
+  std::unique_ptr<Accessor> Access() { return Access(storage::Storage::Accessor::RWType::WRITE, {}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;
