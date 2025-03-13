@@ -330,6 +330,103 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+
+  malloc_build:
+    if: ${{ inputs.run_release_tests == 'true' }}
+    name: "Release build"
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --disable-jemalloc
+
+      - name: Run GQL Behave tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph gql-behave
+
+      - name: Save quality assurance status
+        uses: actions/upload-artifact@v4
+        with:
+          name: "GQL Behave Status-${{ env.OS }}"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit
+
+      - name: Create enterprise DEB package
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          package-memgraph
+
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --package
+
+      - name: Save enterprise DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.OS}}-enterprise-malloc"
+          path: build/output/${{ env.OS }}/memgraph*.deb
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   release_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release build"
