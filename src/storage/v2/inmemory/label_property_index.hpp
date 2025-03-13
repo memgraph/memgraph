@@ -179,14 +179,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
                      const storage::LabelPropertyIndexStats &stats);
 
-  void SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties, std::size_t prefix_level,
+  void SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties,
                      storage::LabelPropertyIndexStats const &stats);
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       const std::pair<storage::LabelId, storage::PropertyId> &key) const;
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-      std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key, std::size_t prefix_level) const;
+      std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const;
 
   void RunGC();
 
@@ -230,8 +230,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
   std::unordered_map<PropertyId, PropToIndexLookup> new_indices_by_property_;
 
-  using StatsByPrefix = std::vector<std::optional<storage::LabelPropertyIndexStats>>;
-  using PropertiesIndicesStats = std::map<PropertiesIds, StatsByPrefix, Compare>;
+  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> new_stats_;
 
   //*** OLD to remove

@@ -160,6 +160,8 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
 
+    VerticesIterable Vertices(LabelId label, std::span<PropertyId const> property, View view) override;
+
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
 
     VerticesIterable Vertices(LabelId label, PropertyId property,
@@ -284,10 +286,10 @@ class InMemoryStorage final : public Storage {
           ->GetIndexStats(std::make_pair(label, property));
     }
 
-    auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
-                       std::size_t prefix_level) const -> std::optional<storage::LabelPropertyIndexStats> override {
+    auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
+        -> std::optional<storage::LabelPropertyIndexStats> override {
       return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
-          ->GetIndexStats(std::make_pair(label, properties), prefix_level);
+          ->GetIndexStats(std::make_pair(label, properties));
     }
 
     void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
@@ -296,7 +298,7 @@ class InMemoryStorage final : public Storage {
                        const LabelPropertyIndexStats &stats) override;
 
     void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
-                       std::size_t prefix_level, const LabelPropertyIndexStats &stats) override;
+                       const LabelPropertyIndexStats &stats) override;
 
     template <typename TResult, typename TIndex>
     TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {

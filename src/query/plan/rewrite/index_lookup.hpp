@@ -1184,8 +1184,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // vertex_count would be an over estimate??? HOW TO SOLVE ???
 
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
-      std::optional<storage::LabelPropertyIndexStats> new_stats =
-          db_->GetIndexStats(storage_label, storage_properties, prop_ixs.size());
+      std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
 
       if (!found) {
         // this sets LabelPropertyIndex which communitcates which fiters are to be replaced by a LabelPropertyIndex

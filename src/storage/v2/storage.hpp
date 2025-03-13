@@ -219,6 +219,8 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) = 0;
 
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) = 0;
+
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                                       const PropertyValue &value, View view) = 0;
 
@@ -296,8 +298,8 @@ class Storage {
     virtual auto GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const
         -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
-    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
-                               std::size_t prefix_level) const -> std::optional<storage::LabelPropertyIndexStats> = 0;
+    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
+        -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
@@ -305,7 +307,7 @@ class Storage {
                                const LabelPropertyIndexStats &stats) = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> property,
-                               std::size_t prefix_level, const LabelPropertyIndexStats &stats) = 0;
+                               const LabelPropertyIndexStats &stats) = 0;
 
     virtual auto DeleteLabelPropertyIndexStats(const storage::LabelId &label)
         -> std::vector<std::pair<LabelId, PropertyId>> = 0;

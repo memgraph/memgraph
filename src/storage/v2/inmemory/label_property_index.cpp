@@ -136,7 +136,8 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
       CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func,
                                    std::nullopt /*leave it to the new approach to observe*/);
     } else {
-      CreateIndexOnSingleThread(vertices, it, index_, func, std::nullopt /*leave it to the new approach to observe*/);
+      CreateIndexOnSingleThread(vertices, it, index_, func, std::nullopt /*leave it to the new approach to
+        observe*/);
     }
   }
 
@@ -707,17 +708,15 @@ void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId,
 }
 
 void InMemoryLabelPropertyIndex::SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties,
-                                               std::size_t prefix_level,
                                                storage::LabelPropertyIndexStats const &stats) {
   auto locked_stats = new_stats_.Lock();
   auto &inner_map = (*locked_stats)[label];
   auto it = inner_map.find(properties);
   if (it == inner_map.end()) {
-    auto [it2, _] =
-        inner_map.emplace(std::vector(properties.begin(), properties.end()), StatsByPrefix(properties.size()));
+    auto [it2, _] = inner_map.emplace(std::vector(properties.begin(), properties.end()), LabelPropertyIndexStats{});
     it = it2;
   }
-  it->second[prefix_level] = stats;
+  it->second = stats;
 }
 
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
@@ -730,11 +729,11 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 }
 
 std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
-    const std::pair<storage::LabelId, std::span<storage::PropertyId const>> &key, std::size_t prefix_level) const {
+    const std::pair<storage::LabelId, std::span<storage::PropertyId const>> &key) const {
   auto locked_stats = new_stats_.ReadLock();
   if (auto it = locked_stats->find(key.first); it != locked_stats->end()) {
     if (auto it2 = it->second.find(key.second); it2 != it->second.end()) {
-      return it2->second[prefix_level];
+      return it2->second;
     }
   }
   return std::nullopt;

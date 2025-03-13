@@ -1699,6 +1699,15 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
       mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
+                                                             std::span<storage::PropertyId const> properties,
+                                                             View view) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, properties, std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
   auto *mem_label_property_index =
@@ -3052,9 +3061,9 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
                                                       std::span<storage::PropertyId const> properties,
-                                                      std::size_t prefix_level, const LabelPropertyIndexStats &stats) {
+                                                      const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
-      ->SetIndexStats(label, properties, prefix_level, stats);
+      ->SetIndexStats(label, properties, stats);
 
   // TODO(composite-index)
   // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, properties, stats);
