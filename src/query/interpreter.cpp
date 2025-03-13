@@ -2711,7 +2711,6 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
   using LPIndexNew = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
   auto view = storage::View::OLD;
 
@@ -2767,25 +2766,81 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     return label_stats;
   };
 
-  auto populate_label_property_stats = [execution_db_accessor, view](auto &index_info) {
-    std::map<LPIndexNew, std::map<storage::PropertyValue, int64_t>> label_property_counter;
+  auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
+    std::map<LPIndexNew, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
     std::map<LPIndexNew, uint64_t> vertex_degree_counter;
-    // Iterate over all label property indexed vertices
-    std::for_each(index_info.begin(), index_info.end(),
-                  [execution_db_accessor, &label_property_counter, &vertex_degree_counter,
-                   view](const LPIndexNew &index_element) {
-                    auto &lp_counter = label_property_counter[index_element];
-                    auto &vd_counter = vertex_degree_counter[index_element];
-                    auto vertices = execution_db_accessor->Vertices(
-                        view, index_element.first, index_element.second);  // TODO: add PICK UP FROM HERE
-                    std::for_each(vertices.begin(), vertices.end(),
-                                  [&index_element, &lp_counter, &vd_counter, &view](const auto &vertex) {
-                                    lp_counter[*vertex.GetProperty(view, index_element.second)]++;
-                                    vd_counter += *vertex.OutDegree(view) + *vertex.InDegree(view);
-                                  });
-                  });
 
-    std::vector<std::pair<LPIndex, storage::LabelPropertyIndexStats>> label_property_stats;
+    auto const count_vertex_prop_info = [&](LPIndexNew const &key) {
+      struct StatsByPrefix {
+        std::map<std::vector<storage::PropertyValue>, int64_t> *properties_value_counter;
+        uint64_t *vertex_degree_counter;
+      };
+
+      // Cache the stats pointers for the decreasing slices of properties
+      // that make up the prefixes.
+      auto const uncomputed_stats_by_prefix = std::invoke([&] {
+        auto prefix_key = key;
+        auto stats_by_prefix = std::vector<StatsByPrefix>();
+        stats_by_prefix.reserve(key.second.size());
+        while (!prefix_key.second.empty()) {
+          if (label_property_counter.contains(prefix_key)) {
+            // If we've computed the stats for a given prefix, we also know
+            // that we've computed stats for every prefix of the prefix and
+            // so can stop.
+            break;
+          }
+
+          stats_by_prefix.emplace_back(&label_property_counter[prefix_key], &vertex_degree_counter[prefix_key]);
+          prefix_key.second.pop_back();
+        }
+
+        return stats_by_prefix;
+      });
+
+      if (uncomputed_stats_by_prefix.empty()) {
+        return;
+      }
+
+      auto const &[label, properties] = key;
+      for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties)) {
+        // @TODO currently using a linear pass to get the property values. Instead, gather
+        // all in one pass and permute as we usually do.
+
+        std::vector<storage::PropertyValue> property_values;
+        property_values.reserve(properties.size());
+        for (auto property : properties) {
+          property_values.emplace_back(*vertex.GetProperty(view, property));
+        }
+
+        for (auto &stats : uncomputed_stats_by_prefix) {
+          // Once we've hit a prefix where all the properties in the prefixes
+          // are null, we can stop checking as we know for sure that each
+          // smaller slice of prop values will also all be null.
+          if (std::ranges::all_of(property_values, [](auto const &prop) { return prop.IsNull(); })) {
+            break;
+          }
+
+          (*stats.properties_value_counter)[property_values]++;
+          (*stats.vertex_degree_counter) += *vertex.OutDegree(view) + *vertex.InDegree(view);
+
+          property_values.pop_back();
+        }
+      }
+    };
+
+    // Compute the stat info in order based on the length of the composite key
+    // properties: this ensures we never have to recompute prefixes which we
+    // could have computed as part of a longer composite key. For example,
+    // in computing the stats for :L1(a, b, c), we can quickly compute them for
+    // :L1(a, b) and :L1(a).
+    std::ranges::sort(index_info, std::greater{},
+                      [](auto const &label_and_properties) { return label_and_properties.second.size(); });
+
+    for (auto const &index : index_info) {
+      count_vertex_prop_info(index);
+    }
+
+    std::vector<std::pair<LPIndexNew, storage::LabelPropertyIndexStats>> label_property_stats;
     label_property_stats.reserve(label_property_counter.size());
     std::for_each(
         label_property_counter.begin(), label_property_counter.end(),
@@ -2853,7 +2908,12 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                   result.reserve(kComputeStatisticsNumResults);
 
                   result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-                  result.emplace_back(execution_db_accessor->PropertyToName(stat_entry.first.second));
+                  result.emplace_back(stat_entry.first.second |
+                                      rv::transform([execution_db_accessor](auto const &property) {
+                                        return execution_db_accessor->PropertyToName(property);
+                                      }) |
+                                      ranges::to_vector);
+
                   result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
                   result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
                   result.emplace_back(stat_entry.second.avg_group_size);

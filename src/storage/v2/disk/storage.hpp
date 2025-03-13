@@ -70,6 +70,8 @@ class DiskStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
 
+    VerticesIterable Vertices(LabelId label, std::span<PropertyId const> property, View view) override;
+
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
 
     VerticesIterable Vertices(LabelId label, PropertyId property,
@@ -152,9 +154,8 @@ class DiskStorage final : public Storage {
       return {};
     }
 
-    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId & /*label*/,
-                                                                  std::span<storage::PropertyId const> /*properties*/,
-                                                                  std::size_t /*prefix_level*/) const override {
+    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+        const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/) const override {
       return {};
     }
 
@@ -177,7 +178,7 @@ class DiskStorage final : public Storage {
     }
 
     void SetIndexStats(const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/,
-                       std::size_t /*prefix_level*/, const LabelPropertyIndexStats & /*stats*/) override {
+                       const LabelPropertyIndexStats & /*stats*/) override {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
