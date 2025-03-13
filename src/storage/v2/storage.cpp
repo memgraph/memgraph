@@ -30,6 +30,7 @@
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -58,7 +59,7 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, std::defer_lock),
+      storage_guard_(storage_->main_lock_, utils::SharedResourceLockGuard::Type::WRITE, std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -79,7 +80,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, std::defer_lock),
+      storage_guard_(storage_->main_lock_, utils::SharedResourceLockGuard::Type::WRITE, std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -91,6 +92,27 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
   // If a timeout is allowed, try to acquire the lock for the specified time.
   if (!unique_guard_.try_lock_for(*timeout)) {
     throw UniqueAccessTimeout();
+  }
+}
+
+Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      // The lock must be acquired before creating the transaction object to
+      // prevent freshly created transactions from dangling in an active state
+      // during exclusive operations.
+      storage_guard_(storage_->main_lock_, utils::SharedResourceLockGuard::Type::READ_ONLY, std::defer_lock),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true),
+      creation_storage_mode_(storage_mode) {
+  if (!timeout) {
+    storage_guard_.lock();
+    return;
+  }
+  // If a timeout is allowed, try to acquire the lock for the specified time.
+  if (!storage_guard_.try_lock_for(*timeout)) {
+    throw ReadOnlyAccessTimeout();
   }
 }
 

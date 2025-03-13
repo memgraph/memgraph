@@ -72,6 +72,12 @@ class Database {
     return storage_->UniqueAccess(override_isolation_level, timeout);
   }
 
+  std::unique_ptr<storage::Storage::Accessor> ReadOnlyAccess(
+      std::optional<storage::IsolationLevel> override_isolation_level = {},
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    return storage_->ReadOnlyAccess(override_isolation_level, timeout);
+  }
+
   /**
    * @brief Unique storage identified (name)
    *

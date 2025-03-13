@@ -2234,6 +2234,16 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
       new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
 }
 
+std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                               std::optional<std::chrono::milliseconds> /*timeout*/) {
+  auto isolation_level = override_isolation_level.value_or(isolation_level_);
+  if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
+  }
+  return std::unique_ptr<DiskAccessor>(
+      new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+}
+
 bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
