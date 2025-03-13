@@ -70,25 +70,40 @@ jobs:
         os: [centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
         build_type: [Release]
+        additional_build_args: ['']
         include: # Add arm builds and RelwithDebInfo builds
           - os: debian-11
             build_type: Release
             arch: arm
+            additional_build_args: ''
           - os: debian-12
             build_type: Release
             arch: arm
+            additional_build_args: ''
           - os: ubuntu-22.04
             build_type: Release
             arch: arm
+            additional_build_args: ''
           - os: ubuntu-24.04
             build_type: Release
             arch: arm
+            additional_build_args: ''
           - os: debian-11
             build_type: RelWithDebInfo
             arch: amd
+            additional_build_args: ''
           - os: debian-11
             build_type: RelWithDebInfo
             arch: arm
+            additional_build_args: ''
+          - os: ubuntu-24.04
+            build_type: Release
+            arch: amd
+            additional_build_args: '--disable-jemalloc'
+          - os: ubuntu-24.04
+            build_type: Release
+            arch: arm
+            additional_build_args: '--disable-jemalloc'
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
@@ -111,17 +126,27 @@ jobs:
         os: [ubuntu-24.04]
         arch: [amd, arm]
         build_type: [Release]
+        additional_build_args: [--for-docker]
         include: # Add RelwithDebInfo build for amd docker image
           - os: ubuntu-24.04
             arch: amd
             build_type: RelWithDebInfo
+            additional_build_args: [--for-docker]
+          - os: ubuntu-24.04
+            arch: amd
+            build_type: Release
+            additional_build_args: --for-docker --disable-jemalloc
+          - os: ubuntu-24.04
+            arch: arm
+            build_type: Release
+            additional_build_args: --for-docker --disable-jemalloc
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
       toolchain: v6
-      additional_build_args: --for-docker
+      additional_build_args: ${{ matrix.additional_build_args }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
