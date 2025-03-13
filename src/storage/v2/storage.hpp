@@ -76,6 +76,14 @@ class UniqueAccessTimeout : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
 };
 
+class ReadOnlyAccessTimeout : public utils::BasicException {
+ public:
+  ReadOnlyAccessTimeout()
+      : utils::BasicException(
+            "Cannot get read only access to the storage. Try stopping other queries that are running in parallel.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ReadOnlyAccessTimeout)
+};
+
 struct Transaction;
 class EdgeAccessor;
 
@@ -192,10 +200,14 @@ class Storage {
     } shared_access;
     static constexpr struct UniqueAccess {
     } unique_access;
+    static constexpr struct ReadOnlyAccess {
+    } read_only_access;
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
@@ -488,7 +500,7 @@ class Storage {
 
    protected:
     Storage *storage_;
-    std::shared_lock<utils::ResourceLock> storage_guard_;
+    utils::SharedResourceLockGuard storage_guard_;
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
     Transaction transaction_;
@@ -565,6 +577,13 @@ class Storage {
     return UniqueAccess(override_isolation_level, std::nullopt);
   }
   std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess({}, std::nullopt); }
+
+  virtual std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                   std::optional<std::chrono::milliseconds> timeout) = 0;
+  std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level) {
+    return ReadOnlyAccess(override_isolation_level, std::nullopt);
+  }
+  std::unique_ptr<Accessor> ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
