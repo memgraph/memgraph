@@ -168,7 +168,7 @@ EOF
             continue
         fi
         if [ "$pkg" == tzdata ]; then
-            apt install -y tzdata=2024a-0+deb11u1 # specific version for timezone bug
+            apt install -y tzdata=2024a-0+deb11u1 --allow-downgrades # specific version for timezone bug
             continue
         fi
         apt install -y "$pkg"

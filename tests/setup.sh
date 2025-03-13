@@ -33,6 +33,8 @@ source "ve3/bin/activate"
 set -u
 # https://docs.python.org/3/library/sys.html#sys.version_info
 PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[:][1])')
+# install xmlsec
+pip --timeout 1000 install xmlsec==1.3.14
 # install pulsar-client
 pip --timeout 1000 install "pulsar-client==3.5.0"
 for pkg in "${PIP_DEPS[@]}"; do
