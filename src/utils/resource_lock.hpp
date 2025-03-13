@@ -24,7 +24,7 @@ namespace memgraph::utils {
  */
 struct ResourceLock {
  private:
-  enum states { UNLOCKED, UNIQUE, SHARED };
+  enum states { UNLOCKED, UNIQUE, SHARED, READ_ONLY };
 
  public:
   void lock() {
@@ -33,13 +33,7 @@ struct ResourceLock {
     cv.wait(lock, [this] { return state == UNLOCKED; });
     state = UNIQUE;
   }
-  void lock_shared() {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    cv.wait(lock, [this] { return state != UNIQUE; });
-    state = SHARED;
-    ++count;
-  }
+
   bool try_lock() {
     auto lock = std::unique_lock{mtx};
     if (state == UNLOCKED) {
@@ -57,9 +51,23 @@ struct ResourceLock {
     return true;
   }
 
+  void unlock() {
+    auto lock = std::unique_lock{mtx};
+    state = UNLOCKED;
+    cv.notify_all();  // multiple lock_shared maybe waiting
+  }
+
+  void lock_shared() {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    cv.wait(lock, [this] { return state != UNIQUE && state != READ_ONLY; });
+    state = SHARED;
+    ++count;
+  }
+
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE) {
+    if (state != UNIQUE && state != READ_ONLY) {
       state = SHARED;
       ++count;
       return true;
@@ -71,17 +79,12 @@ struct ResourceLock {
   bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
     // block until available
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE; })) return false;
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && state != READ_ONLY; })) return false;
     state = SHARED;
     ++count;
     return true;
   }
 
-  void unlock() {
-    auto lock = std::unique_lock{mtx};
-    state = UNLOCKED;
-    cv.notify_all();  // multiple lock_shared maybe waiting
-  }
   void unlock_shared() {
     auto lock = std::unique_lock{mtx};
     --count;
@@ -90,6 +93,36 @@ struct ResourceLock {
       cv.notify_one();  // should be 0 waiting in lock_shared, only 1 wait in lock can progress
     }
   }
+
+  void lock_read_only() {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    cv.wait(lock, [this] { return state != UNIQUE && state != SHARED; });
+    state = READ_ONLY;
+    ++count;
+  }
+
+  bool try_lock_read_only() {
+    auto lock = std::unique_lock{mtx};
+    if (state != UNIQUE && state != SHARED) {
+      state = READ_ONLY;
+      ++count;
+      return true;
+    }
+    return false;
+  }
+
+  template <typename Rep, typename Period>
+  bool try_lock_read_only_for(std::chrono::duration<Rep, Period> const &time) {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && state != SHARED; })) return false;
+    state = READ_ONLY;
+    ++count;
+    return true;
+  }
+
+  void unlock_read_only() { unlock_shared(); }
 
   void upgrade_to_unique() {
     auto lock = std::unique_lock{mtx};
