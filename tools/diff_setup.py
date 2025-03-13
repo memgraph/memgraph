@@ -47,6 +47,7 @@ class DiffSetup:
             "debug": {"core": value, "integration": value},
             "jepsen": {"core": value},
             "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
+            "malloc": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
         }
 
     def _check_diff_workflow(self) -> bool:
