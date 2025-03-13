@@ -281,10 +281,6 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
 
-  // Read at the beginning so that SLK stream gets cleared even when the request is invalid
-  storage::replication::Decoder decoder(req_reader);
-  auto maybe_epoch_id = decoder.ReadString();
-
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
     const storage::replication::AppendDeltasRes res{false};
@@ -299,6 +295,9 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     return;
   }
 
+  // Read at the beginning so that SLK stream gets cleared even when the request is invalid
+  storage::replication::Decoder decoder(req_reader);
+  auto maybe_epoch_id = decoder.ReadString();
   if (!maybe_epoch_id) {
     spdlog::error("Invalid replication message, couldn't read epoch id.");
     const storage::replication::AppendDeltasRes res{false};
