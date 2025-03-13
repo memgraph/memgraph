@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, centos-10, debian-11, debian-12, fedora-41, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
         build_type: [Release]
         include: # Add arm builds and RelwithDebInfo builds
@@ -77,18 +77,15 @@ jobs:
           - os: debian-12
             build_type: Release
             arch: arm
-          - os: ubuntu-22.04
-            build_type: Release
-            arch: arm
           - os: ubuntu-24.04
             build_type: Release
             arch: arm
-          - os: debian-11
-            build_type: RelWithDebInfo
-            arch: amd
-          - os: debian-11
+          - os: ubuntu-24.04
             build_type: RelWithDebInfo
             arch: arm
+          - os: ubuntu-24.04
+            build_type: RelWithDebInfo
+            arch: amd
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
