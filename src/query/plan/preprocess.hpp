@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#include "frontend/semantic/symbol.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -442,6 +443,8 @@ struct FilterInfo {
   std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
   std::vector<LabelIx> labels{};
+  /// Labels for Type::Label OR filtering.
+  std::vector<LabelIx> or_labels{};
   /// Label expression for Type::Label filtering.
   bool is_label_expression{false};
   /// Property information for Type::Property filtering.
@@ -479,6 +482,7 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
+  auto OrLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto OrExpression(const Symbol &symbol) const -> bool;
   auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
@@ -585,6 +589,17 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
     if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
       MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
       labels.insert(filter.labels.begin(), filter.labels.end());
+      labels.insert(filter.or_labels.begin(), filter.or_labels.end());
+    }
+  }
+  return labels;
+}
+
+inline auto Filters::OrLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
+  std::unordered_set<LabelIx> labels;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+      labels.insert(filter.or_labels.begin(), filter.or_labels.end());
     }
   }
   return labels;

@@ -1347,6 +1347,7 @@ class LabelsTest : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<memgraph::query::LabelIx> or_labels_;
   bool label_expression_{false};
 
   LabelsTest *Clone(AstStorage *storage) const override {
@@ -1356,12 +1357,23 @@ class LabelsTest : public memgraph::query::Expression {
     for (auto i = 0; i < object->labels_.size(); ++i) {
       object->labels_[i] = storage->GetLabelIx(labels_[i].name);
     }
+    object->or_labels_.resize(or_labels_.size());
+    for (auto i = 0; i < object->or_labels_.size(); ++i) {
+      object->or_labels_[i] = storage->GetLabelIx(or_labels_[i].name);
+    }
     object->label_expression_ = label_expression_;
     return object;
   }
 
  protected:
-  LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
+      : expression_(expression), label_expression_(label_expression) {
+    if (!label_expression) {
+      labels_ = std::move(labels);
+    } else {
+      or_labels_ = std::move(labels);
+    }
+  }
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
     labels_.reserve(labels.size());
     for (const auto &label : labels) {

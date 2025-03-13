@@ -1171,9 +1171,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
     };
-    if (filters_.OrExpression(node_symbol)) {
+    auto or_labels = filters_.OrLabels(node_symbol);
+    if (!or_labels.empty()) {
       std::unique_ptr<LogicalOperator> prev;
-      for (const auto &label : labels) {
+      for (const auto &label : or_labels) {
         if (!db_->LabelIndexExists(GetLabel(label))) return nullptr;
         auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
         if (prev) {
@@ -1184,7 +1185,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           prev = std::move(scan);
         }
       }
-      remove_label_filters(labels);
+      remove_label_filters(or_labels);
       return prev;
     }
 

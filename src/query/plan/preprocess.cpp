@@ -287,6 +287,32 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       ++filter_it;
     }
   }
+  for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
+    if (filter_it->type != FilterInfo::Type::Label) {
+      ++filter_it;
+      continue;
+    }
+    if (!utils::Contains(filter_it->used_symbols, symbol)) {
+      ++filter_it;
+      continue;
+    }
+    auto label_it = std::find(filter_it->or_labels.begin(), filter_it->or_labels.end(), label);
+    if (label_it == filter_it->or_labels.end()) {
+      ++filter_it;
+      continue;
+    }
+    filter_it->or_labels.erase(label_it);
+    DMG_ASSERT(!utils::Contains(filter_it->or_labels, label), "Didn't expect duplicated labels");
+    if (filter_it->or_labels.empty()) {
+      // If there are no labels to filter, then erase the whole FilterInfo.
+      if (removed_filters) {
+        removed_filters->push_back(filter_it->expression);
+      }
+      filter_it = all_filters_.erase(filter_it);
+    } else {
+      ++filter_it;
+    }
+  }
 }
 
 void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table, AstStorage &storage) {
@@ -373,18 +399,37 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(node->identifier_));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
-        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expresion_);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         label_filter.labels = labels;
         labels_test->label_expression_ = node->label_expresion_;
         label_filter.is_label_expression = node->label_expresion_;
         all_filters_.emplace_back(label_filter);
       } else {
+        // TODO: What to do here?
         // Add these labels to existing LabelsTest
+        // auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        // auto &existing_labels = node->label_expresion_ ? existing_labels_test->or_labels_ :
+        // existing_labels_test->labels_; auto as_set = std::unordered_set(existing_labels.begin(),
+        // existing_labels.end()); auto before_count = as_set.size(); as_set.insert(labels.begin(), labels.end()); if
+        // (as_set.size() != before_count) {
+        //   existing_labels = std::vector(as_set.begin(), as_set.end());
+        //   it->labels = existing_labels;
+        //   it->is_label_expression = node->label_expresion_;
+        // }
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        auto &existing_labels = existing_labels_test->labels_;
-        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto &existing_or_labels = existing_labels_test->or_labels_;
+        auto as_set = std::unordered_set(existing_or_labels.begin(), existing_or_labels.end());
         auto before_count = as_set.size();
+        as_set.insert(labels.begin(), labels.end());
+        if (as_set.size() != before_count) {
+          existing_or_labels = std::vector(as_set.begin(), as_set.end());
+          it->or_labels = existing_or_labels;
+        }
+        auto &existing_labels = existing_labels_test->labels_;
+        existing_labels_test->label_expression_ = node->label_expresion_;
+        as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        before_count = as_set.size();
         as_set.insert(labels.begin(), labels.end());
         if (as_set.size() != before_count) {
           existing_labels = std::vector(as_set.begin(), as_set.end());
@@ -679,15 +724,24 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         auto filter = make_filter(FilterInfo::Type::Label);
         filter.is_label_expression = is_label_expression;
         filter.labels = labels_test->labels_;
+        filter.or_labels = labels_test->or_labels_;
         labels_test->label_expression_ = labels_test->label_expression_;
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_or_labels = existing_labels_test->or_labels_;
+        auto as_set = std::unordered_set(existing_or_labels.begin(), existing_or_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
+        if (as_set.size() != before_count) {
+          existing_or_labels = std::vector(as_set.begin(), as_set.end());
+          it->or_labels = existing_or_labels;
+        }
         auto &existing_labels = existing_labels_test->labels_;
         existing_labels_test->label_expression_ = labels_test->label_expression_;
-        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
-        auto before_count = as_set.size();
+        as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
         if (as_set.size() != before_count) {
           existing_labels = std::vector(as_set.begin(), as_set.end());

@@ -528,14 +528,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                 throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
-          if (has_label.GetValue() && labels_test.label_expression_) {
-            return TypedValue(true, ctx_->memory);
-          }
-          if (!*has_label && !labels_test.label_expression_) {
+          if (!*has_label) {
             return TypedValue(false, ctx_->memory);
           }
         }
-        return TypedValue(!labels_test.label_expression_, ctx_->memory);
+        return TypedValue(true, ctx_->memory);
       }
       default:
         throw QueryRuntimeException("Only nodes have labels.");
