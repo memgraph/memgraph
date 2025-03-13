@@ -125,7 +125,6 @@ class Optional;
 class Unwind;
 class Distinct;
 class Union;
-class UnionNodeByLabelScan;
 class Cartesian;
 class CallProcedure;
 class LoadCsv;
@@ -145,8 +144,8 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance,
     ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
     SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, UnionNodeByLabelScan, Cartesian, CallProcedure, LoadCsv, Foreach,
-    EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
+    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1361,10 +1360,10 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
   Filter(const std::shared_ptr<LogicalOperator> &input,
          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-         bool label_or_expression = false);
+         bool label_expression = false);
   Filter(const std::shared_ptr<LogicalOperator> &input,
          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-         Filters all_filters, bool label_or_expression = false);
+         Filters all_filters, bool label_expression = false);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;

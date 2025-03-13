@@ -376,7 +376,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         label_filter.labels = labels;
-        labels_test->labels_expression_ = node->label_expresion_;
+        labels_test->label_expression_ = node->label_expresion_;
         label_filter.is_label_expression = node->label_expresion_;
         all_filters_.emplace_back(label_filter);
       } else {
@@ -679,13 +679,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         auto filter = make_filter(FilterInfo::Type::Label);
         filter.is_label_expression = is_label_expression;
         filter.labels = labels_test->labels_;
-        labels_test->labels_expression_ = labels_test->labels_expression_;
+        labels_test->label_expression_ = labels_test->label_expression_;
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
         auto &existing_labels = existing_labels_test->labels_;
-        existing_labels_test->labels_expression_ = labels_test->labels_expression_;
+        existing_labels_test->label_expression_ = labels_test->label_expression_;
         auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
         auto before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());

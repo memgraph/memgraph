@@ -1347,7 +1347,7 @@ class LabelsTest : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   std::vector<memgraph::query::LabelIx> labels_;
-  bool labels_expression_{false};
+  bool label_expression_{false};
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1356,7 +1356,7 @@ class LabelsTest : public memgraph::query::Expression {
     for (auto i = 0; i < object->labels_.size(); ++i) {
       object->labels_[i] = storage->GetLabelIx(labels_[i].name);
     }
-    object->labels_expression_ = labels_expression_;
+    object->label_expression_ = label_expression_;
     return object;
   }
 
