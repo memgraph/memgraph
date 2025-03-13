@@ -49,6 +49,8 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
+    explicit DiskAccessor(SharedAccess tag, DiskStorage *storage, IsolationLevel isolation_level,
+                          StorageMode storage_mode, Accessor::RWType rw_type);
     explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
@@ -269,7 +271,8 @@ class DiskStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+  std::unique_ptr<Accessor> Access(storage::Storage::Accessor::RWType rw_type,
+                                   std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
 
   using Storage::UniqueAccess;
