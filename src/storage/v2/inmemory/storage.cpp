@@ -281,10 +281,17 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
+                                                    IsolationLevel isolation_level, StorageMode storage_mode,
+                                                    Accessor::Type rw_type,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
+      config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1384,7 +1391,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
   if (unique_access_needed) {
-    MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
+    MG_ASSERT(type() == READ_ONLY, "Creating label index requires a unique access to the storage!");
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
@@ -1399,7 +1406,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -1415,7 +1422,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, bool unique_access_needed) {
   if (unique_access_needed) {
-    MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+    MG_ASSERT(type() == READ_ONLY, "Create index requires a unique access to the storage!");
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -1428,7 +1435,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -1446,7 +1453,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
@@ -1460,7 +1467,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -1475,7 +1482,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     EdgeTypeId edge_type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->DropIndex(edge_type)) {
@@ -1487,7 +1494,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     EdgeTypeId edge_type, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -1500,7 +1507,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
     storage::LabelId label, storage::PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
@@ -1514,7 +1521,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropPointIndex(
     storage::LabelId label, storage::PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping point index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.DropPointIndex(label, property)) {
@@ -1528,7 +1535,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
     VectorIndexSpec spec) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto vertices_acc = in_memory->vertices_.access();
@@ -1543,7 +1550,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
     std::string_view index_name) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   if (!vector_index.DropIndex(index_name)) {
@@ -1557,7 +1564,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating existence requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating existence requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -1575,7 +1582,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void>
 InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping existence constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -1587,7 +1594,7 @@ InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, Proper
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Creating unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1604,7 +1611,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
 
 UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1617,33 +1624,33 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
+InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind kind) {
+  MG_ASSERT(type() == READ_ONLY, "Creating IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   if (type_constraints->ConstraintExists(label, property)) {
     return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
   }
   if (auto violation =
-          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, type);
+          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
       violation.has_value()) {
     return StorageTypeConstraintDefinitionError{violation.value()};
   }
-  type_constraints->InsertConstraint(label, property, type);
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, type);
+  type_constraints->InsertConstraint(label, property, kind);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
 
 utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
-    LabelId label, PropertyId property, TypeConstraintKind type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
+    LabelId label, PropertyId property, TypeConstraintKind kind) {
+  MG_ASSERT(type() == READ_ONLY, "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  auto deleted_constraint = type_constraints->DropConstraint(label, property, type);
+  auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);
   if (!deleted_constraint) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, type);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
 
@@ -2547,8 +2554,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      // For analytical no other txn can be in play
-      return UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION);
+      // For analytical no other write txn can be in play
+      return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
@@ -2757,15 +2764,22 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(Accessor::Type rw_type,
+                                                           std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, timeout});
+                                                                storage_mode_, rw_type, timeout});
 }
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, timeout});
+}
+std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
+    std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_, timeout});
 }

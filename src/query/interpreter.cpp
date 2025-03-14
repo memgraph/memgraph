@@ -39,6 +39,7 @@
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "frontend/semantic/rw_checker.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
@@ -83,6 +84,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
@@ -137,12 +139,25 @@ extern const Event ShowSchema;
 // gained access during prepare, but can't execute (in PULL) because other queries are still preparing/waiting for
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
-    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
+    std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
+    storage::Storage::Accessor::Type acc_type) {
   auto &db_acc = *db_acc_;
-  if (unique) {
-    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ kAccessTimeout);
-  } else {
-    db_transactional_accessor_ = db_acc->Access(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+  switch (acc_type) {
+    case storage::Storage::Accessor::Type::READ:
+      [[fallthrough]];
+    case storage::Storage::Accessor::Type::WRITE:
+      db_transactional_accessor_ = db_acc->Access(acc_type, override_isolation_level,
+                                                  /*allow timeout*/ kAccessTimeout);
+      break;
+    case storage::Storage::Accessor::Type::UNIQUE:
+      db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+      break;
+    case storage::Storage::Accessor::Type::READ_ONLY:
+      db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+      break;
+    default:
+      spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
+      throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
@@ -2367,7 +2382,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
       if (!current_db_.db_acc_) throw DatabaseContextRequiredException("No current database for transaction defined.");
-      SetupDatabaseTransaction(true);
+      SetupDatabaseTransaction(true,
+                               extras.is_read ? storage::Storage::Accessor::READ : storage::Storage::Accessor::WRITE);
     };
   } else if (query_upper == "COMMIT") {
     handler = [this] {
@@ -2501,6 +2517,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
+  if (dba->type() == storage::Storage::Accessor::Type::WRITE) {
+    if (rw_type_checker.type != RWType::W && rw_type_checker.type != RWType::RW) {
+      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba->type()),
+                                  static_cast<int>(rw_type_checker.type));
+    }
+  }
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
@@ -5893,17 +5915,20 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool const unique_db_transaction =
+    bool const read_only_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
         utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
-        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
-        utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
+        utils::Downcast<TtlQuery>(parsed_query.query);
+
+    bool const unique_db_transaction = utils::Downcast<DropGraphQuery>(parsed_query.query) ||
+                                       utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+                                       utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
+                                       utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
+                                       utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
-        unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
+        read_only_db_transaction || unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
         utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<ProfileQuery>(parsed_query.query) ||
         utils::Downcast<DumpQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query) ||
         utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
@@ -5912,9 +5937,24 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
-      bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
+      auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+      bool could_commit = cypher_query != nullptr;
       bool const unique = unique_db_transaction || is_schema_assert_query;
-      SetupDatabaseTransaction(could_commit, unique);
+      bool const read_only = read_only_db_transaction;
+      auto write_check = [cypher_query] {
+        // TODO Use plan::ReadWriteTypeChecker instead. Problem is that it requires a database accessor...
+        // TODO Allow non-db cypher query
+        // TODO extras has a rw flag; check if it is useful
+        query::RWChecker rw_checker;
+        cypher_query->Accept(rw_checker);
+        return rw_checker.IsWrite();
+      };
+      // Default access is shared read access
+      auto acc_type = storage::Storage::Accessor::Type::READ;
+      if (unique) acc_type = storage::Storage::Accessor::Type::UNIQUE;
+      if (read_only) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
+      if (could_commit && write_check()) acc_type = storage::Storage::Accessor::Type::WRITE;
+      SetupDatabaseTransaction(could_commit, acc_type);
     }
 
     if (current_db_.db_acc_) {
@@ -6169,8 +6209,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   }
 }
 
-void Interpreter::SetupDatabaseTransaction(bool couldCommit, bool unique) {
-  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, unique);
+void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::Storage::Accessor::Type acc_type) {
+  current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
