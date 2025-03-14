@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -191,7 +191,7 @@ TEST(Reader, SingleSegment) {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size() / 2);
-    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
+    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderLeftoverDataException);
   }
 
   // read data with several loads
@@ -271,7 +271,7 @@ TEST(Reader, MultipleSegments) {
     memgraph::slk::Reader reader(buffer.data(), buffer.size());
     uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size() / 2);
-    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
+    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderLeftoverDataException);
   }
 
   // read data with several loads

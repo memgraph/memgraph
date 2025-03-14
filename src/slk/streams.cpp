@@ -83,7 +83,7 @@ void Reader::Finalize() { GetSegment(true); }
 void Reader::GetSegment(bool should_be_final) {
   if (have_ != 0) {
     if (should_be_final) {
-      throw SlkReaderException("There is still leftover data in the SLK stream!");
+      throw SlkReaderLeftoverDataException("There is still leftover data in the SLK stream!");
     }
     return;
   }

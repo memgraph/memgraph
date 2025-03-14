@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -51,7 +50,6 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
 
   auto resolved_address = std::get<0>(*result);
   auto resolved_port = std::get<1>(*result);
-  spdlog::trace("{}:{} successfully resolved to {}:{}.", address_, port_, resolved_address, resolved_port);
 
   return fmt::format("{}{}{}", resolved_address, delimiter, resolved_port);
 }
@@ -63,7 +61,6 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
   }
 
   auto resolved_address = std::get<0>(*result);
-  spdlog::trace("{}:{} successfully resolved to {}:{}.", address_, port_, resolved_address, port_);
 
   return resolved_address;
 }

@@ -179,11 +179,11 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.durability.recover_on_startup) {
-    auto info =
-        recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
-                              name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
-                              config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-                              [this](Gid edge_gid) { return FindEdge(edge_gid); });
+    auto info = recovery_.RecoverData(
+        uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
+        &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
+        config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name());
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -2620,6 +2620,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
         &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot recovered successfully");
     uuid().set(recovered_snapshot.snapshot_info.uuid);
+    spdlog::trace("Set epoch to {} for db {}", recovered_snapshot.snapshot_info.epoch_id, name());
     repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
     vertex_id_ = recovery_info.next_vertex_id;

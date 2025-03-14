@@ -146,7 +146,8 @@ struct Recovery {
       utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
       NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
       uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
+      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+      std::string const &db_name);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

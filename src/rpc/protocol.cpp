@@ -80,13 +80,13 @@ void Session::Execute() {
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
   try {
     it->second.callback(&req_reader, &res_builder);
+    // Finalize the SLK stream. It may fail because not all data has been read, that's fine.
+    req_reader.Finalize();
   } catch (const slk::SlkReaderException &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
     throw rpc::SlkRpcFailedException();
+  } catch (const slk::SlkReaderLeftoverDataException &) {
   }
-
-  // Finalize the SLK streams.
-  req_reader.Finalize();
 }
 
 }  // namespace memgraph::rpc

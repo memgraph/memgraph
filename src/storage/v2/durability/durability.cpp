@@ -413,7 +413,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+    std::string const &db_name) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -465,10 +466,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
+    spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = snapshot_timestamp;
   } else {
-    // UUID couldn't be recovered from the snapshot; recoverying it from WALs
+    // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
     std::error_code error_code;
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
@@ -581,6 +583,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           // no history or new epoch, add it
           epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
           repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+          spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
         } else if (epoch_history->back().second < last_loaded_timestamp_value) {
           // existing epoch, update with newer timestamp
           epoch_history->back().second = last_loaded_timestamp_value;
