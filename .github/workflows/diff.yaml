@@ -38,21 +38,21 @@ on:
       release_query_modules:
         type: boolean
         default: true
-      malloc_core:
-        type: boolean
-        default: true
-      malloc_benchmark:
-        type: boolean
-        default: true
-      malloc_e2e:
-        type: boolean
-        default: true
-      malloc_stress:
-        type: boolean
-        default: true
-      malloc_query_modules:
-        type: boolean
-        default: true
+      # malloc_core:
+      #   type: boolean
+      #   default: true
+      # malloc_benchmark:
+      #   type: boolean
+      #   default: true
+      # malloc_e2e:
+      #   type: boolean
+      #   default: true
+      # malloc_stress:
+      #   type: boolean
+      #   default: true
+      # malloc_query_modules:
+      #   type: boolean
+      #   default: true
 
 jobs:
   DiffSetup:
@@ -68,11 +68,11 @@ jobs:
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
-      run_malloc_core: ${{ steps.setup.outputs.run_malloc_core }}
-      run_malloc_benchmark: ${{ steps.setup.outputs.run_malloc_benchmark}}
-      run_malloc_e2e: ${{ steps.setup.outputs.run_malloc_e2e }}
-      run_malloc_stress: ${{ steps.setup.outputs.run_malloc_stress }}
-      run_malloc_query_modules: ${{ steps.setup.outputs.run_malloc_query_modules }}
+      # run_malloc_core: ${{ steps.setup.outputs.run_malloc_core }}
+      # run_malloc_benchmark: ${{ steps.setup.outputs.run_malloc_benchmark}}
+      # run_malloc_e2e: ${{ steps.setup.outputs.run_malloc_e2e }}
+      # run_malloc_stress: ${{ steps.setup.outputs.run_malloc_stress }}
+      # run_malloc_query_modules: ${{ steps.setup.outputs.run_malloc_query_modules }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -147,10 +147,10 @@ jobs:
       arch: 'amd'
       os: 'ubuntu-24.04'
       toolchain: 'v6'
-      run_core: ${{ needs.DiffSetup.outputs.run_malloc_core }}
-      run_benchmark: ${{ needs.DiffSetup.outputs.run_malloc_benchmark }}
-      run_e2e: ${{ needs.DiffSetup.outputs.run_malloc_e2e }}
-      run_stress: ${{ needs.DiffSetup.outputs.run_malloc_stress }}
-      run_query_modules: ${{ needs.DiffSetup.outputs.run_malloc_query_modules }}
+      run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
+      run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
+      run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
+      run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
+      run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
     secrets: inherit
   
