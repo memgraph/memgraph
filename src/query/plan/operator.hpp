@@ -1394,18 +1394,25 @@ class Filter : public memgraph::query::plan::LogicalOperator {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      std::set<std::string, std::less<>> label_names;
+      std::set<std::string, std::less<>> AND_label_names;
       for (const auto &label : filter_expression->labels_) {
-        label_names.insert(label.name);
+        AND_label_names.insert(label.name);
       }
 
+      std::string OR_label_string =
+          utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+            return fmt::format("({})",
+                               utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+          });
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+        return fmt::format("(:{}:{})",
+                           utils::IterableToString(AND_label_names, ":", [](const auto &name) { return name; }),
+                           OR_label_string);
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
-
-      return fmt::format("({} :{})", identifier_expression->name_,
-                         utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+      return fmt::format("({} :{}:{})", identifier_expression->name_,
+                         utils::IterableToString(AND_label_names, ":", [](const auto &name) { return name; }),
+                         OR_label_string);
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {
