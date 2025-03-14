@@ -272,7 +272,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       return replica_stream;
     }
     default:
-      MG_ASSERT(false, "Unknown replica state when starting transaction replication.");
+      LOG_FATAL("Unknown replica state when starting transaction replication.");
   }
 }
 
@@ -398,9 +398,16 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                               main_db_name);
                 // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
                 // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
-                if (auto const response = TransferSnapshot(main_uuid, main_mem_storage->uuid(), rpcClient, snapshot);
-                    response.current_commit_timestamp) {
-                  replica_last_commit_ts = *response.current_commit_timestamp;
+                auto const maybe_response = TransferDurabilityFiles<replication::SnapshotRpc>(
+                    snapshot, rpcClient, main_uuid, main_mem_storage->uuid());
+                // Error happened on our side when trying to load snapshot file
+                if (!maybe_response.has_value()) {
+                  recovery_failed = true;
+                  return;
+                }
+
+                if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp);
                   spdlog::debug(
                       "Successful reply to the snapshot file {} received from {} for db {}. Current replica commit is "
                       "{}",
@@ -425,10 +432,16 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 spdlog::debug("Sending WAL files to {} for db {}.", client_.name_, main_db_name);
                 // We don't care about partial progress when loading WAL files. We are only interested if everything
                 // passed so that possibly next step of recovering current wal can be executed
-                if (auto const wal_files_res =
-                        TransferWalFiles(main_uuid, main_mem_storage->uuid(), rpcClient, wals, do_reset);
-                    wal_files_res.current_commit_timestamp) {
-                  replica_last_commit_ts = *wal_files_res.current_commit_timestamp;
+
+                auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
+                    wals, rpcClient, wals.size(), main_uuid, main_mem_storage->uuid(), do_reset);
+                if (!maybe_response.has_value()) {
+                  recovery_failed = true;
+                  return;
+                }
+
+                if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp);
                   spdlog::debug(
                       "Successful reply to WAL files received from {} for db {}. Updating replica commit to {}",
                       client_.name_, main_db_name, replica_last_commit_ts);
@@ -450,10 +463,17 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   main_mem_storage->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
-                  if (auto const response = TransferCurrentWal(main_uuid, main_mem_storage, rpcClient,
-                                                               *main_mem_storage->wal_file_, do_reset);
-                      response.current_commit_timestamp) {
-                    replica_last_commit_ts = *response.current_commit_timestamp;
+
+                  auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
+                      main_mem_storage->wal_file_->Path(), rpcClient, main_uuid, main_mem_storage->uuid(), do_reset);
+                  // Error happened on our side when trying to load current WAL file
+                  if (!maybe_response.has_value()) {
+                    recovery_failed = true;
+                    return;
+                  }
+
+                  if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
+                    replica_last_commit_ts = *(response.current_commit_timestamp);
                     spdlog::debug(
                         "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}",
                         client_.name_, main_db_name, replica_last_commit_ts);

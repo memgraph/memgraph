@@ -20,6 +20,7 @@
 #include "rpc/messages.hpp"
 #include "rpc/protocol.hpp"
 #include "slk/streams.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
 

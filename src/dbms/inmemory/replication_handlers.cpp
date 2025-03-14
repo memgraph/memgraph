@@ -385,7 +385,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
 
-  utils::EnsureDirOrDie(current_snapshot_dir);
+  if (!utils::EnsureDir(current_snapshot_dir)) {
+    spdlog::error("Couldn't get access to the current snapshot directory. Recovery won't be done.");
+    rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder);
+    return;
+  }
 
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
@@ -508,7 +512,12 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
-  utils::EnsureDirOrDie(current_wal_directory);
+
+  if (!utils::EnsureDir(current_wal_directory)) {
+    spdlog::error("Couldn't get access to the current wal directory. Recovery won't be done.");
+    rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder);
+    return;
+  }
 
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
@@ -592,7 +601,12 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
-  utils::EnsureDirOrDie(current_wal_directory);
+
+  if (!utils::EnsureDir(current_wal_directory)) {
+    spdlog::error("Couldn't get access to the current wal directory. Recovery won't be done.");
+    rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
+    return;
+  }
 
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
@@ -655,7 +669,12 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
                                                                uint32_t start_batch_counter) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
-  utils::EnsureDir(temp_wal_directory);
+
+  if (!utils::EnsureDir(temp_wal_directory)) {
+    spdlog::error("Couldn't get access to the current tmp directory while loading WAL file.");
+    return {false, 0};
+  }
+
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
   if (!maybe_wal_path) {
     spdlog::error("Failed to load WAL file from {}!", temp_wal_directory);
