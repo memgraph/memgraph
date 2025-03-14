@@ -69,17 +69,15 @@ struct EdgeTypeIx {
   int64_t ix;
 };
 
+//TODO: do we really need to compare strings
 inline bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix && a.name == b.name; }
-
-inline bool operator!=(const LabelIx &a, const LabelIx &b) { return !(a == b); }
 
 inline bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix && a.name == b.name; }
 
-inline bool operator!=(const PropertyIx &a, const PropertyIx &b) { return !(a == b); }
-
 inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix && a.name == b.name; }
 
-inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) { return !(a == b); }
+inline bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
+
 }  // namespace memgraph::query
 
 namespace std {

@@ -1029,6 +1029,9 @@ class RuleBasedPlanner {
                                                            // Could do in the future when we have parse-time constants
       Filters operator_filters;
       operator_filters.CollectFilterExpression(filter_expr, symbol_table);
+
+      //TODO: Maybe here we do a CoalesceFilterExpression (as we can use `storage`)
+
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr,
                                          std::move(operator_filters));
     }

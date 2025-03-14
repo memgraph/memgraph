@@ -422,9 +422,166 @@ void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbo
     AnalyzeAndStoreFilter(filter, symbol_table);
   }
 
+
+  //TODO: move all of this out of Filters::CollectFilterExpression
+  // as we should not modify  `expr`
+
   // For all the properties which are ranges and that have literal bounds over
   // the same symbol property, we will subsume filters.
   // NOTE: Handle two conflicting expressions
+
+  struct BoundValue {
+    storage::PropertyValue value;
+    bool inclusive;
+
+  };
+
+  struct CoalescedRange {
+    std::optional<storage::PropertyValue> exact;
+    std::optional<BoundValue> lb;
+    std::optional<BoundValue> ub;
+    std::vector<Expression *> coalesced_expressions;
+    bool conflict = false;
+  };
+
+
+
+  auto collector = std::map<std::pair<Symbol, PropertyIx>, CoalescedRange>{};
+
+  for (auto const &filter : all_filters_) {
+    //    filter.expression; //<- this is the coalesced
+    if (!filter.property_filter) continue;
+    auto const &prop_filter = *filter.property_filter;
+
+    if (prop_filter.type_ != PropertyFilter::Type::RANGE && prop_filter.type_ != PropertyFilter::Type::EQUAL) continue;
+
+    auto const &symbol = prop_filter.symbol_;
+    auto const &property = prop_filter.property_;
+
+    if (prop_filter.type_ == PropertyFilter::Type::EQUAL) {
+      auto *literal = utils::Downcast<PrimitiveLiteral>(prop_filter.value_);
+      if (!literal) continue;
+      auto const &value = literal->value_;
+      auto &entry = collector[std::pair{symbol, property}];
+      entry.coalesced_expressions.emplace_back(filter.expression);
+      if (entry.conflict) continue;
+      if (entry.exact.has_value() && entry.exact != value) {
+        entry.conflict = true;
+        continue;
+      }
+      if (entry.lb.has_value()) {
+        if (entry.lb->inclusive) {
+          if (value < entry.lb->value) {
+            entry.conflict = true;
+            continue;
+          }
+        } else {
+          if (value <= entry.lb->value) {
+            entry.conflict = true;
+            continue;
+          }
+        }
+      }
+
+      if (entry.ub.has_value()) {
+        if (entry.ub->inclusive) {
+          if (entry.ub->value < value) {
+            entry.conflict = true;
+            continue;
+          }
+        } else {
+          if (entry.ub->value <= value) {
+            entry.conflict = true;
+            continue;
+          }
+        }
+      }
+
+      entry.exact = value;
+      entry.lb = std::nullopt;
+      entry.ub = std::nullopt;
+    } else if (prop_filter.type_ == PropertyFilter::Type::RANGE) {
+      struct NonCoalescable {};
+      struct NonExistant {};
+
+      auto lb = std::invoke([&]() -> std::variant<BoundValue, NonCoalescable, NonExistant> {
+        if (!prop_filter.lower_bound_) return NonExistant{};
+        auto bound_expr = *prop_filter.lower_bound_;
+        auto *literal = utils::Downcast<PrimitiveLiteral>(*bound_expr);
+        if (!literal) return NonCoalescable{};
+        return BoundValue{literal->value_, bound_expr.IsInclusive()};
+      });
+      auto ub = std::invoke([&]() -> std::variant<BoundValue, NonCoalescable, NonExistant> {
+        if (!prop_filter.upper_bound_) return NonExistant{};
+        auto bound_expr = *prop_filter.upper_bound_;
+        auto *literal = utils::Downcast<PrimitiveLiteral>(*bound_expr);
+        if (!literal) return NonCoalescable{};
+        return BoundValue{literal->value_, bound_expr.IsInclusive()};
+      });
+
+      if (holds_alternative<NonCoalescable>(lb) || holds_alternative<NonCoalescable>(ub)) continue;
+
+      auto &entry = collector[std::pair{symbol, property}];
+      entry.coalesced_expressions.emplace_back(filter.expression);
+      if (entry.conflict) continue;
+
+      // conflict with value
+      if (entry.exact.has_value()) {
+        if (holds_alternative<BoundValue>(lb)) {
+          auto const &lb_x = get<BoundValue>(lb);
+          if (lb_x.inclusive) {
+            if (entry.exact < lb_x.value) {
+              entry.conflict = true;
+              continue;
+            }
+          } else {
+            if (entry.exact <= lb_x.value) {
+              entry.conflict = true;
+              continue;
+            }
+          }
+        }
+
+        if (holds_alternative<BoundValue>(ub)) {
+          auto const &ub_x = get<BoundValue>(ub);
+          if (ub_x.inclusive) {
+            if (ub_x.value < entry.exact) {
+              entry.conflict = true;
+              continue;
+            }
+          } else {
+            if (ub_x.value <= entry.exact) {
+              entry.conflict = true;
+              continue;
+            }
+          }
+        }
+      }
+
+      // conflict with range
+      // HELP // TODO:
+
+      if (!entry.exact && holds_alternative<BoundValue>(lb)) {
+        entry.lb = get<BoundValue>(lb);
+      }
+      if (!entry.exact && holds_alternative<BoundValue>(ub)) {
+        entry.ub = get<BoundValue>(ub);
+      }
+    }
+  }
+
+  for (auto const & [key,value]: collector){
+    if (value.coalesced_expressions.size() == 1) continue;
+    if (value.conflict){
+      // replace expressions with a single `PrimativeLiteral of False`
+    }else{
+      // replace expressions with a single `n.p = X` or `LB <= n.p <= UB`
+
+
+    }
+
+  }
+
 }
 
 // Analyzes the filter expression by collecting information on filtering labels

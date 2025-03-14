@@ -435,7 +435,7 @@ struct FilterInfo {
 
   Type type{Type::Generic};
   /// The original filter expression which must be satisfied.
-  Expression *expression{nullptr};
+  Expression *expression{nullptr}; //TODO: vector
   /// Set of used symbols by the filter @c expression.
   std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.

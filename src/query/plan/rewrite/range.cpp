@@ -87,6 +87,8 @@ utils::TypeInfo PropertyComparisonType(Expression *filter, PropertyLookup *&prop
 }  // namespace
 
 Expression *CompactFilters(Expression *filter_expr, AstStorage &storage) {
+  //TODO: READ
+
   auto can_range = [&](const auto &filter) -> ComparisonFilterInfo {
     ComparisonFilterInfo info;
 
