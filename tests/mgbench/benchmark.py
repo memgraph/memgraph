@@ -227,9 +227,9 @@ def parse_args():
     )
     parser_vendor_docker.add_argument(
         "--vendor-name",
-        default="memgraph",
-        choices=["memgraph-docker", "neo4j-docker"],
-        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker)",
+        default="memgraph-docker",
+        choices=["memgraph-docker", "neo4j-docker", "falkordb-docker"],
+        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker, falkordb-docker)",
     )
 
     return parser.parse_args()
@@ -470,16 +470,17 @@ def get_query_cache_count(
         client.execute(queries=queries, num_workers=1)
         count = 1
         while True:
-            ret = client.execute(queries=get_queries(func, count), num_workers=1)
+            augmented_queries = get_queries(func, count)
+            ret = client.execute(queries=augmented_queries, num_workers=1)
             duration = ret[0][DURATION]
-            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
+            expected_throughput_for_count = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
             log.log(
                 "Executed_queries={}, total_duration={}, query_duration={}, estimated_count={}".format(
-                    count, duration, duration / count, should_execute
+                    count, duration, duration / count, expected_throughput_for_count
                 )
             )
-            if should_execute / (count * 10) < 10:
-                count = should_execute
+            if expected_throughput_for_count / (count * 10) < 10:
+                count = expected_throughput_for_count
                 break
             else:
                 count = count * 10
@@ -642,7 +643,7 @@ def run_isolated_workload_without_authorization(
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    if benchmark_context.vendor_name == "memgraph":
+    if benchmark_context.vendor_type != "neo4j":
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
         vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
@@ -680,8 +681,10 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
 
 def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     rss_db = workload.NAME + workload.get_variant() + "_" + EMPTY_DB
-    vendor_runner.start_db(rss_db)
+    vendor_runner.start_db_init(rss_db)
     usage = vendor_runner.stop_db(rss_db)
+    vendor_runner.clean_db()
+
     key = [workload.NAME, workload.get_variant(), EMPTY_DB]
     results.set_value(*key, value={DATABASE: usage})
     return usage[MEMORY]
@@ -892,6 +895,16 @@ def log_output_summary(benchmark_context, ret, usage, funcname, sample_query):
     log.success("Throughput: {:02f} QPS\n\n".format(ret[THROUGHPUT]))
 
 
+def get_vendor_type(vendor_name):
+    if "memgraph" in vendor_name.lower():
+        return "memgraph"
+    if "neo4j" in vendor_name.lower():
+        return "neo4j"
+    if "falkordb" in vendor_name.lower():
+        return "falkordb"
+    raise Exception(f"Vendor name {vendor_name} not recognized")
+
+
 if __name__ == "__main__":
     args = parse_args()
     sanitize_args(args)
@@ -900,10 +913,13 @@ if __name__ == "__main__":
     temp_dir = pathlib.Path.cwd() / ".temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
+    vendor_type = get_vendor_type(args.vendor_name)
+
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
         vendor_name=args.vendor_name.replace("-", ""),
+        vendor_type=vendor_type,
         client_binary=args.client_binary if args.run_option == "vendor-native" else None,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,

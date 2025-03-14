@@ -48,6 +48,7 @@ class LDBC_BI(Workload):
     URL_INDEX_FILE = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
         "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/neo4j_bi_index.cypher",
+        "falkordb": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
     }
 
     QUERY_PARAMETERS = {
