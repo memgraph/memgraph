@@ -57,7 +57,7 @@ namespace memgraph::logging {
 #define MG_ASSERT(expr, ...)                                                                    \
   do {                                                                                          \
     if (!(expr)) [[unlikely]] {                                                                 \
-      [&]() __attribute__((noinline, cold)) {                                                   \
+      [&]() __attribute__((noinline, cold, noreturn)) {                                         \
         ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
       }                                                                                         \
       ();                                                                                       \
