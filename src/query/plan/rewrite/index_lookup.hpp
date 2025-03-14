@@ -1167,9 +1167,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (!or_labels.empty()) {
       for (const auto &label_vec : or_labels) {
-        if (label_vec.size() != 1) continue;
+        if (label_vec.size() == 1) continue;
         std::unique_ptr<LogicalOperator> prev;
-        for (const auto &label : or_labels) {
+        for (const auto &label : label_vec) {
           if (!db_->LabelIndexExists(GetLabel(label))) break;
           auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
           if (prev) {
@@ -1186,7 +1186,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     }
-
+    if (labels.empty()) {
+      // Without labels, we cannot generate any indexed ScanAll.
+      return nullptr;
+    }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;
