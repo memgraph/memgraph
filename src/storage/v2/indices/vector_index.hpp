@@ -24,6 +24,19 @@
 
 namespace memgraph::storage {
 
+enum struct VectorIndexStorageError : uint8_t {
+  VectorIndexAlreadyExists,
+  InvalidPropertyValue,
+  UnableToReserveMemory,
+  FailedToCreateIndex,
+  VertexPropertyNotList,
+  VertexPropertyNotOfCorrectDimension,
+  FailedToResizeIndex,
+  VertexPropertyValueNotOfCorrectType,
+  InconsistentState,
+  VectorIndexNotFound
+};
+
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -109,13 +122,14 @@ class VectorIndex {
   /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  utils::BasicResult<VectorIndexStorageError, void> CreateIndex(
+      const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
-  bool DropIndex(std::string_view index_name);
+  utils::BasicResult<VectorIndexStorageError, void> DropIndex(std::string_view index_name);
 
   /// @brief Drops all existing indexes.
   void Clear();
@@ -175,17 +189,15 @@ class VectorIndex {
   /// @return The index statistics.
   IndexStats Analysis() const;
 
-  /// @brief Tries to insert a vertex into the index.
-  /// @param vertex The vertex to be inserted.
-  void TryInsertVertex(Vertex *vertex);
-
  private:
   /// @brief Adds a vertex to an existing index.
   /// @param vertex The vertex to be added.
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+  utils::BasicResult<VectorIndexStorageError, void> UpdateVectorIndex(
+      Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr,
+      const std::optional<std::string> specific_index = std::nullopt);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
