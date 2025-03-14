@@ -5,23 +5,23 @@ on:
     inputs:
       os:
         type: string
-        description: "Target os. Default value is debian-12."
-        default: debian-12
+        description: "Target os. Default value is ubuntu-24.04."
+        default: ubuntu-24.04
       arch:
         type: string
         description: "Target architecture. Default value is amd."
         default: amd
       toolchain:
         type: string
-        description: "Toolchain version. Default value is v5."
-        default: v5
+        description: "Toolchain version. Default value is v6."
+        default: v6
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: Release
       additional_build_args:
         type: string
-        description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
+        description: "Additional build flags (--for-docker ...). Default value is empty."
         default: ''
       push_to_github:
         type: string
@@ -46,7 +46,7 @@ on:
 
 jobs:
   PackageAndUpload:
-    runs-on: ${{ inputs.arch == 'arm' && 'ubuntu-large-arm' || fromJSON('[ "self-hosted", "DockerMgBuild", "X64" ]') }}
+    runs-on: ${{ (inputs.arch == 'arm') && 'ubuntu-large-arm' || fromJSON(inputs.os == 'centos-10' && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
       mgdeps_cache_host: "${{ inputs.arch == 'arm' && 'false' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
@@ -89,9 +89,6 @@ jobs:
             echo "FOR_DOCKER=true" >> $GITHUB_ENV
             echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
-          if [[ "${{ inputs.additional_build_args }}" == *"--for-platform" ]]; then
-            artifact_name="${artifact_name}-platform"
-          fi
           if [[ "${{ inputs.arch }}" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
@@ -100,6 +97,15 @@ jobs:
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
           echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
+
+      - name: Set Additional Build Args
+        run: |
+          args="${{ inputs.additional_build_args }}"
+          if [[ "${{ inputs.os }}" == "centos-9" || "${{ inputs.os }}" == "centos-10" || "${{ inputs.os }}" == "fedora-41" ]]; then
+            args="$args --init-skip-prep-testing"
+          fi
+          echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
+          echo "Final build args: $args"
 
       - name: "Spin up mgbuild container"
         run: |
@@ -117,7 +123,7 @@ jobs:
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
-          build-memgraph ${{ inputs.additional_build_args }}
+          build-memgraph ${{ env.ADDITIONAL_BUILD_ARGS }}
 
       - name: "Make package"
         run: |
