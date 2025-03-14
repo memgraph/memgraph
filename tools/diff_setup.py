@@ -18,6 +18,14 @@ class DiffSetup:
                 self._gh_context = json.load(gh_context_file)
                 if not self._get_event_name():
                     raise KeyError
+                
+                # reformat release key
+                inputs = self._get_workflow_dispatch_inputs()
+                if inputs:
+                    release = inputs.pop("release","")
+                    for test in ["core","benchmark","e2e","stress","query_modules"]:
+                        self._gh_context["event"]["inputs"][f"release_{test}"] = test in release
+
         except FileNotFoundError:
             print(f"Error: file not found {self._gh_context_path}")
             sys.exit(1)
@@ -47,7 +55,7 @@ class DiffSetup:
             "debug": {"core": value, "integration": value},
             "jepsen": {"core": value},
             "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
-            "malloc": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
+            "malloc": {"build": value},
         }
 
     def _check_diff_workflow(self) -> bool:
