@@ -304,6 +304,16 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, value, view));
   }
 
+  VerticesIterable Vertices(storage::View view, storage::LabelId label,
+                            std::span<storage::PropertyId const> properties) {
+    return VerticesIterable(accessor_->Vertices(label, properties, view));
+  }
+
+  VerticesIterable Vertices(storage::View view, storage::LabelId label, std::span<storage::PropertyId const> properties,
+                            const storage::PropertyValue &value) {
+    return VerticesIterable(accessor_->Vertices(label, properties, value, view));
+  }
+
   VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property,
                             const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                             const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
@@ -478,8 +488,14 @@ class DbAccessor final {
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {
-    return accessor_->LabelPropertyIndexExists(label, prop);
+  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+    return accessor_->LabelPropertyIndexExists(label, properties);
+  }
+
+  auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
+                                          std::span<storage::PropertyId const> properties) const
+      -> std::vector<storage::LabelPropertiesIndicesInfo> {
+    return accessor_->RelevantLabelPropertiesIndicesInfo(labels, properties);
   }
 
   bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexExists(edge_type); }
@@ -527,6 +543,11 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
+                                                                std::span<storage::PropertyId const> properties) const {
+    return accessor_->GetIndexStats(label, properties);
+  }
+
   std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
       const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
@@ -543,12 +564,21 @@ class DbAccessor final {
     accessor_->SetIndexStats(label, property, stats);
   }
 
+  void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> property,
+                     const storage::LabelPropertyIndexStats &stats) {
+    accessor_->SetIndexStats(label, property, stats);
+  }
+
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVertexCount(label, property);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+    return accessor_->ApproximateVertexCount(label, properties);
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
@@ -606,9 +636,9 @@ class DbAccessor final {
     return accessor_->CreateIndex(label);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label,
-                                                                             storage::PropertyId property) {
-    return accessor_->CreateIndex(label, property);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
+      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
+    return accessor_->CreateIndex(label, std::move(properties));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {
@@ -624,9 +654,9 @@ class DbAccessor final {
     return accessor_->DropIndex(label);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
-                                                                           storage::PropertyId property) {
-    return accessor_->DropIndex(label, property);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
+      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
+    return accessor_->DropIndex(label, std::move(properties));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {

@@ -69,17 +69,15 @@ struct EdgeTypeIx {
   int64_t ix;
 };
 
+//TODO: do we really need to compare strings
 inline bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix && a.name == b.name; }
-
-inline bool operator!=(const LabelIx &a, const LabelIx &b) { return !(a == b); }
 
 inline bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix && a.name == b.name; }
 
-inline bool operator!=(const PropertyIx &a, const PropertyIx &b) { return !(a == b); }
-
 inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix && a.name == b.name; }
 
-inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) { return !(a == b); }
+inline bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
+
 }  // namespace memgraph::query
 
 namespace std {
@@ -2198,15 +2196,18 @@ struct IndexHint {
   enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
 
   memgraph::query::IndexHint::IndexType index_type_;
-  memgraph::query::LabelIx label_;
-  std::optional<memgraph::query::PropertyIx> property_{std::nullopt};
+  memgraph::query::LabelIx label_ix_;
+  // This is not the exact properies of the index, it is the prefix (which might be exact)
+  std::optional<std::vector<memgraph::query::PropertyIx>> property_ixs_{std::nullopt};
 
   IndexHint Clone(AstStorage *storage) const {
     IndexHint object;
     object.index_type_ = index_type_;
-    object.label_ = storage->GetLabelIx(label_.name);
-    if (property_) {
-      object.property_ = storage->GetPropertyIx(property_->name);
+    object.label_ix_ = storage->GetLabelIx(label_ix_.name);
+    if (property_ixs_) {
+      object.property_ixs_ = *property_ixs_ |
+                             ranges::views::transform([&](auto &&v) { return storage->GetPropertyIx(v.name); }) |
+                             ranges::to_vector;
     }
     return object;
   }

@@ -41,10 +41,14 @@ class Symbol {
         type_(type),
         token_position_(token_position) {}
 
+  //TODO: isn't position_ enough?
   bool operator==(const Symbol &other) const {
     return position_ == other.position_ && name_ == other.name_ && type_ == other.type_;
   }
-  bool operator!=(const Symbol &other) const { return !operator==(other); }
+
+  friend bool operator<(Symbol const & lhs,Symbol const & rhs){
+    return lhs.position_ < rhs.position_;
+  }
 
   // TODO: Remove these since members are public
   const auto &name() const { return name_; }

@@ -596,12 +596,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
   }
   {
     auto acc = this->storage->Access();
@@ -610,12 +610,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -627,13 +627,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
   }
 
   {
@@ -645,12 +645,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
   }
 
   {
@@ -661,18 +661,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
+    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
   }
 
   {
@@ -690,12 +690,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -785,7 +785,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -836,7 +836,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -863,7 +863,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -906,7 +906,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -980,7 +980,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
@@ -1008,7 +1008,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1238,7 +1238,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1271,7 +1271,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1303,7 +1303,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1336,7 +1336,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();

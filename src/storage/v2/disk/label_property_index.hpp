@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
   explicit DiskLabelPropertyIndex(const Config &config);
 
-  bool CreateIndex(LabelId label, PropertyId property,
+  bool CreateIndex(LabelId label, PropertyId property /*maybe TODO*/,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
 
   std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction() const;
@@ -42,19 +42,28 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override{};
 
-  bool DropIndex(LabelId label, PropertyId property) override;
+  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
   bool IndexExists(LabelId label, PropertyId property) const override;
+  bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
+
+  auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
+      -> std::vector<LabelPropertiesIndicesInfo> override;
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const override;
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
+
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
 
   uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                   const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+
+  uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties) const override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 

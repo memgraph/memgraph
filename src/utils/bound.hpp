@@ -34,7 +34,9 @@ class Bound {
   Bound &operator=(Bound &&other) = default;
 
   /** Value for the bound. */
-  const auto &value() const { return value_; }
+  auto value() const -> TValue const & { return value_; }
+  auto operator*() const -> TValue const & { return value_; }
+
   /** Whether the bound is inclusive or exclusive. */
   auto type() const { return type_; }
   auto IsInclusive() const { return type_ == BoundType::INCLUSIVE; }
