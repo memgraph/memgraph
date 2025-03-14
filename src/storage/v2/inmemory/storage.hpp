@@ -132,7 +132,7 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, Accessor::RWType rw_type,
+                              StorageMode storage_mode, Accessor::Type rw_type,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                               StorageMode storage_mode,
@@ -557,7 +557,7 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(Accessor::RWType rw_type, std::optional<IsolationLevel> override_isolation_level,
+  std::unique_ptr<Accessor> Access(Accessor::Type rw_type, std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
   using Storage::UniqueAccess;
   std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
