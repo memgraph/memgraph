@@ -13,7 +13,6 @@
 #include <string_view>
 #include <thread>
 
-#include "query/db_accessor.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -43,9 +42,8 @@ class VectorSearchTest : public testing::Test {
 
   void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
     auto unique_acc = this->storage->UniqueAccess();
-    memgraph::query::DbAccessor dba(unique_acc.get());
-    const auto label = dba.NameToLabel(test_label.data());
-    const auto property = dba.NameToProperty(test_property.data());
+    const auto label = unique_acc->NameToLabel(test_label.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
     const auto spec =

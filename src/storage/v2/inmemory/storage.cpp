@@ -282,8 +282,9 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.salient.items) {}
+                                                    StorageMode storage_mode,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -2756,14 +2757,17 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+                                                           std::optional<std::chrono::milliseconds> timeout) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, timeout});
 }
-std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                                 std::optional<std::chrono::milliseconds> timeout) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, timeout});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

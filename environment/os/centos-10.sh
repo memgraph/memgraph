@@ -132,6 +132,10 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
+    # enable EPEL repo for rpmlint
+    sudo dnf install -y epel-release
+
     # --nobest is used because of libipt because we install custom versions
     # because libipt-devel is not available on CentOS 9 Stream
     dnf update -y --nobest
@@ -207,13 +211,6 @@ install() {
             else # Running using sudo.
                 sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
                 sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-            fi
-            continue
-        fi
-
-        if [ "$pkg" == rpmlint ]; then
-            if ! dnf list installed rpmlint >/dev/null 2>/dev/null; then
-                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/rpmlint-1.11-17.el9.noarch.rpm
             fi
             continue
         fi
