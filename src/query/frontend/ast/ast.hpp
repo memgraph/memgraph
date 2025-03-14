@@ -1347,7 +1347,8 @@ class LabelsTest : public memgraph::query::Expression {
 
   memgraph::query::Expression *expression_{nullptr};
   std::vector<memgraph::query::LabelIx> labels_;
-  std::vector<memgraph::query::LabelIx> or_labels_;
+  std::vector<std::vector<memgraph::query::LabelIx>>
+      or_labels_;  // because we need to support OR in labels -> node has to have at least one of the labels
   bool label_expression_{false};
 
   LabelsTest *Clone(AstStorage *storage) const override {
@@ -1359,7 +1360,10 @@ class LabelsTest : public memgraph::query::Expression {
     }
     object->or_labels_.resize(or_labels_.size());
     for (auto i = 0; i < object->or_labels_.size(); ++i) {
-      object->or_labels_[i] = storage->GetLabelIx(or_labels_[i].name);
+      object->or_labels_[i].resize(or_labels_[i].size());
+      for (auto j = 0; j < object->or_labels_[i].size(); ++j) {
+        object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
+      }
     }
     object->label_expression_ = label_expression_;
     return object;
@@ -1371,7 +1375,7 @@ class LabelsTest : public memgraph::query::Expression {
     if (!label_expression) {
       labels_ = std::move(labels);
     } else {
-      or_labels_ = std::move(labels);
+      or_labels_.push_back(std::move(labels));
     }
   }
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
@@ -1895,7 +1899,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
-  bool label_expresion_{false};
+  bool label_expression_{false};
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
@@ -1917,7 +1921,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
-    object->label_expresion_ = label_expresion_;
+    object->label_expression_ = label_expression_;
     return object;
   }
 

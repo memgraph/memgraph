@@ -444,7 +444,7 @@ struct FilterInfo {
   /// Labels for Type::Label filtering.
   std::vector<LabelIx> labels{};
   /// Labels for Type::Label OR filtering.
-  std::vector<LabelIx> or_labels{};
+  std::vector<std::vector<LabelIx>> or_labels{};
   /// Label expression for Type::Label filtering.
   bool is_label_expression{false};
   /// Property information for Type::Property filtering.
@@ -482,7 +482,7 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
-  auto OrLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
+  auto OrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
   auto OrExpression(const Symbol &symbol) const -> bool;
   auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
@@ -496,6 +496,12 @@ class Filters final {
   /// `Expression *` which are now completely removed.
   void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
                         std::vector<Expression *> *removed_filters = nullptr);
+
+  /// Remove a label filter for OR expression for symbol; may invalidate iterators.
+  /// If removed_filters is not nullptr, fills the vector with original
+  /// `Expression *` which are now completely removed.
+  void EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx> &labels,
+                          std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
@@ -589,20 +595,19 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
     if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
       MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
       labels.insert(filter.labels.begin(), filter.labels.end());
-      labels.insert(filter.or_labels.begin(), filter.or_labels.end());
     }
   }
   return labels;
 }
 
-inline auto Filters::OrLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
-  std::unordered_set<LabelIx> labels;
+inline auto Filters::OrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
+  std::vector<std::vector<LabelIx>> or_labels;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
-      labels.insert(filter.or_labels.begin(), filter.or_labels.end());
+      or_labels.insert(or_labels.end(), filter.or_labels.begin(), filter.or_labels.end());
     }
   }
-  return labels;
+  return or_labels;
 }
 
 // Returns if symbol is filtered with "OR" expression

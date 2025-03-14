@@ -2238,7 +2238,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   }
   if (ctx->labelExpression()) {
     node->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->labelExpression()->accept(this));
-    node->label_expresion_ = true;
+    node->label_expression_ = true;
   }
   if (ctx->properties()) {
     // This can return either properties or parameters

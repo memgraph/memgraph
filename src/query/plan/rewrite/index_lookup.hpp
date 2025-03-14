@@ -1066,8 +1066,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     // Now try to see if we can use label+property index. If not, try to use
     // just the label index.
-    const auto labels = filters_.FilteredLabels(node_symbol);
-    if (labels.empty()) {
+    auto labels = filters_.FilteredLabels(node_symbol);
+    auto or_labels = filters_.OrLabels(node_symbol);
+    if (labels.empty() && or_labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
@@ -1164,29 +1165,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            GetProperty(prop_filter.property_), prop_filter.value_,
                                                            view);
     }
-    auto remove_label_filters = [&](const std::unordered_set<LabelIx> &labels) {
-      for (const auto &label : labels) {
-        std::vector<Expression *> removed_expressions;
-        filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
-        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-      }
-    };
-    auto or_labels = filters_.OrLabels(node_symbol);
     if (!or_labels.empty()) {
-      std::unique_ptr<LogicalOperator> prev;
-      for (const auto &label : or_labels) {
-        if (!db_->LabelIndexExists(GetLabel(label))) return nullptr;
-        auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+      for (const auto &label_vec : or_labels) {
+        if (label_vec.size() != 1) continue;
+        std::unique_ptr<LogicalOperator> prev;
+        for (const auto &label : or_labels) {
+          if (!db_->LabelIndexExists(GetLabel(label))) break;
+          auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+          if (prev) {
+            auto union_op = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
+                                                    std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+            prev = std::move(union_op);
+          } else {
+            prev = std::move(scan);
+          }
+        }
         if (prev) {
-          auto union_op = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
-                                                  std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
-          prev = std::move(union_op);
-        } else {
-          prev = std::move(scan);
+          filters_.EraseOrLabelFilter(node_symbol, label_vec);
+          return prev;
         }
       }
-      remove_label_filters(or_labels);
-      return prev;
     }
 
     auto maybe_label = FindBestLabelIndex(labels);
@@ -1197,7 +1195,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // than the allowed count.
       return nullptr;
     }
-    remove_label_filters({label});
+    filters_.EraseLabelFilter(node_symbol, label);
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };
