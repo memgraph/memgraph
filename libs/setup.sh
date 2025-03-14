@@ -6,7 +6,7 @@
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
-WGET_OR_CLONE_TIMEOUT=15
+WGET_OR_CLONE_TIMEOUT=60
 
 function print_help () {
     echo "Usage: $0 [OPTION]"

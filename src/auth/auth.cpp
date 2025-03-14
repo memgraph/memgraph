@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -92,12 +92,12 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
     if (user_) {
-      return client.SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
           check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
           *user_);
     }
     if (role_) {
-      return client.SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+      return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
           check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
           *role_);
     }
@@ -135,7 +135,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
         type = memgraph::replication::DropAuthDataReq::DataType::ROLE;
         break;
     }
-    return client.SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
+    return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
         check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
         type, name_);
   }

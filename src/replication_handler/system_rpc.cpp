@@ -14,25 +14,9 @@
 #include "auth/rpc.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/rpc.hpp"
 #include "utils/enum.hpp"
 
 namespace memgraph::slk {
-// Serialize code for SystemHeartbeatRes
-void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.system_timestamp, builder);
-}
-void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->system_timestamp, reader);
-}
-
-// Serialize code for SystemHeartbeatReq
-void Save(const memgraph::replication::SystemHeartbeatReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.main_uuid, builder);
-}
-void Load(memgraph::replication::SystemHeartbeatReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->main_uuid, reader);
-}
 
 // Serialize code for SystemRecoveryReq
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
@@ -70,30 +54,11 @@ void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader 
 
 namespace memgraph::replication {
 
-constexpr utils::TypeInfo SystemHeartbeatReq::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_REQ, "SystemHeartbeatReq",
-                                                    nullptr};
-
-constexpr utils::TypeInfo SystemHeartbeatRes::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_RES, "SystemHeartbeatRes",
-                                                    nullptr};
-
 constexpr utils::TypeInfo SystemRecoveryReq::kType{utils::TypeId::REP_SYSTEM_RECOVERY_REQ, "SystemRecoveryReq",
                                                    nullptr};
 
 constexpr utils::TypeInfo SystemRecoveryRes::kType{utils::TypeId::REP_SYSTEM_RECOVERY_RES, "SystemRecoveryRes",
                                                    nullptr};
-
-void SystemHeartbeatReq::Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemHeartbeatReq::Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void SystemHeartbeatRes::Save(const SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemHeartbeatRes::Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
 
 void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);

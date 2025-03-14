@@ -14,12 +14,18 @@
 #include "replication/config.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "utils/event_histogram.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <concepts>
+
+namespace memgraph::metrics {
+extern const Event FrequentHeartbeatRpc_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::replication {
 struct ReplicationClient;
@@ -48,7 +54,8 @@ struct ReplicationClient {
       replica_checker_.Run("Replica Checker",
                            [this, succ_cb = std::forward<FS>(success_callback),
                             fail_cb = std::forward<FF>(fail_callback), failed_attempts = 0UL]() mutable {
-                             constexpr auto kFailureAfterN = 3UL;
+                             // Measure callbacks also to see how long it takes between scheduled runs
+                             utils::MetricsTimer const timer{metrics::FrequentHeartbeatRpc_us};
                              try {
                                {
                                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
@@ -61,7 +68,7 @@ struct ReplicationClient {
                                // NOTE: Here we are communicating with the instance connection.
                                //       We don't have access to the underlying client; so the only thing we can do it
                                //       tell the callback that this is a reconnection and to check the state
-                               if (++failed_attempts == kFailureAfterN) {
+                               if (constexpr auto kFailureAfterN = 3UL; ++failed_attempts == kFailureAfterN) {
                                  fail_cb(*this);
                                }
                              }
@@ -75,9 +82,10 @@ struct ReplicationClient {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
-  bool SteamAndFinalizeDelta(auto &&check, Args &&...args) {
+  bool StreamAndFinalizeDelta(auto &&check, Args &&...args) {
     try {
-      auto stream = rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
+      auto stream = rpc_client_.Stream<RPC>(std::forward<Args>(args)...);
+      // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
       auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
         if (stream.IsDefunct()) {
           state_.WithLock([](auto &state) { state = State::BEHIND; });

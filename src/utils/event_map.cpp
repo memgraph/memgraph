@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,28 +42,26 @@ Counter global_counters_map_array[EventMap::kMaxCounters]{};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventMap global_counters_map(global_counters_map_array);
 
-bool EventMap::Increment(const std::string_view event, Count amount) {
-  const auto id = NameToId(name_to_id_, event, num_free_counters_);
-  if (id != -1) {
+bool EventMap::Increment(const std::string_view event, Count const amount) {
+  if (const auto id = NameToId(name_to_id_, event, num_free_counters_); id != -1) {
     counters_[id].fetch_add(amount, std::memory_order_relaxed);
     return true;
   }
   return false;
 }
 
-bool EventMap::Decrement(const std::string_view event, Count amount) {
-  const auto id = NameToId(name_to_id_, event, num_free_counters_);
-  if (id != -1) {
+bool EventMap::Decrement(const std::string_view event, Count const amount) {
+  if (const auto id = NameToId(name_to_id_, event, num_free_counters_); id != -1) {
     counters_[id].fetch_sub(amount, std::memory_order_relaxed);
     return true;
   }
   return false;
 }
 
-bool IncrementCounter(const std::string_view event, Count amount) {
+bool IncrementCounter(const std::string_view event, Count const amount) {
   return global_counters_map.Increment(event, amount);
 }
-bool DecrementCounter(const std::string_view event, Count amount) {
+bool DecrementCounter(const std::string_view event, Count const amount) {
   return global_counters_map.Decrement(event, amount);
 }
 

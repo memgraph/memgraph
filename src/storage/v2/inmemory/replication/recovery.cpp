@@ -17,8 +17,16 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/event_histogram.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotRpc_us;
+extern const Event CurrentWalRpc_us;
+extern const Event WalFilesRpc_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -75,6 +83,7 @@ replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream
 replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
                                           const std::vector<std::filesystem::path> &wal_files,
                                           bool const reset_needed) {
+  utils::MetricsTimer const timer{metrics::WalFilesRpc_us};
   auto stream = client.Stream<replication::WalFilesRpc>(main_uuid, uuid, wal_files.size(), reset_needed);
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
@@ -86,6 +95,7 @@ replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const ut
 
 replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &storage_uuid,
                                           rpc::Client &client, const std::filesystem::path &path) {
+  utils::MetricsTimer const timer{metrics::SnapshotRpc_us};
   auto stream = client.Stream<replication::SnapshotRpc>(main_uuid, storage_uuid);
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
@@ -95,6 +105,7 @@ replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const ut
 replication::CurrentWalRes TransferCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
                                               rpc::Client &client, durability::WalFile const &wal_file,
                                               bool const reset_needed) {
+  utils::MetricsTimer const timer{metrics::CurrentWalRpc_us};
   InMemoryCurrentWalHandler stream{main_uuid, storage, client, reset_needed};
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;

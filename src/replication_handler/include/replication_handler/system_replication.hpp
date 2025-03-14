@@ -24,9 +24,6 @@ inline void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, co
 }
 
 #ifdef MG_ENTERPRISE
-void SystemHeartbeatHandler(uint64_t ts, const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
-                            slk::Builder *res_builder);
-
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
                            auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
