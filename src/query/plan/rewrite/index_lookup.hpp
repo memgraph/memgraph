@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,7 +133,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_, op.is_label_expression_);
     return true;
   }
 
@@ -146,7 +146,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_, op.is_label_expression_);
       op.all_filters_ = std::move(leftover_filters);
     }
 
@@ -308,7 +308,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return false;
     }
 
-    std::unique_ptr<ScanAll> indexed_scan;
+    std::unique_ptr<LogicalOperator> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a
     // different algorithm then, so prefer expand to existing.
@@ -1035,8 +1035,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  std::unique_ptr<ScanAll> GenScanByIndex(const ScanAll &scan,
-                                          const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  std::unique_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
+                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
@@ -1066,8 +1066,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     // Now try to see if we can use label+property index. If not, try to use
     // just the label index.
-    const auto labels = filters_.FilteredLabels(node_symbol);
-    if (labels.empty()) {
+    auto labels = filters_.FilteredLabels(node_symbol);
+    auto or_labels = filters_.OrLabels(node_symbol);
+    if (labels.empty() && or_labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
@@ -1164,6 +1165,31 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            GetProperty(prop_filter.property_), prop_filter.value_,
                                                            view);
     }
+    if (!or_labels.empty()) {
+      for (const auto &label_vec : or_labels) {
+        if (label_vec.size() == 1) continue;
+        std::unique_ptr<LogicalOperator> prev;
+        for (const auto &label : label_vec) {
+          if (!db_->LabelIndexExists(GetLabel(label))) break;
+          auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+          if (prev) {
+            auto union_op = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
+                                                    std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+            prev = std::move(union_op);
+          } else {
+            prev = std::move(scan);
+          }
+        }
+        if (prev) {
+          filters_.EraseOrLabelFilter(node_symbol, label_vec);
+          return prev;
+        }
+      }
+    }
+    if (labels.empty()) {
+      // Without labels, we cannot generate any indexed ScanAll.
+      return nullptr;
+    }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;
@@ -1172,9 +1198,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // than the allowed count.
       return nullptr;
     }
-    std::vector<Expression *> removed_expressions;
-    filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
-    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    filters_.EraseLabelFilter(node_symbol, label);
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };

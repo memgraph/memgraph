@@ -1359,10 +1359,11 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   Filter() = default;
 
   Filter(const std::shared_ptr<LogicalOperator> &input,
-         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression);
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+         bool label_expression = false);
   Filter(const std::shared_ptr<LogicalOperator> &input,
          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-         Filters all_filters);
+         Filters all_filters, bool label_expression = false);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1375,6 +1376,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> pattern_filters_;
   Expression *expression_;
   memgraph::query::plan::Filters all_filters_;
+  bool is_label_expression_;
 
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
     using Type = query::plan::FilterInfo::Type;
@@ -1392,18 +1394,25 @@ class Filter : public memgraph::query::plan::LogicalOperator {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      std::set<std::string, std::less<>> label_names;
+      std::set<std::string, std::less<>> AND_label_names;
       for (const auto &label : filter_expression->labels_) {
-        label_names.insert(label.name);
+        AND_label_names.insert(label.name);
       }
 
+      std::string OR_label_string =
+          utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+            return fmt::format("({})",
+                               utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+          });
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+        return fmt::format("(:{}:{})",
+                           utils::IterableToString(AND_label_names, ":", [](const auto &name) { return name; }),
+                           OR_label_string);
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
-
-      return fmt::format("({} :{})", identifier_expression->name_,
-                         utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+      return fmt::format("({} :{}:{})", identifier_expression->name_,
+                         utils::IterableToString(AND_label_names, ":", [](const auto &name) { return name; }),
+                         OR_label_string);
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {
