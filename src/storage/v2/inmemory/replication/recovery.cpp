@@ -12,7 +12,6 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include <algorithm>
 #include <cstdint>
-#include <type_traits>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
@@ -21,88 +20,6 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage {
-
-// Handler for transferring the current WAL file whose data is
-// contained in the internal buffer and the file.
-class InMemoryCurrentWalHandler {
- public:
-  explicit InMemoryCurrentWalHandler(const utils::UUID &main_uuid, InMemoryStorage const *storage,
-                                     rpc::Client &rpc_client, bool reset_needed);
-  void AppendFilename(const std::string &filename);
-
-  void AppendSize(size_t size);
-
-  void AppendFileData(utils::InputFile *file);
-
-  void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
-
-  /// @throw rpc::RpcFailedException
-  replication::CurrentWalRes Finalize();
-
- private:
-  rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
-};
-
-////// CurrentWalHandler //////
-InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(const utils::UUID &main_uuid, InMemoryStorage const *storage,
-                                                     rpc::Client &rpc_client, bool const reset_needed)
-    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(main_uuid, storage->uuid(), reset_needed)) {}
-
-void InMemoryCurrentWalHandler::AppendFilename(const std::string &filename) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteString(filename);
-}
-
-void InMemoryCurrentWalHandler::AppendSize(const size_t size) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteUint(size);
-}
-
-void InMemoryCurrentWalHandler::AppendFileData(utils::InputFile *file) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteFileData(file);
-}
-
-void InMemoryCurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  encoder.WriteBuffer(buffer, buffer_size);
-}
-
-replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponseWhileInProgress(); }
-
-// ReplicationClient Helpers
-// Caller should make sure that wal files aren't empty
-replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
-                                          const std::vector<std::filesystem::path> &wal_files,
-                                          bool const reset_needed) {
-  auto stream = client.Stream<replication::WalFilesRpc>(main_uuid, uuid, wal_files.size(), reset_needed);
-  replication::Encoder encoder(stream.GetBuilder());
-  for (const auto &wal : wal_files) {
-    spdlog::debug("Sending wal file: {}", wal);
-    encoder.WriteFile(wal);
-  }
-  return stream.AwaitResponseWhileInProgress();
-}
-
-replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &storage_uuid,
-                                          rpc::Client &client, const std::filesystem::path &path) {
-  auto stream = client.Stream<replication::SnapshotRpc>(main_uuid, storage_uuid);
-  replication::Encoder encoder(stream.GetBuilder());
-  encoder.WriteFile(path);
-  return stream.AwaitResponseWhileInProgress();
-}
-
-replication::CurrentWalRes TransferCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
-                                              rpc::Client &client, durability::WalFile const &wal_file,
-                                              bool const reset_needed) {
-  InMemoryCurrentWalHandler stream{main_uuid, storage, client, reset_needed};
-  stream.AppendFilename(wal_file.Path().filename());
-  utils::InputFile file;
-  MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
-  stream.AppendSize(file.GetSize());
-  stream.AppendFileData(&file);
-  return stream.Finalize();
-}
 
 /// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transferred to replica it tries to update the
