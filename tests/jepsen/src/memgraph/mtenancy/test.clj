@@ -156,6 +156,57 @@
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
                                (assoc op :type :info :value "Not coordinator"))
+
+        :update-nodes (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+                        (try
+                          (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))
+                                random-start-node (rand-int pokec-medium-expected-num-nodes)]
+                            (utils/with-db-session bolt-conn session-config session
+                              (mgquery/update-pokec-nodes session {:param random-start-node}))
+
+                            (assoc op :type :ok :value {:str "Updated nodes"}))
+
+                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                            (utils/process-service-unavailable-exc op node))
+
+                          (catch Exception e
+                            (assoc op :type :fail :value (str e))))
+
+                        (assoc op :type :info :value "Not main data instance."))
+
+        :create-ttl-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+                            (try
+                              (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))
+                                    random-start-node (rand-int pokec-medium-expected-num-nodes)]
+                                (utils/with-db-session bolt-conn session-config session
+                                  (mgquery/create-ttl-edges session {:param random-start-node}))
+
+                                (assoc op :type :ok :value {:str "Created TTL edges"}))
+
+                              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                (utils/process-service-unavailable-exc op node))
+
+                              (catch Exception e
+                                (assoc op :type :fail :value (str e))))
+
+                            (assoc op :type :info :value "Not main data instance."))
+
+        :delete-ttl-edges (if (and (mutils/data-instance? node) (is-main? bolt-conn))
+                            (try
+                              (let [session-config (utils/db-session-config (mutils/get-random-db num-tenants))]
+                                (utils/with-db-session bolt-conn session-config session
+                                  (mgquery/delete-ttl-edges session))
+
+                                (assoc op :type :ok :value {:str "Deleted TTL edges"}))
+
+                              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                (utils/process-service-unavailable-exc op node))
+
+                              (catch Exception e
+                                (assoc op :type :fail :value (str e))))
+
+                            (assoc op :type :info :value "Not main data instance."))
+
         :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
         ; If leader didn't change but registration was done, we won't even try to register -> all good again.
@@ -211,6 +262,7 @@
                               (utils/with-db-session bolt-conn session-config session
                                 (mgquery/create-label-idx session)
                                 (mgquery/create-label-property-idx session)
+                                (mgquery/create-ttl-edge-idx session)
                                 (mgquery/import-pokec-medium-nodes session))))
 
                           (assoc op :type :ok :value {:str "pokec_medium nodes imported"})
@@ -333,6 +385,21 @@
                                        (filter #(= :show-instances-read (:f %)))
                                        (map :value))
 
+            failed-update-nodes (->> history
+                                     (filter #(= :fail (:type %)))
+                                     (filter #(= :update-nodes (:f %)))
+                                     (map :value))
+
+            failed-create-ttl-edges (->> history
+                                         (filter #(= :fail (:type %)))
+                                         (filter #(= :create-ttl-edges (:f %)))
+                                         (map :value))
+
+            failed-delete-ttl-edges (->> history
+                                         (filter #(= :fail (:type %)))
+                                         (filter #(= :delete-ttl-edges (:f %)))
+                                         (map :value))
+
             failed-get-num-nodes (->> history
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :get-num-nodes (:f %)))
@@ -377,6 +444,9 @@
                                      (empty? failed-import-nodes)
                                      (empty? failed-import-edges)
                                      (empty? failed-show-instances)
+                                     (empty? failed-update-nodes)
+                                     (empty? failed-create-ttl-edges)
+                                     (empty? failed-delete-ttl-edges)
                                      (every? #(= % pokec-medium-expected-num-nodes) n1-num-nodes)
                                      (every? #(= % pokec-medium-expected-num-nodes) n2-num-nodes)
                                      (every? #(= % pokec-medium-expected-num-edges) n1-num-edges)
@@ -393,6 +463,9 @@
                             :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
                             :empty-failed-import-edges? (empty? failed-import-edges) ; There shouldn't be any failed import-edges operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
+                            :empty-failed-update-nodes? (empty? failed-update-nodes) ; There shouldn't be any failed update nodes operations.
+                            :empty-failed-create-ttl-edges? (empty? failed-create-ttl-edges) ; There shouldn't be any failed create-ttl-edges operations.
+                            :empty-failed-delete-ttl-edges? (empty? failed-delete-ttl-edges) ; There shouldn't be any failed delete-ttl-edges operations.
                             :empty-failed-get-num-nodes? (empty? failed-get-num-nodes) ; There shouldn't be any failed get-num-nodes operations.
                             :empty-failed-get-num-edges? (empty? failed-get-num-edges) ; There shouldn't be any failed get-num-edges operations.
                             :empty-partial-instances? (empty? partial-instances)}
@@ -409,6 +482,9 @@
                      {:key :failed-import-edges :condition (not (:empty-failed-import-edges? initial-result)) :value failed-import-edges}
                      {:key :failed-get-num-nodes :condition (not (:empty-failed-get-num-nodes? initial-result)) :value failed-get-num-nodes}
                      {:key :failed-get-num-edges :condition (not (:empty-failed-get-num-edges? initial-result)) :value failed-get-num-edges}
+                     {:key :failed-update-nodes :condition (not (:empty-failed-update-nodes? initial-result)) :value failed-update-nodes}
+                     {:key :failed-create-ttl-edges :condition (not (:empty-failed-create-ttl-edges? initial-result)) :value failed-create-ttl-edges}
+                     {:key :failed-delete-ttl-edges :condition (not (:empty-failed-delete-ttl-edges? initial-result)) :value failed-delete-ttl-edges}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
         (reduce (fn [result update]
@@ -422,6 +498,21 @@
   "Invoke show-instances-read op."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
+
+(defn update-nodes
+  "Invoke update-nodes op."
+  [_ _]
+  {:type :invoke, :f :update-nodes, :value nil})
+
+(defn create-ttl-edges
+  "Invoke create-ttl-edges op."
+  [_ _]
+  {:type :invoke, :f :create-ttl-edges, :value nil})
+
+(defn delete-ttl-edges
+  "Invoke delete-ttl-edges op."
+  [_ _]
+  {:type :invoke, :f :delete-ttl-edges, :value nil})
 
 (defn setup-cluster
   "Invoke setup-cluster operation."
@@ -465,7 +556,7 @@
     (gen/once import-edges)
     (gen/sleep 5)
     (gen/delay 2
-               (gen/mix [show-instances-reads])))))
+               (gen/mix [show-instances-reads update-nodes create-ttl-edges delete-ttl-edges])))))
 
 (defn final-client-generator
   "Final client generator."
@@ -486,8 +577,7 @@
         license (:license opts)
         num-tenants (:num-tenants opts)
         recovery-time (:recovery-time opts)
-        nemesis-start-sleep (:nemesis-start-sleep opts)
-        ]
+        nemesis-start-sleep (:nemesis-start-sleep opts)]
     {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)

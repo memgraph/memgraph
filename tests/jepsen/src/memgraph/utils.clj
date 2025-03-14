@@ -5,7 +5,7 @@
   (:import (java.net URI)
            (java.time LocalTime)
            (java.time.format DateTimeFormatter)
-           (org.neo4j.driver GraphDatabase AuthTokens Config AuthToken Driver Session)))
+           (org.neo4j.driver Driver)))
 
 (defn current-local-time-formatted
   "Get current time in HH:mm:ss.SSS"
