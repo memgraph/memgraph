@@ -89,6 +89,9 @@ jobs:
             echo "FOR_DOCKER=true" >> $GITHUB_ENV
             echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
+          if [[ "${{ inputs.additional_build_args }}" == *"--disable-jemalloc" ]]; then
+            artifact_name="${artifact_name}-malloc"
+          fi
           if [[ "${{ inputs.arch }}" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
