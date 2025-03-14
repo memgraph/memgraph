@@ -64,7 +64,8 @@ namespace memgraph::storage {
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
-      : utils::BasicException("Cannot access storage, unique access query is running. Try again later.") {}
+      : utils::BasicException(
+            "Cannot get shared access storage. Try stopping other queries that are running in parallel.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
 };
 
@@ -203,10 +204,10 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
-    enum RWType { READ, WRITE };
+    enum Type { NO_ACCESS, UNIQUE, WRITE, READ, READ_ONLY };
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             RWType rw_type = RWType::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+             Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
@@ -218,6 +219,23 @@ class Storage {
     Accessor(Accessor &&other) noexcept;
 
     virtual ~Accessor() = default;
+
+    Type type() const {
+      if (unique_guard_.owns_lock()) {
+        return UNIQUE;
+      }
+      if (storage_guard_.owns_lock()) {
+        switch (storage_guard_.type()) {
+          case utils::SharedResourceLockGuard::Type::WRITE:
+            return WRITE;
+          case utils::SharedResourceLockGuard::Type::READ:
+            return READ;
+          case utils::SharedResourceLockGuard::Type::READ_ONLY:
+            return READ_ONLY;
+        }
+      }
+      return NO_ACCESS;
+    }
 
     virtual VertexAccessor CreateVertex() = 0;
 
@@ -566,13 +584,13 @@ class Storage {
     }
   }
 
-  virtual std::unique_ptr<Accessor> Access(storage::Storage::Accessor::RWType rw_type,
+  virtual std::unique_ptr<Accessor> Access(storage::Storage::Accessor::Type rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
   std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(storage::Storage::Accessor::RWType::WRITE, override_isolation_level, std::nullopt);
+    return Access(storage::Storage::Accessor::Type::WRITE, override_isolation_level, std::nullopt);
   }
-  std::unique_ptr<Accessor> Access() { return Access(storage::Storage::Accessor::RWType::WRITE, {}, std::nullopt); }
+  std::unique_ptr<Accessor> Access() { return Access(storage::Storage::Accessor::Type::WRITE, {}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;

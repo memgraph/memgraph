@@ -198,8 +198,9 @@ struct PreparedQuery {
  * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
  */
 struct QueryExtras {
-  storage::PropertyValue::map_t metadata_pv;
-  std::optional<int64_t> tx_timeout;
+  storage::PropertyValue::map_t metadata_pv{};
+  std::optional<int64_t> tx_timeout{};
+  bool is_read{false};
 };
 
 struct CurrentDB {
@@ -212,7 +213,7 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                bool unique = false, bool read_only = false);
+                                storage::Storage::Accessor::Type acc_type = storage::Storage::Accessor::Type::WRITE);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -453,7 +454,8 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
-  void SetupDatabaseTransaction(bool couldCommit, bool unique = false, bool read_only = false);
+  void SetupDatabaseTransaction(bool couldCommit,
+                                storage::Storage::Accessor::Type acc_type = storage::Storage::Accessor::Type::WRITE);
 };
 
 template <typename TStream>

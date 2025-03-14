@@ -274,6 +274,10 @@ struct SharedResourceLockGuard {
     }
   }
 
+  bool owns_lock() const { return ptr_ && locked_; }
+
+  Type type() const { return type_; }
+
  private:
   ResourceLock *ptr_;
   Type type_;
