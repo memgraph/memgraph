@@ -1152,8 +1152,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               return 20.0;  // cheapest, just a raw scan of the index skip list
             case EQUAL:
               return 10.0;
-            case RANGE:
-              return 7.0;
+            case RANGE: {
+              if (fi.property_filter->lower_bound_ && fi.property_filter->upper_bound_) {
+                return 7.0;
+              } else {
+                return 6.0;
+              }
+            }
             case REGEX_MATCH:
               return 5.0;  // REGEX compare is more expensive
             case IN:

@@ -421,6 +421,10 @@ void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbo
   for (const auto &filter : filters) {
     AnalyzeAndStoreFilter(filter, symbol_table);
   }
+
+  // For all the properties which are ranges and that have literal bounds over
+  // the same symbol property, we will subsume filters.
+  // NOTE: Handle two conflicting expressions
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
