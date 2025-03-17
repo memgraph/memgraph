@@ -1198,7 +1198,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // than the allowed count.
       return nullptr;
     }
+    std::vector<Expression *> removed_expressions;
     filters_.EraseLabelFilter(node_symbol, label);
+    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };
