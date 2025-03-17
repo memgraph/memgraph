@@ -32,6 +32,7 @@
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 
 // helper to hash vector
 namespace std {
@@ -52,6 +53,43 @@ DECLARE_int64(query_vertex_count_to_expand_existing);
 namespace memgraph::query::plan {
 
 namespace {
+
+struct ExpressionRange {
+  using Type = PropertyFilter::Type;
+
+  Type type_;
+  std::optional<utils::Bound<Expression *>> lower_;
+  std::optional<utils::Bound<Expression *>> upper_;
+
+  static auto Equal(Expression *value) -> ExpressionRange {
+    return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
+  }
+
+  static auto RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
+
+  static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
+      -> ExpressionRange {
+    return {Type::RANGE, std::move(lower), std::move(upper)};
+  }
+
+  static auto In(Expression *value) -> ExpressionRange {
+    return {Type::IN, utils::MakeBoundInclusive(value), std::nullopt};
+  }
+
+  static auto IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
+
+  auto evaluate() const -> storage::PropertyValueRange {
+    // @TODO write this bit to evaluate the expressions and return a
+    // PropertyValueRange
+    return storage::PropertyValueRange::IsNotNull();
+  }
+
+ private:
+  ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
+                  std::optional<utils::Bound<Expression *>> upper)
+      : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
+};
+
 // TODO: move to somewhere generic/utils
 template <typename T, typename CB>
 void cartesian_product_impl(std::vector<std::vector<T>> const &vecs, size_t depth, std::vector<T> &temp, CB const &cb) {
@@ -1376,22 +1414,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         MG_ASSERT(expression, "Property filter should either have bounds or a value expression.");
         return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
-                                                             GetProperty(prop_filter.property_), expression,
-                                                             view);
+                                                             GetProperty(prop_filter.property_), expression, view);
       };
       if (found_index->filters.size() == 1) {
         return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
       } else {
-        //TODO: extract common code from InMemoryLabelPropertyIndex::Iterable::Iterable
-        //explicit bounds:
-        // EQUAL ->  utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value),
-        // REGEX_MATCH -> utils::MakeBoundInclusive(empty_string), UBSTRING as Expression?
-        // RANGE -> aleady defined
-        // IN -> same as EQUAL value comming from value_expressions
-        // IS_NOT_NULL -> BOOL to unbounded (need to ensure we can articulate unbounded, ATM std::nullopt means "same type" as other bound)
+        // TODO: extract common code from InMemoryLabelPropertyIndex::Iterable::Iterable
+        // explicit bounds:
+        //  EQUAL ->  utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value),
+        //  REGEX_MATCH -> utils::MakeBoundInclusive(empty_string), UBSTRING as Expression?
+        //  RANGE -> aleady defined
+        //  IN -> same as EQUAL value comming from value_expressions
+        //  IS_NOT_NULL -> BOOL to unbounded (need to ensure we can articulate unbounded, ATM std::nullopt means "same
+        //  type" as other bound)
 
         // LogicalOperator get to know about Expressions
         // Only when it is a cursor can it evaluate to actual PropertyValue
+
+        // EQUAL       -> ExpressionRange::Bounded(value, value)
+        // REGEX       -> ExpressionRange::Bounded(empty_string, upperBound(string))
+        // RANGE       -> ExpressionRange::Bounded(lower, upper)
+        // IN          -> ExpressionRange::Bounded(value, value)
+        // IS_NOT_NULL -> ExpressionRange::IsNotNull()
 
         return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
       }

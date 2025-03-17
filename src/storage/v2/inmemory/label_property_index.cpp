@@ -12,10 +12,10 @@
 #include <cstdint>
 
 #include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
@@ -528,54 +528,54 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-                                               std::span<PropertyId const> properties,
-                                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                               Storage *storage, Transaction *transaction)
+                                               std::span<PropertyId const> properties, PropertyValueRange range,
+                                               View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
       properties_(properties.begin(), properties.end()),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  // We have to fix the bounds that the user provided to us. If the user
-  // provided only one bound we should make sure that only values of that type
-  // are returned by the iterator. We ensure this by supplying either an
-  // inclusive lower bound of the same type, or an exclusive upper bound of the
-  // following type. If neither bound is set we yield all items in the index.
+  if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+    lower_bound_ = LowerBoundForType(PropertyValueType::Bool);
+  } else if (range.type_ == PropertyRangeType::BOUNDED) {
+    // We have to fix the bounds that the user provided to us. If the user
+    // provided only one bound we should make sure that only values of that type
+    // are returned by the iterator. We ensure this by supplying either an
+    // inclusive lower bound of the same type, or an exclusive upper bound of the
+    // following type. If neither bound is set we yield all items in the index.
+    lower_bound_ = std::move(range.lower_);
+    upper_bound_ = std::move(range.upper_);
 
+    // Remove any bounds that are set to `Null` because that isn't a valid value.
+    if (lower_bound_ && lower_bound_->value().IsNull()) {
+      lower_bound_ = std::nullopt;
+    }
+    if (upper_bound_ && upper_bound_->value().IsNull()) {
+      upper_bound_ = std::nullopt;
+    }
 
-  // Set missing bounds.
-  if (lower_bound_ && !upper_bound_) {
-    // Here we need to supply an upper bound. The upper bound is set to an
-    // exclusive lower bound of the following type.
-    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
+    // Check whether the bounds are of comparable types if both are supplied.
+    if (lower_bound_ && upper_bound_ &&
+        !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
+      bounds_valid_ = false;
+      return;
+    }
+
+    // Set missing bounds.
+    if (lower_bound_ && !upper_bound_) {
+      // Here we need to supply an upper bound. The upper bound is set to an
+      // exclusive lower bound of the following type.
+      upper_bound_ = UpperBoundForType(lower_bound_->value().type());
+    }
+
+    if (upper_bound_ && !lower_bound_) {
+      // Here we need to supply a lower bound. The lower bound is set to an
+      // inclusive lower bound of the current type.
+      lower_bound_ = LowerBoundForType(upper_bound_->value().type());
+    }
   }
-
-  if (upper_bound_ && !lower_bound_) {
-    // Here we need to supply a lower bound. The lower bound is set to an
-    // inclusive lower bound of the current type.
-    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
-  }
-
-  // Remove any bounds that are set to `Null` because that isn't a valid value.
-  if (lower_bound_ && lower_bound_->value().IsNull()) {
-    lower_bound_ = std::nullopt;
-  }
-  if (upper_bound_ && upper_bound_->value().IsNull()) {
-    upper_bound_ = std::nullopt;
-  }
-
-  // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
-    bounds_valid_ = false;
-    return;
-  }
-
-
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Iterable::begin() {
@@ -756,10 +756,9 @@ void InMemoryLabelPropertyIndex::RunGC() {
   }
 }
 
-InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction) {
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelId label, PropertyId property,
+                                                                          PropertyValueRange range, View view,
+                                                                          Storage *storage, Transaction *transaction) {
   DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
              "PropertyLabel index trying to access InMemory vertices from OnDisk!");
@@ -775,18 +774,16 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
           std::move(vertices_acc),
           label,
           std::array{property},
-          lower_bound,
-          upper_bound,
+          std::move(range),
           view,
           storage,
           transaction};
 }
 
-InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
-    LabelId label, std::span<PropertyId const> properties,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction) {
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelId label,
+                                                                          std::span<PropertyId const> properties,
+                                                                          PropertyValueRange range, View view,
+                                                                          Storage *storage, Transaction *transaction) {
   DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
              "PropertyLabel index trying to access InMemory vertices from OnDisk!");
@@ -802,8 +799,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
           std::move(vertices_acc),
           label,
           properties,
-          lower_bound,
-          upper_bound,
+          std::move(range),
           view,
           storage,
           transaction};
@@ -811,10 +807,8 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-    Transaction *transaction) {
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, PropertyValueRange range,
+    View view, Storage *storage, Transaction *transaction) {
   auto it = new_index_.find(label);
   MG_ASSERT(it != new_index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
             property.AsUint() /*TODO: correct the error msg*/);
@@ -826,8 +820,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
           std::move(vertices_acc),
           label,
           std::array{property},
-          lower_bound,
-          upper_bound,
+          std::move(range),
           view,
           storage,
           transaction};
