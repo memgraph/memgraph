@@ -1084,6 +1084,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         filters_.EraseFilter(filter);
         std::vector<Expression *> removed_expressions;  // out parameter
+        // TODO: Do we need to remove OR labels here?
         filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
         filter_exprs_for_removal_.insert(filter.expression);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
@@ -1130,6 +1131,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       filters_.EraseFilter(found_index->filter);
       std::vector<Expression *> removed_expressions;
+      // TODO: Do we need to remove OR labels here?
       filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
