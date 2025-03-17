@@ -1385,11 +1385,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         //TODO: extract common code from InMemoryLabelPropertyIndex::Iterable::Iterable
         //explicit bounds:
         // EQUAL ->  utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value),
-        // REGEX_MATCH -> utils::MakeBoundInclusive(empty_string), UBSTRING?
+        // REGEX_MATCH -> utils::MakeBoundInclusive(empty_string), UBSTRING as Expression?
         // RANGE -> aleady defined
         // IN -> same as EQUAL value comming from value_expressions
-        // IS_NOT_NULL -> BOOL to unbounded
+        // IS_NOT_NULL -> BOOL to unbounded (need to ensure we can articulate unbounded, ATM std::nullopt means "same type" as other bound)
 
+        // LogicalOperator get to know about Expressions
+        // Only when it is a cursor can it evaluate to actual PropertyValue
 
         return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
       }

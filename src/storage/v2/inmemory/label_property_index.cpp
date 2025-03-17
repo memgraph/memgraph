@@ -547,6 +547,20 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
   // inclusive lower bound of the same type, or an exclusive upper bound of the
   // following type. If neither bound is set we yield all items in the index.
 
+
+  // Set missing bounds.
+  if (lower_bound_ && !upper_bound_) {
+    // Here we need to supply an upper bound. The upper bound is set to an
+    // exclusive lower bound of the following type.
+    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
+  }
+
+  if (upper_bound_ && !lower_bound_) {
+    // Here we need to supply a lower bound. The lower bound is set to an
+    // inclusive lower bound of the current type.
+    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
+  }
+
   // Remove any bounds that are set to `Null` because that isn't a valid value.
   if (lower_bound_ && lower_bound_->value().IsNull()) {
     lower_bound_ = std::nullopt;
@@ -561,18 +575,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
     return;
   }
 
-  // Set missing bounds.
-  if (lower_bound_ && !upper_bound_) {
-    // Here we need to supply an upper bound. The upper bound is set to an
-    // exclusive lower bound of the following type.
-    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
-  }
 
-  if (upper_bound_ && !lower_bound_) {
-    // Here we need to supply a lower bound. The lower bound is set to an
-    // inclusive lower bound of the current type.
-    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
-  }
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Iterable::begin() {
