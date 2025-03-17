@@ -1375,7 +1375,6 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> pattern_filters_;
   Expression *expression_;
   memgraph::query::plan::Filters all_filters_;
-  bool is_label_expression_;
 
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
     using Type = query::plan::FilterInfo::Type;
