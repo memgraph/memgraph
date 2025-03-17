@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,8 +33,8 @@ TEST(Storage, LabelIndex) {
 
   auto label = store->NameToLabel("label");
   {
-    auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+    auto ro_acc = store->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc->CreateIndex(label).HasError());
   }
 
   std::vector<std::thread> verifiers;
@@ -118,8 +118,8 @@ TEST(Storage, LabelPropertyIndex) {
   auto label = store->NameToLabel("label");
   auto prop = store->NameToProperty("prop");
   {
-    auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label, prop).HasError());
+    auto ro_acc = store->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc->CreateIndex(label, prop).HasError());
   }
 
   std::vector<std::thread> verifiers;

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,8 +99,8 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
   auto label = db->NameToLabel("label");
   auto prop = db->NameToProperty("prop");
   {
-    auto unique_acc = db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    auto ro_acc = db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = ro_acc->CreateIndex(label, prop);
   }
   auto dba = db->Access();
   for (int vi = 0; vi < vertex_count; ++vi) {

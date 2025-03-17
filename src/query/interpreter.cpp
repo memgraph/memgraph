@@ -2517,8 +2517,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
-  if (dba->type() == storage::Storage::Accessor::Type::WRITE) {
-    if (rw_type_checker.type != RWType::W && rw_type_checker.type != RWType::RW) {
+  if (dba->type() == storage::Storage::Accessor::Type::READ) {
+    if (rw_type_checker.type != RWType::R && rw_type_checker.type != RWType::NONE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba->type()),
                                   static_cast<int>(rw_type_checker.type));
     }
