@@ -61,8 +61,23 @@ SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
+    
+    benchmark_parser.add_argument(
+        "--vendor-name",
+        type=str,
+        default=GraphVendors.MEMGRAPH,
+        choices=GraphVendors.get_all_vendors(),
+        help="Input vendor binary name (memgraph, neo4j, falkordb)",
+    )
+    
+    benchmark_parser.add_argument(
+        "--installation-type",
+        type=str,
+        default=BenchmarkInstallationType.NATIVE,
+        choices=BenchmarkInstallationType.get_all_installation_types(),
+        help="Installation type (native, docker)",
+    )
 
     benchmark_parser.add_argument(
         "benchmarks",
@@ -197,42 +212,21 @@ def parse_args():
         help="Vendor specific arguments that can be applied to each vendor, format: [key=value, key=value ...]",
     )
 
-    subparsers = parser.add_subparsers(help="Subparsers", dest="run_option")
-
-    parser_vendor_native = subparsers.add_parser(
-        "vendor-native",
-        help="Running database in binary native form",
-        parents=[benchmark_parser],
-    )
-    parser_vendor_native.add_argument(
-        "--vendor-name",
-        default="memgraph",
-        choices=["memgraph", "neo4j"],
-        help="Input vendor binary name (memgraph, neo4j)",
-    )
-    parser_vendor_native.add_argument(
+    benchmark_parser.add_argument(
         "--vendor-binary",
+        type=str,
         help="Vendor binary used for benchmarking, by default it is memgraph",
         default=helpers.get_binary_path("memgraph"),
     )
 
-    parser_vendor_native.add_argument(
+    benchmark_parser.add_argument(
         "--client-binary",
+        type=str,
         default=helpers.get_binary_path("tests/mgbench/client"),
         help="Client binary used for benchmarking",
     )
 
-    parser_vendor_docker = subparsers.add_parser(
-        "vendor-docker", help="Running database in docker", parents=[benchmark_parser]
-    )
-    parser_vendor_docker.add_argument(
-        "--vendor-name",
-        default="memgraph-docker",
-        choices=["memgraph-docker", "neo4j-docker", "falkordb-docker"],
-        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker, falkordb-docker)",
-    )
-
-    return parser.parse_args()
+    return benchmark_parser.parse_args()
 
 
 def sanitize_args(args):
@@ -643,7 +637,7 @@ def run_isolated_workload_without_authorization(
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    if benchmark_context.vendor_type != "neo4j":
+    if benchmark_context.vendor_name != "neo4j":
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
         vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
@@ -895,16 +889,6 @@ def log_output_summary(benchmark_context, ret, usage, funcname, sample_query):
     log.success("Throughput: {:02f} QPS\n\n".format(ret[THROUGHPUT]))
 
 
-def get_vendor_type(vendor_name):
-    if "memgraph" in vendor_name.lower():
-        return "memgraph"
-    if "neo4j" in vendor_name.lower():
-        return "neo4j"
-    if "falkordb" in vendor_name.lower():
-        return "falkordb"
-    raise Exception(f"Vendor name {vendor_name} not recognized")
-
-
 if __name__ == "__main__":
     args = parse_args()
     sanitize_args(args)
@@ -913,14 +897,12 @@ if __name__ == "__main__":
     temp_dir = pathlib.Path.cwd() / ".temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    vendor_type = get_vendor_type(args.vendor_name)
-
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
-        vendor_name=args.vendor_name.replace("-", ""),
-        vendor_type=vendor_type,
-        client_binary=args.client_binary if args.run_option == "vendor-native" else None,
+        vendor_binary=args.vendor_binary if args.installation_type == "native" else None,
+        vendor_name=args.vendor_name,
+        installation_type=args.installation_type,
+        client_binary=args.client_binary if args.installation_type == "native" else None,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,

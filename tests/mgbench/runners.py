@@ -23,6 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
+from constants import BenchmarkInstallationType
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -204,7 +205,7 @@ class BoltClientDocker(BaseClient):
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
         self._container_name = "mgbench-bolt-client"
-        self._target_db_container = f"{benchmark_context.vendor_type}_benchmark"
+        self._target_db_container = f"{benchmark_context.vendor_name}_benchmark"
 
     def _remove_container(self):
         command = ["docker", "rm", "-f", self._container_name]
@@ -371,11 +372,11 @@ class BoltClientDocker(BaseClient):
 
 class FalkorDBClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
-        self._client_binary = "tests/mgbench/falkordb_client.py"
+        self._client_binary = "tests/mgbench/python_client.py"
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._bolt_port = 6379
+        self._database_port = 6379
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags("python3", self._client_binary, **kwargs)
@@ -400,13 +401,14 @@ class FalkorDBClient(BaseClient):
             f.write("\n")
 
         check_db_args = self._get_args(
+            vendor="falkordb",
             input=check_db_query,
             num_workers=1,
             max_retries=max_retries,
             queries_json=True,
             username=self._username,
             password=self._password,
-            port=self._bolt_port,
+            port=self._database_port,
             validation=False,
             time_dependent_execution=time_dependent_execution,
         )
@@ -435,13 +437,14 @@ class FalkorDBClient(BaseClient):
                     f.write("\n")
 
         args = self._get_args(
+            vendor="falkordb",
             input=file_path,
             num_workers=num_workers,
             max_retries=max_retries,
             queries_json=queries_and_args_json,
             username=self._username,
             password=self._password,
-            port=self._bolt_port,
+            port=self._database_port,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
         )
@@ -474,7 +477,13 @@ class BaseRunner(ABC):
         if benchmark_context.vendor_name not in cls.subclasses:
             raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
-        return cls.subclasses[benchmark_context.vendor_name](
+        subclass_name = (
+            benchmark_context.vendor_name
+            if benchmark_context.installation_type == BenchmarkInstallationType.NATIVE
+            else f"{benchmark_context.vendor_name}{benchmark_context.installation_type}"
+        )
+
+        return cls.subclasses[subclass_name](
             benchmark_context=benchmark_context,
         )
 

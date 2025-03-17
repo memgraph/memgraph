@@ -159,11 +159,11 @@ The main script that manages benchmark execution is `benchmark.py`.
 
 To start the benchmark, you need to run the following command with your paths and options:
 
-```python3 benchmark.py vendor-docker --vendor-name (memgraph-docker||neo4j-docker) benchmarks demo/*/*/* --export-results result.json  --no-authorization```
+```python3 benchmark.py --vendor-name (memgraph||neo4j) --installation-type docker benchmarks demo/*/*/* --export-results result.json  --no-authorization```
 
 To run this on memgraph, the command looks like this:
 
-```python3 benchmark.py vendor-docker --vendor-name memgraph-docker benchmarks demo/*/*/* --export-results results.json --no-authorization```
+```python3 benchmark.py --vendor-name memgraph --installation-type docker benchmarks demo/*/*/* --export-results results.json --no-authorization```
 
 ## How to configure benchmark run
 

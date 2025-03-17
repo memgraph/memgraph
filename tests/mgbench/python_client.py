@@ -1,42 +1,80 @@
+from abc import ABC, abstractmethod
 import argparse
 import json
 import time
 from multiprocessing import Array, Lock, Manager, Process, Queue, Value
 from falkordb import FalkorDB
+from neo4j import GraphDatabase
 
 
-GRAPH_NAME = "social"
+class PythonClient(ABC):
+    @abstractmethod
+    def execute_query(self, query, params):
+        pass
+
+    def execute(self, query, params, max_attempts):
+        for attempt in range(max_attempts):
+            try:
+                latency = self.execute_query(query, params)
+                return latency, attempt
+            except Exception as e:
+                if attempt >= max_attempts - 1:
+                    raise Exception(f"Could not execute query '{query}' {attempt} times! Error message: {e}")
+                time.sleep(0.1)  # Brief pause before retrying
 
 
-def execute_query(graph, query, params, max_attempts):
-    for attempt in range(max_attempts):
-        try:
-            result = graph.query(query, params)
-            return result, attempt
-        except Exception as e:
-            if attempt >= max_attempts - 1:
-                raise Exception(f"Could not execute query '{query}' {attempt} times! Error message: {e}")
-            time.sleep(0.1)  # Brief pause before retrying
+class FalkorDBPythonClient(PythonClient):
+    GRAPH_NAME = "social"
+
+    def __init__(self, host, port):
+        super().__init__()
+        self._db = FalkorDB(host=host, port=port)
+        self._graph = self._db.select_graph(FalkorDBPythonClient.GRAPH_NAME)
+
+    def execute_query(self, query, params):
+        result = self._graph.query(query, params)
+        return result.run_time_ms
+
+
+class Neo4jPythonClient:
+    def __init__(self, host, port, user="", password=""):
+        self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
+
+    def close(self):
+        self._driver.close()
+
+    def execute_query(self, query, params=None):
+        with self._driver.session() as session:
+            result = session.run(query, parameters=params or {})
+            summary = result.consume()
+            return summary.result_available_after
+
+
+def get_python_client(vendor):
+    if vendor == "memgraph" or vendor == "neo4j":
+        return Neo4jPythonClient
+    if vendor == "falkordb":
+        return FalkorDBPythonClient
+    raise Exception("Unknown vendor!")
 
 
 def execute_validation_task(
-    worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
 ):
-    db = FalkorDB(host=host, port=port)
-    graph = db.select_graph(GRAPH_NAME)
+    client = get_python_client(vendor)(host, port)
 
     if len(queries) != 1:
         raise Exception("Validation query should be performed with only one query!")
 
     query_start_time = time.time()
     query, params = queries[0]
-    result, attempts = execute_query(graph, query, params, max_retries)
+    latency, attempts = client.execute(query, params, max_retries)
     query_end_time = time.time()
 
     duration = query_end_time - query_start_time
     results[worker_id] = {
         "worker": worker_id,
-        "latencies": [result.run_time_ms],
+        "latencies": latency,
         "attempts": attempts,
         "durations": [duration],
     }
@@ -44,9 +82,10 @@ def execute_validation_task(
     durations[0] = duration
 
 
-def execute_queries_task(worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit):
-    db = FalkorDB(host=host, port=port)
-    graph = db.select_graph(GRAPH_NAME)
+def execute_queries_task(
+    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
+):
+    client = get_python_client(vendor)(host, port)
 
     size = len(queries)
     pos = 0
@@ -73,20 +112,19 @@ def execute_queries_task(worker_id, host, port, queries, position, lock, results
         query, params = queries[pos]
 
         query_time_start = time.time()
-        result, attempts = execute_query(graph, query, params, max_retries)
+        latency, attempts = client.execute(query, params, max_retries)
         query_time_end = time.time()
 
         query_duration = query_time_end - query_time_start
         aggregate["durations"].append(query_duration)
-        aggregate["latencies"].append(result.run_time_ms)
+        aggregate["latencies"].append(latency)
         aggregate["attempts"] += attempts
 
 
 def execute_time_dependent_task(
-    worker_id, host, port, queries, position, lock, results, durations, max_retries, time_limit
+    worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
 ):
-    db = FalkorDB(host=host, port=port)
-    graph = db.select_graph(GRAPH_NAME)
+    client = get_python_client(vendor)(host, port)
 
     size = len(queries)
     pos = 0
@@ -110,12 +148,12 @@ def execute_time_dependent_task(
 
         query, params = queries[pos]
         query_start_time = time.time()
-        result, attempts = execute_query(graph, query, params, max_retries)
+        latency, attempts = client.execute(query, params, max_retries)
         query_end_time = time.time()
 
         query_duration = query_end_time - query_start_time
         aggregate["durations"].append(query_duration)
-        aggregate["latencies"].append(result.run_time_ms)
+        aggregate["latencies"].append(latency)
         aggregate["attempts"] += attempts
 
         worker_end_time = time.time()
@@ -149,6 +187,7 @@ def execute_workload(queries, args):
             target=task,
             args=(
                 worker_id,
+                args.vendor,
                 args.host,
                 args.port,
                 queries,
@@ -206,8 +245,9 @@ def str2bool(v):
 
 def main():
     parser = argparse.ArgumentParser(description="FalkorDB Concurrent Query Executor")
-    parser.add_argument("--host", default="localhost", help="FalkorDB server host")
-    parser.add_argument("--port", type=int, default=6379, help="FalkorDB server port")
+    parser.add_argument("--vendor", default="memgraph", help="Vendor name for the python client")
+    parser.add_argument("--host", default="localhost", help="Database server host")
+    parser.add_argument("--port", type=int, default=7687, help="Database server port")
     parser.add_argument("--username", default="", help="Username for the database")
     parser.add_argument("--password", default="", help="Password for the database")
     parser.add_argument("--num-workers", type=int, default=1, help="Number of worker threads")

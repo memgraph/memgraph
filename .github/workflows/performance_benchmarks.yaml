@@ -46,13 +46,13 @@ jobs:
       - name: Run benchmarks
         run: |
           cd tests/mgbench
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+          ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
 
-          ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_supernode.json supernode
+          ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results benchmark_supernode.json supernode
 
-          ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_high_write_set_property.json high_write_set_property
+          ./benchmark.py --installation-type native --num-workers-for-benchmark 1 --export-results benchmark_high_write_set_property.json high_write_set_property
 
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_cartesian.json cartesian
+          ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results benchmark_cartesian.json cartesian
 
       - name: Upload benchmark results
         run: |
