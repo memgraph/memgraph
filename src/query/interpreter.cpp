@@ -5949,21 +5949,23 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       bool could_commit = cypher_query != nullptr;
       bool const unique = unique_db_transaction || is_schema_assert_query;
       bool const read_only = read_only_db_transaction;
-      auto write_check = [cypher_query] {
+      auto write_check = [](auto *query) {
         // TODO Use plan::ReadWriteTypeChecker instead. Problem is that it requires a database accessor...
         // TODO Allow non-db cypher query
         // TODO extras has a rw flag; check if it is useful
         query::RWChecker rw_checker;
-        cypher_query->Accept(rw_checker);
+        query->Accept(rw_checker);
         return rw_checker.IsWrite();
       };
-      // Default access is shared read access
       auto acc_type =
           read_db_transactions ? storage::Storage::Accessor::Type::READ : storage::Storage::Accessor::Type::WRITE;
       if (unique) acc_type = storage::Storage::Accessor::Type::UNIQUE;
       if (read_only) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
-      if ((could_commit || utils::Downcast<ProfileQuery>(parsed_query.query)) && !write_check())
+      auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
+      if ((cypher_query && !write_check(cypher_query)) ||
+          (profile_query && !write_check(profile_query->cypher_query_))) {
         acc_type = storage::Storage::Accessor::Type::READ;
+      }
       SetupDatabaseTransaction(could_commit, acc_type);
     }
 
