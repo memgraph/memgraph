@@ -792,15 +792,6 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   auto const id_to_add = config.coordinator_id;
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-  {
-    auto const existing_coord = std::ranges::find_if(
-        coordinator_instances_context,
-        [&bolt_server_to_add](auto const &coord) { return coord.bolt_server == bolt_server_to_add; });
-
-    if (existing_coord != coordinator_instances_context.end()) {
-      return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
-    }
-  }
 
   // Adding new coordinator
   if (id_to_add != raft_state_->GetMyCoordinatorId()) {
