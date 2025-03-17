@@ -1165,6 +1165,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            GetProperty(prop_filter.property_), prop_filter.value_,
                                                            view);
     }
+    if (!labels.empty()) {
+      auto maybe_label = FindBestLabelIndex(labels);
+      if (maybe_label) {
+        const auto &label = *maybe_label;
+        if (!max_vertex_count || db_->VerticesCount(GetLabel(label)) <= *max_vertex_count) {
+          std::vector<Expression *> removed_expressions;
+          filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
+          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+          return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+        }
+      }
+    }
+
     if (!or_labels.empty()) {
       for (const auto &label_vec : or_labels) {
         if (label_vec.size() == 1) continue;
@@ -1181,27 +1194,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         }
         if (prev) {
-          filters_.EraseOrLabelFilter(node_symbol, label_vec);
+          std::vector<Expression *> removed_expressions;
+          filters_.EraseOrLabelFilter(node_symbol, label_vec, &removed_expressions);
+          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
           return prev;
         }
       }
     }
-    if (labels.empty()) {
-      // Without labels, we cannot generate any indexed ScanAll.
-      return nullptr;
-    }
-    auto maybe_label = FindBestLabelIndex(labels);
-    if (!maybe_label) return nullptr;
-    const auto &label = *maybe_label;
-    if (max_vertex_count && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
-      // Don't create an indexed lookup, since we have more labeled vertices
-      // than the allowed count.
-      return nullptr;
-    }
-    std::vector<Expression *> removed_expressions;
-    filters_.EraseLabelFilter(node_symbol, label);
-    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+    return nullptr;
   }
 };
 
