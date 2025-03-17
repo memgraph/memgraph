@@ -765,21 +765,33 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
-  constexpr bool kUniqueAccess = true;
-  constexpr bool kSharedAccess = false;
+  constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
+  constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
-                                            uint64_t commit_timestamp,
-                                            bool const unique =
-                                                kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
+  auto const get_replication_accessor =
+      [storage, &commit_timestamp_and_accessor](
+          uint64_t commit_timestamp,
+          storage::Storage::Accessor::Type acc_type =
+              storage::Storage::Accessor::Type::WRITE) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
-      if (unique) {
-        acc = storage->UniqueAccess();
-      } else {
-        acc = storage->Access();
+      switch (acc_type) {
+        case storage::Storage::Accessor::Type::READ:
+          [[fallthrough]];
+        case storage::Storage::Accessor::Type::WRITE:
+          acc = storage->Access(acc_type);
+          break;
+        case storage::Storage::Accessor::Type::UNIQUE:
+          acc = storage->UniqueAccess();
+          break;
+        case storage::Storage::Accessor::Type::READ_ONLY:
+          acc = storage->ReadOnlyAccess();
+          break;
+        default:
+          throw utils::BasicException("Replica failed to gain storage access! Unknown accessor type.");
       }
+
       auto const inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
@@ -1037,13 +1049,13 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->CreateIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
         },
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->DropIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
@@ -1069,7 +1081,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelPropertyIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->CreateIndex(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
                   .HasError())
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
@@ -1078,7 +1090,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelPropertyIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->DropIndex(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
                   .HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label, data.property);
@@ -1104,21 +1116,21 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalEdgeTypeIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create edge index on :{}", current_delta_idx, data.edge_type);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type)).HasError()) {
             throw utils::BasicException("Failed to create edge index on :{}.", data.edge_type);
           }
         },
         [&](WalEdgeTypeIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop edge index on :{}", current_delta_idx, data.edge_type);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->DropIndex(storage->NameToEdgeType(data.edge_type)).HasError()) {
             throw utils::BasicException("Failed to drop edge index on :{}.", data.edge_type);
           }
         },
         [&](WalEdgeTypePropertyIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
                   .HasError()) {
             throw utils::BasicException("Failed to create edge property index on :{}({}).", data.edge_type,
@@ -1127,7 +1139,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalEdgeTypePropertyIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction->DropIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
                   .HasError()) {
             throw utils::BasicException("Failed to drop edge property index on :{}({}).", data.edge_type,
@@ -1157,7 +1169,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalExistenceConstraintCreate const &data) {
           spdlog::trace("   Delta {}. Create existence constraint on :{} ({})", current_delta_idx, data.label,
                         data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto ret = transaction->CreateExistenceConstraint(storage->NameToLabel(data.label),
                                                             storage->NameToProperty(data.property));
           if (ret.HasError()) {
@@ -1168,7 +1180,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalExistenceConstraintDrop const &data) {
           spdlog::trace("   Delta {}. Drop existence constraint on :{} ({})", current_delta_idx, data.label,
                         data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           if (transaction
                   ->DropExistenceConstraint(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
                   .HasError()) {
@@ -1183,7 +1195,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           for (const auto &prop : data.properties) {
             properties.emplace(storage->NameToProperty(prop));
           }
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(data.label), properties);
           if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
             throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
@@ -1197,7 +1209,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           for (const auto &prop : data.properties) {
             properties.emplace(storage->NameToProperty(prop));
           }
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto ret = transaction->DropUniqueConstraint(storage->NameToLabel(data.label), properties);
           if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
             throw utils::BasicException("Failed to create unique constraint on :{} ({}).", data.label, ss.str());
@@ -1207,7 +1219,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           spdlog::trace("   Delta {}. Create IS TYPED {} constraint on :{} ({})", current_delta_idx,
                         storage::TypeConstraintKindToString(data.kind), data.label, data.property);
 
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto ret = transaction->CreateTypeConstraint(storage->NameToLabel(data.label),
                                                        storage->NameToProperty(data.property), data.kind);
           if (ret.HasError()) {
@@ -1219,7 +1231,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           spdlog::trace("   Delta {}. Drop IS TYPED {} constraint on :{} ({})", current_delta_idx,
                         TypeConstraintKindToString(data.kind), data.label, data.property);
 
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto ret = transaction->DropTypeConstraint(storage->NameToLabel(data.label),
                                                      storage->NameToProperty(data.property), data.kind);
           if (ret.HasError()) {
@@ -1257,7 +1269,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalPointIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create point index on :{}({})", current_delta_idx, data.label, data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto res = transaction->CreatePointIndex(labelId, propId);
@@ -1267,7 +1279,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalPointIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop point index on :{}({})", current_delta_idx, data.label, data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto res = transaction->DropPointIndex(labelId, propId);
@@ -1277,7 +1289,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalVectorIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create vector index on :{}({})", current_delta_idx, data.label, data.property);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
@@ -1297,7 +1309,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalVectorIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop vector index {} ", current_delta_idx, data.index_name);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto res = transaction->DropVectorIndex(data.index_name);
           if (res.HasError()) {
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
