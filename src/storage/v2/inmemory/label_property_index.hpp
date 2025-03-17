@@ -46,6 +46,30 @@ struct PropertiesPermutationHelper {
   permutation_cycles cycles_;
 };
 
+/** Representation for a range of property values, which may be:
+ * - BOUNDED: including only values between a lower and upper bounds
+ * - IS_NOT_NULL: including every non-null value
+ */
+enum class PropertyRangeType { BOUNDED, IS_NOT_NULL };
+struct PropertyValueRange {
+  using Type = PropertyRangeType;
+
+  static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
+                      std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
+    return {Type::BOUNDED, std::move(lower), std::move(upper)};
+  }
+  static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
+
+  Type type_;
+  std::optional<utils::Bound<PropertyValue>> lower_;
+  std::optional<utils::Bound<PropertyValue>> upper_;
+
+ private:
+  PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
+                     std::optional<utils::Bound<PropertyValue>> upper)
+      : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
+};
+
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
@@ -113,8 +137,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
    public:
     Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
              utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-             std::span<PropertyId const> properties, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             std::span<PropertyId const> properties, PropertyValueRange range, View view, Storage *storage,
              Transaction *transaction);
 
     class Iterator {
@@ -190,20 +213,15 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+  Iterable Vertices(LabelId label, PropertyId property, PropertyValueRange range, View view, Storage *storage,
                     Transaction *transaction);
 
-  Iterable Vertices(LabelId label, std::span<PropertyId const> properties,
-                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction);
+  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, PropertyValueRange range, View view,
+                    Storage *storage, Transaction *transaction);
 
   Iterable Vertices(LabelId label, PropertyId property,
                     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction);
+                    PropertyValueRange range, View view, Storage *storage, Transaction *transaction);
 
   void DropGraphClearIndices() override;
 
