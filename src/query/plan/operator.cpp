@@ -3005,21 +3005,16 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
 }
 
 Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
-               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-               bool label_expression)
-    : input_(input ? input : std::make_shared<Once>()),
-      pattern_filters_(pattern_filters),
-      expression_(expression),
-      is_label_expression_(label_expression) {}
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
 Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-               Filters all_filters, bool label_expression)
+               Filters all_filters)
     : input_(input ? input : std::make_shared<Once>()),
       pattern_filters_(pattern_filters),
       expression_(expression),
-      all_filters_(std::move(all_filters)),
-      is_label_expression_(label_expression) {}
+      all_filters_(std::move(all_filters)) {}
 
 bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {

@@ -445,8 +445,6 @@ struct FilterInfo {
   std::vector<LabelIx> labels{};
   /// Labels for Type::Label OR filtering.
   std::vector<std::vector<LabelIx>> or_labels{};
-  /// Label expression for Type::Label filtering.
-  bool is_label_expression{false};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.
@@ -483,7 +481,6 @@ class Filters final {
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto OrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
-  auto OrExpression(const Symbol &symbol) const -> bool;
   auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
   /// Remove a filter; may invalidate iterators.
@@ -530,11 +527,11 @@ class Filters final {
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &, bool is_label_expression = false);
+  void CollectFilterExpression(Expression *, const SymbolTable &);
 
  private:
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &, bool is_label_expression = false);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
 /// Normalized representation of a single or multiple Match clauses.
@@ -608,17 +605,6 @@ inline auto Filters::OrLabels(const Symbol &symbol) const -> std::vector<std::ve
     }
   }
   return or_labels;
-}
-
-// Returns if symbol is filtered with "OR" expression
-inline auto Filters::OrExpression(const Symbol &symbol) const -> bool {
-  for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol) &&
-        filter.is_label_expression) {
-      return true;
-    }
-  }
-  return false;
 }
 
 inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {

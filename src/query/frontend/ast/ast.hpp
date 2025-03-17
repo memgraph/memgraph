@@ -1349,7 +1349,6 @@ class LabelsTest : public memgraph::query::Expression {
   std::vector<memgraph::query::LabelIx> labels_;
   std::vector<std::vector<memgraph::query::LabelIx>>
       or_labels_;  // because we need to support OR in labels -> node has to have at least one of the labels
-  bool label_expression_{false};
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1365,13 +1364,12 @@ class LabelsTest : public memgraph::query::Expression {
         object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
       }
     }
-    object->label_expression_ = label_expression_;
     return object;
   }
 
  protected:
   LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
-      : expression_(expression), label_expression_(label_expression) {
+      : expression_(expression) {
     if (!label_expression) {
       labels_ = std::move(labels);
     } else {

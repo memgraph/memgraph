@@ -407,12 +407,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         label_filter.labels = labels;
-        labels_test->label_expression_ = node->label_expression_;
-        label_filter.is_label_expression = node->label_expression_;
         all_filters_.emplace_back(label_filter);
       } else {
         // Add to existing LabelsTest
-
         // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
         // If it's an OR expression, we are adding to the OR labels of the existing LabelsTest
@@ -476,16 +473,16 @@ void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) 
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, bool is_label_expression) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
   auto filters = SplitExpressionOnAnd(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table, is_label_expression);
+    AnalyzeAndStoreFilter(filter, symbol_table);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, bool is_label_expression) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -735,14 +732,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
         auto filter = make_filter(FilterInfo::Type::Label);
-        filter.is_label_expression = is_label_expression;
         filter.labels = labels_test->labels_;
         filter.or_labels = labels_test->or_labels_;
-        labels_test->label_expression_ = labels_test->label_expression_;
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
-
         // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
         auto &existing_or_labels = existing_labels_test->or_labels_;
@@ -770,7 +764,6 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
         // Then cover AND expressions in LabelsTest
         auto &existing_labels = existing_labels_test->labels_;
-        existing_labels_test->label_expression_ = labels_test->label_expression_;
         as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
         before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());

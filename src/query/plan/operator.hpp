@@ -1359,11 +1359,10 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   Filter() = default;
 
   Filter(const std::shared_ptr<LogicalOperator> &input,
-         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-         bool label_expression = false);
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression);
   Filter(const std::shared_ptr<LogicalOperator> &input,
          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
-         Filters all_filters, bool label_expression = false);
+         Filters all_filters);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;

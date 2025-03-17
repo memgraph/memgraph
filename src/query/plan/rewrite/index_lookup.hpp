@@ -133,7 +133,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_, op.is_label_expression_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
     return true;
   }
 
@@ -146,7 +146,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_, op.is_label_expression_);
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
       op.all_filters_ = std::move(leftover_filters);
     }
 
