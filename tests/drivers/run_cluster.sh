@@ -202,31 +202,31 @@ done
 
 sleep 1
 
-local instances=$(echo "SHOW INSTANCES;" | $mgconsole_bin --port 7690)
+instances=$(echo "SHOW INSTANCES;" | $mgconsole_bin --port 7690)
 
-local num_leaders=$(echo "$instances" | grep -c "leader")
-if [ $num_leaders -ne 1 ]; then
+num_leaders=$(echo "$instances" | grep -c "leader")
+if [ "$num_leaders" -ne 1 ]; then
     echo "Expected 1 leader after registration, got $num_leaders"
     exit 1
 fi
 
-local num_followers=$(echo "$instances" | grep -c "follower")
+num_followers=$(echo "$instances" | grep -c "follower")
 
-if [ $num_followers -ne 2 ]; then
+if [ "$num_followers" -ne 2 ]; then
     echo "Expected 2 followers after registration, got $num_followers"
     exit 1
 fi
 
-local num_mains=$(echo "$instances" | grep -c "main")
+num_mains=$(echo "$instances" | grep -c "main")
 
-if [ $num_mains -ne 1 ]; then
+if [ "$num_mains" -ne 1 ]; then
     echo "Expected 1 main after registration, got $num_mains"
     exit 1
 fi
 
-local num_replicas=$(echo "$instances" | grep -c "replica")
+num_replicas=$(echo "$instances" | grep -c "replica")
 
-if [ $num_replicas -ne 2 ]; then
+if [ "$num_replicas" -ne 2 ]; then
     echo "Expected 2 replicas after registration, got $num_replicas"
     exit 1
 fi
