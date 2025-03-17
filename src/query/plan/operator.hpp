@@ -1396,19 +1396,22 @@ class Filter : public memgraph::query::plan::LogicalOperator {
       for (const auto &label : filter_expression->labels_) {
         AND_label_names.insert(label.name);
       }
-
-      std::string OR_label_string =
-          utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
-            return fmt::format("({})",
-                               utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
-          });
+      // Generate OR label string only if there are OR labels
+      std::string OR_label_string;
+      if (!filter_expression->or_labels_.empty()) {
+        OR_label_string =
+            ":" + utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+              return fmt::format("({})",
+                                 utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+            });
+      }
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("(:{}:{})",
+        return fmt::format("(:{}{})",
                            utils::IterableToString(AND_label_names, ":", [](const auto &name) { return name; }),
                            OR_label_string);
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
-      return fmt::format("({} :{}:{})", identifier_expression->name_,
+      return fmt::format("({} :{}{})", identifier_expression->name_,
                          utils::IterableToString(AND_label_names, ":", [](const auto &name) { return name; }),
                          OR_label_string);
     } else if (single_filter.type == Type::Pattern) {
