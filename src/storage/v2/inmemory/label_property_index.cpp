@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
@@ -496,6 +497,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
 
     if (self_->lower_bound_) {
+      // TODO <=> for PropertyValue to do a single compare
       if (index_iterator_->values[0] /*TODO*/ < self_->lower_bound_->value()) {
         continue;
       }
@@ -504,6 +506,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       }
     }
     if (self_->upper_bound_) {
+      // TODO <=> for PropertyValue to do a single compare
       if (self_->upper_bound_->value() < index_iterator_->values[0] /*TODO*/) {
         index_iterator_ = self_->index_accessor_.end();
         break;
@@ -560,10 +563,15 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
 
   // Set missing bounds.
   if (lower_bound_ && !upper_bound_) {
-    upper_bound_ = MaxBound(lower_bound_->value().type());
+    // Here we need to supply an upper bound. The upper bound is set to an
+    // exclusive lower bound of the following type.
+    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
   }
+
   if (upper_bound_ && !lower_bound_) {
-    lower_bound_ = MinBound(upper_bound_->value().type());
+    // Here we need to supply a lower bound. The lower bound is set to an
+    // inclusive lower bound of the current type.
+    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
   }
 }
 

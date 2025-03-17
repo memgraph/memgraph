@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
 
 namespace memgraph::storage {
@@ -211,10 +212,15 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Access
 
   // Set missing bounds.
   if (lower_bound_ && !upper_bound_) {
-    upper_bound_ = MaxBound(lower_bound_->value().type());
+    // Here we need to supply an upper bound. The upper bound is set to an
+    // exclusive lower bound of the following type.
+    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
   }
+
   if (upper_bound_ && !lower_bound_) {
-    lower_bound_ = MinBound(upper_bound_->value().type());
+    // Here we need to supply a lower bound. The lower bound is set to an
+    // inclusive lower bound of the current type.
+    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
   }
 }
 
