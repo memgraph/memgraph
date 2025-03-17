@@ -23,21 +23,13 @@ on:
       jepsen_core:
         type: boolean
         default: true
-      release_core:
+      release:
+        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules)'
+        default: 'core,benchmark,e2e,stress,query_modules'
+      malloc_build:
         type: boolean
         default: true
-      release_benchmark:
-        type: boolean
-        default: true
-      release_e2e:
-        type: boolean
-        default: true
-      release_stress:
-        type: boolean
-        default: true
-      release_query_modules:
-        type: boolean
-        default: true
+
 
 jobs:
   DiffSetup:
@@ -53,6 +45,7 @@ jobs:
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
+      run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -119,3 +112,14 @@ jobs:
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
     secrets: inherit
+
+  Malloc:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_malloc.yaml
+    with:
+      arch: 'amd'
+      os: 'ubuntu-24.04'
+      toolchain: 'v6'
+      run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
+    secrets: inherit
+  

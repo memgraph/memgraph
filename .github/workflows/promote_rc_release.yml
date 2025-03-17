@@ -45,6 +45,7 @@ jobs:
       matrix:
         os: [centos-9, debian-11, debian-12, docker, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
+        malloc: [false]
         include:
           - os: debian-11
             arch: arm
@@ -56,6 +57,9 @@ jobs:
             arch: arm
           - os: ubuntu-24.04
             arch: arm
+          - os: ubuntu-24.04
+            arch: amd
+            malloc: true
     steps:
       - name: Setup AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -80,8 +84,12 @@ jobs:
           if [[ "${{ matrix.arch }}" == "arm" ]]; then
             os="${os}-aarch64"
           fi
-          echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
-
+          if [[ "${{ matrix.malloc }}" == "false" ]]; then
+            echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
+          else
+            echo "package_path=${os}-malloc/${package_name}" >> $GITHUB_ENV
+          fi
+          
       - name: Check if rc package for this build exists
         run: |
           if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${package_path} &> /dev/null; then
