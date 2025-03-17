@@ -48,6 +48,8 @@ inline constexpr std::string_view kDefaultMetric = "l2sq";
 struct LabelIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  friend bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix; }
+  friend bool operator<(const LabelIx &a, const LabelIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -56,6 +58,8 @@ struct LabelIx {
 struct PropertyIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  friend bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix; }
+  friend bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -64,22 +68,17 @@ struct PropertyIx {
 struct EdgeTypeIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  friend bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix; }
+  friend bool operator<(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
 };
 
-inline bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix && a.name == b.name; }
 
-inline bool operator!=(const LabelIx &a, const LabelIx &b) { return !(a == b); }
 
-inline bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix && a.name == b.name; }
 
-inline bool operator!=(const PropertyIx &a, const PropertyIx &b) { return !(a == b); }
 
-inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix && a.name == b.name; }
-
-inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) { return !(a == b); }
 }  // namespace memgraph::query
 
 namespace std {
@@ -130,6 +129,7 @@ class AstStorage {
 
   EdgeTypeIx GetEdgeTypeIx(const std::string &name) { return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)}; }
 
+  //TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
   std::vector<std::string> labels_;
   std::vector<std::string> edge_types_;
   std::vector<std::string> properties_;

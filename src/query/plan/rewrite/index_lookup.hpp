@@ -1003,7 +1003,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   };
 
   using CandidateLabelPropertiesIndices =
-      std::unordered_multimap<std::pair<LabelIx, std::vector<PropertyIx>>, LabelPropertiesIndexCandidate, HashPair>;
+      std::multimap<std::pair<LabelIx, std::vector<PropertyIx>>, LabelPropertiesIndexCandidate, std::less<>>;
 
   auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
       -> CandidateLabelPropertiesIndices {
@@ -1041,7 +1041,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto property_filters1 = filters_.PropertyFilters(symbol);
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
     auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
-    ranges::sort(property_filters, {}, as_storage_property);
+    ranges::stable_sort(property_filters, {}, as_storage_property);
     auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
 
     // TODO: extact as a common util
