@@ -19,7 +19,7 @@ trap cleanup EXIT INT TERM
 
 function check_ports_unused() {
     for port in "$@"; do
-        if nc -z -w 1 localhost "$port" >/dev/null 2>&1; then
+        if nc -z -w 1 127.0.0.1 "$port" >/dev/null 2>&1; then
             echo "Port $port is in use."
             exit 1
         fi
@@ -28,7 +28,7 @@ function check_ports_unused() {
 
 function wait_for_server {
     port=$1
-    while ! nc -z -w 1 localhost $port; do
+    while ! nc -z -w 1 127.0.0.1 $port; do
         sleep 0.1
     done
     sleep 1
@@ -107,7 +107,7 @@ $mg_binary_dir/memgraph \
     --also-log-to-stderr \
     --coordinator-id=1 \
     --coordinator-port=10111 \
-    --coordinator-hostname="localhost" \
+    --coordinator-hostname="127.0.0.1" \
     --management-port=10121 \
     --telemetry-enabled=false \
     --log-level TRACE &
@@ -126,7 +126,7 @@ $mg_binary_dir/memgraph \
     --also-log-to-stderr \
     --coordinator-id=2 \
     --coordinator-port=10112 \
-    --coordinator-hostname="localhost" \
+    --coordinator-hostname="127.0.0.1" \
     --management-port=10122 \
     --telemetry-enabled=false \
     --log-level TRACE &
@@ -146,7 +146,7 @@ $mg_binary_dir/memgraph \
     --coordinator-id=3 \
     --coordinator-port=10113 \
     --management-port=10123 \
-    --coordinator-hostname="localhost" \
+    --coordinator-hostname="127.0.0.1" \
     --telemetry-enabled=false \
     --log-level TRACE &
 
@@ -183,12 +183,12 @@ if ! which $mgconsole_bin > /dev/null; then
     mgconsole_bin="$mg_binary_dir/bin/mgconsole"
 fi
 commands=(
-    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $mgconsole_bin --port 7690"
-    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $mgconsole_bin --port 7690"
-    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $mgconsole_bin --port 7690"
-    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $mgconsole_bin --port 7690"
-    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $mgconsole_bin --port 7690"
-    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $mgconsole_bin --port 7690"
+    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7690\", \"coordinator_server\":  \"127.0.0.1:10111\", \"management_server\": \"127.0.0.1:10121\"};' | $mgconsole_bin --port 7690"
+    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7691\", \"coordinator_server\":  \"127.0.0.1:10112\", \"management_server\": \"127.0.0.1:10122\"};' | $mgconsole_bin --port 7690"
+    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7692\", \"coordinator_server\":  \"127.0.0.1:10113\", \"management_server\": \"127.0.0.1:10123\"};' | $mgconsole_bin --port 7690"
+    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:10011\", \"replication_server\": \"127.0.0.1:10001\"};' | $mgconsole_bin --port 7690"
+    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:10012\", \"replication_server\": \"127.0.0.1:10002\"};' | $mgconsole_bin --port 7690"
+    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:10013\", \"replication_server\": \"127.0.0.1:10003\"};' | $mgconsole_bin --port 7690"
     "echo 'SET INSTANCE instance_1 TO MAIN;' | $mgconsole_bin --port 7690"
 )
 
