@@ -89,10 +89,6 @@ jobs:
             arch: amd
             additional_build_args: '--disable-jemalloc'
           - os: ubuntu-24.04
-            build_type: Release
-            arch: arm
-            additional_build_args: '--disable-jemalloc'
-          - os: ubuntu-24.04
             build_type: RelWithDebInfo
             arch: arm
             additional_build_args: ''
@@ -122,27 +118,17 @@ jobs:
         os: [ubuntu-24.04]
         arch: [amd, arm]
         build_type: [Release]
-        additional_build_args: [--for-docker]
         include: # Add RelwithDebInfo build for amd docker image
           - os: ubuntu-24.04
             arch: amd
             build_type: RelWithDebInfo
-            additional_build_args: [--for-docker]
-          - os: ubuntu-24.04
-            arch: amd
-            build_type: Release
-            additional_build_args: --for-docker --disable-jemalloc
-          - os: ubuntu-24.04
-            arch: arm
-            build_type: Release
-            additional_build_args: --for-docker --disable-jemalloc
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
       toolchain: v6
-      additional_build_args: ${{ matrix.additional_build_args }}
+      additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
