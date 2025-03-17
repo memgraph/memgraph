@@ -43,6 +43,16 @@ bool RWChecker::PreVisit(SetProperty & /*unused*/) {
   return false;
 }
 
+bool RWChecker::PreVisit(SetProperties & /*unused*/) {
+  is_write_ = true;
+  return false;
+}
+
+bool RWChecker::PreVisit(RemoveProperty & /*unused*/) {
+  is_write_ = true;
+  return false;
+}
+
 bool RWChecker::PreVisit(SetLabels & /*unused*/) {
   is_write_ = true;
   return false;
@@ -54,6 +64,11 @@ bool RWChecker::PreVisit(RemoveLabels & /*unused*/) {
 }
 
 bool RWChecker::PreVisit(Delete & /*unused*/) {
+  is_write_ = true;
+  return false;
+}
+
+bool RWChecker::PreVisit(Merge & /*unused*/) {
   is_write_ = true;
   return false;
 }

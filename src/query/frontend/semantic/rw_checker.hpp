@@ -35,9 +35,12 @@ class RWChecker : public HierarchicalTreeVisitor {
   bool PreVisit(Create & /*unused*/) override;
   bool PreVisit(CallProcedure &call_proc) override;
   bool PreVisit(SetProperty & /*unused*/) override;
+  bool PreVisit(SetProperties & /*unused*/) override;
   bool PreVisit(SetLabels & /*unused*/) override;
   bool PreVisit(RemoveLabels & /*unused*/) override;
+  bool PreVisit(RemoveProperty & /*unused*/) override;
   bool PreVisit(Delete & /*unused*/) override;
+  bool PreVisit(Merge & /*unused*/) override;
 
   ReturnType Visit(Identifier & /*unused*/) override { return true; }
   ReturnType Visit(PrimitiveLiteral & /*unused*/) override { return true; }
