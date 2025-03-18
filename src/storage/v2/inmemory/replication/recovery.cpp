@@ -21,6 +21,16 @@
 
 namespace memgraph::storage {
 
+template <>
+// NOLINTNEXTLINE
+auto const RpcInfo<replication::WalFilesRpc>::timerLabel = metrics::WalFilesRpc_us;
+template <>
+// NOLINTNEXTLINE
+auto const RpcInfo<replication::CurrentWalRpc>::timerLabel = metrics::CurrentWalRpc_us;
+template <>
+// NOLINTNEXTLINE
+auto const RpcInfo<replication::SnapshotRpc>::timerLabel = metrics::SnapshotRpc_us;
+
 /// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transferred to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much

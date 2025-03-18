@@ -47,7 +47,7 @@ class ReplicationInstanceConnector {
 
   auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool;
 
-  template <IsRpc T, typename... Args>
+  template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
     return client_.SendRpc<T>(std::forward<Args>(args)...);
   }

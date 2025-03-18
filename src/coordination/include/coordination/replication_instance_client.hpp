@@ -42,13 +42,7 @@ GenerateRpcCounterEvents(GetDatabaseHistoriesRpc)
 
 namespace memgraph::coordination {
 
-template <typename T>
-concept IsRpc = requires {
-  typename T::Request;
-  typename T::Response;
-};
-
-template <IsRpc T>
+template <rpc::IsRpc T>
 struct RpcInfo {
   static const metrics::Event succCounter;
   static const metrics::Event failCounter;
@@ -89,7 +83,7 @@ class ReplicationInstanceClient {
     return first.config_ == second.config_;
   }
 
-  template <IsRpc T, typename... Args>
+  template <rpc::IsRpc T, typename... Args>
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
