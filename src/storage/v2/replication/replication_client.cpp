@@ -168,8 +168,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
   spdlog::trace("Current timestamp on replica {} for db {} is {}.", client_.name_, main_db_name,
                 heartbeat_res.current_commit_timestamp);
-  spdlog::trace("Current timestamp on main for db {} is {}. Current durable timestamp on main for db {} is {}",
-                main_db_name, main_storage->timestamp_, main_db_name, replStorageState.last_durable_timestamp_.load());
+  spdlog::trace("Current durable timestamp on main for db {} is {}", main_db_name,
+                replStorageState.last_durable_timestamp_.load());
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime

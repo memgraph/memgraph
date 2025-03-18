@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,7 +64,10 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
     case replication_coordination_glue::ReplicationRole::MAIN: {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
-      if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
+      if (!json_epoch.empty()) {
+        epoch.SetEpoch(json_epoch);
+        spdlog::trace("Restored epoch to {}", json_epoch);
+      }
       auto main_role = MainRole{.epoch = std::move(epoch)};
 
       if (j.contains(kMainUUID)) {
