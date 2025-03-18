@@ -41,6 +41,7 @@ class RWChecker : public HierarchicalTreeVisitor {
   bool PreVisit(RemoveProperty & /*unused*/) override;
   bool PreVisit(Delete & /*unused*/) override;
   bool PreVisit(Merge & /*unused*/) override;
+  bool PreVisit(Foreach & /*unused*/) override;
 
   ReturnType Visit(Identifier & /*unused*/) override { return true; }
   ReturnType Visit(PrimitiveLiteral & /*unused*/) override { return true; }

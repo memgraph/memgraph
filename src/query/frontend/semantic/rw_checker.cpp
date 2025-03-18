@@ -73,4 +73,9 @@ bool RWChecker::PreVisit(Merge & /*unused*/) {
   return false;
 }
 
+bool RWChecker::PreVisit(Foreach & /*unused*/) {
+  is_write_ = true;
+  return false;
+}
+
 }  // namespace memgraph::query
