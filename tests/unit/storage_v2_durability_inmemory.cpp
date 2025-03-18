@@ -3461,9 +3461,10 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info = recovery.RecoverData(uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
-                                         name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num,
-                                         &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; });
+  const auto info = recovery.RecoverData(
+      uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count, name_id_mapper.get(), &indices,
+      &constraints, config, &wal_seq_num, &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; },
+      "memgraph");
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);

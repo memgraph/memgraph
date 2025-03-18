@@ -19,8 +19,14 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/metrics_timer.hpp"
+
+namespace memgraph::metrics {
+extern const Event SocketConnect_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::io::network {
 
@@ -65,6 +71,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
+      utils::MetricsTimer const timer{metrics::SocketConnect_us};
       int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
         spdlog::trace("Socket creation failed in Socket::Connect for socket address {}. File descriptor is -1",
@@ -74,8 +81,6 @@ bool Socket::Connect(const Endpoint &endpoint) {
       if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
         socket_ = sfd;
         endpoint_ = endpoint;
-        spdlog::trace("Successfully connected to socket in Socket::Connect for socket address {}",
-                      endpoint.SocketAddress());
         break;
       }
       spdlog::trace("Connect failed, closing file descriptor in Socket::Connect for socket address {}",
@@ -85,7 +90,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
       close(sfd);
     }
   } catch (const NetworkError &e) {
-    spdlog::trace("Error in Socket::Connect {}", e.trace());
+    spdlog::trace("Error in Socket::Connect {}", e.what());
     return false;
   }
 
