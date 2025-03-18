@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -53,6 +54,7 @@ class LogicalPlan {
   virtual double GetCost() const = 0;
   virtual const SymbolTable &GetSymbolTable() const = 0;
   virtual const AstStorage &GetAstStorage() const = 0;
+  virtual plan::ReadWriteTypeChecker::RWType RWType() const = 0;
 };
 
 using UserParameters = storage::PropertyValue::map_t;
@@ -68,6 +70,7 @@ class PlanWrapper {
   double cost() const { return plan_->GetCost(); }
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
+  auto rw_type() const { return plan_->RWType(); }
 
  private:
   std::unique_ptr<LogicalPlan> plan_;
@@ -77,6 +80,7 @@ struct CachedQuery {
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
+  bool is_cypher_read;
 };
 
 struct QueryCacheEntry {
@@ -100,6 +104,7 @@ struct ParsedQuery {
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
+  bool is_cypher_read{false};
   bool is_cacheable{true};
   UserParameters user_parameters;
   Parameters parameters;
@@ -111,18 +116,20 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
   SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost, AstStorage storage,
-                        SymbolTable symbol_table);
+                        SymbolTable symbol_table, plan::ReadWriteTypeChecker::RWType rw_type);
 
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
   double GetCost() const override { return cost_; }
   const SymbolTable &GetSymbolTable() const override;
   const AstStorage &GetAstStorage() const override { return storage_; }
+  plan::ReadWriteTypeChecker::RWType RWType() const override { return rw_type_; }
 
  private:
   std::unique_ptr<plan::LogicalOperator> root_;
   double cost_;
   AstStorage storage_;
   SymbolTable symbol_table_;
+  plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
 using PlanCacheLRU =

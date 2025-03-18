@@ -2502,12 +2502,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     is_profile_query = true;
   }
 
-  auto rw_type_checker = plan::ReadWriteTypeChecker();
-  rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
-  if (dba->type() == storage::Storage::Accessor::Type::READ) {
-    if (rw_type_checker.type != RWType::R && rw_type_checker.type != RWType::NONE) {
+  const auto rw_type = plan->rw_type();
+  if (rw_type == RWType::W || rw_type == RWType::RW) {
+    if (dba->type() != storage::Storage::Accessor::Type::WRITE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba->type()),
-                                  static_cast<int>(rw_type_checker.type));
+                                  static_cast<int>(rw_type));
     }
   }
 
@@ -2539,7 +2538,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                          }
                          return std::nullopt;
                        },
-                       rw_type_checker.type};
+                       rw_type};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
@@ -2667,12 +2666,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     interpreter.LogQueryMessage(hint);
   }
 
-  auto rw_type_checker = plan::ReadWriteTypeChecker();
-  rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
-  if (dba->type() == storage::Storage::Accessor::Type::READ) {
-    if (rw_type_checker.type != RWType::R && rw_type_checker.type != RWType::NONE) {
-      throw QueryRuntimeException("Profile accessor type {} and query type {} are misaligned!",
-                                  static_cast<int>(dba->type()), static_cast<int>(rw_type_checker.type));
+  const auto rw_type = cypher_query_plan->rw_type();
+  if (rw_type == RWType::W || rw_type == RWType::RW) {
+    if (dba->type() != storage::Storage::Accessor::Type::WRITE) {
+      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba->type()),
+                                  static_cast<int>(rw_type));
     }
   }
 
@@ -2707,7 +2705,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
         return std::nullopt;
       },
-      rw_type_checker.type};
+      rw_type};
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -5959,23 +5957,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool const read_only = read_only_db_transaction || is_schema_assert_query;
-      auto write_check = [](auto *query) {
-        // TODO Use plan::ReadWriteTypeChecker instead. Problem is that it requires a database accessor...
-        // TODO Allow non-db cypher query
-        // TODO extras has a rw flag; check if it is useful
-        query::RWChecker rw_checker;
-        query->Accept(rw_checker);
-        return rw_checker.IsWrite();
-      };
-      auto acc_type =
-          read_db_transactions ? storage::Storage::Accessor::Type::READ : storage::Storage::Accessor::Type::WRITE;
+      auto acc_type = storage::Storage::Accessor::Type::WRITE;
+      if (read_db_transactions) acc_type = storage::Storage::Accessor::Type::READ;
       if (unique_db_transaction) acc_type = storage::Storage::Accessor::Type::UNIQUE;
       if (read_only) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
       auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
-      if ((cypher_query && !write_check(cypher_query)) ||
-          (profile_query && !write_check(profile_query->cypher_query_))) {
-        acc_type = storage::Storage::Accessor::Type::READ;
+      if (cypher_query || profile_query) {
+        acc_type = parsed_query.is_cypher_read ? storage::Storage::Accessor::Type::READ
+                                               : storage::Storage::Accessor::Type::WRITE;
       }
       bool could_commit = cypher_query != nullptr;
       SetupDatabaseTransaction(could_commit, acc_type);

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+#include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
+#include "frontend/semantic/rw_checker.hpp"
 #include "frontend/semantic/symbol_generator.hpp"
+#include "plan/read_write_type_checker.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
@@ -75,6 +78,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
+    result.is_cypher_read = cached_query.is_cypher_read;
   };
 
   if (it == accessor.end()) {
@@ -102,7 +106,15 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     }
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
+      auto read_check = [&] {
+        query::RWChecker rw_checker;
+        if (auto *cypher_query = utils::Downcast<CypherQuery>(visitor.query())) cypher_query->Accept(rw_checker);
+        if (auto *profile_query = utils::Downcast<ProfileQuery>(visitor.query()))
+          profile_query->cypher_query_->Accept(rw_checker);
+        return !rw_checker.IsWrite();
+      };
+      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()),
+                               read_check()};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -124,6 +136,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       std::move(result.ast_storage),
       result.query,
       std::move(result.required_privileges),
+      result.is_cypher_read,
       is_cacheable,
       user_parameters,
       std::move(query_parameters),
@@ -137,8 +150,10 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
-                                                 std::move(symbol_table));
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(*root);
+  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage), std::move(symbol_table),
+                                                 rw_type_checker.type);
 }
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
@@ -163,8 +178,13 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
 }
 
 SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost,
-                                             AstStorage storage, SymbolTable symbol_table)
-    : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+                                             AstStorage storage, SymbolTable symbol_table,
+                                             plan::ReadWriteTypeChecker::RWType rw_type)
+    : root_(std::move(root)),
+      cost_(cost),
+      storage_(std::move(storage)),
+      symbol_table_(std::move(symbol_table)),
+      rw_type_{rw_type} {}
 
 const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
 
