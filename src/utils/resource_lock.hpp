@@ -25,7 +25,7 @@ namespace memgraph::utils {
  */
 struct ResourceLock {
  private:
-  enum states { UNLOCKED, UNIQUE, SHARED, READ_ONLY };
+  enum states : uint8_t { UNLOCKED, UNIQUE, SHARED };
 
  public:
   void lock() {
@@ -53,8 +53,10 @@ struct ResourceLock {
   }
 
   void unlock() {
-    auto lock = std::unique_lock{mtx};
-    state = UNLOCKED;
+    {
+      auto lock = std::unique_lock{mtx};
+      state = UNLOCKED;
+    }
     cv.notify_all();  // multiple lock_shared maybe waiting
   }
 
@@ -62,7 +64,7 @@ struct ResourceLock {
   void lock_shared() {
     auto lock = std::unique_lock{mtx};
     // block until available
-    cv.wait(lock, [this] { return ro_count == 0 && state != UNIQUE; });
+    cv.wait(lock, [this] { return state != UNIQUE && ro_count == 0; });
     state = SHARED;
     ++w_count;
   }
@@ -79,7 +81,7 @@ struct ResourceLock {
   template <bool Read = false>
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
-    if (ro_count == 0 && state != UNIQUE) {
+    if (state != UNIQUE && ro_count == 0) {
       state = SHARED;
       ++w_count;
       return true;
@@ -102,7 +104,7 @@ struct ResourceLock {
   requires(!Read) bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
     // block until available
-    if (!cv.wait_for(lock, time, [this] { return ro_count == 0 && state != UNIQUE; })) return false;
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && ro_count == 0; })) return false;
     state = SHARED;
     ++w_count;
     return true;
@@ -124,7 +126,8 @@ struct ResourceLock {
     --w_count;
     if (w_count + r_count == 0) {
       state = UNLOCKED;
-      cv.notify_all();
+      lock.unlock();
+      cv.notify_all();  // Can have multiple read only waiting
     }
   }
 
@@ -134,7 +137,8 @@ struct ResourceLock {
     --r_count;
     if (r_count + ro_count + w_count == 0) {
       state = UNLOCKED;
-      cv.notify_all();
+      lock.unlock();
+      cv.notify_one();  // Should only have unique locks waiting
     }
   }
 
@@ -171,6 +175,7 @@ struct ResourceLock {
     --ro_count;
     if (ro_count == 0) {
       if (r_count == 0) state = UNLOCKED;
+      lock.unlock();
       cv.notify_all();  // allow shared writes to lock
     }
   }
@@ -179,9 +184,9 @@ struct ResourceLock {
   std::mutex mtx;
   std::condition_variable cv;
   states state = UNLOCKED;
-  uint64_t w_count = 0;
-  uint64_t r_count = 0;
-  uint64_t ro_count = 0;
+  uint32_t ro_count = 0;
+  uint32_t w_count = 0;
+  uint32_t r_count = 0;
 };
 
 struct SharedResourceLockGuard {
