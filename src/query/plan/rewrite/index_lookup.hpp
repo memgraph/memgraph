@@ -52,8 +52,6 @@ DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
 
-namespace {
-
 struct ExpressionRange {
   using Type = PropertyFilter::Type;
 
@@ -61,34 +59,21 @@ struct ExpressionRange {
   std::optional<utils::Bound<Expression *>> lower_;
   std::optional<utils::Bound<Expression *>> upper_;
 
-  static auto Equal(Expression *value) -> ExpressionRange {
-    return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
-  }
-
-  static auto RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
-
+  static auto Equal(Expression *value) -> ExpressionRange;
+  static auto RegexMatch() -> ExpressionRange;
   static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
-      -> ExpressionRange {
-    return {Type::RANGE, std::move(lower), std::move(upper)};
-  }
+      -> ExpressionRange;
+  static auto In(Expression *value) -> ExpressionRange;
+  static auto IsNotNull() -> ExpressionRange;
 
-  static auto In(Expression *value) -> ExpressionRange {
-    return {Type::IN, utils::MakeBoundInclusive(value), std::nullopt};
-  }
-
-  static auto IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
-
-  auto evaluate() const -> storage::PropertyValueRange {
-    // @TODO write this bit to evaluate the expressions and return a
-    // PropertyValueRange
-    return storage::PropertyValueRange::IsNotNull();
-  }
+  auto evaluate(ExpressionEvaluator &evaluator, AstStorage &storage) -> storage::PropertyValueRange;
 
  private:
   ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
-                  std::optional<utils::Bound<Expression *>> upper)
-      : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
+                  std::optional<utils::Bound<Expression *>> upper);
 };
+
+namespace {
 
 // TODO: move to somewhere generic/utils
 template <typename T, typename CB>
