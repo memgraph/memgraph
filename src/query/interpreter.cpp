@@ -5945,10 +5945,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
-      auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-      bool could_commit = cypher_query != nullptr;
-      bool const unique = unique_db_transaction || is_schema_assert_query;
-      bool const read_only = read_only_db_transaction;
+      bool const read_only = read_only_db_transaction || is_schema_assert_query;
       auto write_check = [](auto *query) {
         // TODO Use plan::ReadWriteTypeChecker instead. Problem is that it requires a database accessor...
         // TODO Allow non-db cypher query
@@ -5959,13 +5956,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       };
       auto acc_type =
           read_db_transactions ? storage::Storage::Accessor::Type::READ : storage::Storage::Accessor::Type::WRITE;
-      if (unique) acc_type = storage::Storage::Accessor::Type::UNIQUE;
+      if (unique_db_transaction) acc_type = storage::Storage::Accessor::Type::UNIQUE;
       if (read_only) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
+      auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
       if ((cypher_query && !write_check(cypher_query)) ||
           (profile_query && !write_check(profile_query->cypher_query_))) {
         acc_type = storage::Storage::Accessor::Type::READ;
       }
+      bool could_commit = cypher_query != nullptr;
       SetupDatabaseTransaction(could_commit, acc_type);
     }
 
