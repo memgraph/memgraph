@@ -136,19 +136,20 @@ def authenticate(scheme: str, response: str):
     request_data["post_data"] = {
         "SAMLResponse": response,
     }
+
     auth = OneLogin_Saml2_Auth(request_data, saml_settings)
 
     # Process response
     try:
         auth.process_response()
     except Exception as e:
-        return {"authenticated": False, "errors": f"1 Errors while processing SAML response: {str(e)}"}
+        return {"authenticated": False, "errors": f"Errors while processing SAML response: {str(e)}"}
     errors = auth.get_errors()
     if errors:
         joined = "\n".join(errors)
         return {
             "authenticated": False,
-            "errors": f"2 Errors while processing SAML response: {joined}, last error: {auth.get_last_error_reason()}",
+            "errors": f"Errors while processing SAML response: {joined}",
         }
 
     attributes = auth.get_attributes()
