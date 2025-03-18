@@ -69,7 +69,7 @@ def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connec
     except Exception as e:
         assert (
             str(e)
-            == "Cannot get unique access to the storage. Try stopping other queries that are running in parallel."
+            == "Cannot get read only access to the storage. Try stopping other queries that are running in parallel."
         )
         m2c_timeout = True
 
