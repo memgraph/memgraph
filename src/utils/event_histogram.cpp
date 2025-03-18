@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,37 @@
 
 #include "utils/event_histogram.hpp"
 
+// clang-format off
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define APPLY_FOR_HISTOGRAMS(M)                                                                    \
-  M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 50, 90, 99)        \
-  M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 99) \
-  M(SnapshotRecoveryLatency_us, Snapshot, "Snapshot recovery latency in microseconds", 50, 90, 99)
+#define GenerateRpcTimer(RPC) \
+  M(RPC##_us, HighAvailability, "Latency of sending and waiting for response from " #RPC " in microseconds", 50, 90, 99)
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define APPLY_FOR_HISTOGRAMS(M)                                                                                   \
+  M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 50, 90, 99)                       \
+  M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 99)                \
+  M(SnapshotRecoveryLatency_us, Snapshot, "Snapshot recovery latency in microseconds", 50, 90, 99)                \
+  M(InstanceSuccCallback_us, HighAvailability, "Instance success callback in microseconds", 50, 90, 99)           \
+  M(InstanceFailCallback_us, HighAvailability, "Instance failure callback in microseconds", 50, 90, 99)           \
+  M(ChooseMostUpToDateInstance_us, HighAvailability, "Latency of choosing next main in microseconds", 50, 90, 99) \
+  M(SocketConnect_us, General, "Latency of Socket::Connect in microseconds", 50, 90, 99)                 \
+  M(ReplicaStream_us, HighAvailability, "Latency of creating replica stream in microseconds", 50, 90, 99)         \
+  GenerateRpcTimer(PromoteToMainRpc)                                                                              \
+  GenerateRpcTimer(DemoteMainToReplicaRpc)                                                                        \
+  GenerateRpcTimer(RegisterReplicaOnMainRpc)                                                                      \
+  GenerateRpcTimer(UnregisterReplicaRpc)                                                                          \
+  GenerateRpcTimer(EnableWritingOnMainRpc)                                                                        \
+  GenerateRpcTimer(StateCheckRpc)                                                                                 \
+  GenerateRpcTimer(GetDatabaseHistoriesRpc)                                                                       \
+  GenerateRpcTimer(HeartbeatRpc)                                                                                  \
+  GenerateRpcTimer(AppendDeltasRpc)                                                                               \
+  GenerateRpcTimer(SnapshotRpc)                                                                                   \
+  GenerateRpcTimer(CurrentWalRpc)                                                                                 \
+  GenerateRpcTimer(WalFilesRpc)                                                                                   \
+  GenerateRpcTimer(FrequentHeartbeatRpc)                                                                          \
+  GenerateRpcTimer(SystemRecoveryRpc)                                                                             \
+  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)
+// clang-format on
 
 namespace memgraph::metrics {
 
@@ -43,9 +69,9 @@ EventHistograms global_histograms(global_histograms_array);
 
 const Event EventHistograms::num_histograms = END;
 
-void Measure(const Event event, Value value) { global_histograms.Measure(event, value); }
+void Measure(const Event event, Value const value) { global_histograms.Measure(event, value); }
 
-void EventHistograms::Measure(const Event event, Value value) { histograms_[event].Measure(value); }
+void EventHistograms::Measure(const Event event, Value const value) { histograms_[event].Measure(value); }
 
 const char *GetHistogramName(const Event event) {
   static const char *strings[] = {

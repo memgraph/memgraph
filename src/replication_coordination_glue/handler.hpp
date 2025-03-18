@@ -11,24 +11,32 @@
 #pragma once
 
 #include "rpc/client.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/uuid.hpp"
 
 #include "messages.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
+namespace memgraph::metrics {
+extern const Event SwapMainUUIDRpcSuccess;
+extern const Event SwapMainUUIDRpcFail;
+}  // namespace memgraph::metrics
+
 namespace memgraph::replication_coordination_glue {
 
-inline bool SendSwapMainUUIDRpc(memgraph::rpc::Client &rpc_client_, const memgraph::utils::UUID &uuid) {
+inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uuid) {
   try {
-    auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC swapping of uuid response!");
+    if (auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)}; !stream.AwaitResponse().success) {
+      spdlog::error("Received unsuccessful response to SwapMainUUIDReq");
+      metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
       return false;
     }
+    metrics::IncrementCounter(metrics::SwapMainUUIDRpcSuccess);
     return true;
-  } catch (const memgraph::rpc::RpcFailedException &) {
-    spdlog::error("RPC error occurred while sending swapping uuid RPC!");
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::error("Failed to receive response to SwapMainUUIDReq. Error occurred: {}", e.what());
+    metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
   }
   return false;
 }
@@ -37,7 +45,7 @@ inline void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_
   FrequentHeartbeatReq req;
   FrequentHeartbeatReq::Load(&req, req_reader);
   memgraph::slk::Load(&req, req_reader);
-  FrequentHeartbeatRes res{};
+  FrequentHeartbeatRes const res{};
   rpc::SendFinalResponse(res, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue

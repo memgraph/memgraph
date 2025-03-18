@@ -14,14 +14,19 @@
 
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "flags/coord_flag_env_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
+#include "utils/event_histogram.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/result.hpp"
+
+namespace memgraph::metrics {
+extern const Event SystemRecoveryRpc_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::replication {
 
@@ -81,6 +86,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
   });
   try {
+    utils::MetricsTimer const timer{metrics::SystemRecoveryRpc_us};
     auto stream = std::invoke([&]() {
       // Handle only default database is no license
       if (!is_enterprise) {
@@ -170,7 +176,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Remove database specific clients
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+      storage->repl_storage_state_.replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
     });
 
     spdlog::trace("Replication storage clients destroyed.");
@@ -195,6 +201,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
           return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
         case ClientRegisterReplicaStatus::SUCCESS:
           break;
+        default:
+          LOG_FATAL("Unknown register replica status.");
       }
     }
 
@@ -224,7 +232,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
       client->Start(storage, db_acc);
 
-      all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
+      all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
           [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
             bool const success = std::invoke([state = client->State()]() {
               // We force sync replicas in other situation

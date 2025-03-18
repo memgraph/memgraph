@@ -14,8 +14,22 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "utils/event_histogram.hpp"
+#include "utils/metrics_timer.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotRpc_us;
+extern const Event WalFilesRpc_us;
+extern const Event CurrentWalRpc_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
+
+template <rpc::IsRpc T>
+struct RpcInfo {
+  static const metrics::Event timerLabel;
+};
+
 class InMemoryStorage;
 
 template <typename T>
@@ -43,6 +57,7 @@ std::enable_if_t<std::is_same_v<T, std::vector<std::filesystem::path>>, bool> Wr
 
 template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client, Args &&...args) {
+  utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
   auto stream = client.Stream<T>(std::forward<Args>(args)...);
   if (replication::Encoder encoder(stream.GetBuilder()); !WriteFiles(files, encoder)) {
     return std::nullopt;
