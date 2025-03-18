@@ -5943,16 +5943,19 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
-      bool const read_only = read_only_db_transaction || is_schema_assert_query;
       auto acc_type = storage::Storage::Accessor::Type::WRITE;
       if (read_db_transactions) acc_type = storage::Storage::Accessor::Type::READ;
       if (unique_db_transaction) acc_type = storage::Storage::Accessor::Type::UNIQUE;
-      if (read_only) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
+      if (read_only_db_transaction) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
       auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
       if (cypher_query || profile_query) {
-        acc_type = parsed_query.is_cypher_read ? storage::Storage::Accessor::Type::READ
-                                               : storage::Storage::Accessor::Type::WRITE;
+        if (is_schema_assert_query) {
+          acc_type = storage::Storage::Accessor::Type::READ_ONLY;
+        } else {
+          acc_type = parsed_query.is_cypher_read ? storage::Storage::Accessor::Type::READ
+                                                 : storage::Storage::Accessor::Type::WRITE;
+        }
       }
       bool could_commit = cypher_query != nullptr;
       SetupDatabaseTransaction(could_commit, acc_type);
