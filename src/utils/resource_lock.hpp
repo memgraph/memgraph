@@ -187,15 +187,19 @@ struct ResourceLock {
 struct SharedResourceLockGuard {
  public:
   enum Type { WRITE, READ, READ_ONLY };
-  explicit SharedResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
-  explicit SharedResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
+  SharedResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
+  SharedResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
 
   ~SharedResourceLockGuard() { unlock(); }
 
   SharedResourceLockGuard(const SharedResourceLockGuard &) = delete;
   SharedResourceLockGuard &operator=(const SharedResourceLockGuard &) = delete;
 
-  SharedResourceLockGuard(SharedResourceLockGuard &&other) noexcept : ptr_{other.ptr_} { other.ptr_ = nullptr; }
+  SharedResourceLockGuard(SharedResourceLockGuard &&other) noexcept
+      : ptr_{other.ptr_}, type_{other.type_}, locked_{other.locked_} {
+    other.ptr_ = nullptr;
+    other.locked_ = false;
+  }
   SharedResourceLockGuard &operator=(SharedResourceLockGuard &&other) noexcept {
     if (this != &other) {
       ptr_ = std::exchange(other.ptr_, nullptr);
