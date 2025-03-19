@@ -112,3 +112,17 @@ def pass_map(ctx: mgp.FuncCtx, map_: mgp.Map):
     wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
     wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return map_
+
+
+def do_batch_read_proc() -> mgp.Record(row=mgp.Map):
+    return [
+        mgp.Record(row={"id": 0}),
+        mgp.Record(row={"id": 1}),
+    ]
+
+
+def noop():
+    pass
+
+
+mgp.add_batch_read_proc(do_batch_read_proc, noop, noop)
