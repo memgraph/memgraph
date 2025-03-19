@@ -19,10 +19,9 @@ def test_label_index_hint(memgraph):
     memgraph.execute("CREATE (n:Label1:Label2 {prop: 1});")
     memgraph.execute("CREATE INDEX ON :Label1;")
 
-    # TODO: Fix this test since it should only filter on :Label2 and prop
     expected_explain = [
         " * Produce {n}",
-        " * Filter (n :Label1:Label2), {n.prop}",
+        " * Filter (n :Label2), {n.prop}",
         " * ScanAllByLabel (n :Label1)",
         " * Once",
     ]
