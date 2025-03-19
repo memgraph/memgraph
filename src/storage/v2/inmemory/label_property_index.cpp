@@ -496,33 +496,33 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (self_->lower_bound_) {
-      // TODO <=> for PropertyValue to do a single compare
-      if (index_iterator_->values[0] /*TODO*/ < self_->lower_bound_->value()) {
-        continue;
-      }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->values[0] /*TODO*/ == self_->lower_bound_->value()) {
-        continue;
-      }
-    }
-    if (self_->upper_bound_) {
-      // TODO <=> for PropertyValue to do a single compare
-      if (self_->upper_bound_->value() < index_iterator_->values[0] /*TODO*/) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->values[0] /*TODO*/ == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
-    }
+    // if (self_->lower_bound_) {
+    //   // TODO <=> for PropertyValue to do a single compare
+    //   if (index_iterator_->values[0] /*TODO*/ < self_->lower_bound_->value()) {
+    //     continue;
+    //   }
+    //   if (!self_->lower_bound_->IsInclusive() && index_iterator_->values[0] /*TODO*/ == self_->lower_bound_->value()) {
+    //     continue;
+    //   }
+    // }
+    // if (self_->upper_bound_) {
+    //   // TODO <=> for PropertyValue to do a single compare
+    //   if (self_->upper_bound_->value() < index_iterator_->values[0] /*TODO*/) {
+    //     index_iterator_ = self_->index_accessor_.end();
+    //     break;
+    //   }
+    //   if (!self_->upper_bound_->IsInclusive() && index_iterator_->values[0] /*TODO*/ == self_->upper_bound_->value()) {
+    //     index_iterator_ = self_->index_accessor_.end();
+    //     break;
+    //   }
+    // }
 
-    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
-                                       index_iterator_->values[0] /*TODO*/, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
-      break;
-    }
+    // if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
+    //                                    index_iterator_->values, self_->transaction_, self_->view_)) {
+    //   current_vertex_ = index_iterator_->vertex;
+    //   current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
+    //   break;
+    // }
   }
 }
 
@@ -538,45 +538,64 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  auto const &range = ranges[0];
-  if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    lower_bound_ = LowerBoundForType(PropertyValueType::Bool);
-  } else if (range.type_ == PropertyRangeType::BOUNDED) {
-    // We have to fix the bounds that the user provided to us. If the user
-    // provided only one bound we should make sure that only values of that type
-    // are returned by the iterator. We ensure this by supplying either an
-    // inclusive lower bound of the same type, or an exclusive upper bound of the
-    // following type. If neither bound is set we yield all items in the index.
-    lower_bound_ = std::move(range.lower_);
-    upper_bound_ = std::move(range.upper_);
+  using LowerAndUpperBounds =
+      std::pair<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>>;
 
-    // Remove any bounds that are set to `Null` because that isn't a valid value.
-    if (lower_bound_ && lower_bound_->value().IsNull()) {
-      lower_bound_ = std::nullopt;
-    }
-    if (upper_bound_ && upper_bound_->value().IsNull()) {
-      upper_bound_ = std::nullopt;
+  auto make_bounds_for_range = [](PropertyValueRange const &range) -> LowerAndUpperBounds {
+    std::optional<utils::Bound<PropertyValue>> lower_bound;
+    std::optional<utils::Bound<PropertyValue>> upper_bound;
+
+    if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+      lower_bound = LowerBoundForType(PropertyValueType::Bool);
+    } else if (range.type_ == PropertyRangeType::BOUNDED) {
+      // We have to fix the bounds that the user provided to us. If the user
+      // provided only one bound we should make sure that only values of that type
+      // are returned by the iterator. We ensure this by supplying either an
+      // inclusive lower bound of the same type, or an exclusive upper bound of the
+      // following type. If neither bound is set we yield all items in the index.
+      lower_bound = std::move(range.lower_);
+      upper_bound = std::move(range.upper_);
+
+      // Remove any bounds that are set to `Null` because that isn't a valid value.
+      if (lower_bound && lower_bound->value().IsNull()) {
+        lower_bound = std::nullopt;
+      }
+      if (upper_bound && upper_bound->value().IsNull()) {
+        upper_bound = std::nullopt;
+      }
+
+      // @TODO move check outside, rather than mutate state
+      // Check whether the bounds are of comparable types if both are supplied.
+      // if (lower_bound && upper_bound &&
+      //     !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      //   bounds_valid_ = false;
+      //   return;
+      // }
+
+      // Set missing bounds.
+      if (lower_bound && !upper_bound) {
+        // Here we need to supply an upper bound. The upper bound is set to an
+        // exclusive lower bound of the following type.
+        upper_bound = UpperBoundForType(lower_bound->value().type());
+      }
+
+      if (upper_bound && !lower_bound) {
+        // Here we need to supply a lower bound. The lower bound is set to an
+        // inclusive lower bound of the current type.
+        lower_bound = LowerBoundForType(upper_bound->value().type());
+      }
     }
 
-    // Check whether the bounds are of comparable types if both are supplied.
-    if (lower_bound_ && upper_bound_ &&
-        !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
-      bounds_valid_ = false;
-      return;
-    }
+    return {std::move(lower_bound), std::move(upper_bound)};
+  };
 
-    // Set missing bounds.
-    if (lower_bound_ && !upper_bound_) {
-      // Here we need to supply an upper bound. The upper bound is set to an
-      // exclusive lower bound of the following type.
-      upper_bound_ = UpperBoundForType(lower_bound_->value().type());
-    }
+  lower_bound_.reserve(ranges.size());
+  upper_bound_.reserve(ranges.size());
 
-    if (upper_bound_ && !lower_bound_) {
-      // Here we need to supply a lower bound. The lower bound is set to an
-      // inclusive lower bound of the current type.
-      lower_bound_ = LowerBoundForType(upper_bound_->value().type());
-    }
+  for (auto &&range : ranges) {
+    auto [lb, ub] = make_bounds_for_range(range);
+    lower_bound_.emplace_back(std::move(lb));
+    upper_bound_.emplace_back(std::move(ub));
   }
 }
 
@@ -585,9 +604,16 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
   // items from the index.
   if (!bounds_valid_) return {this, index_accessor_.end()};
   auto index_iterator = index_accessor_.begin();
-  if (lower_bound_) {
-    // TODO: the line bellow need to be re-added
-    //     index_iterator = index_accessor_.find_equal_or_greater(lower_bound_->value());
+  if (ranges::any_of(lower_bound_, [](auto &&lb) { return lb.has_value(); })) {
+    auto lower_bound = lower_bound_ | ranges::views::transform([](auto &&range) -> storage::PropertyValue {
+                         if (range.has_value()) {
+                           return range.value().value();
+                         } else {
+                           return PropertyValue();
+                         }
+                       }) |
+                       ranges::to_vector;
+    index_iterator = index_accessor_.find_equal_or_greater(lower_bound);
   }
   return {this, index_iterator};
 }
