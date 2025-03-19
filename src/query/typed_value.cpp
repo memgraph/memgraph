@@ -30,6 +30,13 @@
 
 namespace memgraph::query {
 
+TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.GetMemoryResource()) {}
+
+TypedValue::TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
+  auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(std::move(path));
+  new (&path_v) std::unique_ptr<Path>(path_ptr);
+}
+
 TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
 
 TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
@@ -261,9 +268,11 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
     case Type::Edge:
       new (&edge_v) EdgeAccessor(other.edge_v);
       return;
-    case Type::Path:
-      new (&path_v) Path(other.path_v, memory_);
+    case Type::Path: {
+      auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(*other.path_v);
+      new (&path_v) std::unique_ptr<Path>(path_ptr);
       return;
+    }
     case Type::Date:
       new (&date_v) utils::Date(other.date_v);
       return;
@@ -330,7 +339,12 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       std::construct_at(&edge_v, other.edge_v);
       break;
     case Type::Path:
-      std::construct_at(&path_v, std::move(other.path_v), memory_);
+      if (other.GetMemoryResource() == memory_) {
+        std::construct_at(&path_v, std::move(other.path_v));
+      } else {
+        auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(std::move(*other.path_v));
+        std::construct_at(&path_v, path_ptr);
+      }
       break;
     case Type::Date:
       std::construct_at(&date_v, other.date_v);
@@ -454,7 +468,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
@@ -496,9 +510,9 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Edge:
       return edge_v.IsDeleted();
     case Type::Path:
-      return std::ranges::any_of(path_v.vertices(),
+      return std::ranges::any_of(path_v->vertices(),
                                  [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
-             std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
+             std::ranges::any_of(path_v->edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
     case Type::Graph:
     case Type::Function:
       throw TypedValueException("Value of unknown type");
@@ -623,13 +637,26 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
 
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Date &, Date, date_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalTime &, LocalTime, local_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalDateTime &, LocalDateTime, local_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::ZonedDateTime &, ZonedDateTime, zoned_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const storage::Enum &, Enum, enum_v)
+
+TypedValue &TypedValue::operator=(const Path &other) {
+  if (type_ == Type::Path) {
+    auto path = path_v.release();
+    if (path) {
+      utils::Allocator<Graph>(memory_).delete_object(path);
+    }
+    auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(other);
+    std::construct_at(&path_v, path_ptr);
+  } else {
+    *this = TypedValue(other, memory_);
+  }
+  return *this;
+}
 
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
@@ -668,7 +695,18 @@ TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
   return *this;
 }
 
-DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
+TypedValue &TypedValue::operator=(Path &&other) {
+  if (type_ == Type::Path) {
+    auto path = path_v.release();
+    if (path) {
+      utils::Allocator<Graph>(memory_).delete_object(path);
+    }
+    path_v = std::make_unique<Path>(std::move(other));
+  } else {
+    *this = TypedValue(std::move(other), memory_);
+  }
+  return *this;
+}
 
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
@@ -705,9 +743,17 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Edge:
           edge_v = other.edge_v;
           break;
-        case Type::Path:
-          path_v = other.path_v;
+        case Type::Path: {
+          auto *path = path_v.release();
+          if (path) {
+            utils::Allocator<Graph>(memory_).delete_object(path);
+          }
+          if (other.path_v) {
+            auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(*other.path_v);
+            path_v = std::unique_ptr<Path>(path_ptr);
+          }
           break;
+        }
         case Type::Date:
           date_v = other.date_v;
           break;
@@ -791,9 +837,14 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Edge:
           edge_v = other.edge_v;
           break;
-        case Type::Path:
+        case Type::Path: {
+          auto *path = path_v.release();
+          if (path) {
+            utils::Allocator<Graph>(memory_).delete_object(path);
+          }
           path_v = std::move(other.path_v);
           break;
+        }
         case Type::Date:
           date_v = other.date_v;
           break;
@@ -868,9 +919,14 @@ TypedValue::~TypedValue() {
     case Type::Edge:
       std::destroy_at(&edge_v);
       break;
-    case Type::Path:
+    case Type::Path: {
+      auto *path = path_v.release();
       std::destroy_at(&path_v);
+      if (path) {
+        utils::Allocator<Path>(memory_).delete_object(path);
+      }
       break;
+    }
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
