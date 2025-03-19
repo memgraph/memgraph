@@ -838,6 +838,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertyIndex {
     LabelIx label;
+    std::vector<storage::PropertyId> properties;  // need props ids to associate
+                                                  // this with the actual index
     // FilterInfos, each with a PropertyFilter.
     std::vector<FilterInfo> filters;
     int64_t vertex_count;
@@ -1202,15 +1204,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
 
+      auto const make_label_property_index = [&]() -> LabelPropertyIndex {
+        return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
+      };
+
       if (!found) {
         // this sets LabelPropertyIndex which communitcates which fiters are to be replaced by a LabelPropertyIndex
-        found = LabelPropertyIndex{label_ix, candidate.filters_, vertex_count, new_stats};
+        found = make_label_property_index();
         continue;
       }
 
       // Obvious order of magnitude better?
       if (vertex_count * 10 < found->vertex_count) {
-        found = LabelPropertyIndex{label_ix, candidate.filters_, vertex_count, new_stats};
+        found = make_label_property_index();
         continue;
       }
 
@@ -1218,7 +1224,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           cmp_res == -1 ||
           cmp_res == 0 && (vertex_count < found->vertex_count ||
                            vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))) {
-        found = LabelPropertyIndex{label_ix, candidate.filters_, vertex_count, new_stats};
+        found = make_label_property_index();
       }
     }
     return found;
@@ -1399,12 +1405,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (found_index->filters.size() == 1) {
         return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
       } else {
-        auto property_ids = found_index->filters | ranges::views::transform([&](auto &&filter) {
-                              DMG_ASSERT(filter.property_filter);
-                              return GetProperty(filter.property_filter->property_);
-                            }) |
-                            ranges::to_vector;
-
         auto expr_ranges = found_index->filters | ranges::views::transform([&](auto &&filter) -> ExpressionRange {
                              DMG_ASSERT(filter.property_filter);
                              switch (filter.property_filter->type_) {
@@ -1426,7 +1426,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                            }) |
                            ranges::to_vector;
 
-        return GenForMultipleFilters(std::move(property_ids), std::move(expr_ranges));
+        return GenForMultipleFilters(std::move(found_index->properties), std::move(expr_ranges));
       }
     }
     auto maybe_label = FindBestLabelIndex(labels);

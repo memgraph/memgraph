@@ -175,9 +175,13 @@ auto ExpressionRange::In(Expression *value) -> ExpressionRange {
 auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
 auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
-  auto const to_bounded_property_value = [&](auto &value) -> utils::Bound<storage::PropertyValue> {
-    auto const &property_value = storage::PropertyValue(value->value()->Accept(evaluator));
-    return utils::Bound<storage::PropertyValue>(property_value, value->type());
+  auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
+    if (value == std::nullopt) {
+      return std::nullopt;
+    } else {
+      auto const &property_value = storage::PropertyValue(value->value()->Accept(evaluator));
+      return utils::Bound<storage::PropertyValue>(property_value, value->type());
+    }
   };
 
   switch (type_) {
@@ -1232,8 +1236,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     //   throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
     // }
 
-    // @TODO for now, just pass the first
-    return std::make_optional(db->Vertices(view_, label_, properties_[0], prop_value_ranges[0]));
+    return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabelProperties");

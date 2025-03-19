@@ -528,8 +528,9 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-                                               std::span<PropertyId const> properties, PropertyValueRange range,
-                                               View view, Storage *storage, Transaction *transaction)
+                                               std::span<PropertyId const> properties,
+                                               std::span<PropertyValueRange const> ranges, View view, Storage *storage,
+                                               Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -537,6 +538,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
       view_(view),
       storage_(storage),
       transaction_(transaction) {
+  auto const &range = ranges[0];
   if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
     lower_bound_ = LowerBoundForType(PropertyValueType::Bool);
   } else if (range.type_ == PropertyRangeType::BOUNDED) {
@@ -774,7 +776,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
           std::move(vertices_acc),
           label,
           std::array{property},
-          std::move(range),
+          std::array{std::move(range)},
           view,
           storage,
           transaction};
@@ -782,8 +784,9 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelId label,
                                                                           std::span<PropertyId const> properties,
-                                                                          PropertyValueRange range, View view,
-                                                                          Storage *storage, Transaction *transaction) {
+                                                                          std::span<PropertyValueRange const> ranges,
+                                                                          View view, Storage *storage,
+                                                                          Transaction *transaction) {
   DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
              "PropertyLabel index trying to access InMemory vertices from OnDisk!");
@@ -795,14 +798,8 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
   MG_ASSERT(it2 != it->second.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
             properties[0].AsUint() /*TODO: correct the error msg*/);
 
-  return {it2->second.skiplist.access(),
-          std::move(vertices_acc),
-          label,
-          properties,
-          std::move(range),
-          view,
-          storage,
-          transaction};
+  return {
+      it2->second.skiplist.access(), std::move(vertices_acc), label, properties, ranges, view, storage, transaction};
 }
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
@@ -820,7 +817,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
           std::move(vertices_acc),
           label,
           std::array{property},
-          std::move(range),
+          std::array{std::move(range)},
           view,
           storage,
           transaction};

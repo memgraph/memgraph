@@ -171,8 +171,8 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                               PropertyValue const &value, View view) override;
 
-    VerticesIterable Vertices(LabelId label, storage::PropertyId properties,
-                              storage::PropertyValueRange const &property_range, View view) override;
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+                              std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 

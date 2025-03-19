@@ -1704,8 +1704,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
                                                              View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, properties, PropertyValueRange::IsNotNull(), view,
-                                                             storage_, &transaction_));
+  return VerticesIterable(mem_label_property_index->Vertices(
+      label, properties, std::array{PropertyValueRange::IsNotNull()}, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
@@ -1724,17 +1724,17 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(mem_label_property_index->Vertices(
       label, properties,
-      PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value)), view, storage_,
-      &transaction_));
+      std::array{PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value))}, view,
+      storage_, &transaction_));
 };
 
-VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(LabelId label, storage::PropertyId properties,
-                                                              storage::PropertyValueRange const &property_range,
-                                                              View view) {
+VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
+    LabelId label, std::span<storage::PropertyId const> properties,
+    std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
-      mem_label_property_index->Vertices(label, properties, property_range, view, storage_, &transaction_));
+      mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(

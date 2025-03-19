@@ -320,10 +320,9 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  // @TODO accept vector of PropertyId and PropertyValueRanges
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property,
-                            storage::PropertyValueRange const &property_range) {
-    return VerticesIterable(accessor_->Vertices(label, property, property_range, view));
+  VerticesIterable Vertices(storage::View view, storage::LabelId label, std::span<storage::PropertyId const> properties,
+                            std::span<storage::PropertyValueRange const> property_ranges) {
+    return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
