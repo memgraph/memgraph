@@ -105,14 +105,15 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
     }
 
+    auto read_check = [&] {
+      query::RWChecker rw_checker;
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(visitor.query())) cypher_query->Accept(rw_checker);
+      if (auto *profile_query = utils::Downcast<ProfileQuery>(visitor.query()))
+        profile_query->cypher_query_->Accept(rw_checker);
+      return !rw_checker.IsWrite();
+    };
+
     if (visitor.GetQueryInfo().is_cacheable) {
-      auto read_check = [&] {
-        query::RWChecker rw_checker;
-        if (auto *cypher_query = utils::Downcast<CypherQuery>(visitor.query())) cypher_query->Accept(rw_checker);
-        if (auto *profile_query = utils::Downcast<ProfileQuery>(visitor.query()))
-          profile_query->cypher_query_->Accept(rw_checker);
-        return !rw_checker.IsWrite();
-      };
       CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()),
                                read_check()};
       it = accessor.insert({hash, std::move(cached_query)}).first;
@@ -124,6 +125,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       result.query = visitor.query();
       result.ast_storage = std::move(ast_storage);
 
+      result.is_cypher_read = read_check();
       is_cacheable = false;
     }
   } else {

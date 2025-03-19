@@ -80,7 +80,7 @@ struct CachedQuery {
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
-  bool is_cypher_read;
+  bool is_cypher_read{false};
 };
 
 struct QueryCacheEntry {
