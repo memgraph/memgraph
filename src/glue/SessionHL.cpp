@@ -11,10 +11,10 @@
 
 #include <optional>
 #include <utility>
-#include "auth/auth.hpp"
-#include "auth/exceptions.hpp"
 
 #include "audit/log.hpp"
+#include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/SessionHL.hpp"
