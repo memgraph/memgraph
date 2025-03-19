@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -528,112 +528,186 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
+// template <typename Alloc, typename Alloc2>
+// inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
+//  if (!AreComparableTypes(first.type(), second.type())) return false;
+//  switch (first.type()) {
+//    case PropertyValueType::Null:
+//      return true;
+//    case PropertyValueType::Bool:
+//      return first.ValueBool() == second.ValueBool();
+//    case PropertyValueType::Int:
+//      if (second.type() == PropertyValueType::Double) [[unlikely]] {
+//        return first.ValueInt() == second.ValueDouble();
+//      } else {
+//        return first.ValueInt() == second.ValueInt();
+//      }
+//    case PropertyValueType::Double:
+//      if (second.type() == PropertyValueType::Double) {
+//        return first.ValueDouble() == second.ValueDouble();
+//      } else {
+//        return first.ValueDouble() == second.ValueInt();
+//      }
+//    case PropertyValueType::String:
+//      // using string_view for allocator agnostic compare
+//      return std::string_view{first.ValueString()} == second.ValueString();
+//    case PropertyValueType::List:
+//      return std::ranges::equal(first.ValueList(), second.ValueList(), std::equal_to<>{});
+//    case PropertyValueType::Map: {
+//      auto const &m1 = first.ValueMap();
+//      auto const &m2 = second.ValueMap();
+//      if (m1.size() != m2.size()) return false;
+//      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
+//        if (std::string_view{v1.first} != v2.first) return false;
+//        if (v1.second != v2.second) return false;
+//      }
+//      return true;
+//    }
+//    case PropertyValueType::TemporalData:
+//      return first.ValueTemporalData() == second.ValueTemporalData();
+//    case PropertyValueType::ZonedTemporalData:
+//      return first.ValueZonedTemporalData() == second.ValueZonedTemporalData();
+//    case PropertyValueType::Enum:
+//      return first.ValueEnum() == second.ValueEnum();
+//    case PropertyValueType::Point2d:
+//      return first.ValuePoint2d() == second.ValuePoint2d();
+//    case PropertyValueType::Point3d:
+//      return first.ValuePoint3d() == second.ValuePoint3d();
+//  }
+//}
+
 template <typename Alloc, typename Alloc2>
-inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
-  if (!AreComparableTypes(first.type(), second.type())) return false;
+inline auto operator<=>(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept
+    -> std::weak_ordering {
+  if (!AreComparableTypes(first.type(), second.type())) return first.type() <=> second.type();
+
+  auto to_weak_order = [](std::partial_ordering o) {
+    if (o == std::partial_ordering::equivalent) {
+      return std::weak_ordering::equivalent;
+    }
+    if (o == std::partial_ordering::less) {
+      return std::weak_ordering::less;
+    }
+    if (o == std::partial_ordering::greater) {
+      return std::weak_ordering::greater;
+    }
+    // DANGER: TODO: check is this possible and what it should mean
+    return std::weak_ordering::less;
+  };
+
   switch (first.type()) {
     case PropertyValueType::Null:
-      return true;
+      return std::weak_ordering::equivalent;
     case PropertyValueType::Bool:
-      return first.ValueBool() == second.ValueBool();
+      return first.ValueBool() <=> second.ValueBool();
     case PropertyValueType::Int:
       if (second.type() == PropertyValueType::Double) [[unlikely]] {
-        return first.ValueInt() == second.ValueDouble();
+        return to_weak_order(first.ValueInt() <=> second.ValueDouble());
       } else {
-        return first.ValueInt() == second.ValueInt();
+        return first.ValueInt() <=> second.ValueInt();
       }
     case PropertyValueType::Double:
       if (second.type() == PropertyValueType::Double) {
-        return first.ValueDouble() == second.ValueDouble();
+        return to_weak_order(first.ValueDouble() <=> second.ValueDouble());
       } else {
-        return first.ValueDouble() == second.ValueInt();
+        return to_weak_order(first.ValueDouble() <=> second.ValueInt());
       }
     case PropertyValueType::String:
       // using string_view for allocator agnostic compare
-      return std::string_view{first.ValueString()} == second.ValueString();
-    case PropertyValueType::List:
-      return std::ranges::equal(first.ValueList(), second.ValueList(), std::equal_to<>{});
+      return std::string_view{first.ValueString()} <=> second.ValueString();
+    case PropertyValueType::List: {
+      auto const &l1 = first.ValueList();
+      auto const &l2 = second.ValueList();
+      auto const three_way_cmp = [](PropertyValueImpl<Alloc> const &v1, PropertyValueImpl<Alloc2> const &v2) {
+        return v1 <=> v2;
+      };
+      return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), three_way_cmp);
+    }
     case PropertyValueType::Map: {
       auto const &m1 = first.ValueMap();
       auto const &m2 = second.ValueMap();
-      if (m1.size() != m2.size()) return false;
+      if (m1.size() != m2.size()) return m1.size() <=> m2.size();
       for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
-        if (std::string_view{v1.first} != v2.first) return false;
-        if (v1.second != v2.second) return false;
+        auto key_cmp_res = std::string_view{v1.first} <=> v2.first;
+        if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
+        auto val_cmp_res = v1.second <=> v2.second;
+        if (val_cmp_res != std::weak_ordering::equivalent) return val_cmp_res;
       }
-      return true;
+      return std::weak_ordering::equivalent;
     }
     case PropertyValueType::TemporalData:
-      return first.ValueTemporalData() == second.ValueTemporalData();
+      return first.ValueTemporalData() <=> second.ValueTemporalData();
     case PropertyValueType::ZonedTemporalData:
-      return first.ValueZonedTemporalData() == second.ValueZonedTemporalData();
+      return first.ValueZonedTemporalData() <=> second.ValueZonedTemporalData();
     case PropertyValueType::Enum:
-      return first.ValueEnum() == second.ValueEnum();
+      return first.ValueEnum() <=> second.ValueEnum();
     case PropertyValueType::Point2d:
-      return first.ValuePoint2d() == second.ValuePoint2d();
+      return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
     case PropertyValueType::Point3d:
-      return first.ValuePoint3d() == second.ValuePoint3d();
+      return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
   }
 }
 
 template <typename Alloc, typename Alloc2>
-inline bool operator!=(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
-  return !(first == second);
+inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
+  return (first <=> second) == std::weak_ordering::equivalent;
 }
 
-/// NOLINTNEXTLINE(bugprone-exception-escape)
-template <typename Alloc>
-inline bool operator<(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc> &second) noexcept {
-  if (!AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
-  switch (first.type()) {
-    case PropertyValueType::Null:
-      return false;
-    case PropertyValueType::Bool:
-      return first.ValueBool() < second.ValueBool();
-    case PropertyValueType::Int:
-      if (second.type() == PropertyValueType::Double) [[unlikely]] {
-        return first.ValueInt() < second.ValueDouble();
-      } else {
-        return first.ValueInt() < second.ValueInt();
-      }
-    case PropertyValueType::Double:
-      if (second.type() == PropertyValueType::Double) {
-        return first.ValueDouble() < second.ValueDouble();
-      } else {
-        return first.ValueDouble() < second.ValueInt();
-      }
-    case PropertyValueType::String:
-      return first.ValueString() < second.ValueString();
-    case PropertyValueType::List:
-      return first.ValueList() < second.ValueList();
-    case PropertyValueType::Map:
-      return first.ValueMap() < second.ValueMap();
-    case PropertyValueType::TemporalData:
-      return first.ValueTemporalData() < second.ValueTemporalData();
-    case PropertyValueType::ZonedTemporalData:
-      return first.ValueZonedTemporalData() < second.ValueZonedTemporalData();
-    case PropertyValueType::Enum:
-      return first.ValueEnum() < second.ValueEnum();
-    case PropertyValueType::Point2d:
-      return first.ValuePoint2d() < second.ValuePoint2d();
-    case PropertyValueType::Point3d:
-      return first.ValuePoint3d() < second.ValuePoint3d();
-  }
-}
-
-/// NOLINTNEXTLINE(bugprone-exception-escape)
-template <typename Alloc>
-inline bool operator>(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
-  return rhs < lhs;
-}
-template <typename Alloc>
-inline bool operator>=(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
-  return !(lhs < rhs);
-}
-template <typename Alloc>
-inline bool operator<=(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
-  return !(rhs < lhs);
-}
+///// NOLINTNEXTLINE(bugprone-exception-escape)
+// template <typename Alloc, typename Alloc2>
+// inline bool operator<(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
+//   if (!AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
+//   switch (first.type()) {
+//     case PropertyValueType::Null:
+//       return false;
+//     case PropertyValueType::Bool:
+//       return first.ValueBool() < second.ValueBool();
+//     case PropertyValueType::Int:
+//       if (second.type() == PropertyValueType::Double) [[unlikely]] {
+//         return first.ValueInt() < second.ValueDouble();
+//       } else {
+//         return first.ValueInt() < second.ValueInt();
+//       }
+//     case PropertyValueType::Double:
+//       if (second.type() == PropertyValueType::Double) {
+//         return first.ValueDouble() < second.ValueDouble();
+//       } else {
+//         return first.ValueDouble() < second.ValueInt();
+//       }
+//     case PropertyValueType::String:
+//       return first.ValueString() < second.ValueString();
+//     case PropertyValueType::List:
+//       return first.ValueList() < second.ValueList();
+//     case PropertyValueType::Map:
+//       return first.ValueMap() < second.ValueMap();
+//     case PropertyValueType::TemporalData:
+//       return first.ValueTemporalData() < second.ValueTemporalData();
+//     case PropertyValueType::ZonedTemporalData:
+//       return first.ValueZonedTemporalData() < second.ValueZonedTemporalData();
+//     case PropertyValueType::Enum:
+//       return first.ValueEnum() < second.ValueEnum();
+//     case PropertyValueType::Point2d:
+//       return true;//TODO
+////      return first.ValuePoint2d() < second.ValuePoint2d();
+//    case PropertyValueType::Point3d:
+//      return true;//TODO
+////      return first.ValuePoint3d() < second.ValuePoint3d();
+//  }
+//}
+//
+///// NOLINTNEXTLINE(bugprone-exception-escape)
+// template <typename Alloc>
+// inline bool operator>(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
+//   return rhs < lhs;
+// }
+// template <typename Alloc>
+// inline bool operator>=(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
+//   return !(lhs < rhs);
+// }
+// template <typename Alloc>
+// inline bool operator<=(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
+//   return !(rhs < lhs);
+// }
 
 template <typename Alloc>
 inline PropertyValueImpl<Alloc>::PropertyValueImpl(const PropertyValueImpl &other)
