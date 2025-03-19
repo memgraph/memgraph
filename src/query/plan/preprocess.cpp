@@ -276,6 +276,9 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       continue;
     }
     filter_it->labels.erase(label_it);
+    auto *labels_test = dynamic_cast<LabelsTest *>(filter_it->expression);
+    labels_test->labels_.erase(std::remove(labels_test->labels_.begin(), labels_test->labels_.end(), label),
+                               labels_test->labels_.end());
     DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
     if (filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
