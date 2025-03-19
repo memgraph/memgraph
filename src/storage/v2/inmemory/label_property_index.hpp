@@ -137,8 +137,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
    public:
     Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
              utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-             std::span<PropertyId const> properties, PropertyValueRange range, View view, Storage *storage,
-             Transaction *transaction);
+             std::span<PropertyId const> properties, std::span<PropertyValueRange const> ranges, View view,
+             Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
@@ -216,8 +216,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   Iterable Vertices(LabelId label, PropertyId property, PropertyValueRange range, View view, Storage *storage,
                     Transaction *transaction);
 
-  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, PropertyValueRange range, View view,
-                    Storage *storage, Transaction *transaction);
+  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+                    View view, Storage *storage, Transaction *transaction);
 
   Iterable Vertices(LabelId label, PropertyId property,
                     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
