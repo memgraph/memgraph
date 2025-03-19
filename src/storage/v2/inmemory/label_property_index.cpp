@@ -496,33 +496,85 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    // if (self_->lower_bound_) {
-    //   // TODO <=> for PropertyValue to do a single compare
-    //   if (index_iterator_->values[0] /*TODO*/ < self_->lower_bound_->value()) {
-    //     continue;
-    //   }
-    //   if (!self_->lower_bound_->IsInclusive() && index_iterator_->values[0] /*TODO*/ == self_->lower_bound_->value()) {
-    //     continue;
-    //   }
-    // }
-    // if (self_->upper_bound_) {
-    //   // TODO <=> for PropertyValue to do a single compare
-    //   if (self_->upper_bound_->value() < index_iterator_->values[0] /*TODO*/) {
-    //     index_iterator_ = self_->index_accessor_.end();
-    //     break;
-    //   }
-    //   if (!self_->upper_bound_->IsInclusive() && index_iterator_->values[0] /*TODO*/ == self_->upper_bound_->value()) {
-    //     index_iterator_ = self_->index_accessor_.end();
-    //     break;
-    //   }
-    // }
+    enum class InBoundResult { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
 
-    // if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
-    //                                    index_iterator_->values, self_->transaction_, self_->view_)) {
-    //   current_vertex_ = index_iterator_->vertex;
-    //   current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
-    //   break;
-    // }
+    auto const value_within_bounds = [](std::optional<utils::Bound<PropertyValue>> const &lb,
+                                        std::optional<utils::Bound<PropertyValue>> const &ub,
+                                        PropertyValue const &cmp_value) -> InBoundResult {
+      if (lb) {
+        // TODO <=> for PropertyValue to do a single compare
+        if (cmp_value < lb->value()) {
+          return InBoundResult::UNDER;
+        }
+        if (!lb->IsInclusive() && cmp_value == lb->value()) {
+          return InBoundResult::UNDER;
+        }
+      }
+      if (ub) {
+        // TODO <=> for PropertyValue to do a single compare
+        if (ub->value() < cmp_value) {
+          return InBoundResult::OVER;
+        }
+        if (ub->IsExclusive() && cmp_value == ub->value()) {
+          return InBoundResult::OVER;
+        }
+        if (ub->IsInclusive() && cmp_value == ub->value()) {
+          return InBoundResult::IN_BOUNDS_AT_UB;
+        }
+      }
+      return InBoundResult::IN_BOUNDS;
+    };
+
+    enum class Result { Skip, NoMoreValidEntries, WithAllBounds };
+
+    auto bounds_checker = [&]() {
+      auto at_boundary_counter = 0;
+      for (auto level = 0; level != self_->lower_bound_.size(); ++level) {
+        switch (value_within_bounds(self_->lower_bound_[level], self_->upper_bound_[level],
+                                    index_iterator_->values[level])) {
+          case InBoundResult::UNDER: {
+            // This property value is under the boundary, hence we need to skip
+            return Result::Skip;
+          }
+          case InBoundResult::IN_BOUNDS: {
+            // This property value is within the boundary, proceed onto the next member of the prefix level
+            break;
+          }
+          case InBoundResult::IN_BOUNDS_AT_UB: {
+            // This property value is within the boundary, proceed onto the next member of the prefix level
+            // But also this is the boundary of this given prefix level
+            // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
+            // early as possible
+            ++at_boundary_counter;
+            break;
+          }
+          case InBoundResult::OVER: {
+            // This property value is over the boundary
+            // If all preceeding prefix levels are at the boundary, we can safely know that there are no more
+            // entries that would be within any of the preceeding boundaries.
+            // otherwise we skip
+            auto const all_preceeding_levels_at_boundary = at_boundary_counter == level;
+            return all_preceeding_levels_at_boundary ? Result::NoMoreValidEntries : Result::Skip;
+          }
+        }
+      }
+      return Result::WithAllBounds;
+    };
+
+    auto const res = bounds_checker();
+    if (res == Result::Skip) {
+      continue;
+    } else if (res == Result::NoMoreValidEntries) {
+      index_iterator_ = self_->index_accessor_.end();
+      break;
+    }
+
+    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
+                                       index_iterator_->values, self_->transaction_, self_->view_)) {
+      current_vertex_ = index_iterator_->vertex;
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
+      break;
+    }
   }
 }
 
