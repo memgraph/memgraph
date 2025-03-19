@@ -474,7 +474,7 @@ void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
 void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
-  auto filters = SplitExpressionOnAnd(expr);
+  auto filters = SplitExpression(expr);
   for (const auto &filter : filters) {
     AnalyzeAndStoreFilter(filter, symbol_table);
   }
@@ -873,6 +873,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
+  } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
+    // TODO: Check if it's OR operator and then split LabelsTest and add them in filters by labels
+    all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   } else {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }
@@ -1062,22 +1065,31 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
 }
 
-std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {
-  // TODO: Think about converting all filtering expression into CNF to improve
-  // the granularity of filters which can be stand alone.
+std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressionMode mode) {
   std::vector<Expression *> expressions;
   std::stack<Expression *> pending_expressions;
   pending_expressions.push(expression);
   while (!pending_expressions.empty()) {
     auto *current_expression = pending_expressions.top();
     pending_expressions.pop();
-    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
-      pending_expressions.push(and_op->expression1_);
-      pending_expressions.push(and_op->expression2_);
-    } else {
-      expressions.push_back(current_expression);
+
+    if (mode == SplitExpressionMode::AND) {
+      if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+        pending_expressions.push(and_op->expression1_);
+        pending_expressions.push(and_op->expression2_);
+        continue;
+      }
+    } else if (mode == SplitExpressionMode::OR) {
+      if (auto *or_op = utils::Downcast<OrOperator>(current_expression)) {
+        pending_expressions.push(or_op->expression1_);
+        pending_expressions.push(or_op->expression2_);
+        continue;
+      }
     }
+
+    expressions.push_back(current_expression);
   }
+
   return expressions;
 }
 
