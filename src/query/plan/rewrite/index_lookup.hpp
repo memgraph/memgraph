@@ -52,27 +52,6 @@ DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
 
-struct ExpressionRange {
-  using Type = PropertyFilter::Type;
-
-  Type type_;
-  std::optional<utils::Bound<Expression *>> lower_;
-  std::optional<utils::Bound<Expression *>> upper_;
-
-  static auto Equal(Expression *value) -> ExpressionRange;
-  static auto RegexMatch() -> ExpressionRange;
-  static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
-      -> ExpressionRange;
-  static auto In(Expression *value) -> ExpressionRange;
-  static auto IsNotNull() -> ExpressionRange;
-
-  auto evaluate(ExpressionEvaluator &evaluator, AstStorage &storage) -> storage::PropertyValueRange;
-
- private:
-  ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
-                  std::optional<utils::Bound<Expression *>> upper);
-};
-
 namespace {
 
 // TODO: move to somewhere generic/utils
@@ -569,6 +548,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
   bool PostVisit(ScanAllByLabelPropertyValue &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByLabelProperties &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByLabelProperties &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -1401,28 +1389,44 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
                                                              GetProperty(prop_filter.property_), expression, view);
       };
+
+      auto GenForMultipleFilters = [&](std::vector<storage::PropertyId> properties,
+                                       std::vector<ExpressionRange> expr_ranges) -> std::unique_ptr<ScanAll> {
+        return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
+                                                          std::move(properties), std::move(expr_ranges), view);
+      };
+
       if (found_index->filters.size() == 1) {
         return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
       } else {
-        // TODO: extract common code from InMemoryLabelPropertyIndex::Iterable::Iterable
-        // explicit bounds:
-        //  EQUAL ->  utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value),
-        //  REGEX_MATCH -> utils::MakeBoundInclusive(empty_string), UBSTRING as Expression?
-        //  RANGE -> aleady defined
-        //  IN -> same as EQUAL value comming from value_expressions
-        //  IS_NOT_NULL -> BOOL to unbounded (need to ensure we can articulate unbounded, ATM std::nullopt means "same
-        //  type" as other bound)
+        auto property_ids = found_index->filters | ranges::views::transform([&](auto &&filter) {
+                              DMG_ASSERT(filter.property_filter);
+                              return GetProperty(filter.property_filter->property_);
+                            }) |
+                            ranges::to_vector;
 
-        // LogicalOperator get to know about Expressions
-        // Only when it is a cursor can it evaluate to actual PropertyValue
+        auto expr_ranges = found_index->filters | ranges::views::transform([&](auto &&filter) -> ExpressionRange {
+                             DMG_ASSERT(filter.property_filter);
+                             switch (filter.property_filter->type_) {
+                               case PropertyFilter::Type::EQUAL:
+                               case PropertyFilter::Type::IN: {
+                                 return ExpressionRange::Equal(filter.property_filter->value_);
+                               }
+                               case PropertyFilter::Type::REGEX_MATCH: {
+                                 return ExpressionRange::RegexMatch();
+                               }
+                               case PropertyFilter::Type::RANGE: {
+                                 return ExpressionRange::Range(filter.property_filter->lower_bound_,
+                                                               filter.property_filter->upper_bound_);
+                               }
+                               case PropertyFilter::Type::IS_NOT_NULL: {
+                                 return ExpressionRange::IsNotNull();
+                               }
+                             }
+                           }) |
+                           ranges::to_vector;
 
-        // EQUAL       -> ExpressionRange::Bounded(value, value)
-        // REGEX       -> ExpressionRange::Bounded(empty_string, upperBound(string))
-        // RANGE       -> ExpressionRange::Bounded(lower, upper)
-        // IN          -> ExpressionRange::Bounded(value, value)
-        // IS_NOT_NULL -> ExpressionRange::IsNotNull()
-
-        return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
+        return GenForMultipleFilters(std::move(property_ids), std::move(expr_ranges));
       }
     }
     auto maybe_label = FindBestLabelIndex(labels);

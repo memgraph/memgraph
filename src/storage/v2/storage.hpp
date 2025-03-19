@@ -221,6 +221,10 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) = 0;
 
+    // @TODO replace with method taking span of PropertyId and PropertyValueRange
+    virtual VerticesIterable Vertices(LabelId label, storage::PropertyId properties,
+                                      storage::PropertyValueRange const &property_range, View view) = 0;
+
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                                       const PropertyValue &value, View view) = 0;
 

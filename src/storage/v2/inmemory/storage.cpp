@@ -1728,6 +1728,15 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
       &transaction_));
 };
 
+VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(LabelId label, storage::PropertyId properties,
+                                                              storage::PropertyValueRange const &property_range,
+                                                              View view) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, properties, property_range, view, storage_, &transaction_));
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {

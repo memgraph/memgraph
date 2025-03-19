@@ -58,6 +58,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperties &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -553,6 +560,22 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
   self["label"] = ToJson(op.label_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
   self["expression"] = ToJson(op.expression_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperties &op) {
+  json self;
+  self["name"] = "ScanAllByLabelPropertyValue";
+  self["label"] = ToJson(op.label_, *dba_);
+  // @TODO enumerate all properties in the composite index
+  // self["property"] = ToJson(op.property_, *dba_);
+  // self["expression"] = ToJson(op.expression_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

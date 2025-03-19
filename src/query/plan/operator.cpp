@@ -47,6 +47,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -103,6 +104,7 @@ extern const Event ScanAllOperator;
 extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
+extern const Event ScanAllByLabelPropertiesOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeOperator;
@@ -154,6 +156,61 @@ extern const Event PeriodicSubqueryOperator;
 namespace memgraph::query::plan {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
+
+auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
+  return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
+
+auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
+                            std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
+  return {Type::RANGE, std::move(lower), std::move(upper)};
+}
+
+auto ExpressionRange::In(Expression *value) -> ExpressionRange {
+  return {Type::IN, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
+
+auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
+  auto const to_bounded_property_value = [&](auto &value) -> utils::Bound<storage::PropertyValue> {
+    auto const &property_value = storage::PropertyValue(value->value()->Accept(evaluator));
+    return utils::Bound<storage::PropertyValue>(property_value, value->type());
+  };
+
+  switch (type_) {
+    case Type::EQUAL:
+    case Type::IN: {
+      auto bounded_property_value = to_bounded_property_value(lower_);
+      return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
+    }
+
+    case Type::REGEX_MATCH: {
+      auto empty_string = storage::PropertyValue("");
+      auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(empty_string), upper_bound);
+    }
+
+    case Type::RANGE: {
+      // @TODO note that in `TryConvertToBound`, if the expression evaluates
+      // to certain types, will can fail early as values of such types are not
+      // ordered.
+      return storage::PropertyValueRange::Bounded(to_bounded_property_value(lower_), to_bounded_property_value(upper_));
+    }
+
+    case Type::IS_NOT_NULL: {
+      return storage::PropertyValueRange::IsNotNull();
+    }
+  }
+
+  return storage::PropertyValueRange::IsNotNull();
+}
+
+ExpressionRange::ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
+                                 std::optional<utils::Bound<Expression *>> upper)
+    : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
 
 namespace {
 template <typename>
@@ -1141,6 +1198,52 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
 std::string ScanAllByLabelPropertyValue::ToString() const {
   return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      dba_->PropertyToName(property_));
+}
+
+ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                   storage::LabelId label, std::vector<storage::PropertyId> properties,
+                                                   std::vector<ExpressionRange> expression_ranges, storage::View view)
+    : ScanAll(input, output_symbol, view),
+      label_(label),
+      properties_(std::move(properties)),
+      expression_ranges_(std::move(expression_ranges)) {
+  DMG_ASSERT(!expression_ranges_.empty(), "Expressions are not optional.");
+}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelProperties)
+
+UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertiesOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, properties_, storage::PropertyValue()))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+
+    auto prop_value_ranges = expression_ranges_ | ranges::views::transform([&](auto &&expression_range) {
+                               auto value = expression_range.evaluate(evaluator);
+                               return value;
+                             }) |
+                             ranges::to_vector;
+
+    // @TODO put back
+    // if (value.IsNull()) return std::nullopt;
+    // if (!value.IsPropertyValue()) {
+    //   throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    // }
+
+    // @TODO for now, just pass the first
+    return std::make_optional(db->Vertices(view_, label_, properties_[0], prop_value_ranges[0]));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByLabelProperties");
+}
+
+std::string ScanAllByLabelProperties::ToString() const {
+  return "";
+  // @TODO put back
+  // return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
+  //                    dba_->PropertyToName(property_));
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -4799,8 +4902,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
