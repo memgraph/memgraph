@@ -32,3 +32,8 @@
   (let [dbs (get-new-dbs num-tenants)
         dbs (conj dbs "memgraph")]
     dbs))
+
+(defn get-random-db
+  "Returns random database from all-dbs."
+  [num-tenants]
+  (rand-nth (get-all-dbs num-tenants)))
