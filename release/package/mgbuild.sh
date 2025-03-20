@@ -38,7 +38,7 @@ SUPPORTED_OS_V6=(
     centos-9 centos-10
     debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-41
-    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-20.04 ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
