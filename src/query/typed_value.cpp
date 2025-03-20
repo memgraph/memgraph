@@ -43,11 +43,6 @@ TypedValue::TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(me
   new (&map_v) std::unique_ptr<TMap>(map_ptr);
 }
 
-TypedValue::TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory) : memory_(memory), type_(Type::Edge) {
-  auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(std::move(edge));
-  new (&edge_v) std::unique_ptr<EdgeAccessor>(edge_ptr);
-}
-
 TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.GetMemoryResource()) {}
 
 TypedValue::TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
@@ -369,7 +364,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       if (other.GetMemoryResource() == memory_) {
         std::construct_at(&edge_v, std::move(other.edge_v));
       } else {
-        auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(std::move(*other.edge_v));
+        auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(*other.edge_v);
         std::construct_at(&edge_v, edge_ptr);
       }
       break;
@@ -695,7 +690,6 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const storage::Enum &, Enum, enum_v)
 
 TypedValue &TypedValue::operator=(const EdgeAccessor &other) {
-  // TODO: make better?
   if (type_ == Type::Edge) {
     auto edge = edge_v.release();
     if (edge) {
