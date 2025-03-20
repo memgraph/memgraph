@@ -1,3 +1,10 @@
+Add tests
+storage -> does index iterate as expected (tests/unit/storage_v2_indices.cpp LabelPropertyCompositeIndexMixedIteration)
+planner -> does the right operator get used (tests/unit/query_plan.cpp)
+query -> does the query return right results (tests/gql_behave/tests/memgraph_V1/features [in a new file])
+
+
+
 composite index hints ATM not possible in the grammar (hence ANTLR ast) or in the cypher_main_visitor (our AST)
 edge type index ATM not allowing composite index
 
