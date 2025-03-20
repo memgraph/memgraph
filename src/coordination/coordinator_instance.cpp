@@ -1060,33 +1060,11 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
                                           std::get<0>(epoch_history_it), std::get<1>(epoch_history_it));
                           });
 
-    if (!new_main_res) {
-      const auto &[epoch, latest_commit_timestamp] = *instance_default_db_history.crbegin();
+    const auto &[epoch, latest_commit_timestamp] = *instance_default_db_history.crbegin();
+    if (!new_main_res || latest_commit_timestamp > new_main_res->latest_commit_timestamp) {
       new_main_res = std::make_optional<NewMainRes>(instance_name, epoch, latest_commit_timestamp);
       spdlog::debug("Currently the most up to date instance is {} with epoch {} and latest commit timestamp {}.",
                     instance_name, epoch, latest_commit_timestamp);
-      continue;
-    }
-
-    bool found_same_point{false};
-    std::string last_most_up_to_date_epoch{new_main_res->latest_epoch};
-    for (auto [epoch, timestamp] : ranges::reverse_view(instance_default_db_history)) {
-      if (new_main_res->latest_commit_timestamp < timestamp) {
-        new_main_res = std::make_optional<NewMainRes>({instance_name, epoch, timestamp});
-        spdlog::trace("Found more up to date instance {} with epoch {} and latest commit timestamp {}", instance_name,
-                      epoch, timestamp);
-      }
-
-      // we found point at which they were same
-      if (epoch == last_most_up_to_date_epoch) {
-        found_same_point = true;
-        break;
-      }
-    }
-
-    if (!found_same_point) {
-      spdlog::error("Didn't find same history epoch {} for instance {} and instance {}", last_most_up_to_date_epoch,
-                    new_main_res->most_up_to_date_instance, instance_name);
     }
   }
 
