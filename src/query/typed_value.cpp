@@ -99,7 +99,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-      map_v = std::unique_ptr<TMap>(map_ptr);
+      new (&map_v) std::unique_ptr<TMap>(map_ptr);
       for (const auto &kv : map) map_v->emplace(kv.first, kv.second);
       return;
     }
@@ -193,7 +193,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-      map_v = std::unique_ptr<TMap>(map_ptr);
+      new (&map_v) std::unique_ptr<TMap>(map_ptr);
       auto &map = other.ValueMap();
       for (auto &kv : map) map_v->emplace(kv.first, std::move(kv.second));
       break;
