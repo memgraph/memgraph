@@ -419,8 +419,6 @@ class TypedValue {
     new (&vertex_v) VertexAccessor(std::move(vertex));
   }
 
-  explicit TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource());
-
   /**
    * Construct with the value of path.
    * utils::MemoryResource is obtained from path. After the move, path will be
