@@ -1236,6 +1236,53 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 }
 
 TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
+  PropertyId prop_a;
+  PropertyId prop_b;
+
+  {
+    auto acc = this->storage->Access();
+    prop_a = acc->NameToProperty("a");
+    prop_b = acc->NameToProperty("b");
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto a_values = ranges::views::iota(0, 5) | ranges::views::transform([](int val) { return PropertyValue(val); }) |
+                  ranges::to_vector;
+  auto b_values =
+      std::vector{PropertyValue(2),      PropertyValue(3.0),     PropertyValue(4),         PropertyValue(6.0),
+                  PropertyValue("alfa"), PropertyValue("bravo"), PropertyValue("charlie"), PropertyValue()};
+
+  // Create vertices with every cartesian product of a and b values
+  {
+    auto acc = this->storage->Access();
+    for (auto &&[a_val, b_val] : ranges::views::cartesian_product(a_values, b_values)) {
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
+      ASSERT_TRUE(v.SetProperty(prop_a, a_val).HasValue());
+      ASSERT_TRUE(v.SetProperty(prop_b, b_val).HasValue());
+    }
+
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+
+  auto test = [&](PropertyValueRange const &a_range, PropertyValueRange const &b_range,
+                  std::vector<std::pair<PropertyValue, PropertyValue>> const &expected) {
+    auto acc = this->storage->Access();
+    auto iterable = acc->Vertices(this->label1, std::array{prop_a, prop_b}, std::array{a_range, b_range}, View::OLD);
+    auto result = std::vector<std::pair<PropertyValue, PropertyValue>>{};
+    for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+      auto vertex = *it;
+      result.emplace_back(*vertex.GetProperty(prop_a, View::OLD), *vertex.GetProperty(prop_b, View::OLD));
+    }
+
+    EXPECT_EQ(expected, result);
+  };
+
   // make data over props: A,B
   // with type int, double, string, null
 
