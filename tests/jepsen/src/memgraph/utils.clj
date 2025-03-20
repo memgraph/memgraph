@@ -102,6 +102,21 @@
   [e]
   (string/includes? (str e) "Cannot resolve conflicting transactions."))
 
+(defn concurrent-system-queries?
+  "Concurrent system queries error message is allowed on some queries."
+  [e]
+  (string/includes? (str e) "Multiple concurrent system queries are not supported."))
+
+(defn not-leader?
+  "Not a leader error message is allowed when doing a cluster setup."
+  [e]
+  (string/includes? (str e) "not a leader"))
+
+(defn adding-coordinator-failed?
+  "If concurrently trying to add coordinators, that could cause issues."
+  [e]
+  (string/includes? (str e) "Failed to accept request to add server"))
+
 (defn process-service-unavailable-exc
   "Return a map as the result of ServiceUnavailableException."
   [op node]
