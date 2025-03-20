@@ -653,8 +653,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
-      case BOLT_ENDPOINT_ALREADY_EXISTS:
-        throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
       case MGMT_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such management endpoint already exists!");
