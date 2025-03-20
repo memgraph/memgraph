@@ -57,6 +57,17 @@ services:
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_fedora-41"
 
+  mgbuild_v6_ubuntu-20.04:
+    image: "memgraph/mgbuild:v6_ubuntu-20.04"
+    build:
+      context: ubuntu-20.04
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_ubuntu-22.04"
+
   mgbuild_v6_ubuntu-22.04:
     image: "memgraph/mgbuild:v6_ubuntu-22.04"
     build:
