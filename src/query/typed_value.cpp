@@ -19,7 +19,6 @@
 #include <string_view>
 #include <utility>
 
-#include "edge_accessor.hpp"
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
 #include "storage/v2/property_value.hpp"

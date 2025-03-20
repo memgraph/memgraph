@@ -20,7 +20,6 @@
 #include <utility>
 #include <vector>
 
-#include "edge_accessor.hpp"
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
