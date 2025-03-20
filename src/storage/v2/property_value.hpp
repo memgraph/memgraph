@@ -528,54 +528,6 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
-// template <typename Alloc, typename Alloc2>
-// inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
-//  if (!AreComparableTypes(first.type(), second.type())) return false;
-//  switch (first.type()) {
-//    case PropertyValueType::Null:
-//      return true;
-//    case PropertyValueType::Bool:
-//      return first.ValueBool() == second.ValueBool();
-//    case PropertyValueType::Int:
-//      if (second.type() == PropertyValueType::Double) [[unlikely]] {
-//        return first.ValueInt() == second.ValueDouble();
-//      } else {
-//        return first.ValueInt() == second.ValueInt();
-//      }
-//    case PropertyValueType::Double:
-//      if (second.type() == PropertyValueType::Double) {
-//        return first.ValueDouble() == second.ValueDouble();
-//      } else {
-//        return first.ValueDouble() == second.ValueInt();
-//      }
-//    case PropertyValueType::String:
-//      // using string_view for allocator agnostic compare
-//      return std::string_view{first.ValueString()} == second.ValueString();
-//    case PropertyValueType::List:
-//      return std::ranges::equal(first.ValueList(), second.ValueList(), std::equal_to<>{});
-//    case PropertyValueType::Map: {
-//      auto const &m1 = first.ValueMap();
-//      auto const &m2 = second.ValueMap();
-//      if (m1.size() != m2.size()) return false;
-//      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
-//        if (std::string_view{v1.first} != v2.first) return false;
-//        if (v1.second != v2.second) return false;
-//      }
-//      return true;
-//    }
-//    case PropertyValueType::TemporalData:
-//      return first.ValueTemporalData() == second.ValueTemporalData();
-//    case PropertyValueType::ZonedTemporalData:
-//      return first.ValueZonedTemporalData() == second.ValueZonedTemporalData();
-//    case PropertyValueType::Enum:
-//      return first.ValueEnum() == second.ValueEnum();
-//    case PropertyValueType::Point2d:
-//      return first.ValuePoint2d() == second.ValuePoint2d();
-//    case PropertyValueType::Point3d:
-//      return first.ValuePoint3d() == second.ValuePoint3d();
-//  }
-//}
-
 template <typename Alloc, typename Alloc2>
 inline auto operator<=>(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept
     -> std::weak_ordering {
@@ -650,64 +602,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc> &first, const PropertyVal
 
 template <typename Alloc, typename Alloc2>
 inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
-  return (first <=> second) == std::weak_ordering::equivalent;
+  return is_eq(first <=> second);
 }
-
-///// NOLINTNEXTLINE(bugprone-exception-escape)
-// template <typename Alloc, typename Alloc2>
-// inline bool operator<(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
-//   if (!AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
-//   switch (first.type()) {
-//     case PropertyValueType::Null:
-//       return false;
-//     case PropertyValueType::Bool:
-//       return first.ValueBool() < second.ValueBool();
-//     case PropertyValueType::Int:
-//       if (second.type() == PropertyValueType::Double) [[unlikely]] {
-//         return first.ValueInt() < second.ValueDouble();
-//       } else {
-//         return first.ValueInt() < second.ValueInt();
-//       }
-//     case PropertyValueType::Double:
-//       if (second.type() == PropertyValueType::Double) {
-//         return first.ValueDouble() < second.ValueDouble();
-//       } else {
-//         return first.ValueDouble() < second.ValueInt();
-//       }
-//     case PropertyValueType::String:
-//       return first.ValueString() < second.ValueString();
-//     case PropertyValueType::List:
-//       return first.ValueList() < second.ValueList();
-//     case PropertyValueType::Map:
-//       return first.ValueMap() < second.ValueMap();
-//     case PropertyValueType::TemporalData:
-//       return first.ValueTemporalData() < second.ValueTemporalData();
-//     case PropertyValueType::ZonedTemporalData:
-//       return first.ValueZonedTemporalData() < second.ValueZonedTemporalData();
-//     case PropertyValueType::Enum:
-//       return first.ValueEnum() < second.ValueEnum();
-//     case PropertyValueType::Point2d:
-//       return true;//TODO
-////      return first.ValuePoint2d() < second.ValuePoint2d();
-//    case PropertyValueType::Point3d:
-//      return true;//TODO
-////      return first.ValuePoint3d() < second.ValuePoint3d();
-//  }
-//}
-//
-///// NOLINTNEXTLINE(bugprone-exception-escape)
-// template <typename Alloc>
-// inline bool operator>(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
-//   return rhs < lhs;
-// }
-// template <typename Alloc>
-// inline bool operator>=(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
-//   return !(lhs < rhs);
-// }
-// template <typename Alloc>
-// inline bool operator<=(const PropertyValueImpl<Alloc> &lhs, const PropertyValueImpl<Alloc> &rhs) noexcept {
-//   return !(rhs < lhs);
-// }
 
 template <typename Alloc>
 inline PropertyValueImpl<Alloc>::PropertyValueImpl(const PropertyValueImpl &other)
