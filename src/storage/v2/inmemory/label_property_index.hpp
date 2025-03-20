@@ -50,9 +50,11 @@ struct PropertiesPermutationHelper {
  * - BOUNDED: including only values between a lower and upper bounds
  * - IS_NOT_NULL: including every non-null value
  */
-enum class PropertyRangeType { BOUNDED, IS_NOT_NULL };
+enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
 struct PropertyValueRange {
   using Type = PropertyRangeType;
+
+  static auto InValid() -> PropertyValueRange { return {Type::INVALID, std::nullopt, std::nullopt}; };
 
   static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
                       std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {

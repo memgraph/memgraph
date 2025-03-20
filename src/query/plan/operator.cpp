@@ -179,8 +179,8 @@ auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage:
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto const &property_value = storage::PropertyValue(value->value()->Accept(evaluator));
-      return utils::Bound<storage::PropertyValue>(property_value, value->type());
+      auto property_value = storage::PropertyValue(value->value()->Accept(evaluator));
+      return utils::Bound{std::move(property_value), value->type()};
     }
   };
 
@@ -192,16 +192,23 @@ auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage:
     }
 
     case Type::REGEX_MATCH: {
-      auto empty_string = storage::PropertyValue("");
+      auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
       auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
-      return storage::PropertyValueRange::Bounded(utils::MakeBoundInclusive(empty_string), upper_bound);
+      return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
     }
 
     case Type::RANGE: {
-      // @TODO note that in `TryConvertToBound`, if the expression evaluates
-      // to certain types, will can fail early as values of such types are not
-      // ordered.
-      return storage::PropertyValueRange::Bounded(to_bounded_property_value(lower_), to_bounded_property_value(upper_));
+      auto lower_bound = to_bounded_property_value(lower_);
+      auto upper_bound = to_bounded_property_value(upper_);
+
+      // When scanning a range, the bounds must be the same type
+      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+        return storage::PropertyValueRange::InValid();
+      }
+
+      // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
+      // bound will be limitted to the same type as the other bound
+      return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
     case Type::IS_NOT_NULL: {
@@ -3657,15 +3664,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4659,7 +4664,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }  // end loop over all aggregations
+    }    // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.

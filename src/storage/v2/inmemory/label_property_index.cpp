@@ -502,24 +502,18 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                                         std::optional<utils::Bound<PropertyValue>> const &ub,
                                         PropertyValue const &cmp_value) -> InBoundResult {
       if (lb) {
-        // TODO <=> for PropertyValue to do a single compare
-        if (cmp_value < lb->value()) {
-          return InBoundResult::UNDER;
-        }
-        if (!lb->IsInclusive() && cmp_value == lb->value()) {
+        auto lb_cmp_res = cmp_value <=> lb->value();
+        if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
           return InBoundResult::UNDER;
         }
       }
       if (ub) {
-        // TODO <=> for PropertyValue to do a single compare
-        if (ub->value() < cmp_value) {
+        auto ub_cmp_res = cmp_value <=> ub->value();
+        if (is_gt(ub_cmp_res)) {
           return InBoundResult::OVER;
         }
-        if (ub->IsExclusive() && cmp_value == ub->value()) {
-          return InBoundResult::OVER;
-        }
-        if (ub->IsInclusive() && cmp_value == ub->value()) {
-          return InBoundResult::IN_BOUNDS_AT_UB;
+        if (is_eq(ub_cmp_res)) {
+          return ub->IsExclusive() ? InBoundResult::OVER : InBoundResult::IN_BOUNDS_AT_UB;
         }
       }
       return InBoundResult::IN_BOUNDS;
@@ -591,13 +585,15 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
       storage_(storage),
       transaction_(transaction) {
   using LowerAndUpperBounds =
-      std::pair<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>>;
+      std::tuple<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>, bool>;
 
   auto make_bounds_for_range = [](PropertyValueRange const &range) -> LowerAndUpperBounds {
     std::optional<utils::Bound<PropertyValue>> lower_bound;
     std::optional<utils::Bound<PropertyValue>> upper_bound;
 
-    if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+    if (range.type_ == PropertyRangeType::INVALID) {
+      return {std::nullopt, std::nullopt, false};
+    } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
       lower_bound = LowerBoundForType(PropertyValueType::Bool);
     } else if (range.type_ == PropertyRangeType::BOUNDED) {
       // We have to fix the bounds that the user provided to us. If the user
@@ -616,14 +612,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
         upper_bound = std::nullopt;
       }
 
-      // @TODO move check outside, rather than mutate state
-      // Check whether the bounds are of comparable types if both are supplied.
-      // if (lower_bound && upper_bound &&
-      //     !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
-      //   bounds_valid_ = false;
-      //   return;
-      // }
-
       // Set missing bounds.
       if (lower_bound && !upper_bound) {
         // Here we need to supply an upper bound. The upper bound is set to an
@@ -638,14 +626,20 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
       }
     }
 
-    return {std::move(lower_bound), std::move(upper_bound)};
+    return {std::move(lower_bound), std::move(upper_bound), true};
   };
 
   lower_bound_.reserve(ranges.size());
   upper_bound_.reserve(ranges.size());
 
   for (auto &&range : ranges) {
-    auto [lb, ub] = make_bounds_for_range(range);
+    auto [lb, ub, valid] = make_bounds_for_range(range);
+    if (!valid) {
+      bounds_valid_ = false;
+      lower_bound_.clear();
+      upper_bound_.clear();
+      break;
+    }
     lower_bound_.emplace_back(std::move(lb));
     upper_bound_.emplace_back(std::move(ub));
   }
