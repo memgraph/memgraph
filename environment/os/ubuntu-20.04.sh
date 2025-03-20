@@ -151,6 +151,10 @@ install() {
             fi
             continue
         fi
+        if [ "$pkg" == custom-rust ]; then
+            install_rust "1.80"
+            continue
+        fi
         apt install -y "$pkg"
     done
 }
