@@ -88,9 +88,9 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
   });
 
   coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled};
-  rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("State check returned: is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
-               uuid.has_value() ? std::string{*uuid} : "", writing_enabled);
+  rpc::SendFinalResponse(rpc_res, res_builder,
+                         fmt::format("is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
+                                     uuid.has_value() ? std::string{*uuid} : "", writing_enabled));
 }
 
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
@@ -98,7 +98,6 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
     slk::Builder *res_builder) {
   coordination::GetDatabaseHistoriesRes const rpc_res{replication_handler.GetDatabasesHistories()};
   rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("Database's history returned successfully.");
 }
 
 void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,

@@ -6355,7 +6355,7 @@ void Interpreter::Commit() {
       // Commit is doing replication and timestamp update
       // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot abort!
       // What we are trying to do is set the transaction back to IDLE
-      // We cannot simply put it to IDLE, since the status is used as a syncronization method and we have to follow
+      // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
@@ -6453,7 +6453,7 @@ void Interpreter::Commit() {
     }
     current_db_.CleanupDBTransaction(false);
   };
-  utils::OnScopeExit members_reseter(reset_necessary_members);
+  utils::OnScopeExit const reset_members(reset_necessary_members);
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
@@ -6501,11 +6501,13 @@ void Interpreter::Commit() {
                 // commit time
                 MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
               }
+              default:
+                LOG_FATAL("Unknown constraint violation type");
             }
           } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
             throw QueryException("Unable to commit due to serialization error.");
           } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-            throw QueryException("Unable to commit due to persistance error.");
+            throw QueryException("Unable to commit due to persistence error.");
           } else {
             static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
           }
