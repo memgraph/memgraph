@@ -304,7 +304,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto connectors = coordinator_connectors_.Lock();
 
     auto connector =
-        std::ranges::find_if(*connectors, [&leader_id](auto &&connector) { return connector.first == leader_id; });
+        std::ranges::find_if(*connectors, [&leader_id](auto const &connector) { return connector.first == leader_id; });
     if (connector != connectors->end()) {
       leader = &connector->second;
     }
@@ -1004,7 +1004,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
     // Find default db for instance and its history
     auto default_db_history_data = std::ranges::find_if(
         instance_db_histories,
-        [default_db = memgraph::dbms::kDefaultDB](auto &&db_history) { return db_history.name == default_db; });
+        [default_db = memgraph::dbms::kDefaultDB](auto const &db_history) { return db_history.name == default_db; });
 
     std::ranges::for_each(instance_db_histories, [&instance_name](auto &&db_history) {
       spdlog::debug("Instance {}: db_history_name {}, default db {}.", instance_name, db_history.name,
