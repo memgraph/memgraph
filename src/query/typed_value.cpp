@@ -34,18 +34,18 @@ namespace memgraph::query {
 TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
     : memory_(memory), type_(Type::Map) {
   auto map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-  map_v = std::unique_ptr<TMap>(map_ptr);
+  new (&map_v) std::unique_ptr<TMap>(map_ptr);
   for (auto &kv : other) map_v->emplace(kv.first, std::move(kv.second));
 }
 
 TypedValue::TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
   auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
-  map_v = std::unique_ptr<TMap>(map_ptr);
+  new (&map_v) std::unique_ptr<TMap>(map_ptr);
 }
 
 TypedValue::TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory) : memory_(memory), type_(Type::Edge) {
   auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(std::move(edge));
-  edge_v = std::unique_ptr<EdgeAccessor>(edge_ptr);
+  new (&edge_v) std::unique_ptr<EdgeAccessor>(edge_ptr);
 }
 
 TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.GetMemoryResource()) {}
@@ -58,7 +58,6 @@ TypedValue::TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(mem
 TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
 
 TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-  // TODO: does graph_v need to get checked and cleared here?
   auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
   new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
 }
@@ -282,7 +281,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::Map: {
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(*other.map_v);
-      map_v = std::unique_ptr<TMap>(map_ptr);
+      new (&map_v) std::unique_ptr<TMap>(map_ptr);
       return;
     }
     case Type::Vertex:
@@ -290,7 +289,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::Edge: {
       auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(*other.edge_v);
-      edge_v = std::unique_ptr<EdgeAccessor>(edge_ptr);
+      new (&edge_v) std::unique_ptr<EdgeAccessor>(edge_ptr);
       return;
     }
     case Type::Path: {
