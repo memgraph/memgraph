@@ -158,6 +158,9 @@ struct Expansion {
   bool expand_from_edge{false};
 };
 
+/// @brief Determine if the given expression is splitted on AND or OR operators.
+enum class SplitExpressionMode { AND, OR };
+
 struct PatternComprehensionMatching;
 struct FilterMatching;
 
@@ -737,9 +740,6 @@ struct QueryParts {
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
 QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *, bool is_subquery);
-
-/// @brief Determine if the given expression is splitted on AND or OR operators.
-enum class SplitExpressionMode { AND, OR };
 
 /**
  * @brief Split expression on AND operators; useful for splitting single filters

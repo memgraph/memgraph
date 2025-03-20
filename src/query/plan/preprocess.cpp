@@ -874,8 +874,62 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
-    // TODO: Check if it's OR operator and then split LabelsTest and add them in filters by labels
-    all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    auto filters = SplitExpression(or_operator);
+    for (const auto &filter : filters) {
+      bool already_added_new_or_filter = false;
+      if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
+        // Since LabelsTest may contain any expression, we can only use the
+        // simplest test on an identifier.
+        if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
+          auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+          if (it == all_filters_.end()) {
+            // No existing LabelTest for this identifier
+            auto filter = make_filter(FilterInfo::Type::Label);
+            filter.labels = labels_test->labels_;
+            filter.or_labels = labels_test->or_labels_;
+            all_filters_.emplace_back(filter);
+          } else {
+            // Add these labels to existing LabelsTest
+            // First cover OR expressions in LabelsTest
+            auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+            auto &existing_or_labels = existing_labels_test->or_labels_;
+            auto as_set = [&]() {
+              std::unordered_set<LabelIx> as_set;
+              for (const auto &label_vec : existing_or_labels) {
+                for (const auto &label : label_vec) {
+                  as_set.insert(label);
+                }
+              }
+              return as_set;
+            }();
+            auto before_count = as_set.size();
+            for (auto &label_vec : labels_test->or_labels_) {
+              label_vec.erase(std::remove_if(label_vec.begin(), label_vec.end(),
+                                             [&](const auto &label) { return !as_set.insert(label).second; }),
+                              label_vec.end());
+            }
+            if (as_set.size() != before_count) {
+              for (auto &label_vec : labels_test->or_labels_) {
+                existing_or_labels.push_back(label_vec);
+              }
+              it->or_labels = existing_or_labels;
+            }
+
+            // Then cover AND expressions in LabelsTest
+            auto &existing_labels = existing_labels_test->labels_;
+            as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+            before_count = as_set.size();
+            as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
+            if (as_set.size() != before_count) {
+              existing_labels = std::vector(as_set.begin(), as_set.end());
+              it->labels = existing_labels;
+            }
+          }
+        } else {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
+      }
+    }
   } else {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }
