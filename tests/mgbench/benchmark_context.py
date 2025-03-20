@@ -26,6 +26,7 @@ class BenchmarkContext:
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
         vendor_binary: str = None,
         vendor_name: str = None,
+        installation_type: str = None,
         client_binary: str = None,
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
@@ -49,6 +50,7 @@ class BenchmarkContext:
         self.benchmark_target_workload = benchmark_target_workload
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
+        self.installation_type = installation_type
         self.client_binary = client_binary
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
@@ -95,3 +97,6 @@ class BenchmarkContext:
 
     def get_active_variant(self) -> str:
         return self.active_variant
+    
+    def get_installation_type(self) -> str:
+        return self.installation_type

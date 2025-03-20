@@ -36,6 +36,7 @@ class Pokec(Workload):
     URL_INDEX_FILE = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/memgraph.cypher",
         "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
+        "falkordb": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/falkordb.cypher",
     }
 
     PROPERTIES_ON_EDGES = False
@@ -179,10 +180,19 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
+        falkordb = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) "
+            "WITH n, m, shortestPath((n)-[*..15]->(m)) AS p "
+            "RETURN [n in nodes(p) | n.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
         if self._vendor == "memgraph":
             return memgraph
-        else:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return falkordb
+        raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__arango__shortest_path_with_filter(self):
         vertex_from, vertex_to = self._get_random_from_to()
@@ -202,8 +212,11 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        else:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return neo4j
+        raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__arango__allshortest_paths(self):
         vertex_from, vertex_to = self._get_random_from_to()
@@ -221,8 +234,11 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        else:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return neo4j
+        raise Exception(f"Unknown vendor type {self._vendor}")
 
     # Our benchmark queries
 
