@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,4 +44,6 @@ static_assert(PropertyValue::Type::TemporalData < PropertyValue::Type::ZonedTemp
 static_assert(PropertyValue::Type::ZonedTemporalData < PropertyValue::Type::Enum);
 static_assert(PropertyValue::Type::Enum < PropertyValue::Type::Point2d);
 static_assert(PropertyValue::Type::Point2d < PropertyValue::Type::Point3d);
+
+// @TODO should have a constant null
 }  // namespace memgraph::storage

@@ -22,6 +22,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "storage_test_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -1270,27 +1271,64 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto test = [&](PropertyValueRange const &a_range, PropertyValueRange const &b_range,
-                  std::vector<std::pair<PropertyValue, PropertyValue>> const &expected) {
-    auto acc = this->storage->Access();
-    auto iterable = acc->Vertices(this->label1, std::array{prop_a, prop_b}, std::array{a_range, b_range}, View::OLD);
-    auto result = std::vector<std::pair<PropertyValue, PropertyValue>>{};
-    for (auto it = iterable.begin(); it != iterable.end(); ++it) {
-      auto vertex = *it;
-      result.emplace_back(*vertex.GetProperty(prop_a, View::OLD), *vertex.GetProperty(prop_b, View::OLD));
-    }
+  // auto test = [&](PropertyValueRange const &a_range, PropertyValueRange const &b_range, size_t expected_count, auto
+  // &&props_validator){
+  //   auto acc = this->storage->Access();
+  //   auto iterable = acc->Vertices(this->label1, std::array{prop_a, prop_b}, std::array{a_range, b_range}, View::OLD);
+  //   size_t found_vertices = 0;
+  //   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+  //     auto vertex = *it;
+  //     props_validator(*vertex.GetProperty(prop_a, View::OLD), *vertex.GetProperty(prop_b, View::OLD));
+  //     ++found_vertices;
+  //   }
+  //   EXPECT_EQ(found_vertices, expected_count);
+  // };
 
-    EXPECT_EQ(expected, result);
+  auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
+
+  auto bounded = [&](auto &&lower, auto &&upper) {
+    return PropertyValueRange::Bounded(inclusive_bound(PropertyValue(lower)), inclusive_bound(PropertyValue(upper)));
   };
 
-  // make data over props: A,B
-  // with type int, double, string, null
+  using enum PropertyValueType;
 
-  // WHERE 10 < a < 50 AND 10 < b < 50
-  // -> results ignore the irrelevant types
+  auto const test = [&](std::span<memgraph::storage::PropertyId const> props,
+                        std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
+                        auto &&props_validator) {
+    CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, expected_num_vertices, props_validator);
+  };
 
-  // WHERE 10 < a < 50
-  // -> results ignore the irrelevant types for a + includes where b is anything
+  // // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
+  // test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21,
+  //      [](std::span<PropertyValue const> values) {
+  //        EXPECT_EQ(values[0].type(), Int);
+  //        EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+  //        EXPECT_NE(values[1].type(), Null);
+  //      });
+
+  // test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
+  //      [](std::span<PropertyValue const> values) {
+  //        EXPECT_EQ(values[0].type(), Int);
+  //        EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+  //        EXPECT_EQ(values[1].type(), String);
+  //        EXPECT_TRUE(values[1].ValueString() == "alfa" || values[1].ValueString() == "bravo");
+  //      });
+
+  // // Check 1 <= n.a <= 3 AND 1 <= n.b <= 6
+  // test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
+  //      [](std::span<PropertyValue const> values) {
+  //        EXPECT_EQ(values[0].type(), Int);
+  //        EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+  //        EXPECT_TRUE(values[1].type() == Int || values[1].type() == Double);
+  //        EXPECT_TRUE(values[1].type() == Double || values[1].ValueInt() == 2 || values[1].ValueInt() == 4);
+  //        EXPECT_TRUE(values[1].type() == Int || values[1].ValueDouble() == 3.0 || values[1].ValueDouble() == 6.0);
+  //      });
+
+  // Check 1 <= n.a <= 3
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3)}, 24, [](std::span<PropertyValue const> values) {
+    EXPECT_EQ(values[0].type(), Int);
+    EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+  });
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
