@@ -279,8 +279,9 @@ class TypedValue {
   explicit TypedValue(const std::map<std::string, TypedValue> &value,
                       utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(memory_);
-    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
+    auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
+    map_v = std::unique_ptr<TMap>(map_ptr);
+    for (const auto &kv : value) map_v->emplace(kv.first, kv.second);
   }
 
   /**
@@ -298,7 +299,8 @@ class TypedValue {
 
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(value, memory_);
+    auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(value);
+    map_v = std::unique_ptr<TMap>(map_ptr);
   }
 
   explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -308,7 +310,8 @@ class TypedValue {
 
   explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(edge);
+    auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(edge);
+    edge_v = std::unique_ptr<EdgeAccessor>(edge_ptr);
   }
 
   explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -393,12 +396,7 @@ class TypedValue {
    * Other will not be left empty, i.e. keys will exist but their values may
    * be Null.
    */
-  TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(memory_);
-    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
-  }
-
+  TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory);
   /**
    * Construct with the value of other.
    * utils::MemoryResource is obtained from other. After the move, other will be
@@ -413,19 +411,14 @@ class TypedValue {
    * element-wise move and other is not guaranteed to be empty, i.e. keys may
    * exist but their values may be Null.
    */
-  TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(std::move(other), memory_);
-  }
+  TypedValue(TMap &&other, utils::MemoryResource *memory);
 
   explicit TypedValue(VertexAccessor &&vertex, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(std::move(vertex));
   }
 
-  explicit TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
-      : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(std::move(edge));
-  }
+  explicit TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource());
 
   /**
    * Construct with the value of path.
@@ -538,9 +531,9 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, *map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, *edge_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
@@ -588,9 +581,9 @@ class TypedValue {
     // because of data locality.
     TString string_v;
     TVector list_v;
-    TMap map_v;
+    std::unique_ptr<TMap> map_v;
     VertexAccessor vertex_v;
-    EdgeAccessor edge_v;
+    std::unique_ptr<EdgeAccessor> edge_v;
     std::unique_ptr<Path> path_v;
     utils::Date date_v;
     utils::LocalTime local_time_v;
