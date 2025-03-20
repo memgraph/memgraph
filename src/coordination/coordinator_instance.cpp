@@ -1063,7 +1063,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
     const auto &[epoch, latest_commit_timestamp] = *instance_default_db_history.crbegin();
     if (!new_main_res || latest_commit_timestamp > new_main_res->latest_commit_timestamp) {
       new_main_res = std::make_optional<NewMainRes>(instance_name, epoch, latest_commit_timestamp);
-      spdlog::debug("Currently the most up to date instance is {} with epoch {} and latest commit timestamp {}.",
+      spdlog::debug("Currently the most up to date instance is {} with epoch {} and commit timestamp {}.",
                     instance_name, epoch, latest_commit_timestamp);
     }
   }
