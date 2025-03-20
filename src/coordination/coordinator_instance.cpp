@@ -792,6 +792,20 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   auto const id_to_add = config.coordinator_id;
 
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+  {
+    auto const existing_coord = std::ranges::find_if(
+        coordinator_instances_context,
+        [&bolt_server_to_add](auto const &coord) { return coord.bolt_server == bolt_server_to_add; });
+
+    if (existing_coord != coordinator_instances_context.end()) {
+      spdlog::warn(
+          "You are trying to set-up a coordinator with the same bolt server as on coordinator {}. That is a valid "
+          "option but please double-check that's what you really want. The coordinator will be added so if you want "
+          "to undo this action, use 'REMOVE "
+          "COORDINATOR' query.",
+          existing_coord->id);
+    }
+  }
 
   // Adding new coordinator
   if (id_to_add != raft_state_->GetMyCoordinatorId()) {
