@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ class HintProviderSuite : public ::testing::Test {
   Symbol NextSymbol() { return symbol_table.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }
 
   void VerifyHintMessages(LogicalOperator *plan, const std::vector<std::string> &expected_messages) {
-    auto messages = ProvidePlanHints(plan, symbol_table);
+    auto messages = ProvidePlanHints(plan, symbol_table, &dba.value());
 
     ASSERT_EQ(expected_messages.size(), messages.size());
 
