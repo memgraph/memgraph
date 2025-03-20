@@ -16,11 +16,13 @@
 #pragma once
 
 #include <algorithm>
+#include <unordered_set>
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
 #include <range/v3/view.hpp>
 
+#include "db_accessor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
@@ -28,11 +30,13 @@
 
 namespace memgraph::query::plan {
 
-std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table);
+std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table,
+                                          DbAccessor *db_accessor);
 
 class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  public:
-  explicit PlanHintsProvider(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit PlanHintsProvider(const SymbolTable &symbol_table, DbAccessor *dba)
+      : symbol_table_(symbol_table), db_accessor(dba) {}
 
   std::vector<std::string> &hints() { return hints_; }
 
@@ -252,6 +256,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
+  DbAccessor *db_accessor;
 
   bool DefaultPreVisit() override { LOG_FATAL("Operator not implemented for providing plan hints!"); }
 
@@ -262,9 +267,13 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
     auto const scan_symbol = dynamic_cast<ScanAll *>(op.input().get())->output_symbol_;
     auto const scan_type = op.input()->GetTypeInfo();
+    auto scan_operator = dynamic_cast<ScanAllByLabel *>(op.input().get());
+    auto label_name = db_accessor->LabelToName(scan_operator->label_);
+    std::unordered_set<std::string> labels;
+    labels.insert(label_name);
 
     Filters filters;
-    filters.CollectFilterExpression(op.expression_, symbol_table_);
+    filters.CollectFilterExpression(op.expression_, symbol_table_, labels);
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =

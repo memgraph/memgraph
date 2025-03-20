@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,9 @@
 
 namespace memgraph::query::plan {
 
-std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table) {
-  PlanHintsProvider plan_hinter(symbol_table);
+std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table,
+                                          DbAccessor *db_accessor) {
+  PlanHintsProvider plan_hinter(symbol_table, db_accessor);
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   const_cast<LogicalOperator *>(plan_root)->Accept(plan_hinter);
 

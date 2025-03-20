@@ -486,7 +486,8 @@ class Filters final {
   /// If removed_filters is not nullptr, fills the vector with original
   /// `Expression *` which are now completely removed.
   void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
-                        std::vector<Expression *> *removed_filters = nullptr);
+                        std::vector<Expression *> *removed_filters = nullptr,
+                        std::unordered_set<LabelIx> *removed_labels_ = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
@@ -515,11 +516,13 @@ class Filters final {
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &);
+  void CollectFilterExpression(Expression *, const SymbolTable &,
+                               const std::unordered_set<std::string> &removed_labels = {});
 
  private:
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &,
+                             const std::unordered_set<std::string> &removed_labels = {});
 };
 
 /// Normalized representation of a single or multiple Match clauses.

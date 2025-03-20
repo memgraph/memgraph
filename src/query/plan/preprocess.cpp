@@ -260,7 +260,9 @@ void Filters::EraseFilter(const FilterInfo &filter) {
 
 // Tries to erase the filter which contains a label of a symbol
 // Filtered label can refer to a node and its label, or an edge and its edge type
-void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters) {
+void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters,
+                               std::unordered_set<LabelIx> *removed_labels_) {
+  removed_labels_->insert(label);
   for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
       ++filter_it;
@@ -276,9 +278,6 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
       continue;
     }
     filter_it->labels.erase(label_it);
-    auto *labels_test = dynamic_cast<LabelsTest *>(filter_it->expression);
-    labels_test->labels_.erase(std::remove(labels_test->labels_.begin(), labels_test->labels_.end(), label),
-                               labels_test->labels_.end());
     DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
     if (filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
@@ -419,16 +418,18 @@ void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) 
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table,
+                                      const std::unordered_set<std::string> &removed_labels) {
   auto filters = SplitExpressionOnAnd(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table);
+    AnalyzeAndStoreFilter(filter, symbol_table, removed_labels);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table,
+                                    const std::unordered_set<std::string> &removed_labels) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -674,11 +675,20 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
+      labels_test->labels_.erase(std::remove_if(labels_test->labels_.begin(), labels_test->labels_.end(),
+                                                [&](const auto &label) { return removed_labels.contains(label.name); }),
+                                 labels_test->labels_.end());
       auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
         auto filter = make_filter(FilterInfo::Type::Label);
-        filter.labels = labels_test->labels_;
+
+        // Dont copy removed_labels
+        for (auto label : labels_test->labels_) {
+          if (removed_labels.find(label.name) == removed_labels.end()) {
+            filter.labels.push_back(label);
+          }
+        }
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
@@ -688,7 +698,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         auto before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
         if (as_set.size() != before_count) {
-          existing_labels = std::vector(as_set.begin(), as_set.end());
+          // Dont copy removed_labels
+          for (auto label : labels_test->labels_) {
+            if (removed_labels.find(label.name) == removed_labels.end()) {
+              existing_labels.push_back(label);
+            }
+          }
           it->labels = existing_labels;
         }
       }

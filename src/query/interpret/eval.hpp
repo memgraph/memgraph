@@ -512,8 +512,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // `OLD` view: `return old ? old : new`. That means that if the
             // `OLD` view didn't exist, it returned the NEW view. With this hack
             // we simulate that behavior.
-            // TODO (mferencevic, teon.banek): Remove once MERGE is
-            // reimplemented.
+            // TODO: Remove once MERGE is reimplemented.
             has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
           if (has_label.HasError()) {
