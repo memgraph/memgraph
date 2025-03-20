@@ -792,6 +792,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Replica can only update the last durable timestamp with
           // the commits received from main.
           // Update the last durable timestamp
+          auto prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+          DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
         }
 
