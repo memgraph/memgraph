@@ -1235,6 +1235,17 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   verify(std::nullopt, std::nullopt, values);
 }
 
+TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
+  // make data over props: A,B
+  // with type int, double, string, null
+
+  // WHERE 10 < a < 50 AND 10 < b < 50
+  // -> results ignore the irrelevant types
+
+  // WHERE 10 < a < 50
+  // -> results ignore the irrelevant types for a + includes where b is anything
+}
+
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
