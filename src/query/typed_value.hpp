@@ -281,7 +281,7 @@ class TypedValue {
                       utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
     auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-    map_v = std::unique_ptr<TMap>(map_ptr);
+    new (&map_v) std::unique_ptr<TMap>(map_ptr);
     for (const auto &kv : value) map_v->emplace(kv.first, kv.second);
   }
 
@@ -301,7 +301,7 @@ class TypedValue {
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
     auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(value);
-    map_v = std::unique_ptr<TMap>(map_ptr);
+    new (&map_v) std::unique_ptr<TMap>(map_ptr);
   }
 
   explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
