@@ -798,7 +798,12 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
         [&bolt_server_to_add](auto const &coord) { return coord.bolt_server == bolt_server_to_add; });
 
     if (existing_coord != coordinator_instances_context.end()) {
-      return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
+      spdlog::warn(
+          "You are trying to set-up a coordinator with the same bolt server as on coordinator {}. That is a valid "
+          "option but please double-check that's what you really want. The coordinator will be added so if you want "
+          "to undo this action, use 'REMOVE "
+          "COORDINATOR' query.",
+          existing_coord->id);
     }
   }
 
@@ -999,7 +1004,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
     // Find default db for instance and its history
     auto default_db_history_data = std::ranges::find_if(
         instance_db_histories,
-        [default_db = memgraph::dbms::kDefaultDB](auto &&db_history) { return db_history.name == default_db; });
+        [default_db = memgraph::dbms::kDefaultDB](auto const &db_history) { return db_history.name == default_db; });
 
     std::ranges::for_each(instance_db_histories, [&instance_name](auto &&db_history) {
       spdlog::debug("Instance {}: db_history_name {}, default db {}.", instance_name, db_history.name,
