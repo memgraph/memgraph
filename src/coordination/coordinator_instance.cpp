@@ -1045,7 +1045,6 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
     auto default_db_history_data = std::ranges::find_if(
         instance_db_histories,
         [default_db = memgraph::dbms::kDefaultDB](auto const &db_history) { return db_history.name == default_db; });
-        [default_db = dbms::kDefaultDB](auto &&db_history) { return db_history.name == default_db; });
 
     std::ranges::for_each(instance_db_histories, [&instance_name](auto &&db_history) {
       spdlog::debug("Instance {}: db_history_name {}, default db {}.", instance_name, db_history.name,
