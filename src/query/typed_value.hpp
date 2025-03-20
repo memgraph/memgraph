@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "edge_accessor.hpp"
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
@@ -311,13 +312,13 @@ class TypedValue {
   explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
     auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(edge);
-    edge_v = std::unique_ptr<EdgeAccessor>(edge_ptr);
+    new (&edge_v) std::unique_ptr<EdgeAccessor>(edge_ptr);
   }
 
   explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(path);
-    path_v = std::unique_ptr<Path>(path_ptr);
+    new (&path_v) std::unique_ptr<Path>(path_ptr);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
