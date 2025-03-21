@@ -25,24 +25,38 @@
 
 namespace memgraph::storage {
 
+struct IndexOrderedPropertyValues {
+  IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
+
+  friend auto operator<=>(IndexOrderedPropertyValues const &, IndexOrderedPropertyValues const &) = default;
+
+  std::vector<PropertyValue> values_;
+};
+
 struct PropertiesPermutationHelper {
   using permutation_cycles = std::vector<std::vector<std::size_t>>;
   explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
 
-  void apply_permutation(std::ranges::random_access_range auto &arr) const {
-    for (const auto &cycle : cycles_) {
-      auto tmp = std::move(arr[cycle.front()]);
-      for (auto pos : std::span{cycle}.subspan<1>()) {
-        tmp = std::exchange(arr[pos], tmp);
-      }
-      arr[cycle.front()] = std::move(tmp);
-    }
-  }
+  void apply_permutation(std::span<PropertyValue> values) const;
 
   auto extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
 
+  auto matches_value(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
+      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
+
+  /// returned match results are in sorted properties ordering
+  auto matches_values(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
+
+  auto with_property_id(IndexOrderedPropertyValues const &values) const {
+    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
+             return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
+           });
+  }
+
  private:
   std::vector<PropertyId> sorted_properties_;
+  std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
 };
 
@@ -87,7 +101,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
   struct NewEntry {
-    std::vector<PropertyValue> values;
+    IndexOrderedPropertyValues values;
     Vertex *vertex;
     uint64_t timestamp;
 
@@ -135,12 +149,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   IndexStats Analysis() const;
 
+  using PropertiesIds = std::vector<PropertyId>;
+
   class Iterable {
    public:
     Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
-             utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-             std::span<PropertyId const> properties, std::span<PropertyValueRange const> ranges, View view,
-             Storage *storage, Transaction *transaction);
+             utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesIds const *properties,
+             PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges,
+             View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
@@ -168,8 +184,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipList<NewEntry>::Accessor index_accessor_;
+
+    // These describe the composite index
     LabelId label_;
-    std::vector<PropertyId> properties_;
+    PropertiesIds const *properties_;
+    PropertiesPermutationHelper const *permutation_helper_;
+    //    std::vector<PropertyId> properties_; //TODO: PropertiesIds *
+    // TODO: PropertiesPermutationHelper *
+
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
     bool bounds_valid_{true};
@@ -241,7 +263,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     using is_transparent = void;
   };
 
-  using PropertiesIds = std::vector<PropertyId>;
   using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, Compare>;
   std::map<LabelId, PropertiesIndices, std::less<>> new_index_;
 
