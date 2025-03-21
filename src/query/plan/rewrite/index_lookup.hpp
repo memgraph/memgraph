@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -26,6 +27,7 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -830,6 +832,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
+  std::optional<std::vector<LabelIx>> FindBestLabelIndicesGroup(
+      const std::vector<std::vector<LabelIx>> &vector_indices_groups) {
+    std::optional<std::vector<LabelIx>> best_group;
+    std::size_t min_total_vertices = std::numeric_limits<std::size_t>::max();
+
+    for (const auto &group : vector_indices_groups) {
+      bool all_labels_indexed = std::all_of(group.begin(), group.end(),
+                                            [&](LabelIx label) { return db_->LabelIndexExists(GetLabel(label)); });
+      if (!all_labels_indexed) continue;
+      std::size_t total_vertices =
+          std::accumulate(group.begin(), group.end(), std::size_t{0},
+                          [&](std::size_t sum, LabelIx label) { return sum + db_->VerticesCount(GetLabel(label)); });
+      if (total_vertices < min_total_vertices) {
+        min_total_vertices = total_vertices;
+        best_group = group;
+      }
+    }
+    return best_group;
+  }
+
   struct CandidateIndices {
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
@@ -1181,11 +1203,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (!or_labels.empty()) {
-      for (const auto &label_vec : or_labels) {
-        if (label_vec.size() == 1) continue;
+      auto best_indexing_group = FindBestLabelIndicesGroup(or_labels);
+      if (best_indexing_group) {
         std::unique_ptr<LogicalOperator> prev;
-        for (const auto &label : label_vec) {
-          if (!db_->LabelIndexExists(GetLabel(label))) break;
+        for (const auto &label : *best_indexing_group) {
           auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
           if (prev) {
             auto union_op = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
@@ -1195,12 +1216,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             prev = std::move(scan);
           }
         }
-        if (prev) {
-          std::vector<Expression *> removed_expressions;
-          filters_.EraseOrLabelFilter(node_symbol, label_vec, &removed_expressions);
-          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-          return prev;
-        }
+        std::vector<Expression *> removed_expressions;
+        filters_.EraseOrLabelFilter(node_symbol, *best_indexing_group, &removed_expressions);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+        return prev;
       }
     }
     return nullptr;

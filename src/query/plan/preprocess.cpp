@@ -886,7 +886,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return labels_test->labels_.size() == 1;
     });
     if (is_each_labels_test) {
-      std::map<int32_t, std::vector<LabelIx>> labels_map;  // symbol position and labels vector
+      std::unordered_map<int32_t, std::vector<LabelIx>> labels_map;  // symbol position and labels vector
       for (auto &filter : filters) {
         auto *labels_test = utils::Downcast<LabelsTest>(filter);
         auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
