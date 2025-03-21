@@ -2038,7 +2038,7 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  auto property_equal = [&](Reader &reader) -> uint32_t {
+  auto property_equal = [&](Reader &reader) -> bool {
     auto const orig_reader = reader;
     auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
     auto property_size = info.property_size();
@@ -2048,6 +2048,52 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
     return prop_reader.GetPosition() == property_size;
   };
   return WithReader(property_equal);
+}
+
+bool PropertyStore::AreAllPropertiesEqual(std::span<PropertyId const> ordered_properties,
+                                          std::span<PropertyValue const> values,
+                                          std::span<std::size_t const> position_lookup) const {
+  auto properties_are_equal = [&](Reader &reader) -> bool {
+    for (auto [i, property] : ranges::views::enumerate(ordered_properties)) {
+      auto const &value = values[position_lookup[i]];
+      auto const orig_reader = reader;
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
+      auto property_size = info.property_size();
+      if (property_size == 0) {
+        // it does not exist..ok if expecting Null
+        if (!value.IsNull()) return false;
+      } else {
+        auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
+        if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
+      }
+    }
+    return true;
+  };
+  return WithReader(properties_are_equal);
+}
+
+auto PropertyStore::ArePropertiesEqual(std::span<PropertyId const> ordered_properties,
+                                       std::span<PropertyValue const> values,
+                                       std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+  auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
+    auto result = std::vector<bool>(ordered_properties.size(), false);
+
+    for (auto [pos, property] : ranges::views::enumerate(ordered_properties)) {
+      auto const &value = values[position_lookup[pos]];
+      auto const orig_reader = reader;
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
+      auto property_size = info.property_size();
+      if (property_size == 0) {
+        // it does not exist..ok if expecting Null
+        result[pos] = value.IsNull();
+      } else {
+        auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
+        result[pos] = CompareExpectedProperty(&prop_reader, property, value);
+      }
+    }
+    return result;
+  };
+  return WithReader(properties_are_equal);
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
