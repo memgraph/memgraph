@@ -154,11 +154,11 @@ constexpr utils::TypeInfo coordination::PromoteToMainRes::kType{utils::TypeId::C
                                                                 nullptr};
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaReq::kType{utils::TypeId::COORD_SET_REPL_MAIN_REQ,
-                                                                      "DemoteToReplicaReq", nullptr};
+                                                                      "DemoteMainToReplicaReq", nullptr};
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
 
-                                                                      "DemoteToReplicaRes", nullptr};
+                                                                      "DemoteMainToReplicaRes", nullptr};
 
 constexpr utils::TypeInfo coordination::UnregisterReplicaReq::kType{utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
                                                                     "UnregisterReplicaReq", nullptr};
