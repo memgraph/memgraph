@@ -1271,19 +1271,6 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  // auto test = [&](PropertyValueRange const &a_range, PropertyValueRange const &b_range, size_t expected_count, auto
-  // &&props_validator){
-  //   auto acc = this->storage->Access();
-  //   auto iterable = acc->Vertices(this->label1, std::array{prop_a, prop_b}, std::array{a_range, b_range}, View::OLD);
-  //   size_t found_vertices = 0;
-  //   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
-  //     auto vertex = *it;
-  //     props_validator(*vertex.GetProperty(prop_a, View::OLD), *vertex.GetProperty(prop_b, View::OLD));
-  //     ++found_vertices;
-  //   }
-  //   EXPECT_EQ(found_vertices, expected_count);
-  // };
-
   auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
 
   auto bounded = [&](auto &&lower, auto &&upper) {
@@ -1298,37 +1285,51 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
     CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, expected_num_vertices, props_validator);
   };
 
-  // // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
-  // test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21,
-  //      [](std::span<PropertyValue const> values) {
-  //        EXPECT_EQ(values[0].type(), Int);
-  //        EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
-  //        EXPECT_NE(values[1].type(), Null);
-  //      });
+  // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+         EXPECT_NE(values[1].type(), Null);
+       });
 
-  // test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
-  //      [](std::span<PropertyValue const> values) {
-  //        EXPECT_EQ(values[0].type(), Int);
-  //        EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
-  //        EXPECT_EQ(values[1].type(), String);
-  //        EXPECT_TRUE(values[1].ValueString() == "alfa" || values[1].ValueString() == "bravo");
-  //      });
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+         EXPECT_EQ(values[1].type(), String);
+         EXPECT_TRUE(values[1].ValueString() == "alfa" || values[1].ValueString() == "bravo");
+       });
 
-  // // Check 1 <= n.a <= 3 AND 1 <= n.b <= 6
-  // test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
-  //      [](std::span<PropertyValue const> values) {
-  //        EXPECT_EQ(values[0].type(), Int);
-  //        EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
-  //        EXPECT_TRUE(values[1].type() == Int || values[1].type() == Double);
-  //        EXPECT_TRUE(values[1].type() == Double || values[1].ValueInt() == 2 || values[1].ValueInt() == 4);
-  //        EXPECT_TRUE(values[1].type() == Int || values[1].ValueDouble() == 3.0 || values[1].ValueDouble() == 6.0);
-  //      });
+  // Check 1 <= n.a <= 3 AND 1 <= n.b <= 6
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+         EXPECT_TRUE(values[1].type() == Int || values[1].type() == Double);
+         EXPECT_TRUE(values[1].type() == Double || values[1].ValueInt() == 2 || values[1].ValueInt() == 4);
+         EXPECT_TRUE(values[1].type() == Int || values[1].ValueDouble() == 3.0 || values[1].ValueDouble() == 6.0);
+       });
 
   // Check 1 <= n.a <= 3
   test(std::array{prop_a, prop_b}, std::array{bounded(1, 3)}, 24, [](std::span<PropertyValue const> values) {
     EXPECT_EQ(values[0].type(), Int);
     EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
   });
+
+  // Check n.a IS NOT NULL AND 1 <= n.b <= 3
+  test(std::array{prop_a, prop_b}, std::array{PropertyValueRange::IsNotNull(), bounded(1, 3)}, 10,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_NE(values[0].type(), Null);
+
+         auto b_type = values[1].type();
+         EXPECT_TRUE(b_type == Int || b_type == Double);
+         if (b_type == Int) {
+           EXPECT_TRUE(values[1].ValueInt() >= 1 && values[1].ValueInt() <= 3);
+         } else {
+           EXPECT_TRUE(values[1].ValueDouble() >= 1 && values[1].ValueDouble() <= 3);
+         }
+       });
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {

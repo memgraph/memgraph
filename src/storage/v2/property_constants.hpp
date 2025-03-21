@@ -16,6 +16,7 @@ namespace memgraph::storage {
 // These constants represent the smallest possible value of each type that is
 // contained in a `PropertyValue`. Note that numbers (integers and doubles) are
 // treated as the same "type" in `PropertyValue`.
+static const PropertyValue kSmallestProperty = PropertyValue();
 static const PropertyValue kSmallestBool = PropertyValue(false);
 // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
@@ -34,6 +35,7 @@ static const PropertyValue kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
 
 // We statically verify that the ordering of the property values holds.
+static_assert(PropertyValue::Type::Null < PropertyValue::Type::Bool);
 static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
 static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
 static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);

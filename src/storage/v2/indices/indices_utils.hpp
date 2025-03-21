@@ -241,66 +241,6 @@ inline bool AnyVersionHasProperty(const Edge &edge, std::pair<EdgeTypeId, Proper
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
-inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, std::span<PropertyId const> properties,
-                                           const PropertyValue &value, Transaction *transaction, View view) {
-  bool exists = true;
-  bool deleted = false;
-  bool has_label = false;
-  bool current_value_equal_to_value = value.IsNull();
-  const Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(properties[0] /*TODO*/, value);
-    delta = vertex.delta;
-  }
-
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
-    if (useCache) {
-      auto const &cache = transaction->manyDeltasCache;
-      if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
-      auto resLabel = cache.GetHasLabel(view, &vertex, label);
-      if (resLabel && *resLabel) {
-        auto resProp = cache.GetProperty(view, &vertex, properties[0] /*TODO*/);
-        if (resProp && resProp->get() == value) return true;
-      }
-    }
-
-    auto const n_processed =
-        ApplyDeltasForRead(transaction, delta, view, [&, label, key = properties[0] /*TODO*/](const Delta &delta) {
-          // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Deleted_ActionMethod(deleted),
-        Exists_ActionMethod(exists),
-        HasLabel_ActionMethod(has_label, label),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
-      });
-          // clang-format on
-        });
-
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
-      auto &cache = transaction->manyDeltasCache;
-      cache.StoreExists(view, &vertex, exists);
-      cache.StoreDeleted(view, &vertex, deleted);
-      cache.StoreHasLabel(view, &vertex, label, has_label);
-      if (current_value_equal_to_value) {
-        cache.StoreProperty(view, &vertex, properties[0] /*TODO*/, value);
-      }
-    }
-  }
-
-  return exists && !deleted && has_label && current_value_equal_to_value;
-}
-
-// Helper function for iterating through label-property index. Returns true if
-// this transaction can see the given vertex, and the visible version has the
-// given label and property.
 inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
                                           Transaction *transaction, View view) {
   bool exists = true;
