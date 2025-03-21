@@ -164,18 +164,18 @@ void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgra
 
 }  // namespace coordination
 
-constexpr utils::TypeInfo coordination::PromoteToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
-                                                                "CoordPromoteToMainReq", nullptr};
+constexpr utils::TypeInfo coordination::PromoteToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ, "PromoteToMainReq",
+                                                                nullptr};
 
-constexpr utils::TypeInfo coordination::PromoteToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES,
-                                                                "CoordPromoteToMainRes", nullptr};
+constexpr utils::TypeInfo coordination::PromoteToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES, "PromoteToMainRes",
+                                                                nullptr};
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaReq::kType{utils::TypeId::COORD_SET_REPL_MAIN_REQ,
-                                                                      "CoordDemoteToReplicaReq", nullptr};
+                                                                      "DemoteToReplicaReq", nullptr};
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
 
-                                                                      "CoordDemoteToReplicaRes", nullptr};
+                                                                      "DemoteToReplicaRes", nullptr};
 
 constexpr utils::TypeInfo coordination::UnregisterReplicaReq::kType{utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
                                                                     "UnregisterReplicaReq", nullptr};
@@ -184,22 +184,22 @@ constexpr utils::TypeInfo coordination::UnregisterReplicaRes::kType{utils::TypeI
                                                                     "UnregisterReplicaRes", nullptr};
 
 constexpr utils::TypeInfo coordination::EnableWritingOnMainReq::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
-                                                                      "CoordEnableWritingOnMainReq", nullptr};
+                                                                      "EnableWritingOnMainReq", nullptr};
 
 constexpr utils::TypeInfo coordination::EnableWritingOnMainRes::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
-                                                                      "CoordEnableWritingOnMainRes", nullptr};
+                                                                      "EnableWritingOnMainRes", nullptr};
 
-constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId::COORD_GET_UUID_REQ, "CoordGetUUIDReq",
+constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId::COORD_GET_UUID_REQ, "GetUUIDReq",
                                                                   nullptr};
 
-constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "CoordGetUUIDRes",
+constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "GetUUIDRes",
                                                                   nullptr};
 
 constexpr utils::TypeInfo coordination::GetDatabaseHistoriesReq::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
-                                                                       "GetInstanceDatabasesReq", nullptr};
+                                                                       "GetDatabaseHistoriesReq", nullptr};
 
 constexpr utils::TypeInfo coordination::GetDatabaseHistoriesRes::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
-                                                                       "GetInstanceDatabasesRes", nullptr};
+                                                                       "GetDatabaseHistoriesRes", nullptr};
 
 constexpr utils::TypeInfo coordination::RegisterReplicaOnMainReq::kType{
     utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ, "RegisterReplicaOnMainReq", nullptr};
