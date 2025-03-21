@@ -1250,10 +1250,11 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 }
 
 std::string ScanAllByLabelProperties::ToString() const {
-  return "";
-  // @TODO put back
-  // return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-  //                    dba_->PropertyToName(property_));
+  auto const property_names =
+      properties_ | ranges::views::transform([&](storage::PropertyId prop) { return dba_->PropertyToName(prop); });
+  auto const properties_stringified = utils::Join(property_names, ", ");
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
+                     properties_stringified);
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,

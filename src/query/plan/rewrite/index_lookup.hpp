@@ -1402,32 +1402,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                           std::move(properties), std::move(expr_ranges), view);
       };
 
-      if (found_index->filters.size() == 1) {
-        return GenForSingleFilter(*found_index->filters[0].property_filter, value_expressions[0]);
-      } else {
-        auto expr_ranges = found_index->filters | ranges::views::transform([&](auto &&filter) -> ExpressionRange {
-                             DMG_ASSERT(filter.property_filter);
-                             switch (filter.property_filter->type_) {
-                               case PropertyFilter::Type::EQUAL:
-                               case PropertyFilter::Type::IN: {
-                                 return ExpressionRange::Equal(filter.property_filter->value_);
-                               }
-                               case PropertyFilter::Type::REGEX_MATCH: {
-                                 return ExpressionRange::RegexMatch();
-                               }
-                               case PropertyFilter::Type::RANGE: {
-                                 return ExpressionRange::Range(filter.property_filter->lower_bound_,
-                                                               filter.property_filter->upper_bound_);
-                               }
-                               case PropertyFilter::Type::IS_NOT_NULL: {
-                                 return ExpressionRange::IsNotNull();
-                               }
-                             }
-                           }) |
-                           ranges::to_vector;
+      auto const to_expression_range = [&](auto &&filter) -> ExpressionRange {
+        DMG_ASSERT(filter.property_filter);
+        switch (filter.property_filter->type_) {
+          case PropertyFilter::Type::EQUAL:
+          case PropertyFilter::Type::IN: {
+            return ExpressionRange::Equal(filter.property_filter->value_);
+          }
+          case PropertyFilter::Type::REGEX_MATCH: {
+            return ExpressionRange::RegexMatch();
+          }
+          case PropertyFilter::Type::RANGE: {
+            return ExpressionRange::Range(filter.property_filter->lower_bound_, filter.property_filter->upper_bound_);
+          }
+          case PropertyFilter::Type::IS_NOT_NULL: {
+            return ExpressionRange::IsNotNull();
+          }
+        }
+      };
 
-        return GenForMultipleFilters(std::move(found_index->properties), std::move(expr_ranges));
-      }
+      auto expr_ranges = found_index->filters | ranges::views::transform(to_expression_range) | ranges::to_vector;
+
+      return GenForMultipleFilters(std::move(found_index->properties), std::move(expr_ranges));
     }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
