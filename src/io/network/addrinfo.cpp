@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,17 +20,19 @@ namespace memgraph::io::network {
 
 static_assert(std::forward_iterator<AddrInfo::Iterator> && std::equality_comparable<AddrInfo::Iterator>);
 
-AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.GetResolvedIPAddress(), endpoint.GetPort()) {}
+AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.GetAddress(), endpoint.GetPort()) {}
 
-AddrInfo::AddrInfo(const std::string &addr, uint16_t port) : info_{nullptr, nullptr} {
+AddrInfo::AddrInfo(const std::string &non_resolved_addr, uint16_t port) : info_{nullptr, nullptr} {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
       .ai_family = AF_UNSPEC,     // IPv4 and IPv6
       .ai_socktype = SOCK_STREAM  // TCP socket
   };
   addrinfo *info = nullptr;
-  auto status = getaddrinfo(addr.c_str(), std::to_string(port).c_str(), &hints, &info);
-  if (status != 0) throw NetworkError(gai_strerror(status));
+  auto status = getaddrinfo(non_resolved_addr.c_str(), std::to_string(port).c_str(), &hints, &info);
+  if (status != 0) {
+    throw NetworkError(gai_strerror(status));
+  }
   info_ = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>(info, &freeaddrinfo);
 }
 

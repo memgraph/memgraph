@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
         check_index(data, 4, "Node", "id");
         check_index(data, 5, "Node", "id2");
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indices are in place.");
@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
                     database_endpoint.GetResolvedIPAddress(), database_endpoint.GetPort());
         }
       } else {
-        LOG_FATAL("Unable to delete statistics from {}", database_endpoints[i]);
+        LOG_FATAL("Unable to delete statistics from {}", database_endpoints[i].SocketAddress());
       }
     }
   }
@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
           LOG_FATAL("Undeleted indices!");
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indices have been deleted.");
