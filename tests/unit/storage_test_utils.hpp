@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <gtest/gtest.h>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"

@@ -53,7 +53,7 @@ endfunction(_add_unit_test)
 
 # Test utilities
 add_library(storage_test_utils storage_test_utils.cpp)
-target_link_libraries(storage_test_utils mg-storage-v2)
+target_link_libraries(storage_test_utils mg-storage-v2 gtest)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
