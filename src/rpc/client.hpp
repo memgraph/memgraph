@@ -43,7 +43,6 @@ class Client {
       {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
       {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
       {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
-      {"GetInstanceUUIDReq"sv, 10000},        // coordinator to data instances
       {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
       {"StateCheckReq"sv, 10000},             // coordinator to data instances
       {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
