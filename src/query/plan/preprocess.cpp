@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <stack>
 #include <string_view>
@@ -874,7 +875,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
-    auto filters = SplitExpression(or_operator);
+    auto filters = SplitExpression(or_operator, SplitExpressionMode::OR);
     // If each filter is LabelsTest we aim to cover basic case and put them in existing LabelsTest
     // If there is a non-LabelsTest filter we fallback to generic
     auto is_each_labels_test = std::all_of(filters.begin(), filters.end(), [](auto &filter) {
@@ -885,15 +886,23 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return labels_test->labels_.size() == 1;
     });
     if (is_each_labels_test) {
-      std::map<Identifier *, std::vector<LabelIx>> labels_map;
+      std::map<int32_t, std::vector<LabelIx>> labels_map;  // symbol position and labels vector
       for (auto &filter : filters) {
         auto *labels_test = utils::Downcast<LabelsTest>(filter);
         auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
-        labels_map[identifier].insert(labels_map[identifier].end(), labels_test->labels_.begin(),
-                                      labels_test->labels_.end());
+        labels_map[identifier->symbol_pos_].insert(labels_map[identifier->symbol_pos_].end(),
+                                                   labels_test->labels_.begin(), labels_test->labels_.end());
       }
-      for (auto &[identifier, labels] : labels_map) {
-        auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+      for (auto &[symbol_pos, labels] : labels_map) {
+        auto it = std::find_if(all_filters_.begin(), all_filters_.end(), [symbol_pos](const FilterInfo &existing) {
+          auto *existing_labels_test = dynamic_cast<LabelsTest *>(existing.expression);
+          if (!existing_labels_test) return false;
+
+          auto *existing_identifier = dynamic_cast<Identifier *>(existing_labels_test->expression_);
+          if (!existing_identifier) return false;
+
+          return existing_identifier->symbol_pos_ == symbol_pos;
+        });
         if (it == all_filters_.end()) {
           // No existing LabelTest for this identifier
           auto filter_info = make_filter(FilterInfo::Type::Label);
