@@ -80,23 +80,6 @@ void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const & /*self*/, memgr
 
 void EnableWritingOnMainReq::Load(EnableWritingOnMainReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
 
-// GetInstanceUUID
-void GetInstanceUUIDReq::Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void GetInstanceUUIDReq::Load(GetInstanceUUIDReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void GetInstanceUUIDRes::Save(const GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
 // ShowInstances
 void ShowInstancesReq::Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -189,12 +172,6 @@ constexpr utils::TypeInfo coordination::EnableWritingOnMainReq::kType{utils::Typ
 constexpr utils::TypeInfo coordination::EnableWritingOnMainRes::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
                                                                       "EnableWritingOnMainRes", nullptr};
 
-constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId::COORD_GET_UUID_REQ, "GetUUIDReq",
-                                                                  nullptr};
-
-constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "GetUUIDRes",
-                                                                  nullptr};
-
 constexpr utils::TypeInfo coordination::GetDatabaseHistoriesReq::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
                                                                        "GetDatabaseHistoriesReq", nullptr};
 
@@ -282,24 +259,6 @@ void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::
 
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
-}
-
-// GetInstanceUUIDRpc
-
-void Save(const memgraph::coordination::GetInstanceUUIDReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
-  /* nothing to serialize*/
-}
-
-void Load(memgraph::coordination::GetInstanceUUIDReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
-  /* nothing to serialize*/
-}
-
-void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
-}
-
-void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
 }
 
 // GetDatabaseHistoriesRpc
