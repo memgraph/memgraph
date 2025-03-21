@@ -14,7 +14,7 @@ import sys
 from multiprocessing import Manager, Process
 
 import pytest
-from common import connect, cursor
+from common import connect, cursor, execute_and_fetch_all
 
 SWITCH_TO_ANALYTICAL = "STORAGE MODE IN_MEMORY_ANALYTICAL;"
 
@@ -193,6 +193,14 @@ def test_deleted_value_in_map(cursor):
 
     result = execute_test(cursor, write_query, read_query, "python", check_correctness)
     assert result
+
+
+def test_batch_read_proc(cursor):
+    cursor.execute(SWITCH_TO_ANALYTICAL)
+    res = execute_and_fetch_all(cursor, "CALL python_api.do_batch_read_proc() YIELD * RETURN * LIMIT 5;")
+    assert len(res) == 5
+    assert len(res[0]) == 1
+    assert res == [({"id": 0},), ({"id": 1},), ({"id": 0},), ({"id": 1},), ({"id": 0},)]
 
 
 if __name__ == "__main__":

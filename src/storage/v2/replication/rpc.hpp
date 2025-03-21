@@ -16,7 +16,6 @@
 #include <utility>
 
 #include "rpc/messages.hpp"
-#include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/config.hpp"
@@ -134,13 +133,13 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid, uint64_t file_number,
+  explicit WalFilesReq(uint64_t const file_number, const utils::UUID &main_uuid, const utils::UUID &storage_uuid,
                        bool const reset_needed)
-      : main_uuid{main_uuid}, uuid{storage_uuid}, file_number(file_number), reset_needed{reset_needed} {}
+      : file_number(file_number), main_uuid{main_uuid}, uuid{storage_uuid}, reset_needed{reset_needed} {}
 
+  uint64_t file_number;
   utils::UUID main_uuid;
   utils::UUID uuid;
-  uint64_t file_number;
   bool reset_needed;
 };
 

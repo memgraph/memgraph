@@ -46,9 +46,6 @@ class DataInstanceManagementServerHandlers {
   static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                          slk::Builder *res_builder);
 
-  static void GetInstanceUUIDHandler(replication::ReplicationHandler const &replication_handler,
-                                     slk::Reader *req_reader, slk::Builder *res_builder);
-
   static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
                                           slk::Reader *req_reader, slk::Builder *res_builder);
 

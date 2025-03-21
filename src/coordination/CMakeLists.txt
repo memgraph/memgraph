@@ -30,7 +30,6 @@ target_sources(mg-coordination
         include/coordination/raft_state.hpp
         include/coordination/replication_instance_client.hpp
         include/coordination/replication_instance_connector.hpp
-        include/coordination/rpc_errors.hpp
         include/coordination/utils.hpp
 
 
