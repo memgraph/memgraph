@@ -113,10 +113,10 @@ class CreateNode;
 class CreateExpand;
 class ScanAll;
 class ScanAllByLabel;
-class ScanAllByLabelPropertyRange;
-class ScanAllByLabelPropertyValue;
+class ScanAllByLabelPropertyRange;  // TODO:remove
+class ScanAllByLabelPropertyValue;  // TODO:remove
 class ScanAllByLabelProperties;
-class ScanAllByLabelProperty;
+class ScanAllByLabelProperty;  // TODO:remove
 class ScanAllById;
 class ScanAllByEdge;
 class ScanAllByEdgeType;
