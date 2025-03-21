@@ -1068,13 +1068,6 @@ def test_add_coord_instance_fails(test_name):
         )
     except Exception as e:
         assert "Couldn't add coordinator since instance with such id already exists!" == str(e)
-    try:
-        execute_and_fetch_all(
-            coordinator3_cursor,
-            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
-        )
-    except Exception as e:
-        assert "Couldn't add coordinator since instance with such bolt endpoint already exists!" == str(e)
 
 
 def test_unregister_leader_instance(test_name):

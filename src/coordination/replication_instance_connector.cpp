@@ -14,7 +14,6 @@
 #include "coordination/replication_instance_connector.hpp"
 
 #include "replication_coordination_glue/handler.hpp"
-#include "utils/result.hpp"
 
 #include <chrono>
 #include <string>
@@ -61,31 +60,9 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
   return client_.ReplicationSocketAddress();
 }
 
-auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
-                                                        ReplicationClientsInfo repl_clients_info) const -> bool {
-  return client_.SendPromoteToMainRpc(new_uuid, std::move(repl_clients_info));
-}
-
-auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() const -> bool { return client_.SendDemoteToReplicaRpc(); }
-
-auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
-  return client_.SendStateCheckRpc();
-}
-
-auto ReplicationInstanceConnector::SendRegisterReplicaRpc(utils::UUID const &uuid,
-                                                          ReplicationClientInfo replication_client_info) const -> bool {
-  return client_.SendRegisterReplicaRpc(uuid, std::move(replication_client_info));
-}
-
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
 }
-
-auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
-  return client_.SendUnregisterReplicaRpc(instance_name);
-}
-
-bool ReplicationInstanceConnector::SendEnableWritingOnMainRpc() const { return client_.SendEnableWritingOnMainRpc(); }
 
 auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStateCheck(); }
 auto ReplicationInstanceConnector::StopStateCheck() -> void { client_.StopStateCheck(); }
@@ -99,4 +76,5 @@ auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordinat
 auto ReplicationInstanceConnector::GetClient() const -> ReplicationInstanceClient const & { return client_; }
 
 }  // namespace memgraph::coordination
+
 #endif

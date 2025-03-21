@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,6 @@
 
 #include <cstdint>
 #include <memory>
-
-#include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
 
@@ -32,6 +30,12 @@ template <typename TRequest, typename TResponse>
 struct RequestResponse {
   using Request = TRequest;
   using Response = TResponse;
+};
+
+template <typename T>
+concept IsRpc = requires {
+  typename T::Request;
+  typename T::Response;
 };
 
 }  // namespace memgraph::rpc
