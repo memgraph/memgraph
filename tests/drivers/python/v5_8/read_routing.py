@@ -26,7 +26,7 @@ def read_greetings_from_uri(uri):
 
 def main():
     print("Started reading route")
-    uris = ["neo4j://localhost:7690", "neo4j://localhost:7691", "neo4j://localhost:7692"]
+    uris = ["neo4j://localhost:7691", "neo4j://localhost:7692", "neo4j://localhost:7693"]
 
     try:
         for uri in uris:

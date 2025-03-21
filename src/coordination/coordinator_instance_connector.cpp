@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@ namespace memgraph::coordination {
 
 auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
   try {
-    spdlog::trace("Sending ShowInstancesRPC to endpoint {}", client_.RpcClient().Endpoint());
+    spdlog::trace("Sending ShowInstancesRPC to endpoint {}", client_.RpcClient().Endpoint().SocketAddress());
     auto stream{client_.RpcClient().Stream<ShowInstancesRpc>()};
     spdlog::trace("Waiting response to ShowInstancesRpc.");
     auto res = stream.AwaitResponse();
