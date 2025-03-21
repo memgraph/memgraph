@@ -274,11 +274,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> new_stats_;
 
   //*** OLD to remove
-  std::map<std::tuple<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
+  std::map<std::tuple<LabelId, PropertyId>, utils::SkipList<Entry>> index_;  // TODO: remove
+  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>>
+      indices_by_property_;  // TODO: remove
   utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
                       utils::ReadPrioritizedRWLock>
-      stats_;
+      stats_;  // TODO: remove
   //***
 };
 
