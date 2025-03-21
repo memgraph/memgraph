@@ -1250,6 +1250,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 }
 
 std::string ScanAllByLabelProperties::ToString() const {
+  // TODO: better diagnostics...info about expression_ranges_?
   auto const property_names =
       properties_ | ranges::views::transform([&](storage::PropertyId prop) { return dba_->PropertyToName(prop); });
   auto const properties_stringified = utils::Join(property_names, ", ");

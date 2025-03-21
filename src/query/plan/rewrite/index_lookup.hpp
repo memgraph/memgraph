@@ -1110,7 +1110,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
   // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
   // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
-  auto FindBestLabelPropertyIndex(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+  auto FindBestLabelPropertiesIndex(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
       -> std::optional<LabelPropertyIndex> {
     /*
      * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be
@@ -1220,6 +1220,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
+      // If the index is less composite then it is prefered
+      if (candidate.info_.properties_.size() < found->properties.size()) {
+        found = make_label_property_index();
+        continue;
+      }
+
       if (int cmp_res = compare_indices(found, new_stats, vertex_count);
           cmp_res == -1 ||
           cmp_res == 0 && (vertex_count < found->vertex_count ||
@@ -1316,7 +1322,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     }
-    std::optional<LabelPropertyIndex> found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
+    std::optional<LabelPropertyIndex> found_index = FindBestLabelPropertiesIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
@@ -1342,16 +1348,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
 
-      // prepare empty_string (if one is needed)
-      auto *empty_string = std::invoke([&]() -> Expression * {
-        for (FilterInfo const &filter_info : found_index->filters) {
-          if (filter_info.property_filter->type_ == PropertyFilter::Type::REGEX_MATCH) {
-            return ast_storage_->Create<PrimitiveLiteral>("");
-          }
-        }
-        return nullptr;
-      });
-
       // For any IN filters, we need to unwind
       // TODO(buda): ScanAllByLabelProperty + Filter should be considered
       // here once the operator and the right cardinality estimation exist.
@@ -1370,37 +1366,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return prop_filter.value_;
       };
       auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-
-      auto GenForSingleFilter = [&](PropertyFilter const &prop_filter,
-                                    Expression *expression) -> std::unique_ptr<ScanAll> {
-        if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
-          return std::make_unique<ScanAllByLabelPropertyRange>(
-              input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-              prop_filter.lower_bound_, prop_filter.upper_bound_, view);
-        }
-        if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
-          // Generate index scan using the empty string as a lower bound.
-          // `InMemoryLabelPropertyIndex::Iterable::Iterable` takes responsibility for making sure the upper bound
-          // excludes non string types
-          return std::make_unique<ScanAllByLabelPropertyRange>(
-              input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-              std::optional{utils::MakeBoundInclusive(empty_string)}, std::nullopt, view);
-        }
-        if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
-          // TODO: composite index will change this, exact and all filter asking for not_null
-          return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
-                                                          GetProperty(prop_filter.property_), view);
-        }
-        MG_ASSERT(expression, "Property filter should either have bounds or a value expression.");
-        return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
-                                                             GetProperty(prop_filter.property_), expression, view);
-      };
-
-      auto GenForMultipleFilters = [&](std::vector<storage::PropertyId> properties,
-                                       std::vector<ExpressionRange> expr_ranges) -> std::unique_ptr<ScanAll> {
-        return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
-                                                          std::move(properties), std::move(expr_ranges), view);
-      };
 
       auto const to_expression_range = [&](auto &&filter) -> ExpressionRange {
         DMG_ASSERT(filter.property_filter);
@@ -1423,8 +1388,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       auto expr_ranges = found_index->filters | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
-      return GenForMultipleFilters(std::move(found_index->properties), std::move(expr_ranges));
+      return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
+                                                        std::move(found_index->properties), std::move(expr_ranges),
+                                                        view);
     }
+
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;

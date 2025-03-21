@@ -210,61 +210,35 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
 
-  {
-    // OLD approach
-    auto [it, emplaced] =
-        index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties[0]), std::forward_as_tuple());
-
-    if (!emplaced) return false;
-
-    indices_by_property_[properties[0]].insert({label, &it->second});
-
-    auto const func = [&](Vertex &vertex, auto &index_accessor) {
-      TryInsertLabelPropertyIndex(vertex, std::tuple(label, properties[0]), index_accessor);
-    };
-
-    if (parallel_exec_info) {
-      CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func,
-                                   std::nullopt /*leave it to the new approach to observe*/);
-    } else {
-      CreateIndexOnSingleThread(vertices, it, index_, func, std::nullopt /*leave it to the new approach to
-        observe*/);
-    }
+  auto [it1, _] = new_index_.try_emplace(label);
+  auto &properties_map = it1->second;
+  auto helper = PropertiesPermutationHelper{properties};
+  auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
+  if (!emplaced) {
+    // Index already exists.
+    return false;
   }
 
-  {
-    // NEW approach
+  auto const &properties_key = it2->first;
+  auto &index = it2->second;
 
-    auto [it1, _] = new_index_.try_emplace(label);
-    auto &properties_map = it1->second;
-    auto helper = PropertiesPermutationHelper{properties};
-    auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
-    if (!emplaced) {
-      // Index already exists.
-      return false;
-    }
+  auto de = EntryDetail{&properties_key, &index};
+  for (auto prop : properties) {
+    new_indices_by_property_[prop].insert({label, de});
+  }
 
-    auto const &properties_key = it2->first;
-    auto &index = it2->second;
-
-    auto de = EntryDetail{&properties_key, &index};
-    for (auto prop : properties) {
-      new_indices_by_property_[prop].insert({label, de});
-    }
-
-    try {
-      auto &index_skip_list = it2->second.skiplist;
-      auto accessor_factory = [&] { return index_skip_list.access(); };
-      auto &props_permutation_helper = it2->second.permutations_helper;
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
-      };
-      PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-    } catch (const utils::OutOfMemoryException &) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
-      properties_map.erase(it2);
-      throw;
-    }
+  try {
+    auto &index_skip_list = it2->second.skiplist;
+    auto accessor_factory = [&] { return index_skip_list.access(); };
+    auto &props_permutation_helper = it2->second.permutations_helper;
+    auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+      TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
+    };
+    PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+  } catch (const utils::OutOfMemoryException &) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
+    properties_map.erase(it2);
+    throw;
   }
 
   return true;
@@ -353,86 +327,66 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  bool res = false;
-
-  {
-    // OLD approach
-    // NOTE: this ATM does not remove stats
-    if (indices_by_property_.contains(properties[0])) {
-      indices_by_property_.at(properties[0]).erase(label);
-
-      if (indices_by_property_.at(properties[0]).empty()) {
-        indices_by_property_.erase(properties[0]);
-      }
-    }
-
-    res = index_.erase({label, properties[0]}) > 0;
+  // find the primary index
+  auto it1 = new_index_.find(label);
+  if (it1 == new_index_.end()) {
+    return false;
   }
 
-  {
-    // NEW approach
+  auto &properties_map = it1->second;
+  auto it2 = properties_map.find(properties);
+  if (it2 == properties_map.end()) {
+    return false;
+  }
 
-    // find the primary index
-    auto it1 = new_index_.find(label);
-    if (it1 == new_index_.end()) {
-      return res /*false*/;
+  // cleanup the auxiliary indexes
+  // MUST be done before removal of primary index entries
+  for (auto prop : properties) {
+    auto it3 = new_indices_by_property_.find(prop);
+    if (it3 == new_indices_by_property_.end()) continue;
+
+    auto &label_map = it3->second;
+    auto [b, e] = label_map.equal_range(label);
+    // TODO(composite_index): replace linear search with logn
+    while (b != e) {
+      auto const &[props_key_ptr, _] = b->second;
+      if (props_key_ptr == &it2->first) {
+        b = label_map.erase(b);
+      } else {
+        ++b;
+      }
+    }
+    if (label_map.empty()) {
+      new_indices_by_property_.erase(it3);
+    }
+  }
+
+  // Cleanup stats (the stats may not have been generated)
+  std::invoke([&] {
+    auto stats_ptr = new_stats_.Lock();
+    auto it1 = stats_ptr->find(label);
+    if (it1 == stats_ptr->end()) {
+      return;
     }
 
     auto &properties_map = it1->second;
     auto it2 = properties_map.find(properties);
     if (it2 == properties_map.end()) {
-      return res /*false*/;
+      return;
     }
-
-    // cleanup the auxiliary indexes
-    // MUST be done before removal of primary index entries
-    for (auto prop : properties) {
-      auto it3 = new_indices_by_property_.find(prop);
-      if (it3 == new_indices_by_property_.end()) continue;
-
-      auto &label_map = it3->second;
-      auto [b, e] = label_map.equal_range(label);
-      // TODO(composite_index): replace linear search with logn
-      while (b != e) {
-        auto const &[props_key_ptr, _] = b->second;
-        if (props_key_ptr == &it2->first) {
-          b = label_map.erase(b);
-        } else {
-          ++b;
-        }
-      }
-      if (label_map.empty()) {
-        new_indices_by_property_.erase(it3);
-      }
-    }
-
-    // Cleanup stats (the stats may not have been generated)
-    std::invoke([&] {
-      auto stats_ptr = new_stats_.Lock();
-      auto it1 = stats_ptr->find(label);
-      if (it1 == stats_ptr->end()) {
-        return;
-      }
-
-      auto &properties_map = it1->second;
-      auto it2 = properties_map.find(properties);
-      if (it2 == properties_map.end()) {
-        return;
-      }
-      properties_map.erase(it2);
-      if (properties_map.empty()) {
-        stats_ptr->erase(it1);
-      }
-    });
-
-    // Do the actual removal from the primary index
     properties_map.erase(it2);
     if (properties_map.empty()) {
-      new_index_.erase(it1);
+      stats_ptr->erase(it1);
     }
+  });
 
-    return res /*true*/;
+  // Do the actual removal from the primary index
+  properties_map.erase(it2);
+  if (properties_map.empty()) {
+    new_index_.erase(it1);
   }
+
+  return true;
 }
 
 bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
