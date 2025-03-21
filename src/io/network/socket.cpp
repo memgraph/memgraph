@@ -46,7 +46,7 @@ Socket &Socket::operator=(Socket &&other) noexcept {
 
 Socket::~Socket() noexcept { Close(); }
 
-void Socket::Close() {
+void Socket::Close() noexcept {
   if (socket_ == -1) return;
   if (close(socket_) != 0) {
     int err_sc = errno;

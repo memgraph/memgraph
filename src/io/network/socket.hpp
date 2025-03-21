@@ -38,7 +38,7 @@ class Socket {
   /**
    * Closes the socket if it is open.
    */
-  void Close();
+  void Close() noexcept;
 
   /**
    * Shutdown the socket if it is open.
