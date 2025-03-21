@@ -886,27 +886,20 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return labels_test->labels_.size() == 1;
     });
     if (is_each_labels_test) {
-      std::unordered_map<int32_t, std::vector<LabelIx>> labels_map;  // symbol position and labels vector
+      std::unordered_map<uint32_t, std::vector<LabelIx> *> already_seen_symbols;
       for (auto &filter : filters) {
         auto *labels_test = utils::Downcast<LabelsTest>(filter);
         auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
-        labels_map[identifier->symbol_pos_].insert(labels_map[identifier->symbol_pos_].end(),
-                                                   labels_test->labels_.begin(), labels_test->labels_.end());
-      }
-      for (auto &[symbol_pos, labels] : labels_map) {
-        auto it = std::find_if(all_filters_.begin(), all_filters_.end(), [symbol_pos](const FilterInfo &existing) {
-          auto *existing_labels_test = dynamic_cast<LabelsTest *>(existing.expression);
-          if (!existing_labels_test) return false;
-
-          auto *existing_identifier = dynamic_cast<Identifier *>(existing_labels_test->expression_);
-          if (!existing_identifier) return false;
-
-          return existing_identifier->symbol_pos_ == symbol_pos;
-        });
+        auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
         if (it == all_filters_.end()) {
           // No existing LabelTest for this identifier
-          auto filter_info = make_filter(FilterInfo::Type::Label);
-          filter_info.or_labels.push_back(std::move(labels));
+          auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};
+          filter_info.or_labels.push_back(labels_test->labels_);
+
+          // Transfer labels to or_labels since we are in OR expression
+          labels_test->or_labels_.push_back(std::move(labels_test->labels_));
+          labels_test->labels_.clear();
+          already_seen_symbols[identifier->symbol_pos_] = &labels_test->or_labels_.back();
           all_filters_.emplace_back(filter_info);
         } else {
           // Add to existing LabelsTest
@@ -923,18 +916,32 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
             return as_set;
           }();
           auto before_count = as_set.size();
-          existing_or_labels.emplace_back();
-          auto &existing_or_labels_back = existing_or_labels.back();
-          for (auto &label : labels) {
+          // If symbol isn't already seen in this OR expression emplace back new vector of or labels
+          std::vector<LabelIx> *or_labels_vec = nullptr;
+          auto existing_or_labels_vec_it = already_seen_symbols.find(identifier->symbol_pos_);
+          if (existing_or_labels_vec_it == already_seen_symbols.end()) {
+            existing_or_labels.emplace_back();
+            already_seen_symbols[identifier->symbol_pos_] = &existing_or_labels.back();
+            or_labels_vec = &existing_or_labels.back();
+          } else {
+            or_labels_vec = existing_or_labels_vec_it->second;
+          }
+          for (auto &label : labels_test->labels_) {
             if (as_set.insert(label).second) {
-              existing_or_labels_back.push_back(label);
+              or_labels_vec->push_back(label);
             }
           }
           if (as_set.size() != before_count) {
             it->or_labels = existing_or_labels;
-          } else {
-            existing_or_labels.pop_back();
           }
+        }
+      }
+      // cleanup all already_seen_symbols vectors that are empty
+      for (auto it = already_seen_symbols.begin(); it != already_seen_symbols.end();) {
+        if (it->second->empty()) {
+          it = already_seen_symbols.erase(it);
+        } else {
+          ++it;
         }
       }
     } else {
