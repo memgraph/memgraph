@@ -63,7 +63,6 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
 enum class AddCoordinatorInstanceStatus : uint8_t {
   SUCCESS,
   ID_ALREADY_EXISTS,
-  BOLT_ENDPOINT_ALREADY_EXISTS,
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };
