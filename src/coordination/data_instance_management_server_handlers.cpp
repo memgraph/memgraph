@@ -50,11 +50,6 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
         DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
       });
 
-  server.Register<coordination::GetInstanceUUIDRpc>(
-      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
-      });
-
   server.Register<coordination::GetDatabaseHistoriesRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(replication_handler, req_reader, res_builder);
@@ -143,26 +138,6 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   coordination::DemoteMainToReplicaRes const rpc_res{true};
   rpc::SendFinalResponse(rpc_res, res_builder);
   spdlog::info("MAIN successfully demoted to REPLICA.");
-}
-
-void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(
-    replication::ReplicationHandler const &replication_handler, slk::Reader * /*req_reader*/,
-    slk::Builder *res_builder) {
-  const auto locked_repl_state = replication_handler.GetReplState();
-  if (!locked_repl_state->IsReplica()) {
-    spdlog::trace(
-        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at "
-        "the "
-        "moment. Returning empty uuid.");
-    coordination::GetInstanceUUIDRes const rpc_res{{}};
-    rpc::SendFinalResponse(rpc_res, res_builder);
-    return;
-  }
-
-  auto const replica_uuid = locked_repl_state->GetReplicaRole().uuid_;
-  coordination::GetInstanceUUIDRes const rpc_res{replica_uuid};
-  rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("Replica's UUID returned successfully: {}.", replica_uuid ? std::string{*replica_uuid} : "");
 }
 
 void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::ReplicationHandler &replication_handler,
