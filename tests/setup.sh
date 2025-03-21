@@ -20,7 +20,6 @@ PIP_DEPS=(
    "python3-saml==1.16.0"
    "setuptools==75.8.0"
    "pymgclient==1.3.1"
-   "onelogin==3.1.6"
 )
 
 # Remove old and create a new virtualenv.

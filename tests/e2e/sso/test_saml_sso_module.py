@@ -1,8 +1,8 @@
 import os
-import pytest
 import sys
 
 import onelogin.saml2.utils
+import pytest
 
 
 def skip_signature_validation(*args, **kwargs):
@@ -12,26 +12,32 @@ def skip_signature_validation(*args, **kwargs):
 # Monkey-patch the SAML library to skip signature validation (not needed for tests)
 onelogin.saml2.utils.OneLogin_Saml2_Utils.validate_sign = skip_signature_validation
 
-from common import compose_path, load_test_data
 import saml
+from common import compose_path, load_test_data
 
 
 @pytest.fixture(scope="function")
 def provide_env():
-    os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_CALLBACK_URL"] = "auth/providers/saml-entra-id/callback"
+    os.environ[
+        "MEMGRAPH_SSO_ENTRA_ID_SAML_CALLBACK_URL"
+    ] = "http://localhost:3000/auth/providers/saml-entra-id/callback"
     os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_ASSERTION_AUDIENCE"] = "spn:f516a7de-6c3f-4d1d-a289-539301039291"
     os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_SP_CERT"] = compose_path(filename="dummy_cert.txt")
     os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_IDP_ID"] = "https://sts.windows.net/371aa2c4-2f9b-4fe1-bc52-23824e906c26/"
-    os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_USERNAME_ATTRIBUTE"] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+    os.environ[
+        "MEMGRAPH_SSO_ENTRA_ID_SAML_USERNAME_ATTRIBUTE"
+    ] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
     os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_USE_NAME_ID"] = "False"
     os.environ["MEMGRAPH_SSO_ENTRA_ID_SAML_ROLE_MAPPING"] = "test-admin: admin; test-reader: reader"
 
-    os.environ["MEMGRAPH_SSO_OKTA_SAML_CALLBACK_URL"] = "auth/providers/saml-okta/callback"
+    os.environ["MEMGRAPH_SSO_OKTA_SAML_CALLBACK_URL"] = "http://localhost:3000/auth/providers/saml-okta/callback"
     os.environ["MEMGRAPH_SSO_OKTA_SAML_ASSERTION_AUDIENCE"] = "myApplication"
     os.environ["MEMGRAPH_SSO_OKTA_SAML_SP_CERT"] = compose_path(filename="dummy_cert.txt")
     os.environ["MEMGRAPH_SSO_OKTA_SAML_IDP_ID"] = "http://www.okta.com/exke6ubrkbz9TG2iB697"
     os.environ["MEMGRAPH_SSO_OKTA_SAML_WANT_ATTRIBUTE_STATEMENT"] = "false"
-    os.environ["MEMGRAPH_SSO_OKTA_SAML_USERNAME_ATTRIBUTE"] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+    os.environ[
+        "MEMGRAPH_SSO_OKTA_SAML_USERNAME_ATTRIBUTE"
+    ] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
     os.environ["MEMGRAPH_SSO_OKTA_SAML_USE_NAME_ID"] = "True"
     os.environ["MEMGRAPH_SSO_OKTA_SAML_ROLE_ATTRIBUTE"] = "groups"
     os.environ["MEMGRAPH_SSO_OKTA_SAML_ROLE_MAPPING"] = "test-admin: admin; test-reader: reader"
