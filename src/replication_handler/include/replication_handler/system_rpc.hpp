@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,30 +20,6 @@
 #include "storage/v2/config.hpp"
 
 namespace memgraph::replication {
-struct SystemHeartbeatReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder);
-  SystemHeartbeatReq() = default;
-  explicit SystemHeartbeatReq(const utils::UUID &main_uuid) : main_uuid(main_uuid) {}
-  utils::UUID main_uuid;
-};
-
-struct SystemHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemHeartbeatRes &self, memgraph::slk::Builder *builder);
-  SystemHeartbeatRes() = default;
-  explicit SystemHeartbeatRes(uint64_t system_timestamp) : system_timestamp(system_timestamp) {}
-
-  uint64_t system_timestamp;
-};
-
-using SystemHeartbeatRpc = rpc::RequestResponse<SystemHeartbeatReq, SystemHeartbeatRes>;
 
 struct SystemRecoveryReq {
   static const utils::TypeInfo kType;
@@ -89,10 +65,6 @@ using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecovery
 }  // namespace memgraph::replication
 
 namespace memgraph::slk {
-void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/);
-void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);
