@@ -548,7 +548,7 @@ bool SymbolGenerator::PreVisit(ListComprehension &list_comprehension) {
   return false;
 }
 
-bool SymbolGenerator::PostVisit(ListComprehension &/*list_comprehension*/) {
+bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
   auto &scope = scopes_.back();
   scope.in_list_comprehension = false;
   return true;
@@ -841,6 +841,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 
   if (!scope.in_with && !scope.in_return) {
     throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
+  }
+  if (scope.in_list_comprehension) {
+    throw utils::NotYetImplemented("Pattern comprehension inside list comprehension!");
   }
 
   scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
