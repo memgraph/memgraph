@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -26,6 +27,7 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -308,7 +310,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return false;
     }
 
-    std::unique_ptr<ScanAll> indexed_scan;
+    std::unique_ptr<LogicalOperator> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a
     // different algorithm then, so prefer expand to existing.
@@ -830,6 +832,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
+  std::optional<std::vector<LabelIx>> FindBestLabelIndicesGroup(
+      const std::vector<std::vector<LabelIx>> &vector_indices_groups) {
+    std::optional<std::vector<LabelIx>> best_group;
+    std::size_t min_total_vertices = std::numeric_limits<std::size_t>::max();
+
+    for (const auto &group : vector_indices_groups) {
+      bool all_labels_indexed = std::all_of(group.begin(), group.end(),
+                                            [&](LabelIx label) { return db_->LabelIndexExists(GetLabel(label)); });
+      if (!all_labels_indexed) continue;
+      std::size_t total_vertices =
+          std::accumulate(group.begin(), group.end(), std::size_t{0},
+                          [&](std::size_t sum, LabelIx label) { return sum + db_->VerticesCount(GetLabel(label)); });
+      if (total_vertices < min_total_vertices) {
+        min_total_vertices = total_vertices;
+        best_group = group;
+      }
+    }
+    return best_group;
+  }
+
   struct CandidateIndices {
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
@@ -1035,8 +1057,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  std::unique_ptr<ScanAll> GenScanByIndex(const ScanAll &scan,
-                                          const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  std::unique_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
+                                                  const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
@@ -1066,8 +1088,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     // Now try to see if we can use label+property index. If not, try to use
     // just the label index.
-    const auto labels = filters_.FilteredLabels(node_symbol);
-    if (labels.empty()) {
+    auto labels = filters_.FilteredLabels(node_symbol);
+    auto or_labels = filters_.OrLabels(node_symbol);
+    if (labels.empty() && or_labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
@@ -1083,6 +1106,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         filters_.EraseFilter(filter);
         std::vector<Expression *> removed_expressions;  // out parameter
+        // TODO: Do we need to remove OR labels here?
         filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
         filter_exprs_for_removal_.insert(filter.expression);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
@@ -1129,6 +1153,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       filters_.EraseFilter(found_index->filter);
       std::vector<Expression *> removed_expressions;
+      // TODO: Do we need to remove OR labels here?
       filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
@@ -1164,18 +1189,40 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                            GetProperty(prop_filter.property_), prop_filter.value_,
                                                            view);
     }
-    auto maybe_label = FindBestLabelIndex(labels);
-    if (!maybe_label) return nullptr;
-    const auto &label = *maybe_label;
-    if (max_vertex_count && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
-      // Don't create an indexed lookup, since we have more labeled vertices
-      // than the allowed count.
-      return nullptr;
+    if (!labels.empty()) {
+      auto maybe_label = FindBestLabelIndex(labels);
+      if (maybe_label) {
+        const auto &label = *maybe_label;
+        if (!max_vertex_count || db_->VerticesCount(GetLabel(label)) <= *max_vertex_count) {
+          std::vector<Expression *> removed_expressions;
+          filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
+          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+          return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+        }
+      }
     }
-    std::vector<Expression *> removed_expressions;
-    filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
-    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+
+    if (!or_labels.empty()) {
+      auto best_indexing_group = FindBestLabelIndicesGroup(or_labels);
+      if (best_indexing_group) {
+        std::unique_ptr<LogicalOperator> prev;
+        for (const auto &label : *best_indexing_group) {
+          auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+          if (prev) {
+            auto union_op = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
+                                                    std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+            prev = std::move(union_op);
+          } else {
+            prev = std::move(scan);
+          }
+        }
+        std::vector<Expression *> removed_expressions;
+        filters_.EraseOrLabelFilter(node_symbol, *best_indexing_group, &removed_expressions);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+        return prev;
+      }
+    }
+    return nullptr;
   }
 };
 
