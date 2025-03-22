@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,11 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "communication/v2/server.hpp"
-#include "glue/SessionHL.hpp"
+#include <cstdint>
 
-extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;
-
-namespace memgraph::glue {
-using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;
-}  // namespace memgraph::glue
+namespace memgraph::utils {
+enum class Priority : uint8_t { LOW, HIGH };
+}  // namespace memgraph::utils
