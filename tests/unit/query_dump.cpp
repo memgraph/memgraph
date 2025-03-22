@@ -679,19 +679,18 @@ TYPED_TEST(DumpTest, IndicesKeys) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto ro_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+        ro_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto ro_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc
-            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
+        ro_acc->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -723,18 +722,18 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType")).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto ro_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType")).HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto ro_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc
+        ro_acc
             ->CreateIndex(this->db->storage()->NameToEdgeType("EdgeType"), this->db->storage()->NameToProperty("prop"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -767,20 +766,20 @@ TYPED_TEST(DumpTest, PointIndices) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto ro_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc
+        ro_acc
             ->CreatePointIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc
+    auto ro_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc
                      ->CreatePointIndex(this->db->storage()->NameToLabel("Label 2"),
                                         this->db->storage()->NameToProperty("prop `"))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -826,9 +825,9 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          dimension,
                                                          resize_coefficient,
                                                          capacity};
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto ro_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -839,9 +838,9 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          dimension,
                                                          resize_coefficient,
                                                          capacity};
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto ro_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -869,11 +868,11 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
-                                                     this->db->storage()->NameToProperty("prop"));
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto res = ro_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
+                                                 this->db->storage()->NameToProperty("prop"));
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -902,13 +901,13 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto res = ro_acc->CreateUniqueConstraint(
         this->db->storage()->NameToLabel("Label"),
         {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
@@ -1050,35 +1049,35 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
-                                                     this->db->storage()->NameToProperty("name"));
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto ret = ro_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
+                                                 this->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(ret.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto ret = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
-                                                  {this->db->storage()->NameToProperty("name")});
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto ret = ro_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
+                                              {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto ro_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
+        ro_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc
+    auto ro_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
                                    this->db->storage()->NameToProperty("unexisting_property"))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   const auto &db_initial_state = GetState(this->db->storage());
@@ -1254,54 +1253,53 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
   {
     // Create indices
     {
-      auto unique_acc = this->db->UniqueAccess();
+      auto ro_acc = this->db->ReadOnlyAccess();
       ASSERT_FALSE(
-          unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
+          ro_acc->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
               .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(ro_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
+      auto ro_acc = this->db->ReadOnlyAccess();
       ASSERT_FALSE(
-          unique_acc
+          ro_acc
               ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
               .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(ro_acc->Commit().HasError());
     }
 
     // Create existence constraints
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                       this->db->storage()->NameToProperty("name"));
+      auto ro_acc = this->db->ReadOnlyAccess();
+      auto res = ro_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                   this->db->storage()->NameToProperty("name"));
       ASSERT_FALSE(res.HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(ro_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                       this->db->storage()->NameToProperty("surname"));
+      auto ro_acc = this->db->ReadOnlyAccess();
+      auto res = ro_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                   this->db->storage()->NameToProperty("surname"));
       ASSERT_FALSE(res.HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(ro_acc->Commit().HasError());
     }
 
     // Create unique constraints
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                    {this->db->storage()->NameToProperty("name")});
+      auto ro_acc = this->db->ReadOnlyAccess();
+      auto res = ro_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                {this->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(ro_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                    {this->db->storage()->NameToProperty("surname")});
+      auto ro_acc = this->db->ReadOnlyAccess();
+      auto res = ro_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                {this->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(ro_acc->Commit().HasError());
     }
 
     auto dba = this->db->Access();
@@ -1413,35 +1411,35 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                     this->db->storage()->NameToProperty("name"));
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto res = ro_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                 this->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                  {this->db->storage()->NameToProperty("name")});
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto res = ro_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                              {this->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                this->db->storage()->NameToProperty("name"),
-                                                memgraph::storage::TypeConstraintKind::INTEGER);
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto res = ro_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                            this->db->storage()->NameToProperty("name"),
+                                            memgraph::storage::TypeConstraintKind::INTEGER);
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                this->db->storage()->NameToProperty("surname"),
-                                                memgraph::storage::TypeConstraintKind::STRING);
+    auto ro_acc = this->db->ReadOnlyAccess();
+    auto res = ro_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                            this->db->storage()->NameToProperty("surname"),
+                                            memgraph::storage::TypeConstraintKind::STRING);
     ASSERT_FALSE(res.HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
 
   ResultStreamFaker stream(this->db->storage());

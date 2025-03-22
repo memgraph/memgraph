@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,9 +122,9 @@ TYPED_TEST(QueryPlan, ScanAll) {
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto ro_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(ro_acc->CreateIndex(label).HasError());
+    ASSERT_FALSE(ro_acc->Commit().HasError());
   }
   {
     auto dba = this->db->Access();
