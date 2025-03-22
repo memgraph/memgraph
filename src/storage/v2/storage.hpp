@@ -84,6 +84,7 @@ struct IndicesInfo {
   std::vector<std::pair<LabelId, PropertyId>> label_property;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
+  std::vector<PropertyId> edge_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
@@ -233,6 +234,13 @@ class Storage {
                                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    virtual EdgesIterable Edges(PropertyId property, View view) = 0;
+
+    virtual EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) = 0;
+
+    virtual EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
+
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
@@ -264,6 +272,13 @@ class Storage {
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
+                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(PropertyId property) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
     virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
@@ -299,6 +314,8 @@ class Storage {
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
 
     virtual bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);
@@ -381,6 +398,8 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               PropertyId property) = 0;
 
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
+
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
@@ -389,6 +408,8 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
                                                                             PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
