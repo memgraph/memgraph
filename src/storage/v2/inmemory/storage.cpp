@@ -71,9 +71,9 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(LABEL_INDEX_STATS_SET);
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_DROP);
-    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTIES_INDEX_CREATE);
     add_case(LABEL_PROPERTY_INDEX_STATS_SET);
-    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTIES_INDEX_DROP);
     add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
     add_case(EDGE_INDEX_CREATE);
     add_case(EDGE_INDEX_DROP);
@@ -1398,15 +1398,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, PropertyId property) {
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
+  if (!mem_label_property_index->CreateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1459,15 +1459,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, PropertyId property) {
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->DropIndex(label, property)) {
+  if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1655,17 +1655,46 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+  return VerticesIterable(mem_label_property_index->Vertices(label, property, PropertyValueRange::IsNotNull(), view,
+                                                             storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
+                                                             std::span<storage::PropertyId const> properties,
+                                                             View view) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  return VerticesIterable(mem_label_property_index->Vertices(
+      label, properties, std::array{PropertyValueRange::IsNotNull()}, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
-                                                             utils::MakeBoundInclusive(value), view, storage_,
-                                                             &transaction_));
+  return VerticesIterable(mem_label_property_index->Vertices(
+      label, property, PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value)),
+      view, storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
+                                                             std::span<storage::PropertyId const> properties,
+                                                             PropertyValue const &value, View view) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  return VerticesIterable(mem_label_property_index->Vertices(
+      label, properties,
+      std::array{PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value))}, view,
+      storage_, &transaction_));
+};
+
+VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
+    LabelId label, std::span<storage::PropertyId const> properties,
+    std::span<storage::PropertyValueRange const> property_ranges, View view) {
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
@@ -1673,8 +1702,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+  return VerticesIterable(mem_label_property_index->Vertices(
+      label, property, PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
@@ -2298,8 +2327,14 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_ordered_properties.label,
+                                md_delta.label_ordered_properties.properties);
+        });
+        break;
+      }
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
       case MetadataDelta::Action::POINT_INDEX_CREATE:
@@ -2337,8 +2372,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
-                                md_delta.label_properties.properties);
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_unordered_properties.label,
+                                md_delta.label_unordered_properties.properties);
         });
         break;
       }
@@ -2916,9 +2951,13 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto &point_index = storage_->indices_.point_index_;
   auto &vector_index = storage_->indices_.vector_index_;
 
-  return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
-          mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
-          text_index.ListIndices(),           point_index.ListIndices(),
+  return {mem_label_index->ListIndices(),
+          mem_label_property_index->ListIndices(),
+          mem_label_property_index->ListIndicesNew(),
+          mem_edge_type_index->ListIndices(),
+          mem_edge_type_property_index->ListIndices(),
+          text_index.ListIndices(),
+          point_index.ListIndices(),
           vector_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
@@ -2929,16 +2968,26 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
+  static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
                                                       const storage::PropertyId &property,
                                                       const LabelPropertyIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-                        std::make_pair(label, property), stats);
+  static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+      ->SetIndexStats(std::make_pair(label, property), stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, property, stats);
+}
+
+void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
+                                                      std::span<storage::PropertyId const> properties,
+                                                      const LabelPropertyIndexStats &stats) {
+  static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+      ->SetIndexStats(label, properties, stats);
+
+  // TODO(composite-index)
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, properties, stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
@@ -3010,6 +3059,6 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                       WithinBBoxCondition condition) -> PointIterable {
   return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, bottom_left,
                                                      top_right, condition);
-};
+}
 
 }  // namespace memgraph::storage
