@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,7 +47,6 @@ using memgraph::query::CypherUnion;
 using memgraph::query::EdgeAtom;
 using memgraph::query::SingleQuery;
 using memgraph::query::Symbol;
-using memgraph::query::SymbolGenerator;
 using memgraph::query::SymbolTable;
 using Type = memgraph::query::EdgeAtom::Type;
 using Direction = memgraph::query::EdgeAtom::Direction;
@@ -2947,6 +2946,45 @@ TYPED_TEST(TestPlanner, PeriodicCommitWithDelete) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectDelete(), ExpectPeriodicCommit(), ExpectEmptyResult());
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionWithoutIndex) {
+  // Test MATCH (n:Label1|Label2) RETURN n
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  [[maybe_unused]] auto label2 = dba.Label("Label2");
+
+  // Create only one index
+  dba.SetIndexCount(label1, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionWithIndex) {
+  // Test MATCH (n:Label1|Label2) RETURN n
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  [[maybe_unused]] auto label2 = dba.Label("Label2");
+
+  dba.SetIndexCount(label1, 1);
+  dba.SetIndexCount(label2, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectProduce());
+
+  DeleteListContent(&subquery_plan);
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
 }
 
 }  // namespace

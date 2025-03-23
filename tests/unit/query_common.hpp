@@ -239,6 +239,19 @@ auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::st
   return node;
 }
 
+/// Create a NodeAtom with given name and labels.
+///
+/// Name is used to create the Identifier which is assigned to the node.
+auto GetNodeWithMultipleLabels(AstStorage &storage, const std::string &name, std::vector<std::string> labels,
+                               bool label_expression = true, const bool user_declared = true) {
+  auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  for (const auto &label : labels) {
+    node->labels_.emplace_back(storage.GetLabelIx(label));
+  }
+  node->label_expression_ = label_expression;
+  return node;
+}
+
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
   auto *pattern = storage.Create<Pattern>();
@@ -570,6 +583,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 ///   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
 ///                      RETURN(NEXPR("new_name"), IDENT("m")));
 #define NODE(...) memgraph::query::test_common::GetNode(this->storage, __VA_ARGS__)
+#define NODE_WITH_LABELS(...) memgraph::query::test_common::GetNodeWithMultipleLabels(this->storage, __VA_ARGS__)
 #define EDGE(...) memgraph::query::test_common::GetEdge(this->storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) memgraph::query::test_common::GetEdgeVariable(this->storage, __VA_ARGS__)
 #define PATTERN(...) memgraph::query::test_common::GetPattern(this->storage, {__VA_ARGS__})
