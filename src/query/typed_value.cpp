@@ -30,30 +30,35 @@
 
 namespace memgraph::query {
 
+TypedValue::TypedValue(TMap &&other) : memory_(other.get_allocator().GetMemoryResource()), type_(Type::Map) {
+  auto map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
+  std::construct_at(&map_v, map_ptr);
+}
+
 TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
     : memory_(memory), type_(Type::Map) {
   auto map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-  new (&map_v) std::unique_ptr<TMap>(map_ptr);
+  std::construct_at(&map_v, map_ptr);
   for (auto &kv : other) map_v->emplace(kv.first, std::move(kv.second));
 }
 
 TypedValue::TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
   auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
-  new (&map_v) std::unique_ptr<TMap>(map_ptr);
+  std::construct_at(&map_v, map_ptr);
 }
 
 TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.GetMemoryResource()) {}
 
 TypedValue::TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
   auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(std::move(path));
-  new (&path_v) std::unique_ptr<Path>(path_ptr);
+  std::construct_at(&path_v, path_ptr);
 }
 
 TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
 
 TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
   auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
-  new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+  std::construct_at(&graph_v, graph_ptr);
 }
 
 TypedValue::TypedValue(const storage::PropertyValue &value)
@@ -93,7 +98,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-      new (&map_v) std::unique_ptr<TMap>(map_ptr);
+      std::construct_at(&map_v, map_ptr);
       for (const auto &kv : map) map_v->emplace(kv.first, kv.second);
       return;
     }
@@ -186,9 +191,9 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
-      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-      new (&map_v) std::unique_ptr<TMap>(map_ptr);
       auto &map = other.ValueMap();
+      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
+      std::construct_at(&map_v, map_ptr);
       for (auto &kv : map) map_v->emplace(kv.first, std::move(kv.second));
       break;
     }
@@ -275,20 +280,18 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::Map: {
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(*other.map_v);
-      new (&map_v) std::unique_ptr<TMap>(map_ptr);
+      std::construct_at(&map_v, map_ptr);
       return;
     }
     case Type::Vertex:
       new (&vertex_v) VertexAccessor(other.vertex_v);
       return;
-    case Type::Edge: {
-      auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(*other.edge_v);
-      new (&edge_v) std::unique_ptr<EdgeAccessor>(edge_ptr);
+    case Type::Edge:
+      new (&edge_v) EdgeAccessor(other.edge_v);
       return;
-    }
     case Type::Path: {
       auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(*other.path_v);
-      new (&path_v) std::unique_ptr<Path>(path_ptr);
+      std::construct_at(&path_v, path_ptr);
       return;
     }
     case Type::Date:
@@ -359,15 +362,9 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::Vertex:
       std::construct_at(&vertex_v, other.vertex_v);
       break;
-    case Type::Edge: {
-      if (other.GetMemoryResource() == memory_) {
-        std::construct_at(&edge_v, std::move(other.edge_v));
-      } else {
-        auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(*other.edge_v);
-        std::construct_at(&edge_v, edge_ptr);
-      }
+    case Type::Edge:
+      std::construct_at(&edge_v, other.edge_v);
       break;
-    }
     case Type::Path: {
       if (other.GetMemoryResource() == memory_) {
         std::construct_at(&path_v, std::move(other.path_v));
@@ -498,7 +495,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, *map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, *edge_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
@@ -539,7 +536,7 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
-      return edge_v->IsDeleted();
+      return edge_v.IsDeleted();
     case Type::Path:
       return std::ranges::any_of(path_v->vertices(),
                                  [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
@@ -662,7 +659,7 @@ TypedValue &TypedValue::operator=(const TypedValue::TMap &other) {
       for (const auto &kv : other) map->emplace(kv.first, kv.second);
     } else {
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(other);
-      std::construct_at(&map_v, map_ptr);
+      map_v = std::unique_ptr<TMap>(map_ptr);
     }
   } else {
     *this = TypedValue(other, memory_);
@@ -681,26 +678,13 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
 }
 
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Date &, Date, date_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalTime &, LocalTime, local_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalDateTime &, LocalDateTime, local_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::ZonedDateTime &, ZonedDateTime, zoned_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const storage::Enum &, Enum, enum_v)
-
-TypedValue &TypedValue::operator=(const EdgeAccessor &other) {
-  if (type_ == Type::Edge) {
-    auto edge = edge_v.release();
-    if (edge) {
-      utils::Allocator<EdgeAccessor>(memory_).delete_object(edge);
-    }
-    auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(other);
-    std::construct_at(&edge_v, edge_ptr);
-  } else {
-    *this = TypedValue(other, memory_);
-  }
-  return *this;
-}
 
 TypedValue &TypedValue::operator=(const Path &other) {
   if (type_ == Type::Path) {
@@ -709,6 +693,7 @@ TypedValue &TypedValue::operator=(const Path &other) {
       utils::Allocator<Graph>(memory_).delete_object(path);
     }
     auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(other);
+    path_v = std::unique_ptr<Path>(path_ptr);
     std::construct_at(&path_v, path_ptr);
   } else {
     *this = TypedValue(other, memory_);
@@ -741,14 +726,14 @@ TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TypedValue::TMap &&other) {
+TypedValue &TypedValue::operator=(TMap &&other) {
   if (type_ == Type::Map) {
     auto map = map_v.release();
     if (map) {
       utils::Allocator<TMap>(memory_).delete_object(map);
     } else {
       auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
-      std::construct_at(&map_v, map_ptr);
+      map_v = std::unique_ptr<TMap>(map_ptr);
     }
   } else {
     *this = TypedValue(std::move(other), memory_);
@@ -819,17 +804,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Vertex:
           vertex_v = other.vertex_v;
           break;
-        case Type::Edge: {
-          auto *edge = edge_v.release();
-          if (edge) {
-            utils::Allocator<EdgeAccessor>(memory_).delete_object(edge);
-          }
-          if (other.edge_v) {
-            auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(*other.edge_v);
-            edge_v = std::unique_ptr<EdgeAccessor>(edge_ptr);
-          }
+        case Type::Edge:
+          edge_v = other.edge_v;
           break;
-        }
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
@@ -926,14 +903,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Vertex:
           vertex_v = other.vertex_v;
           break;
-        case Type::Edge: {
-          auto *edge = edge_v.release();
-          if (edge) {
-            utils::Allocator<EdgeAccessor>(memory_).delete_object(edge);
-          }
-          edge_v = std::move(other.edge_v);
+        case Type::Edge:
+          edge_v = other.edge_v;
           break;
-        }
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
@@ -1018,14 +990,9 @@ TypedValue::~TypedValue() {
     case Type::Vertex:
       std::destroy_at(&vertex_v);
       break;
-    case Type::Edge: {
-      auto *edge = edge_v.release();
+    case Type::Edge:
       std::destroy_at(&edge_v);
-      if (edge) {
-        utils::Allocator<EdgeAccessor>(memory_).delete_object(edge);
-      }
       break;
-    }
     case Type::Path: {
       auto *path = path_v.release();
       std::destroy_at(&path_v);

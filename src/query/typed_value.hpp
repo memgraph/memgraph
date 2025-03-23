@@ -34,7 +34,7 @@ class Graph;  // fwd declare
 
 namespace {
 template <typename T>
-concept TypedValueValidPrimitiveType =
+concept TypedValueValidPrimativeType =
     std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||
     std::is_same_v<T, storage::Enum> || std::is_same_v<T, utils::Date> || std::is_same_v<T, utils::LocalTime> ||
     std::is_same_v<T, utils::LocalDateTime> || std::is_same_v<T, utils::ZonedDateTime> ||
@@ -251,7 +251,7 @@ class TypedValue {
   }
 
   template <class T>
-  requires TypedValueValidPrimitiveType<T>
+  requires TypedValueValidPrimativeType<T>
   explicit TypedValue(const std::vector<T> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::List) {
     new (&list_v) TVector(value.begin(), value.end(), memory_);
@@ -280,7 +280,7 @@ class TypedValue {
                       utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
     auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-    new (&map_v) std::unique_ptr<TMap>(map_ptr);
+    std::construct_at(&map_v, map_ptr);
     for (const auto &kv : value) map_v->emplace(kv.first, kv.second);
   }
 
@@ -300,7 +300,7 @@ class TypedValue {
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
     auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(value);
-    new (&map_v) std::unique_ptr<TMap>(map_ptr);
+    std::construct_at(&map_v, map_ptr);
   }
 
   explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -310,14 +310,13 @@ class TypedValue {
 
   explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
-    auto *edge_ptr = utils::Allocator<EdgeAccessor>(memory_).new_object<EdgeAccessor>(edge);
-    new (&edge_v) std::unique_ptr<EdgeAccessor>(edge_ptr);
+    new (&edge_v) EdgeAccessor(edge);
   }
 
   explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(path);
-    new (&path_v) std::unique_ptr<Path>(path_ptr);
+    std::construct_at(&path_v, path_ptr);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
@@ -402,9 +401,7 @@ class TypedValue {
    * utils::MemoryResource is obtained from other. After the move, other will be
    * left empty.
    */
-  explicit TypedValue(TMap &&other) noexcept
-      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
-
+  explicit TypedValue(TMap &&other);
   /**
    * Construct with the value of other and use the given MemoryResource.
    * If `other.get_allocator() != *memory`, this call will perform an
@@ -418,20 +415,24 @@ class TypedValue {
     new (&vertex_v) VertexAccessor(std::move(vertex));
   }
 
+  explicit TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
+      : memory_(memory), type_(Type::Edge) {
+    new (&edge_v) EdgeAccessor(std::move(edge));
+  }
+
   /**
    * Construct with the value of path.
    * utils::MemoryResource is obtained from path. After the move, path will be
    * left empty.
    */
   explicit TypedValue(Path &&path);
-  // explicit TypedValue(Path &&path) noexcept : TypedValue(std::move(path), path.GetMemoryResource()) {}
 
   /**
    * Construct with the value of path and use the given MemoryResource.
    * If `*path.GetMemoryResource() != *memory`, this call will perform an
    * element-wise move and path is not guaranteed to be empty.
    */
-  TypedValue(Path &&path, utils::MemoryResource *memory);
+  explicit TypedValue(Path &&path, utils::MemoryResource *memory);
 
   /**
    * Construct with the value of graph.
@@ -531,7 +532,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, *map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, *edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
@@ -579,9 +580,11 @@ class TypedValue {
     // because of data locality.
     TString string_v;
     TVector list_v;
+    // TODO: replace map with boost flatmap (removes need for unique_ptr)
+    // but it is not compatible with our allocator yet
     std::unique_ptr<TMap> map_v;
     VertexAccessor vertex_v;
-    std::unique_ptr<EdgeAccessor> edge_v;
+    EdgeAccessor edge_v;
     std::unique_ptr<Path> path_v;
     utils::Date date_v;
     utils::LocalTime local_time_v;
