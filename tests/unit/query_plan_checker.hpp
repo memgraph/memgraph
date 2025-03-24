@@ -411,7 +411,6 @@ class ExpectScanAllByLabel : public OpChecker<ScanAllByLabel> {
 
   void ExpectOp(ScanAllByLabel &scan_all, const SymbolTable &) override {
     if (label_) {
-      std::cout << "label_ " << label_->ToString() << " scan_all.label_ " << scan_all.label_.ToString() << std::endl;
       EXPECT_EQ(*label_, scan_all.label_);
     }
   }

@@ -2979,12 +2979,158 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithIndex) {
 
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectProduce());
 
-  DeleteListContent(&subquery_plan);
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
+  // Test MATCH (n:Label1|Label2|Label3) RETURN n
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto label2 = dba.Label("Label2");
+  auto label3 = dba.Label("Label3");
+
+  dba.SetIndexCount(label1, 3);
+  dba.SetIndexCount(label2, 2);
+  dba.SetIndexCount(label3, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2", "Label3"}))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // expect union of union and scan all by label
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(first_subquery_plan, {new ExpectScanAllByLabel()}),
+            ExpectProduce());
+
+  DeleteListContent(&first_subquery_plan);
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionWhereClause) {
+  // Test MATCH (n) WHERE n:Label1 OR n:Label2 RETURN n
+  FakeDbAccessor dba;
+  auto label1_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label1")};
+  auto label2_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label2")};
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+
+  dba.SetIndexCount(label1_id, 1);
+  dba.SetIndexCount(label2_id, 1);
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(OR(LABELS_TEST(node_identifier, label1_ix), LABELS_TEST(node_identifier, label2_ix))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectProduce());
+
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
+  // Test MATCH (n) WHERE n:Label1 OR n:Label2 OR n:Label3 RETURN n
+  FakeDbAccessor dba;
+  auto label1_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label1")};
+  auto label2_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label2")};
+  auto label3_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label3")};
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto label3_id = dba.Label("Label3");
+
+  dba.SetIndexCount(label1_id, 3);
+  dba.SetIndexCount(label2_id, 2);
+  dba.SetIndexCount(label3_id, 1);
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(OR(LABELS_TEST(node_identifier, label1_ix),
+                            OR(LABELS_TEST(node_identifier, label2_ix), LABELS_TEST(node_identifier, label3_ix)))),
+                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(first_subquery_plan, {new ExpectScanAllByLabel()}),
+            ExpectProduce());
+
+  DeleteListContent(&first_subquery_plan);
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
+  // Test Match (n:Label1|Label2) WHERE n:Label3 OR n:Label4 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto label3_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label3")};
+  auto label4_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label4")};
+  auto label3_id = dba.Label("Label3");
+  auto label4_id = dba.Label("Label4");
+
+  dba.SetIndexCount(label1_id, 1);
+  dba.SetIndexCount(label2_id, 1);
+  dba.SetIndexCount(label3_id, 2);
+  dba.SetIndexCount(label4_id, 2);
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+      WHERE(OR(LABELS_TEST(node_identifier, label3_ix), LABELS_TEST(node_identifier, label4_ix))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel(label2_id)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectFilter(),
+            ExpectProduce());
+
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, LabelExpressionWhereClauseMultipleLabels) {
+  // Test MATCH (n) WHERE n:Label1 OR n:Label2 AND n:Label3 RETURN n -> fallback to scan all and generic filter
+  FakeDbAccessor dba;
+  auto label1_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label1")};
+  auto label2_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label2")};
+  auto label3_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label3")};
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto label3_id = dba.Label("Label3");
+
+  dba.SetIndexCount(label1_id, 3);
+  dba.SetIndexCount(label2_id, 2);
+  dba.SetIndexCount(label3_id, 1);
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(OR(LABELS_TEST(node_identifier, label1_ix),
+                            AND(LABELS_TEST(node_identifier, label2_ix), LABELS_TEST(node_identifier, label3_ix)))),
+                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 }  // namespace
