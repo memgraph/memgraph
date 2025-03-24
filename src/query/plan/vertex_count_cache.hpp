@@ -52,7 +52,7 @@ class VertexCountCache {
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) {
     auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end())
-      label_property_vertex_count_[key] = db_->VerticesCount(label, property);
+      label_property_vertex_count_[key] = db_->VerticesCount(label, std::array{property});
     return label_property_vertex_count_.at(key);
   }
 
@@ -60,6 +60,17 @@ class VertexCountCache {
     // TODO(composite_index) Not caching: direct read from the db. Does that
     // matter?
     return db_->VerticesCount(label, properties);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+                        std::span<storage::PropertyValue const> values) {
+    return db_->VerticesCount(label, properties, values);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> lowers,
+                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> uppers) {
+    return db_->VerticesCount(label, properties, lowers, uppers);
   }
 
   std::optional<int64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) {
@@ -79,7 +90,7 @@ class VertexCountCache {
     // TODO: Why do we even need TypedValue in this whole file?
     TypedValue tv_value(value);
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
-      value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
+      value_vertex_count[tv_value] = db_->VerticesCount(label, std::array{property}, std::array{value});
     return value_vertex_count.at(tv_value);
   }
 
@@ -90,7 +101,8 @@ class VertexCountCache {
     auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
     BoundsKey bounds = std::make_pair(lower, upper);
     if (bounds_vertex_count.find(bounds) == bounds_vertex_count.end())
-      bounds_vertex_count[bounds] = db_->VerticesCount(label, property, lower, upper);
+      bounds_vertex_count[bounds] =
+          db_->VerticesCount(label, std::array{property}, std::array{lower}, std::array{upper});
     return bounds_vertex_count.at(bounds);
   }
 
