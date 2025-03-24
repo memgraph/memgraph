@@ -74,7 +74,8 @@ void Session::Execute() {
   // over them.
   auto const it = server_->callbacks_.find(req_id);
   if (it == server_->callbacks_.end()) {
-    throw SessionException("Session trying to execute an unregistered RPC call!");
+    throw SessionException("Session trying to execute an unregistered RPC call!. Request id: {}",
+                           static_cast<uint64_t>(req_id));
   }
 
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
