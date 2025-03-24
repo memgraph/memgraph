@@ -1209,9 +1209,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         for (const auto &label : *best_indexing_group) {
           auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
           if (prev) {
-            auto union_op = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
-                                                    std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
-            prev = std::move(union_op);
+            prev = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
+                                           std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
           } else {
             prev = std::move(scan);
           }
@@ -1219,7 +1218,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<Expression *> removed_expressions;
         filters_.EraseOrLabelFilter(node_symbol, *best_indexing_group, &removed_expressions);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-        return prev;
+        auto distinct_op = std::make_unique<Distinct>(std::move(prev), std::vector<Symbol>{node_symbol});
+        return distinct_op;
       }
     }
     return nullptr;

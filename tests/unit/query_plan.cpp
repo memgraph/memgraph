@@ -2979,7 +2979,8 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithIndex) {
 
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
+            ExpectProduce());
 
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
@@ -3006,7 +3007,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
   std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(first_subquery_plan, {new ExpectScanAllByLabel()}),
-            ExpectProduce());
+            ExpectDistinct(), ExpectProduce());
 
   DeleteListContent(&first_subquery_plan);
   DeleteListContent(&left_subquery_part);
@@ -3034,7 +3035,8 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClause) {
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
+            ExpectProduce());
 
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
@@ -3068,7 +3070,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
   std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(first_subquery_plan, {new ExpectScanAllByLabel()}),
-            ExpectProduce());
+            ExpectDistinct(), ExpectProduce());
 
   DeleteListContent(&first_subquery_plan);
   DeleteListContent(&left_subquery_part);
@@ -3100,8 +3102,8 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel(label2_id)};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
+            ExpectFilter(), ExpectProduce());
 
   DeleteListContent(&left_subquery_part);
   DeleteListContent(&right_subquery_part);
