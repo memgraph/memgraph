@@ -33,13 +33,13 @@
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
-using memgraph::storage::EdgeTypeId;
 using memgraph::storage::LabelIndexStats;
 using memgraph::storage::LabelPropertyIndexStats;
 using memgraph::storage::PropertyId;
 using memgraph::storage::UniqueConstraints;
 using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
+using namespace std::chrono_literals;
 
 namespace memgraph::dbms {
 
@@ -58,6 +58,8 @@ class SnapshotObserver final : public utils::Observer<void> {
 };
 
 namespace {
+
+constexpr auto kWaitForMainLockTimeout = 30s;
 
 auto GenerateOldDir() -> std::string {
   return ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
@@ -421,7 +423,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 
   spdlog::info("Received snapshot saved to {}", recovery_snapshot_path);
   {
-    auto storage_guard = std::lock_guard{storage->main_lock_};
+    auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
+    if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
+      spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+      rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder, fmt::format("db: {}", storage->name()));
+      return;
+    }
+
     spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
 
     // Clear the database
@@ -532,7 +540,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   if (req.reset_needed) {
     {
-      auto storage_guard = std::lock_guard{storage->main_lock_};
+      auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
+      if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
+        spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+        rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, storage->name());
+        return;
+      }
+
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
       storage->Clear();
@@ -621,7 +635,12 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   if (req.reset_needed) {
     {
-      auto storage_guard = std::lock_guard{storage->main_lock_};
+      auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
+      if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
+        spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+        rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
+        return;
+      }
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
       storage->Clear();

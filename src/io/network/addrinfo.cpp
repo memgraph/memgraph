@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,9 @@ AddrInfo::AddrInfo(const std::string &addr, uint16_t port) : info_{nullptr, null
   };
   addrinfo *info = nullptr;
   auto status = getaddrinfo(addr.c_str(), std::to_string(port).c_str(), &hints, &info);
-  if (status != 0) throw NetworkError(gai_strerror(status));
+  if (status != 0) {
+    throw NetworkError(gai_strerror(status));
+  }
   info_ = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>(info, &freeaddrinfo);
 }
 

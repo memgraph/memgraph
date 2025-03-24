@@ -121,7 +121,8 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
 
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
-      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}", address, port);
+      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}. Error occurred: {}", address, port,
+                    gai_strerror(status));
       return std::nullopt;
     }
 
