@@ -160,10 +160,6 @@ void EventCounters::Decrement(const Event event, Count const amount) {
   counters_[event].fetch_sub(amount, std::memory_order_relaxed);
 }
 
-void EventCounters::Reset(Event event) { counters_[event].store(0, std::memory_order_relaxed); }
-
-void Reset(const Event event) { global_counters.Reset(event); }
-
 void IncrementCounter(const Event event, Count const amount) { global_counters.Increment(event, amount); }
 void DecrementCounter(const Event event, Count const amount) { global_counters.Decrement(event, amount); }
 Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }

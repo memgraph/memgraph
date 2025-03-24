@@ -113,12 +113,6 @@ class MetricsService {
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
-
-    // After pulling metrics, we need to reset HA counters on coordinators because on each pull we are only sending
-    // deltas
-    if (flags::CoordinationSetupInstance().IsCoordinator()) {
-      ResetHACoordinatorCounters();
-    }
     return AsJson(response);
   }
 
@@ -167,20 +161,23 @@ class MetricsService {
     return metrics_response;
   }
 
-  inline static void ResetHACoordinatorCounters() {
-    for (auto const event : coord_counters_to_reset) {
-      metrics::Reset(event);
-    }
-  }
-
   inline static std::vector<std::tuple<std::string, std::string, uint64_t>> GetEventCounters() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
     event_counters.reserve(memgraph::metrics::CounterEnd());
 
+    // After pulling metrics, we need to reset HA counters on coordinators because on each pull we are only sending
+    // deltas
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
-      event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
-                                  memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
+      if (flags::CoordinationSetupInstance().IsCoordinator() &&
+          std::find(coord_counters_to_reset.cbegin(), coord_counters_to_reset.cend(), i)) {
+        event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+                                    memgraph::metrics::global_counters[i].exchange(0));
+
+      } else {
+        event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+                                    memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
+      }
     }
 
     return event_counters;

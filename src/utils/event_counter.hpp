@@ -31,8 +31,6 @@ class EventCounters {
 
   void Decrement(Event event, Count amount = 1);
 
-  void Reset(Event event);
-
   Count GetCount(const Event event) const { return counters_[event].load(std::memory_order_acquire); }
 
   static const Event num_counters;
@@ -44,7 +42,6 @@ class EventCounters {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern EventCounters global_counters;
 
-void Reset(Event event);
 void IncrementCounter(Event event, Count amount = 1);
 void DecrementCounter(Event event, Count amount = 1);
 Count GetCounterValue(const Event event);
