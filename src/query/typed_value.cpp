@@ -30,21 +30,16 @@
 
 namespace memgraph::query {
 
-TypedValue::TypedValue(TMap &&other) : memory_(other.get_allocator().GetMemoryResource()), type_(Type::Map) {
-  auto map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
-  std::construct_at(&map_v, map_ptr);
-}
+TypedValue::TypedValue(TMap &&other) : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
 
 TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
     : memory_(memory), type_(Type::Map) {
-  auto map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-  std::construct_at(&map_v, map_ptr);
-  for (auto &kv : other) map_v->emplace(kv.first, std::move(kv.second));
+  std::construct_at(&map_v, memory_);
+  for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
 }
 
 TypedValue::TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-  auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
-  std::construct_at(&map_v, map_ptr);
+  std::construct_at(&map_v, std::move(other), memory_);
 }
 
 TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.GetMemoryResource()) {}
@@ -97,9 +92,8 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
-      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-      std::construct_at(&map_v, map_ptr);
-      for (const auto &kv : map) map_v->emplace(kv.first, kv.second);
+      std::construct_at(&map_v, memory_);
+      for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -192,9 +186,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
-      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-      std::construct_at(&map_v, map_ptr);
-      for (auto &kv : map) map_v->emplace(kv.first, std::move(kv.second));
+      std::construct_at(&map_v, memory_);
+      for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -279,8 +272,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       new (&list_v) TVector(other.list_v, memory_);
       return;
     case Type::Map: {
-      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(*other.map_v);
-      std::construct_at(&map_v, map_ptr);
+      std::construct_at(&map_v, other.map_v, memory_);
       return;
     }
     case Type::Vertex:
@@ -351,12 +343,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       std::construct_at(&list_v, std::move(other.list_v), memory_);
       break;
     case Type::Map: {
-      if (other.GetMemoryResource() == memory_) {
-        std::construct_at(&map_v, std::move(other.map_v));
-      } else {
-        auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(*other.map_v));
-        std::construct_at(&map_v, map_ptr);
-      }
+      std::construct_at(&map_v, std::move(other.map_v), memory_);
       break;
     }
     case Type::Vertex:
@@ -427,7 +414,7 @@ TypedValue::operator storage::PropertyValue() const {
       return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
       storage::PropertyValue::map_t map;
-      for (const auto &kv : *map_v) map.emplace(kv.first, kv.second);
+      for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
       return storage::PropertyValue(std::move(map));
     }
     case Type::Date:
@@ -493,7 +480,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
 DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, *map_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
@@ -532,7 +519,7 @@ bool TypedValue::ContainsDeleted() const {
     case Type::List:
       return std::ranges::any_of(list_v, [](const auto &elem) { return elem.ContainsDeleted(); });
     case Type::Map:
-      return std::ranges::any_of(*map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
+      return std::ranges::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
@@ -651,26 +638,12 @@ TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(const TypedValue::TMap &other) {
-  if (type_ == Type::Map) {
-    auto map = map_v.release();
-    if (map) {
-      map->clear();
-      for (const auto &kv : other) map->emplace(kv.first, kv.second);
-    } else {
-      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(other);
-      map_v = std::unique_ptr<TMap>(map_ptr);
-    }
-  } else {
-    *this = TypedValue(other, memory_);
-  }
-  return *this;
-}
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TMap &, Map, map_v)
 
 TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other) {
   if (type_ == Type::Map) {
-    map_v->clear();
-    for (const auto &kv : other) map_v->emplace(kv.first, kv.second);
+    map_v.clear();
+    for (const auto &kv : other) map_v.emplace(kv.first, kv.second);
   } else {
     *this = TypedValue(other, memory_);
   }
@@ -725,25 +698,12 @@ TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TMap &&other) {
-  if (type_ == Type::Map) {
-    auto map = map_v.release();
-    if (map) {
-      utils::Allocator<TMap>(memory_).delete_object(map);
-    } else {
-      auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(std::move(other));
-      map_v = std::unique_ptr<TMap>(map_ptr);
-    }
-  } else {
-    *this = TypedValue(std::move(other), memory_);
-  }
-  return *this;
-}
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TMap, Map, map_v)
 
 TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
   if (type_ == Type::Map) {
-    map_v->clear();
-    for (auto &kv : other) map_v->emplace(kv.first, std::move(kv.second));
+    map_v.clear();
+    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
   } else {
     *this = TypedValue(std::move(other), memory_);
   }
@@ -790,14 +750,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
           list_v = other.list_v;
           break;
         case Type::Map: {
-          auto *map = map_v.release();
-          if (map) {
-            utils::Allocator<TMap>(memory_).delete_object(map);
-          }
-          if (other.map_v) {
-            auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(*other.map_v);
-            map_v = std::unique_ptr<TMap>(map_ptr);
-          }
+          map_v = other.map_v;
           break;
         }
         case Type::Vertex:
@@ -892,10 +845,6 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
           list_v = std::move(other.list_v);
           break;
         case Type::Map: {
-          auto *map = map_v.release();
-          if (map) {
-            utils::Allocator<TMap>(memory_).delete_object(map);
-          }
           map_v = std::move(other.map_v);
           break;
         }
@@ -979,11 +928,7 @@ TypedValue::~TypedValue() {
       std::destroy_at(&list_v);
       break;
     case Type::Map: {
-      auto *map = map_v.release();
       std::destroy_at(&map_v);
-      if (map) {
-        utils::Allocator<TMap>(memory_).delete_object(map);
-      }
       break;
     }
     case Type::Vertex:

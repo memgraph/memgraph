@@ -279,9 +279,8 @@ class TypedValue {
   explicit TypedValue(const std::map<std::string, TypedValue> &value,
                       utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
-    auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>();
-    std::construct_at(&map_v, map_ptr);
-    for (const auto &kv : value) map_v->emplace(kv.first, kv.second);
+    std::construct_at(&map_v, memory_);
+    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
   }
 
   /**
@@ -299,8 +298,7 @@ class TypedValue {
 
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    auto *map_ptr = utils::Allocator<TMap>(memory_).new_object<TMap>(value);
-    std::construct_at(&map_v, map_ptr);
+    std::construct_at(&map_v, value, memory);
   }
 
   explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -530,7 +528,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, *map_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
@@ -580,9 +578,7 @@ class TypedValue {
     // because of data locality.
     TString string_v;
     TVector list_v;
-    // TODO: replace map with boost flatmap (removes need for unique_ptr)
-    // but it is not compatible with our allocator yet
-    std::unique_ptr<TMap> map_v;
+    TMap map_v;
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
     std::unique_ptr<Path> path_v;
