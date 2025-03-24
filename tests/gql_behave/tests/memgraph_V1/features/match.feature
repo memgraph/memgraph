@@ -888,3 +888,19 @@ Feature: Match
             | (:Label1)        |
             | (:Label2)        |
             | (:Label1:Label2) |
+
+    Scenario: Using OR expression in CREATE
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Label1|Label2);
+            """
+        Then an error should be raised
+
+    Scenario: Using OR expression in MERGE
+        Given an empty graph
+        When executing query:
+            """
+            MERGE (n:Label1|Label2) RETURN n;
+            """
+        Then an error should be raised
