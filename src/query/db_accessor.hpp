@@ -596,31 +596,26 @@ class DbAccessor final {
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
-    return accessor_->ApproximateVertexCount(label, property);
-  }
-
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
     return accessor_->ApproximateVertexCount(label, properties);
   }
 
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+                        std::span<storage::PropertyValue const> values) const {
+    return accessor_->ApproximateVertexCount(label, properties, values);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> lowers,
+                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> uppers) const {
+    return accessor_->ApproximateVertexCount(label, properties, lowers, uppers);
+  }
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesPointCount(label, property);
   }
 
   std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesVectorCount(label, property);
-  }
-
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const storage::PropertyValue &value) const {
-    return accessor_->ApproximateVertexCount(label, property, value);
-  }
-
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
-    return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
   int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }

@@ -137,8 +137,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> override;
 
-  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const override;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -200,21 +199,18 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Transaction *transaction_;
   };
 
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
-
   uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
 
   /// Supplying a specific value into the count estimation function will return
   /// an estimated count of nodes which have their property's value set to
-  /// `value`. If the `value` specified is `Null`, then an average number of
+  /// `value`. If the `values` specified are all `Null`, then an average number
   /// equal elements is returned.
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                  std::span<PropertyValue const> values) const override;
 
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                  const std::optional<utils::Bound<PropertyValue>> &lower,
-                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties) const override;
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                  std::span<std::optional<utils::Bound<PropertyValue>> const> lowers,
+                                  std::span<std::optional<utils::Bound<PropertyValue>> const> upper) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStatsNew();

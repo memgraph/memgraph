@@ -457,16 +457,7 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
   return res;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
-  std::vector<std::pair<LabelId, PropertyId>> ret;
-  ret.reserve(index_.size());
-  for (auto const &[label, property] : index_ | std::views::keys) {
-    ret.emplace_back(label, property);
-  }
-  return ret;
-}
-
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ListIndicesNew() const {
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ret;
 
   auto const num_indexes =
@@ -721,12 +712,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
   return {this, index_accessor_.end()};
 }
 
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return it->second.size();
-}
-
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
                                                             std::span<PropertyId const> properties) const {
   auto it = new_index_.find(label);
@@ -736,44 +721,49 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
   return it2->second.skiplist.size();
 }
 
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
-                                                            const PropertyValue &value) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
-  if (!value.IsNull()) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-    return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
-  }
-  // The value `Null` won't ever appear in the index because it indicates that
-  // the property shouldn't exist. Instead, this value is used as an indicator
-  // to estimate the average number of equal elements in the list (for any
-  // given value).
-  return acc.estimate_average_number_of_equals(
-      [](const auto &first, const auto &second) { return first.value == second.value; },
-      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-      utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-}
-
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
-    const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
-  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
-}
-
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
-                                                            std::vector<PropertyId> const &properties) const {
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                                            std::span<PropertyValue const> values) const {
+  // @TODO show prop ids in assert msg, and use same msg for both.
   auto const it = new_index_.find(label);
   MG_ASSERT(it != new_index_.end(), "Index for label {} doesn't exist", label.AsUint());
 
   auto const it2 = it->second.find(properties);
   MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties doesn't exist", label.AsUint());
 
-  return it2->second.skiplist.size();
+  // @TODO check if we need to permute here...
+
+  auto acc = it2->second.skiplist.access();
+  if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    std::vector v(values.begin(), values.end());
+    return acc.estimate_count(v, utils::SkipListLayerForCountEstimation(acc.size()));
+  }
+
+  // An entry with all values being `Null` won't ever appear in the index,
+  // because it indicates that the properties shouldn't exist. Instead, this
+  // is used as an indicator to estimate the average number of equal elements in
+  // the list (for any given value).
+  return acc.estimate_average_number_of_equals(
+      [](const auto &first, const auto &second) { return first.values == second.values; },
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+}
+
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
+    LabelId label, std::span<PropertyId const> properties,
+    std::span<std::optional<utils::Bound<PropertyValue>> const> lowers,
+    std::span<std::optional<utils::Bound<PropertyValue>> const> uppers) const {
+  // @TODO show prop ids in assert msg, and use same msg for both.
+  auto const it = new_index_.find(label);
+  MG_ASSERT(it != new_index_.end(), "Index for label {} doesn't exist", label.AsUint());
+
+  auto const it2 = it->second.find(properties);
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties doesn't exist", label.AsUint());
+
+  // auto acc = it->second.access();
+  //  NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  // return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+  return 10;  // @TODO put back by computing bounds from spans...
 }
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearIndexStats() {

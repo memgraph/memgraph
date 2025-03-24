@@ -4645,7 +4645,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back(
               {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
                TypedValue(storage->PropertyToName(item.second)),
-               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
+               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, std::array{item.second})))});
         }
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
@@ -5708,7 +5708,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         node_indexes.push_back(
             nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
                                     {"properties", {storage->PropertyToName(property)}},
-                                    {"count", storage_acc->ApproximateVertexCount(label_id, property)}}));
+                                    {"count", storage_acc->ApproximateVertexCount(label_id, std::array{property})}}));
       }
       // Vertex label text
       for (const auto &[str, label_id] : index_info.text_indices) {

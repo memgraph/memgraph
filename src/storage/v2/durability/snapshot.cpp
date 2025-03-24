@@ -4720,7 +4720,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &[label, properties] : label_property) {
         write_mapping(label);
         // TODO(composite_index): update once we have multiple properties
-        write_mapping(properties);
+        write_mapping(properties[0]);
       }
       if (snapshot_aborted()) {
         return false;
@@ -4739,7 +4739,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         auto stats = inmem_index->GetIndexStats(item);
         if (stats) {
           snapshot.WriteUint(item.first.AsUint());
-          snapshot.WriteUint(item.second.AsUint());
+          snapshot.WriteUint(item.second[0].AsUint());  // @TODO update for composite index props
           snapshot.WriteUint(stats->count);
           snapshot.WriteUint(stats->distinct_values_count);
           snapshot.WriteDouble(stats->statistic);

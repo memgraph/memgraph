@@ -50,20 +50,16 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> override;
 
-  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndicesNew() const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
 
   uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
 
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                  std::span<PropertyValue const> values) const override;
 
-  uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                  const std::optional<utils::Bound<PropertyValue>> &lower,
-                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties) const override;
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                  std::span<std::optional<utils::Bound<PropertyValue>> const> lowers,
+                                  std::span<std::optional<utils::Bound<PropertyValue>> const> upper) const override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 

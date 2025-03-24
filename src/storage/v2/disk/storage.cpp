@@ -2333,8 +2333,8 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(),
+          {/* old label / property index */},
           disk_label_property_index->ListIndices(),
-          disk_label_property_index->ListIndicesNew(),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

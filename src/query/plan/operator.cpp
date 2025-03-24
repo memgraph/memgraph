@@ -157,6 +157,15 @@ namespace memgraph::query::plan {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
+ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &storage)
+    : type_{other.type_},
+      lower_{other.lower_
+                 ? std::make_optional(utils::Bound(other.lower_->value()->Clone(&storage), other.lower_->type()))
+                 : std::nullopt},
+      upper_{other.upper_
+                 ? std::make_optional(utils::Bound(other.upper_->value()->Clone(&storage), other.upper_->type()))
+                 : std::nullopt} {}
+
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
   return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
 }
@@ -1256,6 +1265,19 @@ std::string ScanAllByLabelProperties::ToString() const {
   auto const properties_stringified = utils::Join(property_names, ", ");
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      properties_stringified);
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByLabelProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->label_ = label_;
+  object->properties_ = properties_;
+  object->expression_ranges_ = expression_ranges_ |
+                               ranges::views::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               ranges::to_vector;
+  return object;
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,

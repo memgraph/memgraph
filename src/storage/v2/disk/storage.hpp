@@ -107,20 +107,19 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const override { return 10; }
-
     uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
-                                    const PropertyValue & /*value*/) const override {
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+                                    std::span<PropertyValue const> /*values*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
-                                    const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
-                                    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
+    uint64_t ApproximateVertexCount(
+        LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+        std::span<std::optional<utils::Bound<PropertyValue>> const> /*lowers*/,
+        std::span<std::optional<utils::Bound<PropertyValue>> const> /*uppers*/) const override {
       return 10;
     }
 

@@ -59,6 +59,8 @@ struct ExpressionRange {
 
   auto evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
 
+  ExpressionRange(ExpressionRange const &other, AstStorage &storage);
+
  private:
   ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
                   std::optional<utils::Bound<Expression *>> upper);
@@ -1085,17 +1087,7 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
 
   std::string ToString() const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
-    auto object = std::make_unique<ScanAllByLabelProperties>();
-    object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->view_ = view_;
-    object->label_ = label_;
-    object->properties_ = properties_;
-    // @TODO impl cloning for ExpressionRanges
-    // object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    return object;
-  }
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
 /// ScanAll producing a single node with ID equal to evaluated expression

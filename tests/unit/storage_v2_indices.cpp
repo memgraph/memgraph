@@ -591,9 +591,10 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
+  // @TODO add test for composite indices
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
+    EXPECT_EQ(acc->ListAllIndices().label_property_new.size(), 0);
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
@@ -606,8 +607,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property,
-                UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
   }
   {
     auto acc = this->storage->Access();
@@ -622,8 +623,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property,
-                UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
   }
 
   {
@@ -639,9 +640,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_property,
-        UnorderedElementsAre(std::make_pair(this->label1, this->prop_id), std::make_pair(this->label2, this->prop_id)));
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id}),
+                                     std::make_pair(this->label2, std::vector{this->prop_id})));
   }
 
   {
@@ -656,8 +657,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property,
-                UnorderedElementsAre(std::make_pair(this->label2, this->prop_id)));
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_id})));
   }
 
   {
@@ -678,7 +679,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
+    EXPECT_EQ(acc->ListAllIndices().label_property_new.size(), 0);
   }
 }
 
@@ -843,12 +844,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 
   auto acc = this->storage->Access();
 
-  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 0);
+  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 0);
   {
     auto vertex = this->CreateVertex(acc.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
   }
 
   {
@@ -856,7 +857,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
     ASSERT_NO_ERROR(vertex.AddLabel(this->label2));  // NOTE: this is not label1
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     // We expect index for label1+id to be uneffected
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
   }
 }
 
@@ -994,15 +995,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
       }
     }
 
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 55);
+    // @TODO have no tests for approx vertex count with composite indices
+
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 55);
     for (int i = 1; i <= 10; ++i) {
-      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val, PropertyValue(i)), i);
+      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}, std::array{PropertyValue(i)}), i);
     }
 
-    EXPECT_EQ(
-        acc->ApproximateVertexCount(this->label1, this->prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
-                                    memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
-        2 + 3 + 4 + 5 + 6);
+    EXPECT_EQ(acc->ApproximateVertexCount(
+                  this->label1, std::array{this->prop_val},
+                  std::array{std::make_optional(memgraph::utils::MakeBoundInclusive(PropertyValue(2)))},
+                  std::array{std::make_optional(memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+              2 + 3 + 4 + 5 + 6);
   }
 }
 
@@ -1237,6 +1241,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 }
 
 TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support label/property composite indices";
+  }
+
   PropertyId prop_a;
   PropertyId prop_b;
 

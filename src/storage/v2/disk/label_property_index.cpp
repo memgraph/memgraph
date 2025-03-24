@@ -196,32 +196,29 @@ bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId con
   return utils::Contains(index_, std::make_pair(label, properties[0]));
 }
 
-std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
-  return {index_.begin(), index_.end()};
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndices() const {
+  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyId>> {
+    auto [label, property] = index;
+    return {label, {property}};
+  };
+
+  return index_ | ranges::views::transform(convert) | ranges::to_vector;
 }
-
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndicesNew() const { return {}; }
-
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const { return 10; }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
                                                         std::span<PropertyId const> /*properties*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
-                                                        const PropertyValue & /*value*/) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+                                                        std::span<PropertyValue const> /*values*/) const {
   return 10;
 }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
-    LabelId /*label*/, PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
-    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
-  return 10;
-}
-
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
-                                                        std::vector<PropertyId> const & /*properties*/) const {
+    LabelId label, std::span<PropertyId const> /*properties*/,
+    std::span<std::optional<utils::Bound<PropertyValue>> const> /*lowers*/,
+    std::span<std::optional<utils::Bound<PropertyValue>> const> /*upper*/) const {
   return 10;
 }
 

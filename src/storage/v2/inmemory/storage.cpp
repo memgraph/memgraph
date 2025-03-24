@@ -3040,8 +3040,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto &vector_index = storage_->indices_.vector_index_;
 
   return {mem_label_index->ListIndices(),
+          {/* old label / property index */},
           mem_label_property_index->ListIndices(),
-          mem_label_property_index->ListIndicesNew(),
           mem_edge_type_index->ListIndices(),
           mem_edge_type_property_index->ListIndices(),
           mem_edge_property_index->ListIndices(),
