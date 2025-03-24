@@ -425,7 +425,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   {
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
-      spdlog::error("Failed to acquire main lock in {}", kWaitForMainLockTimeout);
+      spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
       rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
@@ -542,7 +542,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     {
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
-        spdlog::error("Failed to acquire main lock in {}", kWaitForMainLockTimeout);
+        spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
         rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, storage->name());
         return;
       }
@@ -637,7 +637,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
     {
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
-        spdlog::error("Failed to acquire main lock in {}", kWaitForMainLockTimeout);
+        spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
         rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
         return;
       }
