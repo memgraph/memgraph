@@ -1715,6 +1715,56 @@ class None : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+class ListComprehension : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ListComprehension() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor);
+      list_->Accept(visitor);
+      if (where_) {
+        where_->Accept(visitor);
+      }
+      if (expression_) {
+        expression_->Accept(visitor);
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  /// Identifier for the list element.
+  memgraph::query::Identifier *identifier_{nullptr};
+  /// Expression which produces a list which will be extracted.
+  memgraph::query::Expression *list_{nullptr};
+  /// Expression which is the predicate for the list.
+  memgraph::query::Where *where_{nullptr};
+  /// Expression which produces the new value for list element.
+  memgraph::query::Expression *expression_{nullptr};
+
+  ListComprehension *Clone(AstStorage *storage) const override {
+    ListComprehension *object = storage->Create<ListComprehension>();
+    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->list_ = list_ ? list_->Clone(storage) : nullptr;
+    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  ListComprehension(Identifier *identifier, Expression *list, Where *where, Expression *expression)
+      : identifier_(identifier), list_(list), where_(where), expression_(expression) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class ParameterLookup : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
