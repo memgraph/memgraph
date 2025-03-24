@@ -174,8 +174,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
     return false;
   }
 
-  // TODO: (andi) This runs again resolving, shouldn't be needed.
-  endpoint_ = Endpoint(endpoint.GetResolvedIPAddress(), ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.GetAddress(), ntohs(portdata.sin6_port));
 
   return true;
 }
