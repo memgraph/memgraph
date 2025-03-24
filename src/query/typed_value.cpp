@@ -694,7 +694,6 @@ TypedValue &TypedValue::operator=(const Path &other) {
     }
     auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(other);
     path_v = std::unique_ptr<Path>(path_ptr);
-    std::construct_at(&path_v, path_ptr);
   } else {
     *this = TypedValue(other, memory_);
   }
