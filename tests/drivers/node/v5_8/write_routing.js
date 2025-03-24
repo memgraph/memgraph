@@ -1,8 +1,6 @@
 const neo4j = require('neo4j-driver');
 
 function die() {
-  session.close();
-  driver.close();
   process.exit(1);
 }
 
@@ -40,9 +38,9 @@ async function createGreetingsFromUri(uri) {
 async function main() {
   console.log("Started writing route");
   const uris = [
-    'neo4j://localhost:7690',
-    'neo4j://localhost:7691',
-    'neo4j://localhost:7692'
+    'neo4j://127.0.0.1:7690',
+    'neo4j://127.0.0.1:7691',
+    'neo4j://127.0.0.1:7692'
   ];
 
   try {

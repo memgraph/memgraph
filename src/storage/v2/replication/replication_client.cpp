@@ -16,7 +16,9 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/metrics_timer.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -51,9 +53,15 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 }
 }  // namespace
 
+namespace memgraph::metrics {
+extern const Event HeartbeatRpc_us;
+extern const Event AppendDeltasRpc_us;
+extern const Event ReplicaStream_us;
+}  // namespace memgraph::metrics
+
 namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
-                                                   utils::UUID main_uuid)
+                                                   utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc) {
@@ -64,6 +72,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   replication::HeartbeatRes const heartbeat_res = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
+    utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, main_storage->uuid(),
                                                                            replStorageState.last_durable_timestamp_,
                                                                            std::string{replStorageState.epoch_.id()});
@@ -168,8 +177,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
   spdlog::trace("Current timestamp on replica {} for db {} is {}.", client_.name_, main_db_name,
                 heartbeat_res.current_commit_timestamp);
-  spdlog::trace("Current timestamp on main for db {} is {}. Current durable timestamp on main for db {} is {}",
-                main_db_name, main_storage->timestamp_, main_db_name, replStorageState.last_durable_timestamp_.load());
+  spdlog::trace("Current durable timestamp on main for db {} is {}", main_db_name,
+                replStorageState.last_durable_timestamp_.load());
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime
@@ -190,9 +199,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
   TimestampInfo info;
-  auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   info.current_timestamp_of_replica = last_known_ts_.load(std::memory_order::acquire);
-  info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_time_stamp;
+  info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_timestamp;
   return info;
 }
 
@@ -263,6 +272,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case READY: {
       auto replica_stream = std::optional<ReplicaStream>{};
       try {
+        utils::MetricsTimer const timer{metrics::ReplicaStream_us};
         replica_stream.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
         *locked_state = REPLICATING;
       } catch (const rpc::RpcFailedException &) {
@@ -272,7 +282,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       return replica_stream;
     }
     default:
-      MG_ASSERT(false, "Unknown replica state when starting transaction replication.");
+      LOG_FATAL("Unknown replica state when starting transaction replication.");
   }
 }
 
@@ -398,9 +408,16 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                               main_db_name);
                 // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
                 // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
-                if (auto const response = TransferSnapshot(main_uuid, main_mem_storage->uuid(), rpcClient, snapshot);
-                    response.current_commit_timestamp) {
-                  replica_last_commit_ts = *response.current_commit_timestamp;
+                auto const maybe_response = TransferDurabilityFiles<replication::SnapshotRpc>(
+                    snapshot, rpcClient, main_uuid, main_mem_storage->uuid());
+                // Error happened on our side when trying to load snapshot file
+                if (!maybe_response.has_value()) {
+                  recovery_failed = true;
+                  return;
+                }
+
+                if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp);
                   spdlog::debug(
                       "Successful reply to the snapshot file {} received from {} for db {}. Current replica commit is "
                       "{}",
@@ -425,10 +442,16 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 spdlog::debug("Sending WAL files to {} for db {}.", client_.name_, main_db_name);
                 // We don't care about partial progress when loading WAL files. We are only interested if everything
                 // passed so that possibly next step of recovering current wal can be executed
-                if (auto const wal_files_res =
-                        TransferWalFiles(main_uuid, main_mem_storage->uuid(), rpcClient, wals, do_reset);
-                    wal_files_res.current_commit_timestamp) {
-                  replica_last_commit_ts = *wal_files_res.current_commit_timestamp;
+
+                auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
+                    wals, rpcClient, wals.size(), main_uuid, main_mem_storage->uuid(), do_reset);
+                if (!maybe_response.has_value()) {
+                  recovery_failed = true;
+                  return;
+                }
+
+                if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp);
                   spdlog::debug(
                       "Successful reply to WAL files received from {} for db {}. Updating replica commit to {}",
                       client_.name_, main_db_name, replica_last_commit_ts);
@@ -450,10 +473,17 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   main_mem_storage->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
-                  if (auto const response = TransferCurrentWal(main_uuid, main_mem_storage, rpcClient,
-                                                               *main_mem_storage->wal_file_, do_reset);
-                      response.current_commit_timestamp) {
-                    replica_last_commit_ts = *response.current_commit_timestamp;
+
+                  auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
+                      main_mem_storage->wal_file_->Path(), rpcClient, main_uuid, main_mem_storage->uuid(), do_reset);
+                  // Error happened on our side when trying to load current WAL file
+                  if (!maybe_response.has_value()) {
+                    recovery_failed = true;
+                    return;
+                  }
+
+                  if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
+                    replica_last_commit_ts = *(response.current_commit_timestamp);
                     spdlog::debug(
                         "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}",
                         client_.name_, main_db_name, replica_last_commit_ts);
@@ -516,21 +546,24 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const ui
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
 
-void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, storage_->name_id_mapper_.get(), storage_->config_.salient.items, delta, vertex,
               final_commit_timestamp);
 }
 
-void ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
+auto ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t const final_commit_timestamp) -> void {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
-void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
+void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponseWhileInProgress(); }
+replication::AppendDeltasRes ReplicaStream::Finalize() {
+  utils::MetricsTimer const timer{metrics::AppendDeltasRpc_us};
+  return stream_.AwaitResponseWhileInProgress();
+}
 }  // namespace memgraph::storage

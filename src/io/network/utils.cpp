@@ -18,8 +18,6 @@
 #include <cstring>
 #include <string>
 
-#include "io/network/socket.hpp"
-
 #include "utils/logging.hpp"
 
 namespace memgraph::io::network {
@@ -52,19 +50,6 @@ std::string ResolveHostname(std::string hostname) {
 
   freeaddrinfo(servinfo);
   return address;
-}
-
-/// Gets hostname
-std::optional<std::string> GetHostname() {
-  char hostname[HOST_NAME_MAX + 1];
-  int result = gethostname(hostname, sizeof(hostname));
-  if (result) return std::nullopt;
-  return std::string(hostname);
-}
-
-bool CanEstablishConnection(const io::network::Endpoint &endpoint) {
-  io::network::Socket client;
-  return client.Connect(endpoint);
 }
 
 };  // namespace memgraph::io::network

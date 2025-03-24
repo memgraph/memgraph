@@ -302,7 +302,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
       }
       // Remove database specific clients
       dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
-        db_acc->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
+        db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
           std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
         });
       });
