@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -242,6 +242,72 @@ TYPED_TEST(OperatorToStringTest, Filter) {
   std::string expected_string{
       "Filter (:Customer:Visitor), (person :Customer:Visitor), Generic {person}, Pattern, id(person), {person.name}"};
   EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels1) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  std::vector<LabelIx> labels{this->storage.GetLabelIx("Customer"), this->storage.GetLabelIx("Visitor")};
+  auto labels_test = LABELS_TEST(node_ident, labels, true);
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
+
+  Filters filters;
+  filters.SetFilters({label_filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                     LABELS_TEST(node_ident, labels), filters);
+
+  std::string expected_string{"Filter (person :Customer|Visitor)"};
+  auto op_string = last_op->ToString();
+  EXPECT_EQ(op_string, expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels2) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  std::vector<LabelIx> labels1{this->storage.GetLabelIx("Label1"), this->storage.GetLabelIx("Label2")};
+  auto labels_test = LABELS_TEST(node_ident, labels1, false);
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
+
+  std::vector<LabelIx> labels2{this->storage.GetLabelIx("Label3"), this->storage.GetLabelIx("Label4")};
+  labels_test->or_labels_.push_back(labels2);
+  label_filter_info.or_labels.push_back(labels2);
+
+  Filters filters;
+  filters.SetFilters({label_filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, labels_test, filters);
+
+  std::string expected_string{"Filter (person :Label1:Label2:(Label3|Label4))"};
+  auto op_string = last_op->ToString();
+  EXPECT_EQ(op_string, expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, FilterORExpressionsOnLabels3) {
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+
+  std::vector<LabelIx> labels1{this->storage.GetLabelIx("Label1"), this->storage.GetLabelIx("Label2")};
+  auto labels_test = LABELS_TEST(node_ident, labels1, true);
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
+
+  std::vector<LabelIx> labels2{this->storage.GetLabelIx("Label3"), this->storage.GetLabelIx("Label4")};
+  labels_test->or_labels_.push_back(labels2);
+  label_filter_info.or_labels.push_back(labels2);
+
+  Filters filters;
+  filters.SetFilters({label_filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{}, labels_test, filters);
+
+  std::string expected_string{"Filter (person :(Label1|Label2):(Label3|Label4))"};
+  auto op_string = last_op->ToString();
+  EXPECT_EQ(op_string, expected_string);
 }
 
 TYPED_TEST(OperatorToStringTest, Produce) {
