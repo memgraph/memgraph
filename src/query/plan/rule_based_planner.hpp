@@ -16,6 +16,7 @@
 #include <optional>
 #include <variant>
 
+#include "exceptions.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "query/database_access.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -24,6 +25,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/range.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
@@ -434,6 +436,9 @@ class RuleBasedPlanner {
     };
 
     auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
+      if (node->label_expression_) {
+        throw SemanticException("Label expression not supported in CREATE and MERGE clauses.");
+      }
       const auto &node_symbol = symbol_table.at(*node->identifier_);
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);
