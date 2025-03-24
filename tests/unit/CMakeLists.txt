@@ -216,10 +216,10 @@ add_unit_test(network_endpoint.cpp)
 target_link_libraries(${test_prefix}network_endpoint mg-io)
 
 add_unit_test(network_utils.cpp)
-target_link_libraries(${test_prefix}network_utils mg-io)
+target_link_libraries(${test_prefix}network_utils mg-io mg-utils)
 
 add_unit_test(socket.cpp)
-target_link_libraries(${test_prefix}socket mg-io)
+target_link_libraries(${test_prefix}socket mg-io mg-events)
 
 # Test mg-utils
 add_unit_test(utils_algorithm.cpp)
