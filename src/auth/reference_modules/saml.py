@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import re
 
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from onelogin.saml2.settings import OneLogin_Saml2_Settings
@@ -40,11 +41,21 @@ SETTINGS_TEMPLATE = {
 
 
 # Dummy request (python3-saml library assumes there’s one, and you can only pass the response together with it)
-def mock_request(scheme_env):
-    return {
-        "http_host": "localhost:3000",
-        "script_name": os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_CALLBACK_URL", ""),
-    }
+def mock_request(scheme_env: str) -> dict:
+    callback_url: str = os.environ.get(
+        f"MEMGRAPH_SSO_{scheme_env}_SAML_CALLBACK_URL",
+        f"http://localhost:3000/auth/providers/saml-{scheme_env.lower().replace('_','-')}/callback",
+    )
+    match: re.Match | None = re.match(r"^(?P<proto>https?)://(?P<host>[^/]+)(?P<script>.*)$", callback_url)
+
+    if match and len(match.groups()) == 3:
+        return {
+            "http_host": match["host"],
+            "https": "on" if match["proto"] == "https" else "off",
+            "script_name": match["script"],
+        }
+
+    return {}
 
 
 def load_from_file(path: str):
@@ -125,6 +136,7 @@ def authenticate(scheme: str, response: str):
     request_data["post_data"] = {
         "SAMLResponse": response,
     }
+
     auth = OneLogin_Saml2_Auth(request_data, saml_settings)
 
     # Process response
@@ -135,14 +147,19 @@ def authenticate(scheme: str, response: str):
     errors = auth.get_errors()
     if errors:
         joined = "\n".join(errors)
-        return {"authenticated": False, "errors": f"Errors while processing SAML response: {joined}"}
+        return {
+            "authenticated": False,
+            "errors": f"Errors while processing SAML response: {joined}",
+        }
 
     attributes = auth.get_attributes()
 
     if not has_role_attribute(scheme, attributes):
         return {"authenticated": False, "errors": "Role not found in the SAML response."}
     attribute_name = (
-        ENTRA_IDP_ROLE_ATTRIBUTE if scheme == "saml-entra-id" else os.environ.get("MEMGRAPH_SSO_OKTA_SAML_ROLE_ATTRIBUTE", "")
+        ENTRA_IDP_ROLE_ATTRIBUTE
+        if scheme == "saml-entra-id"
+        else os.environ.get("MEMGRAPH_SSO_OKTA_SAML_ROLE_ATTRIBUTE", "")
     )
     idp_role = attributes[attribute_name]
     if not isinstance(idp_role, (str, list)):
