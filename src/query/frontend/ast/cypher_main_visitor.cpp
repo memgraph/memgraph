@@ -2970,6 +2970,18 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto enum_value = std::any_cast<std::string>(enum_value_access_parts[1]->accept(this));
 
     return static_cast<Expression *>(storage_->Create<EnumValueAccess>(std::move(enum_name), std::move(enum_value)));
+  } else if (ctx->listComprehension()) {
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->listComprehension()->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list = std::any_cast<Expression *>(
+        ctx->listComprehension()->filterExpression()->idInColl()->expression()->accept(this));
+    auto *where = ctx->listComprehension()->filterExpression()->where()
+                      ? std::any_cast<Where *>(ctx->listComprehension()->filterExpression()->where()->accept(this))
+                      : nullptr;
+    auto *expr = ctx->listComprehension()->expression()
+                     ? std::any_cast<Expression *>(ctx->listComprehension()->expression()->accept(this))
+                     : nullptr;
+    return static_cast<Expression *>(storage_->Create<ListComprehension>(ident, list, where, expr));
   }
 
   // NOTE: Memgraph does NOT support patterns under filtering.
