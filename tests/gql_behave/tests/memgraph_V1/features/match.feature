@@ -848,3 +848,43 @@ Feature: Match
         Then the result should be:
             | n        |
             | ({k: 1}) |
+
+    Scenario: Using OR expression without index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Label1)
+            CREATE (b:Label2)
+            CREATE (c:Label1:Label2)
+            CREATE (d:Label3)
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:Label1)        |
+            | (:Label2)        |
+            | (:Label1:Label2) |
+
+    Scenario: Using OR expression with index
+        Given an empty graph
+        And with new index :Label1
+        And with new index :Label2
+        And having executed:
+            """
+            CREATE (a:Label1)
+            CREATE (b:Label2)
+            CREATE (c:Label1:Label2)
+            CREATE (d:Label3)
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:Label1)        |
+            | (:Label2)        |
+            | (:Label1:Label2) |
