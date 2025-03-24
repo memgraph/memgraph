@@ -2553,6 +2553,9 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
+  // TODO: Think about role check here
+  // What will happen if MAIN is being demoted at this point?
+
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
