@@ -128,6 +128,8 @@ struct IndexHints {
     return false;
   }
 
+  // @TODO need HasLabelPropertiesIndex
+
   template <class TDbAccessor>
   bool HasLabelPropertyIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : label_property_index_hints_) {
