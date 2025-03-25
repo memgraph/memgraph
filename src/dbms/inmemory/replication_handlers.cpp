@@ -221,10 +221,6 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
-      });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
@@ -760,31 +756,6 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     spdlog::error("Loading WAL from {} failed because of {}.", *maybe_wal_path, e.what());
     return {false, 0};
   }
-}
-
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
-                                                   const std::optional<utils::UUID> &current_main_uuid,
-                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
-  storage::replication::TimestampReq req;
-  slk::Load(&req, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
-  if (!db_acc) {
-    const storage::replication::TimestampRes res{false, 0};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
-    const storage::replication::TimestampRes res{false, 0};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
-  // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
-  auto const *storage = db_acc->get()->storage();
-  const storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  rpc::SendFinalResponse(res, res_builder);
 }
 
 // The number of applied deltas also includes skipped deltas.

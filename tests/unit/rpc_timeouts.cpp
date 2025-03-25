@@ -39,7 +39,6 @@ using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::storage::replication::HeartbeatRpc;
-using memgraph::storage::replication::TimestampRpc;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
