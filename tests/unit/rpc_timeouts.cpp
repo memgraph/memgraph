@@ -14,12 +14,14 @@
 
 #include "rpc_messages.hpp"
 
+#include "coordination/coordinator_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
+using memgraph::coordination::ShowInstancesRpc;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
@@ -201,4 +203,37 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
   auto stream = client.Stream<Echo>("Sending request");
   EXPECT_THROW(stream.AwaitResponse(), GenericRpcFailedException);
+}
+
+TEST(RpcTimeout, AppendDeltasTimeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
+    AppendDeltasReq req;
+    Load(&req, req_reader);
+    Decoder decoder(req_reader);
+    auto maybe_epoch_id = decoder.ReadString();
+
+    // Simulate done
+    std::this_thread::sleep_for(150ms);
+    AppendDeltasRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("AppendDeltasReq"sv, 100)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  ReplicaStream stream{&main_storage, client, 1, UUID{}};
+  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
 }

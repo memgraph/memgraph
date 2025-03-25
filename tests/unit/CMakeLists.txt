@@ -437,7 +437,7 @@ target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test rpc-timeouts
 add_unit_test(rpc_timeouts.cpp)
-target_link_libraries(${test_prefix}rpc_timeouts mg-rpc)
+target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue)
 
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress.cpp)
