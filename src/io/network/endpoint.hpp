@@ -60,7 +60,6 @@ class Endpoint {
   [[nodiscard]] auto GetResolvedIPAddress() const -> std::string;
 
   bool operator==(const Endpoint &other) const = default;
-  friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
  private:
   using RetValue = std::tuple<std::string, uint16_t, Endpoint::IpFamily>;

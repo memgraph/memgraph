@@ -92,7 +92,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
       }
     }
   } catch (const NetworkError &e) {
-    spdlog::error("Error while connecting to {}. {}", socket_addr, e.what());
+    spdlog::trace("Error occurred while connecting to {}. Error: {}", endpoint.SocketAddress(), e.what());
     return false;
   }
 
@@ -107,38 +107,44 @@ bool Socket::Bind(const Endpoint &endpoint) {
 
   auto const socket_addr = endpoint.SocketAddress();
 
-  for (const auto &it : AddrInfo{endpoint}) {
-    int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
-    if (sfd == -1) {
-      spdlog::trace("Socket creation failed in Socket::Bind for socket address {}. File descriptor is -1",
-                    endpoint.SocketAddress());
-      continue;
-    }
+  try {
+    for (const auto &it : AddrInfo{endpoint}) {
+      int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
+      if (sfd == -1) {
+        spdlog::trace("Socket creation failed in Socket::Bind for socket address {}. File descriptor is -1",
+                      endpoint.SocketAddress());
+        continue;
+      }
 
-    int on = 1;
-    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
-      spdlog::trace("setsockopt in Socket::Bind failed for socket address {}", socket_addr);
-      // If the setsockopt failed close the file descriptor to prevent file
+      int on = 1;
+      if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
+        spdlog::trace("setsockopt in Socket::Bind failed for socket address {}", socket_addr);
+        // If the setsockopt failed close the file descriptor to prevent file
+        // descriptors being leaked
+        if (close(sfd) != 0) {
+          int err_sc = errno;
+          spdlog::error(
+              "Failed to close fd for {}. Closing started because 'setsockopt' failed while binding. Errno: {}",
+              socket_addr, err_sc);
+        }
+        continue;
+      }
+
+      if (bind(sfd, it.ai_addr, it.ai_addrlen) == 0) {
+        socket_ = sfd;
+        break;
+      }
+      // If the bind failed close the file descriptor to prevent file
       // descriptors being leaked
+      spdlog::trace("Socket::Bind failed. Closing file descriptor for socket address {}", endpoint.SocketAddress());
       if (close(sfd) != 0) {
         int err_sc = errno;
-        spdlog::error("Failed to close fd for {}. Closing started because 'setsockopt' failed while binding. Errno: {}",
-                      socket_addr, err_sc);
+        spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, err_sc);
       }
-      continue;
     }
-
-    if (bind(sfd, it.ai_addr, it.ai_addrlen) == 0) {
-      socket_ = sfd;
-      break;
-    }
-    // If the bind failed close the file descriptor to prevent file
-    // descriptors being leaked
-    spdlog::trace("Socket::Bind failed. Closing file descriptor for socket address {}", endpoint.SocketAddress());
-    if (close(sfd) != 0) {
-      int err_sc = errno;
-      spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, err_sc);
-    }
+  } catch (NetworkError const &e) {
+    spdlog::trace("Error happened while trying to bind to {}. Error: {}", endpoint.SocketAddress(), e.what());
+    return false;
   }
 
   if (socket_ == -1) {
@@ -163,8 +169,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
     return false;
   }
 
-  // TODO: (andi) This runs again resolving, shouldn't be needed.
-  endpoint_ = Endpoint(endpoint.GetResolvedIPAddress(), ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.GetAddress(), ntohs(portdata.sin6_port));
 
   return true;
 }
