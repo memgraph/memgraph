@@ -92,22 +92,22 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph gql-behave
 
-      - name: Copy memgraph logs
+      - name: Copy gql behave logs
         if: always()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --memgraph-logs --dest-dir build/memgraph-logs-core-tests
+          copy --memgraph-logs --memgraph-logs-dir /home/mg/memgraph/tests/gql_behave --dest-dir build/memgraph-logs-gql-behave-tests
 
       - name: Save test data
         continue-on-error: true
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Core tests(Release build)-${{ inputs.run_id }}"
-          path: build/memgraph-logs-core-tests
+          name: "GQL Behave Tests(Release build)-${{ inputs.run_id }}"
+          path: build/memgraph-logs-gql-behave-tests
 
       - name: Save quality assurance status
         continue-on-error: true
