@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
@@ -58,6 +59,7 @@ struct ExpressionRange {
   static auto IsNotNull() -> ExpressionRange;
 
   auto evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
+  auto thing(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
 
   ExpressionRange(ExpressionRange const &other, AstStorage &storage);
 
