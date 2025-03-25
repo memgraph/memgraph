@@ -512,10 +512,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
     }
 
     std::optional<UserImpersonation> usr_imp = std::nullopt;
-    try {
-      usr_imp = std::make_optional<UserImpersonation>(data[kUserImp]);
-    } catch (const AuthException & /* unused */) {
-      spdlog::warn("Migrating from older version of role data, defaulting to no impersonation ability.");
+    auto imp_data = data.find(kUserImp);
+    if (imp_data != data.end()) {
+      usr_imp = imp_data.value().is_null() ? std::nullopt : std::make_optional<UserImpersonation>(imp_data.value());
+    } else {
+      spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
     }
     return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access),
             std::move(usr_imp)};
@@ -800,10 +801,11 @@ User User::Deserialize(const nlohmann::json &data) {
     }
 
     std::optional<UserImpersonation> usr_imp = std::nullopt;
-    try {
-      usr_imp = std::make_optional<UserImpersonation>(data[kUserImp]);
-    } catch (const AuthException & /* unused */) {
-      spdlog::warn("Migrating from older version of user data, defaulting to no impersonation ability.");
+    auto imp_data = data.find(kUserImp);
+    if (imp_data != data.end()) {
+      usr_imp = imp_data.value().is_null() ? std::nullopt : std::make_optional<UserImpersonation>(imp_data.value());
+    } else {
+      spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
     }
 
     return {data[kUsername],      std::move(password_hash),
