@@ -280,38 +280,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllByLabelPropertyRange &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelPropertyRange &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByLabelPropertyValue &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelPropertyValue &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(ScanAllByLabelProperties &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
   bool PostVisit(ScanAllByLabelProperties &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByLabelProperty &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelProperty &) override {
     prev_ops_.pop_back();
     return true;
   }
