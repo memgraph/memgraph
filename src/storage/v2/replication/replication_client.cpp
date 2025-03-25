@@ -221,14 +221,15 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
     UpdateReplicaState(main_storage, std::move(db_acc));
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-    spdlog::error(
-        utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
-                               "deployed is not a compatible version.",
-                               client_.name_, client_.rpc_client_.Endpoint(), "https://memgr.ph/replication"));
+    spdlog::error(utils::MessageWithLink(
+        "Failed to connect to replica {} at the endpoint {}. Because the replica "
+        "deployed is not a compatible version.",
+        client_.name_, client_.rpc_client_.Endpoint().SocketAddress(), "https://memgr.ph/replication"));
   } catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", client_.name_,
-                                         client_.rpc_client_.Endpoint(), "https://memgr.ph/replication"));
+                                         client_.rpc_client_.Endpoint().SocketAddress(),
+                                         "https://memgr.ph/replication"));
   }
 }
 
