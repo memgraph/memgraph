@@ -168,11 +168,11 @@ class MetricsService {
 
     // After pulling metrics, we need to reset HA counters on coordinators because on each pull we are only sending
     // deltas
+    auto const is_coordinator = flags::CoordinationSetupInstance().IsCoordinator();
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
-      if (flags::CoordinationSetupInstance().IsCoordinator() &&
-          std::find(coord_counters_to_reset.cbegin(), coord_counters_to_reset.cend(), i)) {
+      if (is_coordinator && std::find(coord_counters_to_reset.cbegin(), coord_counters_to_reset.cend(), i)) {
         event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
-                                    memgraph::metrics::global_counters[i].exchange(0));
+                                    memgraph::metrics::global_counters[i].exchange(0, std::memory_order_acq_rel));
 
       } else {
         event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
