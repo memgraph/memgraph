@@ -28,10 +28,7 @@
   M(CreateExpandOperator, Operator, "Number of times CreateExpand operator was used.")                                 \
   M(ScanAllOperator, Operator, "Number of times ScanAll operator was used.")                                           \
   M(ScanAllByLabelOperator, Operator, "Number of times ScanAllByLabel operator was used.")                             \
-  M(ScanAllByLabelPropertyRangeOperator, Operator, "Number of times ScanAllByLabelPropertyRange operator was used.")   \
-  M(ScanAllByLabelPropertyValueOperator, Operator, "Number of times ScanAllByLabelPropertyValue operator was used.")   \
   M(ScanAllByLabelPropertiesOperator, Operator, "Number of times ScanAllByLabelProperties operator was used.")         \
-  M(ScanAllByLabelPropertyOperator, Operator, "Number of times ScanAllByLabelProperty operator was used.")             \
   M(ScanAllByIdOperator, Operator, "Number of times ScanAllById operator was used.")                                   \
   M(ScanAllByEdgeOperator, Operator, "Number of times ScanAllByEdgeOperator operator was used.")                       \
   M(ScanAllByEdgeTypeOperator, Operator, "Number of times ScanAllByEdgeTypeOperator operator was used.")               \
