@@ -495,9 +495,13 @@ class User final {
 
   void SetRole(const Role &role);
 
+  void SetRoleForDB(const utils::UUID &uuid, const Role &role);
+
   void ClearRole();
 
-  Permissions GetPermissions() const;
+  void ClearRoleForDB(const utils::UUID &uuid);
+
+  Permissions GetPermissions(std::optional<utils::UUID> db = std::nullopt) const;
 
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
@@ -515,6 +519,8 @@ class User final {
   Permissions &permissions();
 
   const Role *role() const;
+
+  const auto &db_to_role() const { return db_to_role_; }
 
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
@@ -576,12 +582,13 @@ class User final {
   std::string username_;
   std::optional<HashedPassword> password_hash_;
   Permissions permissions_;
+  std::optional<Role> role_;  // default role
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases database_access_{};
+  std::unordered_map<utils::UUID, Role> db_to_role_;  // specific role per database
   std::optional<UserImpersonation> user_impersonation_{};
 #endif
-  std::optional<Role> role_;
   utils::UUID uuid_{};  // To uniquely identify a user
 };
 

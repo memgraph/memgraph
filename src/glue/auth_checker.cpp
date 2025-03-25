@@ -152,8 +152,10 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
   if (!db_name.empty() && !user.HasAccess(db_name)) {
     return false;
   }
-#endif
+  const auto user_permissions = user.GetPermissions(db_name);  // TODO Move to uuid
+#else
   const auto user_permissions = user.GetPermissions();
+#endif
   return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
     return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;

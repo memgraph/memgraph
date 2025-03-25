@@ -657,19 +657,40 @@ void User::SetRole(const Role &role) { role_.emplace(role); }
 
 void User::ClearRole() { role_ = std::nullopt; }
 
-Permissions User::GetPermissions() const {
-  if (role_) {
-    return Permissions{permissions_.grants() | role_->permissions().grants(),
-                       permissions_.denies() | role_->permissions().denies()};
+// TODO Enterprise only
+void User::SetRoleForDB(const utils::UUID &db_uuid, const Role &role) { db_to_role_.emplace(db_uuid, role); }
+
+void User::ClearRoleForDB(const utils::UUID &uuid) { db_to_role_.erase(uuid); }
+
+// TODO Pass db
+Permissions User::GetPermissions(std::optional<utils::UUID> db) const {
+  if (db) {
+    // Checking role for specific database
+    const auto role = db_to_role_.find(*db);
+    if (role != db_to_role_.end()) {
+      return Permissions{permissions_.grants() | role->second.permissions().grants(),
+                         permissions_.denies() | role->second.permissions().denies()};
+    } else {
+      // No role found for specific db
+      // TODO: What now? Use the default one?
+    }
+  } else {
+    // Checking default role
+    if (role_) {
+      return Permissions{permissions_.grants() | role_->permissions().grants(),
+                         permissions_.denies() | role_->permissions().denies()};
+    }
   }
   return permissions_;
 }
 
 #ifdef MG_ENTERPRISE
+// TODO Pass db
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const {
   return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions());
 }
 
+// TODO Pass db
 FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
   return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions());
 }
@@ -690,6 +711,7 @@ FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions() co
   return fine_grained_access_handler_.label_permissions();
 }
 
+// TODO Pass db
 FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
@@ -701,6 +723,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions()
   return FineGrainedAccessPermissions{};
 }
 
+// TODO Pass db
 FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
@@ -722,6 +745,7 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
+// TODO Pass db
 const Role *User::role() const {
   if (role_.has_value()) {
     return &role_.value();

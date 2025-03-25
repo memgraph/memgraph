@@ -19,6 +19,7 @@
 // NOLINTNEXTLINE
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 
 namespace memgraph::utils {
 struct UUID;
@@ -61,6 +62,8 @@ struct UUID {
 
   explicit operator arr_t() const { return uuid; }
 
+  explicit operator std::string_view() const { return std::string_view{(char *)uuid.data(), uuid.size()}; }
+
   friend bool operator==(UUID const &, UUID const &) = default;
 
  private:
@@ -81,3 +84,13 @@ inline void from_json(const nlohmann::json &j, UUID &uuid) {
 }
 
 }  // namespace memgraph::utils
+
+namespace std {
+template <>
+struct hash<memgraph::utils::UUID> {
+  size_t operator()(const memgraph::utils::UUID &uuid) const {
+    std::hash<std::string_view> hasher;
+    return hasher(std::string_view{uuid});
+  }
+};
+}  // namespace std

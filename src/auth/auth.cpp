@@ -153,9 +153,11 @@ struct DropAuthData : memgraph::system::ISystemAction {
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kLinkPrefix = "link:";
+const std::string kMtLinkPrefix = "mt-link:";
 const std::string kVersion = "version";
 
-static constexpr auto kVersionV1 = "V1";
+constexpr auto kVersionV2 = "V2";
+constexpr auto kVersionV1 = "V1";
 }  // namespace
 
 /**
@@ -180,7 +182,7 @@ void MigrateVersions(kvstore::KVStore &store) {
   static constexpr auto kPasswordHashV0V1 = "password_hash";
   auto version_str = store.Get(kVersion);
 
-  if (!version_str) {
+  if (!version_str) {  // V0
     using namespace std::string_literals;
 
     // pre versioning, add version to the store
@@ -220,6 +222,32 @@ void MigrateVersions(kvstore::KVStore &store) {
     // Perform migration to V1
     store.PutMultiple(puts);
     version_str = kVersionV1;
+  }
+
+  if (*version_str == kVersionV1) {
+    spdlog::info("Updating auth durability, migrating from V1 to V2.");
+    using namespace std::string_literals;
+
+    // update version
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+
+    // add empty mt role link
+    auto it = store.begin(kLinkPrefix);
+    auto const e = store.end(kLinkPrefix);
+
+    for (; it != e; ++it) {
+      auto const &[key, value] = *it;
+      try {
+        const auto mt_key = kMtLinkPrefix + key.substr(kLinkPrefix.size());
+        puts.emplace(mt_key, nlohmann::json::array(/* no data */));
+      } catch (const nlohmann::json::parse_error &e) {
+        throw AuthException("Couldn't load user data!");
+      }
+    }
+
+    // Perform migration to V1
+    store.PutMultiple(puts);
+    version_str = kVersionV2;
   }
 }
 
@@ -398,6 +426,19 @@ void Auth::LinkUser(User &user) const {
   }
 }
 
+void Auth::MtLinkUser(User &user) const {
+  auto link = storage_.Get(kMtLinkPrefix + user.username());
+  if (link) {
+    nlohmann::json mt_roles(*link);
+    for (const auto &[db, mt_role] : std::unordered_map<utils::UUID, std::string>{mt_roles}) {
+      if (auto role = GetRole(mt_role)) {
+        user.SetRoleForDB(db, *role);
+      }
+      // TODO: How to handle missing roles?
+    }
+  }
+}
+
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
@@ -405,19 +446,29 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 
   auto user = User::Deserialize(ParseJson(*existing_user));
   LinkUser(user);
+  MtLinkUser(user);
   return user;
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
-  bool success = false;
+  std::map<std::string, std::string> puts;
+  // User data
+  puts.emplace(kUserPrefix + user.username(), user.Serialize().dump());
+  // Role data
   if (const auto *role = user.role(); role != nullptr) {
-    success = storage_.PutMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
+    puts.emplace(kLinkPrefix + user.username(), role->rolename());
   } else {
-    success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
-                                            {kLinkPrefix + user.username()});
+    puts.emplace(kLinkPrefix + user.username(), "");
   }
-  if (!success) {
+  // Mt role data
+  auto mt_roles = nlohmann::json::object();
+  for (const auto &[db, role] : user.db_to_role()) {
+    mt_roles.emplace(db, role);
+  }
+  puts.emplace(kMtLinkPrefix + user.username(), mt_roles.dump());
+
+  // Make durable
+  if (!storage_.PutMultiple(puts)) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
 
@@ -493,7 +544,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
+  std::vector<std::string> keys({kLinkPrefix + username, kMtLinkPrefix + username, kUserPrefix + username});
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
@@ -518,6 +569,7 @@ std::vector<auth::User> Auth::AllUsers() const {
     try {
       User user = auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
       LinkUser(user);
+      MtLinkUser(user);
       ret.emplace_back(std::move(user));
     } catch (AuthException &) {
       continue;
@@ -547,6 +599,14 @@ bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end
 bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
+  auto rolename = utils::ToLowerCase(rolename_orig);
+  auto existing_role = storage_.Get(kRolePrefix + rolename);
+  if (!existing_role) return std::nullopt;
+
+  return Role::Deserialize(ParseJson(*existing_role));
+}
+
+std::optional<Role> Auth::GetMtRoles(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
@@ -752,6 +812,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     try {
       User user = auth::User::Deserialize(ParseJson(it->second));
       LinkUser(user);
+      MtLinkUser(user);  // TODO Enterprise only
       user.db_access().Revoke(db);
       SaveUser(user, system_tx);
     } catch (AuthException &) {
