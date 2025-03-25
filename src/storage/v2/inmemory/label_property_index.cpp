@@ -39,6 +39,25 @@ auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermuta
   });
 }
 
+bool within_bounds(PropertyValue const &value, std::optional<utils::Bound<PropertyValue>> lb,
+                   std::optional<utils::Bound<PropertyValue>> ub) {
+  if (lb) {
+    if (lb->IsInclusive()) {
+      if (value < lb->value()) return false;
+    } else {
+      if (value <= lb->value()) return false;
+    }
+  }
+  if (ub) {
+    if (ub->IsInclusive()) {
+      if (ub->value() < value) return false;
+    } else {
+      if (ub->value() <= value) return false;
+    }
+  }
+  return true;
+};
+
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and properties.
@@ -760,10 +779,13 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
   auto const it2 = it->second.find(properties);
   MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties doesn't exist", label.AsUint());
 
-  // auto acc = it->second.access();
-  //  NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  // return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
-  return 10;  // @TODO put back by computing bounds from spans...
+  auto acc = it2->second.skiplist.access();
+
+  auto in_bounds_for_all_prefix = [&](NewEntry const &entry) {
+    auto apply_within_bounds = [&](auto &&triple) { return std::apply(within_bounds, triple); };
+    return ranges::all_of(ranges::views::zip(entry.values.values_, lowers, uppers), apply_within_bounds);
+  };
+  return ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
 }
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearIndexStats() {
