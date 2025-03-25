@@ -201,16 +201,17 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // this cardinality estimation depends on Bound expressions.
     // if they are literals we can evaluate cardinality properly
 
-    auto propertyvalue_ranges =
+    auto maybe_propertyvalue_ranges =
         logical_op.expression_ranges_ |
         ranges::views::transform([&](ExpressionRange const &er) { return er.thing(parameters); }) | ranges::to_vector;
 
-    auto factor = std::invoke([&] {
-      if (ranges::none_of(propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
-        // TODO: complete
+    auto factor = std::invoke([&]() -> double {
+      if (ranges::none_of(maybe_propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+        auto propertyvalue_ranges = maybe_propertyvalue_ranges |
+                                    ranges::views::transform([](auto &&optional) { return *optional; }) |
+                                    ranges::to_vector;
 
-        return db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, std::array{lower},
-                                           std::array{upper});
+        return db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, propertyvalue_ranges);
       } else {
         // no values, but we still have the label + properties
         // use filtering constant to modify the factor
@@ -221,9 +222,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     cardinality_ *= factor;
 
     // TODO: update hints
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
-      use_index_hints_ = true;
-    }
+    // if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
+    //   use_index_hints_ = true;
+    // }
 
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::MakeScanAllByLabelProperties);

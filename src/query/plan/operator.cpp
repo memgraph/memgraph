@@ -229,16 +229,6 @@ auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage:
   }
 }
 
-// TODO: move
-std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
-    std::optional<ScanAllByLabelPropertyRange::Bound> bound) {
-  if (bound) {
-    auto property_value = ConstPropertyValue(bound->value());
-    if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
-  }
-  return std::nullopt;
-}
-
 std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression, Parameters const &parameters) {
   if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
     return literal->value_;

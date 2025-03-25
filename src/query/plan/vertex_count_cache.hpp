@@ -63,10 +63,9 @@ class VertexCountCache {
   }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
-                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> lowers,
-                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> uppers) {
+                        std::span<storage::PropertyValueRange const> bounds) {
     // TODO(composite_index) cache count based on properties + bounds
-    return db_->VerticesCount(label, properties, lowers, uppers);
+    return db_->VerticesCount(label, properties, bounds);
   }
 
   std::optional<int64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) {
@@ -88,18 +87,6 @@ class VertexCountCache {
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
       value_vertex_count[tv_value] = db_->VerticesCount(label, std::array{property}, std::array{value});
     return value_vertex_count.at(tv_value);
-  }
-
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    auto label_prop = std::make_pair(label, property);
-    auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
-    BoundsKey bounds = std::make_pair(lower, upper);
-    if (bounds_vertex_count.find(bounds) == bounds_vertex_count.end())
-      bounds_vertex_count[bounds] =
-          db_->VerticesCount(label, std::array{property}, std::array{lower}, std::array{upper});
-    return bounds_vertex_count.at(bounds);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) {
