@@ -211,10 +211,8 @@ uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
-    LabelId label, std::span<PropertyId const> /*properties*/,
-    std::span<std::optional<utils::Bound<PropertyValue>> const> /*lowers*/,
-    std::span<std::optional<utils::Bound<PropertyValue>> const> /*upper*/) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> /*properties*/,
+                                                        std::span<PropertyValueRange const> /*bounds*/) const {
   return 10;
 }
 
