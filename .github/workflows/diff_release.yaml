@@ -92,6 +92,23 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph gql-behave
 
+      - name: Copy memgraph logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --memgraph-logs --dest-dir build/memgraph-logs-core-tests
+
+      - name: Save test data
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Core tests(Release build)-${{ inputs.run_id }}"
+          path: build/memgraph-logs-core-tests
+
       - name: Save quality assurance status
         continue-on-error: true
         uses: actions/upload-artifact@v4
@@ -133,23 +150,6 @@ jobs:
         with:
           name: "Enterprise DEB package-${{ inputs.run_id }}"
           path: build/output/${{ env.OS }}/memgraph*.deb
-
-      - name: Copy memgraph logs
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --memgraph-logs --dest-dir build/memgraph-logs-core-tests
-
-      - name: Save test data
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Core tests(Release build)-${{ inputs.run_id }}"
-          path: build/memgraph-logs-core-tests
 
       - name: Stop mgbuild container
         if: always()
