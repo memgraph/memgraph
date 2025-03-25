@@ -15,19 +15,31 @@
 #include "rpc_messages.hpp"
 
 #include "coordination/coordinator_rpc.hpp"
+#include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
+using memgraph::coordination::DemoteMainToReplicaRpc;
+using memgraph::coordination::EnableWritingOnMainRpc;
+using memgraph::coordination::GetDatabaseHistoriesRpc;
+using memgraph::coordination::PromoteToMainRpc;
+using memgraph::coordination::RegisterReplicaOnMainRpc;
 using memgraph::coordination::ShowInstancesRpc;
+using memgraph::coordination::StateCheckRpc;
+using memgraph::coordination::UnregisterReplicaRpc;
 using memgraph::io::network::Endpoint;
+using memgraph::replication::SystemRecoveryRpc;
+using memgraph::replication_coordination_glue::FrequentHeartbeatRpc;
+using memgraph::replication_coordination_glue::SwapMainUUIDRpc;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
-using memgraph::slk::Save;
+using memgraph::storage::replication::HeartbeatRpc;
+using memgraph::storage::replication::TimestampRpc;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
@@ -205,35 +217,76 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   EXPECT_THROW(stream.AwaitResponse(), GenericRpcFailedException);
 }
 
-TEST(RpcTimeout, AppendDeltasTimeout) {
-  Endpoint endpoint{"localhost", port};
+template <memgraph::rpc::IsRpc T>
+void RegisterRpcCallback(Server &rpc_server) {
+  rpc_server.Register<T>([](auto *req_reader, auto /* *res_builder */) {
+    typename T::Request req;
+    if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
+      Load(&req, req_reader);
+    }
+    // Simulate done
+    std::this_thread::sleep_for(75ms);
+  });
+}
 
+template <memgraph::rpc::IsRpc T>
+void SendAndAssert(Client &client) {
+  auto stream = client.Stream<T>();
+  EXPECT_THROW(stream.AwaitResponse(), GenericRpcFailedException);
+}
+
+TEST(RpcTimeout, Timeouts) {
+  Endpoint endpoint{"localhost", port};
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{endpoint, &server_context, /* workers */ 2};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     rpc_server.Shutdown();
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
-    AppendDeltasReq req;
-    Load(&req, req_reader);
-    Decoder decoder(req_reader);
-    auto maybe_epoch_id = decoder.ReadString();
-
-    // Simulate done
-    std::this_thread::sleep_for(150ms);
-    AppendDeltasRes res{true};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
-  });
+  RegisterRpcCallback<ShowInstancesRpc>(rpc_server);
+  RegisterRpcCallback<DemoteMainToReplicaRpc>(rpc_server);
+  RegisterRpcCallback<PromoteToMainRpc>(rpc_server);
+  RegisterRpcCallback<RegisterReplicaOnMainRpc>(rpc_server);
+  RegisterRpcCallback<UnregisterReplicaRpc>(rpc_server);
+  RegisterRpcCallback<EnableWritingOnMainRpc>(rpc_server);
+  RegisterRpcCallback<GetDatabaseHistoriesRpc>(rpc_server);
+  RegisterRpcCallback<StateCheckRpc>(rpc_server);
+  RegisterRpcCallback<SwapMainUUIDRpc>(rpc_server);
+  RegisterRpcCallback<FrequentHeartbeatRpc>(rpc_server);
+  RegisterRpcCallback<HeartbeatRpc>(rpc_server);
+  RegisterRpcCallback<SystemRecoveryRpc>(rpc_server);
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("AppendDeltasReq"sv, 100)};
+  auto const rpc_timeouts = std::unordered_map{
+      std::make_pair("ShowInstancesReq"sv, 50),
+      std::make_pair("DemoteMainToReplicaReq"sv, 50),
+      std::make_pair("PromoteToMainReq"sv, 50),
+      std::make_pair("RegisterReplicaOnMainReq"sv, 50),
+      std::make_pair("UnregisterReplicaReq"sv, 50),
+      std::make_pair("EnableWritingOnMainReq"sv, 50),
+      std::make_pair("GetDatabaseHistoriesReq"sv, 50),
+      std::make_pair("StateCheckReq"sv, 50),
+      std::make_pair("SwapMainUUIDReq"sv, 50),
+      std::make_pair("FrequentHeartbeatReq"sv, 50),
+      std::make_pair("HeartbeatReq"sv, 50),
+      std::make_pair("SystemRecoveryReq"sv, 50),
+
+  };
+
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  ReplicaStream stream{&main_storage, client, 1, UUID{}};
-  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  SendAndAssert<ShowInstancesRpc>(client);
+  SendAndAssert<DemoteMainToReplicaRpc>(client);
+  SendAndAssert<PromoteToMainRpc>(client);
+  SendAndAssert<UnregisterReplicaRpc>(client);
+  SendAndAssert<EnableWritingOnMainRpc>(client);
+  SendAndAssert<GetDatabaseHistoriesRpc>(client);
+  SendAndAssert<StateCheckRpc>(client);
+  SendAndAssert<SwapMainUUIDRpc>(client);
+  SendAndAssert<FrequentHeartbeatRpc>(client);
+  SendAndAssert<HeartbeatRpc>(client);
+  SendAndAssert<SystemRecoveryRpc>(client);
 }
