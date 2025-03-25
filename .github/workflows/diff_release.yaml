@@ -99,7 +99,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --memgraph-logs --memgraph-logs-dir /home/mg/memgraph/tests/gql_behave --dest-dir build/memgraph-logs-gql-behave-tests
+          copy --memgraph-logs --logs-dir /home/mg/memgraph/tests/gql_behave/memgraph-logs --dest-dir build/memgraph-logs-gql-behave-tests
 
       - name: Save test data
         continue-on-error: true

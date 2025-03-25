@@ -576,7 +576,7 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR/src/query"
         shift 1
       ;;
-      --memgraph-logs-dir)#cp -L
+      --logs-dir)#cp -L
         container_artifact_path=$2
         shift 2
       ;;
