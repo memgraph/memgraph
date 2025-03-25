@@ -134,6 +134,47 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
   return exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{});
 }
 
+/// Helper function for label-properties index garbage collection. Returns true if
+/// there is a reachable version of the vertex that has the given label and
+/// properties values.
+inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, std::span<PropertyId const> key,
+                                         PropertiesPermutationHelper const &helper,
+                                         IndexOrderedPropertyValues const &values, uint64_t timestamp) {
+  Delta const *delta;
+  bool exists = true;
+  bool deleted;
+  bool has_label;
+  auto current_values_equal_to_value = std::vector<bool>{};
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    delta = vertex.delta;
+    deleted = vertex.deleted;
+    if (delta == nullptr && deleted) return false;
+    has_label = utils::Contains(vertex.labels, label);
+    if (delta == nullptr && !has_label) return false;
+    current_values_equal_to_value = helper.matches_values(vertex.properties, values);
+  }
+
+  if (exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{})) {
+    return true;
+  }
+
+  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
+                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&](const Delta &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+                             Deleted_ActionMethod(deleted),
+                             Exists_ActionMethod(exists),
+                             HasLabel_ActionMethod(has_label, label),
+                             PropertyValueMatch_ActionMethod(current_values_equal_to_value, helper, values)
+                         });
+    // clang-format on
+    return exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{});
+  });
+}
+
 auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
     -> PropertiesPermutationHelper::permutation_cycles {
   auto const n = permutation_index.size();
@@ -265,19 +306,6 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
-  // OLD
-  for (auto &[label_prop, storage] : index_) {
-    if (std::get<LabelId>(label_prop) != added_label) {
-      continue;
-    }
-    auto prop_value = vertex_after_update->properties.GetProperty(std::get<PropertyId>(label_prop));
-    if (!prop_value.IsNull()) {
-      auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
-    }
-  }
-
-  // NEW
   auto const it = new_index_.find(added_label);
   if (it == new_index_.end()) {
     return;
@@ -408,10 +436,6 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId
   return true;
 }
 
-bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return index_.contains({label, property});
-}
-
 bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
   auto it = new_index_.find(label);
   if (it != new_index_.end()) {
@@ -495,32 +519,34 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &[label_property, index] : index_) {
-    auto [label_id, prop_id] = label_property;
-    // before starting index, check if stop_requested
-    if (token.stop_requested()) return;
+  for (auto &[label_id, by_properties] : new_index_) {
+    for (auto &[property_ids, index] : by_properties) {
+      // before starting index, check if stop_requested
+      if (token.stop_requested()) return;
 
-    auto index_acc = index.access();
-    auto it = index_acc.begin();
-    auto end_it = index_acc.end();
-    if (it == end_it) continue;
-    while (true) {
-      // Hot loop, don't check stop_requested every time
-      if (maybe_stop() && token.stop_requested()) return;
+      auto index_acc = index.skiplist.access();
+      auto it = index_acc.begin();
+      auto end_it = index_acc.end();
+      if (it == end_it) continue;
+      while (true) {
+        // Hot loop, don't check stop_requested every time
+        if (maybe_stop() && token.stop_requested()) return;
 
-      auto next_it = it;
-      ++next_it;
+        auto next_it = it;
+        ++next_it;
 
-      bool has_next = next_it != end_it;
-      if (it->timestamp < oldest_active_start_timestamp) {
-        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
-        if (redundant_duplicate ||
-            !AnyVersionHasLabelProperty(*it->vertex, label_id, prop_id, it->value, oldest_active_start_timestamp)) {
-          index_acc.remove(*it);
+        bool has_next = next_it != end_it;
+        if (it->timestamp < oldest_active_start_timestamp) {
+          bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
+          if (redundant_duplicate ||
+              !AnyVersionHasLabelProperties(*it->vertex, label_id, property_ids, index.permutations_helper, it->values,
+                                            oldest_active_start_timestamp)) {
+            index_acc.remove(*it);
+          }
         }
+        if (!has_next) break;
+        it = next_it;
       }
-      if (!has_next) break;
-      it = next_it;
     }
   }
 }
@@ -890,8 +916,10 @@ std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetI
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  for (auto &coll : index_ | std::views::values) {
-    coll.run_gc();
+  for (auto &per_label : new_index_ | std::views::values) {
+    for (auto &per_properties : per_label | std::views::values) {
+      per_properties.skiplist.run_gc();
+    }
   }
 }
 
