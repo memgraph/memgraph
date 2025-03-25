@@ -484,38 +484,34 @@ json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
 }
 
 nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor &dba) {
-  json json;
+  json result;
   switch (expression_range.type_) {
     case PropertyFilter::Type::EQUAL: {
-      json["type"] = "Equal";
-      json["value"] = ToJson(expression_range.lower_->value(), dba);
+      result["type"] = "Equal";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
       break;
     }
     case PropertyFilter::Type::REGEX_MATCH: {
-      json["type"] = "Regex";
+      result["type"] = "Regex";
       break;
     }
     case PropertyFilter::Type::RANGE: {
-      json["type"] = "Range";
-      if (expression_range.lower_) {
-        json["lower"] = ToJson(*expression_range.lower_, dba);
-      }
-      if (expression_range.upper_) {
-        json["upper"] = ToJson(*expression_range.upper_, dba);
-      }
+      result["type"] = "Range";
+      result["lower_bound"] = expression_range.lower_ ? ToJson(*expression_range.lower_, dba) : json();
+      result["upper_bound"] = expression_range.upper_ ? ToJson(*expression_range.upper_, dba) : json();
       break;
     }
     case PropertyFilter::Type::IN: {
-      json["type"] = "In";
-      json["value"] = ToJson(expression_range.lower_->value(), dba);
+      result["type"] = "In";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
       break;
     }
     case PropertyFilter::Type::IS_NOT_NULL: {
-      json["type"] = "IsNotNull";
+      result["type"] = "IsNotNull";
       break;
     }
   }
-  return json;
+  return result;
 }
 ////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
 
@@ -554,7 +550,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabel &op) {
 
 bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperties &op) {
   json self;
-  self["name"] = "ScanAllByLabelPropertyValue";
+  self["name"] = "ScanAllByLabelProperties";
   self["label"] = ToJson(op.label_, *dba_);
   self["properties"] = ToJson(op.properties_, *dba_);
   self["expression_ranges"] = ToJson(op.expression_ranges_, *dba_);
