@@ -131,54 +131,58 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
   EXPECT_COST(30 * CostParam::kScanAllByLabel);
 }
 
-// TODO replace tests by unified ScanAllByLabelProperties operator
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstant) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{property},
+                                     std::vector{ExpressionRange::Equal(const_val)});
+    EXPECT_COST(1 * CostParam::MakeScanAllByLabelProperties);
+  }
+}
 
-// TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
-//   AddVertices(100, 30, 20);
-//   for (auto *const_val : {Literal(12), Parameter(12)}) {
-//     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, const_val);
-//     EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
-//   }
-// }
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    MakeOp<ScanAllByLabelProperties>(
+        nullptr, NextSymbol(), label, std::vector{property},
+        std::vector{ExpressionRange::Equal(storage_.Create<UnaryPlusOperator>(const_val))});
+    // once we make expression const-folding this test case will fail
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelProperties);
+  }
+}
 
-// TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
-//   AddVertices(100, 30, 20);
-//   for (auto *const_val : {Literal(12), Parameter(12)}) {
-//     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property,
-//                                         // once we make expression const-folding this test case will fail
-//                                         storage_.Create<UnaryPlusOperator>(const_val));
-//     EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyValue);
-//   }
-// }
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesUpperConstant) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{property},
+                                     std::vector{ExpressionRange::Range(std::nullopt, InclusiveBound(const_val))});
+    // cardinality estimation is exact for very small indexes
+    EXPECT_COST(13 * CostParam::MakeScanAllByLabelProperties);
+  }
+}
 
-// TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
-//   AddVertices(100, 30, 20);
-//   for (auto *const_val : {Literal(12), Parameter(12)}) {
-//     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, nullopt, InclusiveBound(const_val));
-//     // cardinality estimation is exact for very small indexes
-//     EXPECT_COST(13 * CostParam::MakeScanAllByLabelPropertyRange);
-//   }
-// }
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesLowerConstant) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(17), Parameter(17)}) {
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{property},
+                                     std::vector{ExpressionRange::Range(InclusiveBound(const_val), std::nullopt)});
+    // cardinality estimation is exact for very small indexes
+    EXPECT_COST(3 * CostParam::MakeScanAllByLabelProperties);
+  }
+}
 
-// TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
-//   AddVertices(100, 30, 20);
-//   for (auto *const_val : {Literal(17), Parameter(17)}) {
-//     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, InclusiveBound(const_val), nullopt);
-//     // cardinality estimation is exact for very small indexes
-//     EXPECT_COST(3 * CostParam::MakeScanAllByLabelPropertyRange);
-//   }
-// }
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertieRangeConstExpr) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    auto bound = std::make_optional(
+        memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
 
-// TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
-//   AddVertices(100, 30, 20);
-//   for (auto *const_val : {Literal(12), Parameter(12)}) {
-//     auto bound = std::make_optional(
-//         memgraph::utils::MakeBoundInclusive(static_cast<Expression
-//         *>(storage_.Create<UnaryPlusOperator>(const_val))));
-//     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, bound, nullopt);
-//     EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyRange);
-//   }
-// }
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{property},
+                                     std::vector{ExpressionRange::Range(bound, std::nullopt)});
+
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelProperties);
+  }
+}
 
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,

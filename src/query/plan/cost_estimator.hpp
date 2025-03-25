@@ -190,9 +190,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelProperties &logical_op) override {
-    // @TODO impl based on ScanAllByLabelPropertyValue above. Currently, has
-    // no cost!
-    return true;
     auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
     if (index_stats.has_value()) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
