@@ -134,6 +134,23 @@ jobs:
           name: "Enterprise DEB package-${{ inputs.run_id }}"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
+      - name: Copy memgraph logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --memgraph-logs --dest-dir build/memgraph-logs-core-tests
+
+      - name: Save test data
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Core tests(Release build)-${{ inputs.run_id }}"
+          path: build/memgraph-logs-core-tests
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -461,22 +478,22 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph query_modules_e2e
 
-      - name: Copy build logs
+      - name: Copy memgraph logs
         if: always()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --memgraph-logs --dest-dir build/memgraph-logs
+          copy --memgraph-logs --dest-dir build/memgraph-logs-query-modules
 
       - name: Save test data
         continue-on-error: true
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data(Release build)-${{ inputs.run_id }}"
-          path: build/memgraph-logs
+          name: "Query modules tests(Release build)-${{ inputs.run_id }}"
+          path: build/memgraph-logs-query-modules
 
       - name: Stop mgbuild container
         if: always()
