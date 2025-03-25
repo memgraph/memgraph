@@ -102,10 +102,7 @@ extern const Event CreateNodeOperator;
 extern const Event CreateExpandOperator;
 extern const Event ScanAllOperator;
 extern const Event ScanAllByLabelOperator;
-extern const Event ScanAllByLabelPropertyRangeOperator;
-extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertiesOperator;
-extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeOperator;
 extern const Event ScanAllByEdgeTypeOperator;
@@ -1211,83 +1208,6 @@ std::string ScanAllByEdgePropertyRange::ToString() const {
                      common_.node2_symbol.name());
 }
 
-// TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
-// vertices that have the label and some value for the given property.
-
-ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
-                                                         Symbol output_symbol, storage::LabelId label,
-                                                         storage::PropertyId property, std::optional<Bound> lower_bound,
-                                                         std::optional<Bound> upper_bound, storage::View view)
-    : ScanAll(input, output_symbol, view),
-      label_(label),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {
-  MG_ASSERT(lower_bound_ || upper_bound_, "Only one bound can be left out");
-}
-
-ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
-
-UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyRangeOperator);
-
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
-
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
-
-    return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelPropertyRange");
-}
-
-std::string ScanAllByLabelPropertyRange::ToString() const {
-  return fmt::format("ScanAllByLabelPropertyRange ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                     dba_->PropertyToName(property_));
-}
-
-ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                                                         Symbol output_symbol, storage::LabelId label,
-                                                         storage::PropertyId property, Expression *expression,
-                                                         storage::View view)
-    : ScanAll(input, output_symbol, view), label_(label), property_(property), expression_(expression) {
-  DMG_ASSERT(expression, "Expression is not optional.");
-}
-
-ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
-
-UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyValueOperator);
-
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, storage::PropertyValue()))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelPropertyValue");
-}
-
-std::string ScanAllByLabelPropertyValue::ToString() const {
-  return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                     dba_->PropertyToName(property_));
-}
-
 ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                    storage::LabelId label, std::vector<storage::PropertyId> properties,
                                                    std::vector<ExpressionRange> expression_ranges, storage::View view)
@@ -1337,28 +1257,6 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
                                ranges::views::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
   return object;
-}
-
-ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                               storage::LabelId label, storage::PropertyId property, storage::View view)
-    : ScanAll(input, output_symbol, view), label_(label), property_(property) {}
-
-ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
-
-UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyOperator);
-
-  auto vertices = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_, property_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                view_, std::move(vertices), "ScanAllByLabelProperty");
-}
-
-std::string ScanAllByLabelProperty::ToString() const {
-  return fmt::format("ScanAllByLabelProperty ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                     dba_->PropertyToName(property_));
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,

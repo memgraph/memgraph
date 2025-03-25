@@ -36,17 +36,8 @@ constexpr utils::TypeInfo query::plan::ScanAll::kType{utils::TypeId::SCAN_ALL, "
 constexpr utils::TypeInfo query::plan::ScanAllByLabel::kType{utils::TypeId::SCAN_ALL_BY_LABEL, "ScanAllByLabel",
                                                              &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyRange::kType{
-    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY_RANGE, "ScanAllByLabelPropertyRange", &query::plan::ScanAll::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyValue::kType{
-    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY_VALUE, "ScanAllByLabelPropertyValue", &query::plan::ScanAll::kType};
-
 constexpr utils::TypeInfo query::plan::ScanAllByLabelProperties::kType{
     utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTIES, "ScanAllByLabelProperties", &query::plan::ScanAll::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByLabelProperty::kType{
-    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY, "ScanAllByLabelProperty", &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllById::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllById",
                                                           &query::plan::ScanAll::kType};
