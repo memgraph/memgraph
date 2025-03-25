@@ -169,7 +169,7 @@
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                             (utils/process-service-unavailable-exc op node))
 
-                          (catch Exception e
+                          (catch org.neo4j.driver.exceptions.ClientException e
                             (cond
                               (utils/sync-replica-down? e)
                               (assoc op :type :ok :value {:str "Nodes updated. SYNC replica is down."})
@@ -185,8 +185,9 @@
                               (assoc op :type :info :value (str e))
 
                               :else
-                              (assoc op :type :fail :value (str e)))
+                              (assoc op :type :fail :value (str e))))
 
+                          (catch Exception e
                             (assoc op :type :fail :value (str e))))
 
                         (assoc op :type :info :value "Not main data instance."))
@@ -203,7 +204,7 @@
                               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                 (utils/process-service-unavailable-exc op node))
 
-                              (catch Exception e
+                              (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
                                   (utils/sync-replica-down? e)
                                   (assoc op :type :ok :value {:str "TTL edges created. SYNC replica is down."})
@@ -222,8 +223,9 @@
                                   (assoc op :type :info :value (str e))
 
                                   :else
-                                  (assoc op :type :fail :value (str e)))
+                                  (assoc op :type :fail :value (str e))))
 
+                              (catch Exception e
                                 (assoc op :type :fail :value (str e))))
 
                             (assoc op :type :info :value "Not main data instance."))
@@ -239,7 +241,7 @@
                               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                 (utils/process-service-unavailable-exc op node))
 
-                              (catch Exception e
+                              (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
                                   (utils/sync-replica-down? e)
                                   (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
@@ -258,8 +260,9 @@
                                   (assoc op :type :info :value (str e))
 
                                   :else
-                                  (assoc op :type :fail :value (str e)))
+                                  (assoc op :type :fail :value (str e))))
 
+                              (catch Exception e
                                 (assoc op :type :fail :value (str e))))
 
                             (assoc op :type :info :value "Not main data instance."))
@@ -313,14 +316,15 @@
                               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                 (utils/process-service-unavailable-exc op node))
 
-                              (catch Exception e
+                              (catch org.neo4j.driver.exceptions.ClientException e
                                 (cond
                                   (utils/concurrent-system-queries? e)
                                   (assoc op :type :info :value {:str "Concurrent system queries are not allowed"})
 
                                   :else
-                                  (assoc op :type :fail :value (str e)))
+                                  (assoc op :type :fail :value (str e))))
 
+                              (catch Exception e
                                 (assoc op :type :fail :value (str e))))
 
                             (assoc op :type :info :value "Not main data instance."))
@@ -357,7 +361,7 @@
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                             (utils/process-service-unavailable-exc op node))
 
-                          (catch Exception e
+                          (catch org.neo4j.driver.exceptions.TransientException e
                             (cond
                               (utils/sync-replica-down? e)
                               (assoc op :type :ok :value {:str "Edges deleted. SYNC replica is down."})
@@ -366,8 +370,9 @@
                               (assoc op :type :info :value {:str "Conflicting txns"})
 
                               :else
-                              (assoc op :type :fail :value (str e)))
+                              (assoc op :type :fail :value (str e))))
 
+                          (catch Exception e
                             (assoc op :type :fail :value (str e))))
 
                         (assoc op :type :info :value "Not main data instance.")))))
