@@ -38,40 +38,60 @@ bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const me
     return true;
   }
   return std::ranges::all_of(labels, [dba, &user_or_role, fine_grained_privilege](const auto &label) {
-    return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                        return user_or_role.GetFineGrainedAccessLabelPermissions().Has(
-                                   dba->LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
-                                                                fine_grained_privilege)) ==
-                               memgraph::auth::PermissionLevel::GRANT;
-                      }},
-                      user_or_role);
+    return std::visit(
+        memgraph::utils::Overloaded{
+            [&](const memgraph::auth::User &user) {
+              return user.GetFineGrainedAccessLabelPermissions(dba->DatabaseName())
+                         .Has(dba->LabelToName(label),
+                              memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                     memgraph::auth::PermissionLevel::GRANT;
+            },
+            [&](const memgraph::auth::RoleWUsername &role) {
+              return role.GetFineGrainedAccessLabelPermissions().Has(
+                         dba->LabelToName(label),
+                         memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                     memgraph::auth::PermissionLevel::GRANT;
+            }},
+        user_or_role);
   });
 }
 
-bool IsAuthorizedGloballyLabels(const memgraph::auth::UserOrRole &user_or_role,
+bool IsAuthorizedGloballyLabels(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
                                 const memgraph::auth::FineGrainedPermission fine_grained_permission) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                      return user_or_role.GetFineGrainedAccessLabelPermissions().Has(memgraph::query::kAsterisk,
-                                                                                     fine_grained_permission) ==
-                             memgraph::auth::PermissionLevel::GRANT;
-                    }},
+  return std::visit(memgraph::utils::Overloaded{[&](const memgraph::auth::User &user) {
+                                                  return user.GetFineGrainedAccessLabelPermissions(dba->DatabaseName())
+                                                             .Has(memgraph::query::kAsterisk,
+                                                                  fine_grained_permission) ==
+                                                         memgraph::auth::PermissionLevel::GRANT;
+                                                },
+                                                [&](const memgraph::auth::RoleWUsername &role) {
+                                                  return role.GetFineGrainedAccessLabelPermissions().Has(
+                                                             memgraph::query::kAsterisk, fine_grained_permission) ==
+                                                         memgraph::auth::PermissionLevel::GRANT;
+                                                }},
                     user_or_role);
 }
 
-bool IsAuthorizedGloballyEdges(const memgraph::auth::UserOrRole &user_or_role,
+bool IsAuthorizedGloballyEdges(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
                                const memgraph::auth::FineGrainedPermission fine_grained_permission) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                      return user_or_role.GetFineGrainedAccessEdgeTypePermissions().Has(memgraph::query::kAsterisk,
-                                                                                        fine_grained_permission) ==
-                             memgraph::auth::PermissionLevel::GRANT;
-                    }},
-                    user_or_role);
+  return std::visit(
+      memgraph::utils::Overloaded{[&](const memgraph::auth::User &user) {
+                                    return user.GetFineGrainedAccessEdgeTypePermissions(dba->DatabaseName())
+                                               .Has(memgraph::query::kAsterisk, fine_grained_permission) ==
+                                           memgraph::auth::PermissionLevel::GRANT;
+                                  },
+                                  [&](const memgraph::auth::RoleWUsername &role) {
+                                    return role.GetFineGrainedAccessEdgeTypePermissions().Has(
+                                               memgraph::query::kAsterisk, fine_grained_permission) ==
+                                           memgraph::auth::PermissionLevel::GRANT;
+                                  }},
+      user_or_role);
 }
 
 bool IsAuthorizedEdgeType(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
@@ -80,13 +100,21 @@ bool IsAuthorizedEdgeType(const memgraph::auth::UserOrRole &user_or_role, const 
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
-                      return user_or_role.GetFineGrainedAccessEdgeTypePermissions().Has(
-                                 dba->EdgeTypeToName(edgeType),
-                                 memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
-                             memgraph::auth::PermissionLevel::GRANT;
-                    }},
-                    user_or_role);
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [&](const memgraph::auth::User &user) {
+            return user.GetFineGrainedAccessEdgeTypePermissions(dba->DatabaseName())
+                       .Has(dba->EdgeTypeToName(edgeType),
+                            memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                   memgraph::auth::PermissionLevel::GRANT;
+          },
+          [&](const memgraph::auth::RoleWUsername &role) {
+            return role.GetFineGrainedAccessEdgeTypePermissions().Has(
+                       dba->EdgeTypeToName(edgeType),
+                       memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege)) ==
+                   memgraph::auth::PermissionLevel::GRANT;
+          }},
+      user_or_role);
 }
 }  // namespace
 #endif
@@ -239,7 +267,8 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyLabels(user_or_role_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyLabels(user_or_role_, dba_,
+                                    FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
 }
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
@@ -247,7 +276,8 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return IsAuthorizedGloballyEdges(user_or_role_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+  return IsAuthorizedGloballyEdges(user_or_role_, dba_,
+                                   FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
 };
 #endif
 }  // namespace memgraph::glue
