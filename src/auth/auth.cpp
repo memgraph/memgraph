@@ -430,7 +430,7 @@ void Auth::MtLinkUser(User &user) const {
   auto link = storage_.Get(kMtLinkPrefix + user.username());
   if (link) {
     nlohmann::json mt_roles(*link);
-    for (const auto &[db, mt_role] : std::unordered_map<std::string, std::string>{mt_roles}) {
+    for (const auto &[db, mt_role] : mt_roles.items()) {
       if (auto role = GetRole(mt_role)) {
         user.SetRoleForDB(db, *role);
       }
@@ -461,11 +461,11 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
     puts.emplace(kLinkPrefix + user.username(), "");
   }
   // Mt role data
-  auto mt_roles = nlohmann::json::object();
+  std::unordered_map<std::string, std::string> mt_roles;
   for (const auto &[db, role] : user.db_to_role()) {
     mt_roles.emplace(db, role.Serialize());
   }
-  puts.emplace(kMtLinkPrefix + user.username(), mt_roles.dump());
+  puts.emplace(kMtLinkPrefix + user.username(), nlohmann::json{mt_roles}.dump());
 
   // Make durable
   if (!storage_.PutMultiple(puts)) {

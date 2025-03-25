@@ -162,6 +162,7 @@ utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) 
     return {"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
+  // TODO Cannot get database here
   if (!auth_.HasPermission(auth::Permission::WEBSOCKET)) {
     return {"Authorization failed!"};
   }

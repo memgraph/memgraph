@@ -658,27 +658,31 @@ void User::SetRole(const Role &role) { role_.emplace(role); }
 void User::ClearRole() { role_ = std::nullopt; }
 
 // TODO Enterprise only
-void User::SetRoleForDB(std::string_view db_uuid, const Role &role) { db_to_role_.emplace(db_uuid, role); }
+void User::SetRoleForDB(std::string_view db_name, const Role &role) { db_to_role_.emplace(db_name, role); }
 
-void User::ClearRoleForDB(const std::string &uuid) { db_to_role_.erase(uuid); }
+void User::ClearRoleForDB(const std::string &db_name) { db_to_role_.erase(db_name); }
+
+Permissions User::GetPermissions() const {
+  // Checking default role
+  if (role_) {
+    return Permissions{permissions_.grants() | role_->permissions().grants(),
+                       permissions_.denies() | role_->permissions().denies()};
+  }
+  // No role, return user's permissions
+  return permissions_;
+}
 
 Permissions User::GetPermissions(std::optional<std::string_view> db) const {
+  // Checking role for specific database
   if (db) {
-    // Checking role for specific database
     const auto role = db_to_role_.find(*db);
     if (role != db_to_role_.end()) {
       return Permissions{permissions_.grants() | role->second.permissions().grants(),
                          permissions_.denies() | role->second.permissions().denies()};
     }
   }
-  // Checking default role
-  if (role_) {
-    return Permissions{permissions_.grants() | role_->permissions().grants(),
-                       permissions_.denies() | role_->permissions().denies()};
-  }
-
-  // No role, return user's permissions
-  return permissions_;
+  // No db specific role, default behaviour
+  return GetPermissions();
 }
 
 #ifdef MG_ENTERPRISE

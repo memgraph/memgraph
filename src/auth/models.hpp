@@ -497,13 +497,15 @@ class User final {
 
   void ClearRole();
 
-  void SetRoleForDB(std::string_view uuid, const Role &role);
+  void SetRoleForDB(std::string_view db_name, const Role &role);
 
-  void ClearRoleForDB(const std::string &uuid);
+  void ClearRoleForDB(const std::string &db_name);
 
-  Permissions GetPermissions(std::optional<std::string_view> db = std::nullopt) const;
+  Permissions GetPermissions() const;
 
 #ifdef MG_ENTERPRISE
+  Permissions GetPermissions(std::optional<std::string_view> db) const;
+
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db = std::nullopt) const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
@@ -543,6 +545,7 @@ class User final {
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 
   bool CanImpersonate(const User &user) const {
+    // TODO Expand to mt roles
     if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
     bool role_grants = false;
     bool role_denies = false;

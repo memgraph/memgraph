@@ -180,6 +180,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   return {res};
 }
 
+// TODO
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
