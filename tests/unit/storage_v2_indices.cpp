@@ -1002,10 +1002,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
       EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}, std::array{PropertyValue(i)}), i);
     }
 
-    EXPECT_EQ(acc->ApproximateVertexCount(
-                  this->label1, std::array{this->prop_val},
-                  std::array{std::make_optional(memgraph::utils::MakeBoundInclusive(PropertyValue(2)))},
-                  std::array{std::make_optional(memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val},
+                                          std::array{memgraph::storage::PropertyValueRange::Bounded(
+                                              memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                              memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
               2 + 3 + 4 + 5 + 6);
   }
 }
