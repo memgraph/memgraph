@@ -224,9 +224,8 @@ class InMemoryStorage final : public Storage {
     /// the given properties in the range defined by provided upper and lower
     /// bounds.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                    std::span<std::optional<utils::Bound<PropertyValue>> const> lowers,
-                                    std::span<std::optional<utils::Bound<PropertyValue>> const> uppers) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, lowers, uppers);
+                                    std::span<PropertyValueRange const> bounds) const override {
+      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, bounds);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }

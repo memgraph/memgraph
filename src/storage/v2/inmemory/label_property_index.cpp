@@ -39,24 +39,7 @@ auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermuta
   });
 }
 
-bool within_bounds(PropertyValue const &value, std::optional<utils::Bound<PropertyValue>> lb,
-                   std::optional<utils::Bound<PropertyValue>> ub) {
-  if (lb) {
-    if (lb->IsInclusive()) {
-      if (value < lb->value()) return false;
-    } else {
-      if (value <= lb->value()) return false;
-    }
-  }
-  if (ub) {
-    if (ub->IsInclusive()) {
-      if (ub->value() < value) return false;
-    } else {
-      if (ub->value() <= value) return false;
-    }
-  }
-  return true;
-};
+bool within_bounds(PropertyValue const &value, PropertyValueRange const &bounds) { return bounds.value_valid(value); };
 
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
@@ -794,10 +777,8 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::
       utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
 }
 
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
-    LabelId label, std::span<PropertyId const> properties,
-    std::span<std::optional<utils::Bound<PropertyValue>> const> lowers,
-    std::span<std::optional<utils::Bound<PropertyValue>> const> uppers) const {
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                                            std::span<PropertyValueRange const> bounds) const {
   // @TODO show prop ids in assert msg, and use same msg for both.
   auto const it = new_index_.find(label);
   MG_ASSERT(it != new_index_.end(), "Index for label {} doesn't exist", label.AsUint());
@@ -808,8 +789,8 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
   auto acc = it2->second.skiplist.access();
 
   auto in_bounds_for_all_prefix = [&](NewEntry const &entry) {
-    auto apply_within_bounds = [&](auto &&triple) { return std::apply(within_bounds, triple); };
-    return ranges::all_of(ranges::views::zip(entry.values.values_, lowers, uppers), apply_within_bounds);
+    auto value_within_bounds = [&](auto &&p) { return p.first.value_valid(p.second); };
+    return ranges::all_of(ranges::views::zip(bounds, entry.values.values_), value_within_bounds);
   };
   return ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
 }

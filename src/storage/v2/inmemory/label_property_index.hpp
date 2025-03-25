@@ -60,32 +60,6 @@ struct PropertiesPermutationHelper {
   permutation_cycles cycles_;
 };
 
-/** Representation for a range of property values, which may be:
- * - BOUNDED: including only values between a lower and upper bounds
- * - IS_NOT_NULL: including every non-null value
- */
-enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
-struct PropertyValueRange {
-  using Type = PropertyRangeType;
-
-  static auto InValid() -> PropertyValueRange { return {Type::INVALID, std::nullopt, std::nullopt}; };
-
-  static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
-                      std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
-    return {Type::BOUNDED, std::move(lower), std::move(upper)};
-  }
-  static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
-
-  Type type_;
-  std::optional<utils::Bound<PropertyValue>> lower_;
-  std::optional<utils::Bound<PropertyValue>> upper_;
-
- private:
-  PropertyValueRange(Type type, std::optional<utils::Bound<PropertyValue>> lower,
-                     std::optional<utils::Bound<PropertyValue>> upper)
-      : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
-};
-
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
@@ -208,8 +182,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                   std::span<PropertyValue const> values) const override;
 
   uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                  std::span<std::optional<utils::Bound<PropertyValue>> const> lowers,
-                                  std::span<std::optional<utils::Bound<PropertyValue>> const> upper) const override;
+                                  std::span<PropertyValueRange const> bounds) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStatsNew();

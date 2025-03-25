@@ -116,10 +116,8 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(
-        LabelId /*label*/, std::span<PropertyId const> /*properties*/,
-        std::span<std::optional<utils::Bound<PropertyValue>> const> /*lowers*/,
-        std::span<std::optional<utils::Bound<PropertyValue>> const> /*uppers*/) const override {
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+                                    std::span<PropertyValueRange const> /*bounds*/) const override {
       return 10;
     }
 

@@ -605,10 +605,10 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, properties, values);
   }
 
+  // TODO: rename to ApproximateVertexCount?
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
-                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> lowers,
-                        std::span<std::optional<utils::Bound<storage::PropertyValue>> const> uppers) const {
-    return accessor_->ApproximateVertexCount(label, properties, lowers, uppers);
+                        std::span<storage::PropertyValueRange const> bounds) const {
+    return accessor_->ApproximateVertexCount(label, properties, bounds);
   }
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesPointCount(label, property);

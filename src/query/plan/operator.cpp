@@ -188,8 +188,11 @@ auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage:
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto property_value = storage::PropertyValue(value->value()->Accept(evaluator));
-      return utils::Bound{std::move(property_value), value->type()};
+      auto const typed_value = value->value()->Accept(evaluator);
+      if (!typed_value.IsPropertyValue()) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+      }
+      return utils::Bound{storage::PropertyValue(typed_value), value->type()};
     }
   };
 
@@ -224,8 +227,83 @@ auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage:
       return storage::PropertyValueRange::IsNotNull();
     }
   }
+}
 
-  return storage::PropertyValueRange::IsNotNull();
+// TODO: move
+std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
+    std::optional<ScanAllByLabelPropertyRange::Bound> bound) {
+  if (bound) {
+    auto property_value = ConstPropertyValue(bound->value());
+    if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
+  }
+  return std::nullopt;
+}
+
+std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression, Parameters const &parameters) {
+  if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
+    return literal->value_;
+  } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
+    return parameters.AtTokenPosition(param_lookup->token_position_);
+  }
+  return std::nullopt;
+}
+
+auto ExpressionRange::thing(Parameters const &parameters) const -> std::optional<storage::PropertyValueRange> {
+  struct UnknownAtPlanTime {};
+
+  using obpv = std::optional<utils::Bound<storage::PropertyValue>>;
+
+  auto const to_bounded_property_value = [&](auto &value) -> std::variant<UnknownAtPlanTime, obpv> {
+    if (value == std::nullopt) {
+      return std::nullopt;
+    } else {
+      auto property_value = ConstPropertyValue(value->value(), parameters);
+      if (property_value) {
+        return utils::Bound{std::move(*property_value), value->type()};
+      } else {
+        return UnknownAtPlanTime{};
+      }
+    }
+  };
+
+  switch (type_) {
+    case Type::EQUAL:
+    case Type::IN: {
+      auto bounded_property_value = to_bounded_property_value(lower_);
+      if (std::holds_alternative<UnknownAtPlanTime>(bounded_property_value)) return std::nullopt;
+      return storage::PropertyValueRange::Bounded(std::get<obpv>(bounded_property_value),
+                                                  std::get<obpv>(bounded_property_value));
+    }
+
+    case Type::REGEX_MATCH: {
+      auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
+      auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::RANGE: {
+      auto maybe_lower_bound = to_bounded_property_value(lower_);
+      if (std::holds_alternative<UnknownAtPlanTime>(maybe_lower_bound)) return std::nullopt;
+      auto maybe_upper_bound = to_bounded_property_value(upper_);
+      if (std::holds_alternative<UnknownAtPlanTime>(maybe_upper_bound)) return std::nullopt;
+
+      auto lower_bound = std::move(std::get<obpv>(maybe_lower_bound));
+      auto upper_bound = std::move(std::get<obpv>(maybe_upper_bound));
+
+      // When scanning a range, the bounds must be the same type
+      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+        return storage::PropertyValueRange::InValid();
+      }
+
+      // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
+      // bound will be limitted to the same type as the other bound
+      return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
+    }
+
+    case Type::IS_NOT_NULL: {
+      return storage::PropertyValueRange::IsNotNull();
+    }
+  }
 }
 
 ExpressionRange::ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
@@ -1240,17 +1318,8 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
 
-    auto prop_value_ranges = expression_ranges_ | ranges::views::transform([&](auto &&expression_range) {
-                               auto value = expression_range.evaluate(evaluator);
-                               return value;
-                             }) |
-                             ranges::to_vector;
-
-    // @TODO put back
-    // if (value.IsNull()) return std::nullopt;
-    // if (!value.IsPropertyValue()) {
-    //   throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    // }
+    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.evaluate(evaluator); };
+    auto prop_value_ranges = expression_ranges_ | ranges::views::transform(to_property_value_range) | ranges::to_vector;
 
     return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
   };

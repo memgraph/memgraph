@@ -88,11 +88,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kMinimumCost{0.001};  // everything has some runtime cost
     static constexpr double kScanAll{1.0};
     static constexpr double kScanAllByLabel{1.1};
-    static constexpr double kScanAllByLabelPropertyValue{1.1};
-    static constexpr double kScanAllByLabelPropertyRange{1.1};
-    static constexpr double kScanAllByLabelProperty{1.1};
-    static constexpr double kScanAllByPointDistance{1.1};
-    static constexpr double kScanAllByPointWithinbbox{1.1};
+    static constexpr double MakeScanAllByLabelProperties{1.1};
+    static constexpr double MakeScanAllByPointDistance{1.1};
+    static constexpr double MakeScanAllByPointWithinbbox{1.1};
     static constexpr double kScanAllByEdgeType{1.1};
     static constexpr double kScanAllByEdgeTypePropertyValue{1.1};
     static constexpr double kScanAllByEdgeTypePropertyRange{1.1};
@@ -159,87 +157,133 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
-    if (index_stats.has_value()) {
-      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
-    }
 
-    auto property_value = ConstPropertyValue(logical_op.expression_);
-    double factor = 1.0;
-    if (property_value)
-      // get the exact influence based on ScanAll(label, property, value)
-      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_},
-                                           std::array{property_value.value()});
-    else
-      // estimate the influence as ScanAll(label, property) * filtering
-      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_}) * CardParam::kFilter;
-
-    cardinality_ *= factor;
-
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
-      use_index_hints_ = true;
-    }
-
-    // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::kScanAllByLabelPropertyValue);
     return true;
+
+    // TODO: ScanAllByLabelProperties needs some of this logic
+
+    //    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    //    if (index_stats.has_value()) {
+    //      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    //    }
+    //
+    //    auto property_value = ConstPropertyValue(logical_op.expression_);
+    //    double factor = 1.0;
+    //    if (property_value)
+    //      // get the exact influence based on ScanAll(label, property, value)
+    //      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_},
+    //                                           std::array{property_value.value()});
+    //    else
+    //      // estimate the influence as ScanAll(label, property) * filtering
+    //      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_}) *
+    //      CardParam::kFilter;
+    //
+    //    cardinality_ *= factor;
+    //
+    //    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+    //      use_index_hints_ = true;
+    //    }
+    //
+    //    // ScanAll performs some work for every element that is produced
+    //    IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
+    //    return true;
   }
 
   bool PostVisit(ScanAllByLabelProperties &logical_op) override {
     // @TODO impl based on ScanAllByLabelPropertyValue above. Currently, has
     // no cost!
     return true;
-  }
-
-  bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
     if (index_stats.has_value()) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
 
     // this cardinality estimation depends on Bound expressions.
     // if they are literals we can evaluate cardinality properly
-    auto lower = BoundToPropertyValue(logical_op.lower_bound_);
-    auto upper = BoundToPropertyValue(logical_op.upper_bound_);
 
-    int64_t factor = 1;
-    if (upper || lower)
-      // if we have either Bound<PropertyValue>, use the value index
-      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_}, std::array{lower},
+    auto propertyvalue_ranges =
+        logical_op.expression_ranges_ |
+        ranges::views::transform([&](ExpressionRange const &er) { return er.thing(parameters); }) | ranges::to_vector;
+
+    auto factor = std::invoke([&] {
+      if (ranges::none_of(propertyvalue_ranges, [](auto &&pvr) { return pvr == std::nullopt; })) {
+        // TODO: complete
+
+        return db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, std::array{lower},
                                            std::array{upper});
-    else
-      // no values, but we still have the label
-      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_});
-
-    // if we failed to take either bound from the op into account, then apply
-    // the filtering constant to the factor
-    if ((logical_op.upper_bound_ && !upper) || (logical_op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
+      } else {
+        // no values, but we still have the label + properties
+        // use filtering constant to modify the factor
+        return db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_) * CardParam::kFilter;
+      }
+    });
 
     cardinality_ *= factor;
 
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+    // TODO: update hints
+    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
       use_index_hints_ = true;
     }
 
     // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::kScanAllByLabelPropertyRange);
+    IncrementCost(CostParam::MakeScanAllByLabelProperties);
     return true;
   }
 
-  bool PostVisit(ScanAllByLabelProperty &logical_op) override {
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
-    if (index_stats.has_value()) {
-      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
-    }
-
-    const auto factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_});
-    cardinality_ *= factor;
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
-      use_index_hints_ = true;
-    }
-
-    IncrementCost(CostParam::kScanAllByLabelProperty);
+  bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
     return true;
+    // TODO: ScanAllByLabelProperties needs some of this logic
+    //    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    //    if (index_stats.has_value()) {
+    //      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    //    }
+    //
+    //    // this cardinality estimation depends on Bound expressions.
+    //    // if they are literals we can evaluate cardinality properly
+    //    auto lower = BoundToPropertyValue(logical_op.lower_bound_);
+    //    auto upper = BoundToPropertyValue(logical_op.upper_bound_);
+    //
+    //    int64_t factor = 1;
+    //    if (upper || lower)
+    //      // if we have either Bound<PropertyValue>, use the value index
+    //      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_}, std::array{lower},
+    //                                           std::array{upper});
+    //    else
+    //      // no values, but we still have the label
+    //      factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_});
+    //
+    //    // if we failed to take either bound from the op into account, then apply
+    //    // the filtering constant to the factor
+    //    if ((logical_op.upper_bound_ && !upper) || (logical_op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
+    //
+    //    cardinality_ *= factor;
+    //
+    //    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+    //      use_index_hints_ = true;
+    //    }
+    //
+    //    // ScanAll performs some work for every element that is produced
+    //    IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
+    //    return true;
+  }
+
+  bool PostVisit(ScanAllByLabelProperty &logical_op) override {
+    return true;
+    // TODO: ScanAllByLabelProperties needs some of this logic
+
+    //    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    //    if (index_stats.has_value()) {
+    //      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    //    }
+    //
+    //    const auto factor = db_accessor_->VerticesCount(logical_op.label_, std::array{logical_op.property_});
+    //    cardinality_ *= factor;
+    //    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+    //      use_index_hints_ = true;
+    //    }
+    //
+    //    IncrementCost(CostParam::MakeScanAllByLabelProperty);
+    //    return true;
   }
 
   bool PostVisit(ScanAllByPointDistance &logical_op) override {
