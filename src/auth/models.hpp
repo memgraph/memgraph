@@ -495,21 +495,25 @@ class User final {
 
   void SetRole(const Role &role);
 
-  void SetRoleForDB(const utils::UUID &uuid, const Role &role);
-
   void ClearRole();
 
-  void ClearRoleForDB(const utils::UUID &uuid);
+  void SetRoleForDB(std::string_view uuid, const Role &role);
 
-  Permissions GetPermissions(std::optional<utils::UUID> db = std::nullopt) const;
+  void ClearRoleForDB(const std::string &uuid);
+
+  Permissions GetPermissions(std::optional<std::string_view> db = std::nullopt) const;
 
 #ifdef MG_ENTERPRISE
-  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
-  FineGrainedAccessPermissions GetUserFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetUserFineGrainedAccessEdgeTypePermissions() const;
-  FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db = std::nullopt) const;
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db = std::nullopt) const;
+  const FineGrainedAccessPermissions &GetUserFineGrainedAccessLabelPermissions() const;
+  const FineGrainedAccessPermissions &GetUserFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db = std::nullopt) const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db = std::nullopt) const;
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
 #endif
@@ -520,9 +524,9 @@ class User final {
 
   const Role *role() const;
 
+#ifdef MG_ENTERPRISE
   const auto &db_to_role() const { return db_to_role_; }
 
-#ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
 
@@ -537,9 +541,7 @@ class User final {
     return grants;
   }
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
-#endif
 
-#ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user) const {
     if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
     bool role_grants = false;
@@ -579,6 +581,13 @@ class User final {
   friend bool operator==(const User &first, const User &second);
 
  private:
+  struct string_hash {
+    using is_transparent = void;
+    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+  };
+
   std::string username_;
   std::optional<HashedPassword> password_hash_;
   Permissions permissions_;
@@ -586,7 +595,7 @@ class User final {
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases database_access_{};
-  std::unordered_map<utils::UUID, Role> db_to_role_;  // specific role per database
+  std::unordered_map<std::string, Role, string_hash, std::equal_to<>> db_to_role_;  // specific role per database
   std::optional<UserImpersonation> user_impersonation_{};
 #endif
   utils::UUID uuid_{};  // To uniquely identify a user

@@ -100,6 +100,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
         }
       }
 
+      // TODO
+
       privilege_results.push_back(PermissionForPrivilegeResult{user_permission_result.permission,
                                                                user_permission_result.permission_level,
                                                                memgraph::utils::Join(full_description, ", ")});
@@ -163,6 +165,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
     grants.insert(role_db.GetGrants().begin(), role_db.GetGrants().end());
     denies.insert(role_db.GetDenies().begin(), role_db.GetDenies().end());
   }
+
+  // TODO
 
   std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
   if (allows) {
@@ -532,6 +536,8 @@ std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::strin
     if (const auto *role = user->role(); role != nullptr) {
       return role->rolename();
     }
+
+    // TODO
     return std::nullopt;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -573,6 +579,7 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
       throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
                                                    current_role->rolename());
     }
+    // TODO
     user->SetRole(*role);
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {

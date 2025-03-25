@@ -50,6 +50,7 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   if (const auto *role_ptr = self.role(); role_ptr) {
     role.emplace(*role_ptr);
   }
+  // TODO
   memgraph::slk::Save(role, builder);
 }
 // Deserialize code for auth::User

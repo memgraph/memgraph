@@ -243,6 +243,8 @@ class Auth final {
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
 
+  std::optional<Role> GetMtRoles(const std::string &rolename_orig) const;
+
   std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
                                           const std::optional<std::string> &rolename) const {
     auto expect = [](bool condition, std::string &&msg) {

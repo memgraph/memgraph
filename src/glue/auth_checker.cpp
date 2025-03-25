@@ -152,7 +152,7 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
   if (!db_name.empty() && !user.HasAccess(db_name)) {
     return false;
   }
-  const auto user_permissions = user.GetPermissions(db_name);  // TODO Move to uuid
+  const auto user_permissions = user.GetPermissions(db_name);  // TODO Move to name
 #else
   const auto user_permissions = user.GetPermissions();
 #endif
