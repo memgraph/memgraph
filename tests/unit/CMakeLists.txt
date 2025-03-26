@@ -436,8 +436,10 @@ add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test rpc-timeouts
+if(MG_ENTERPRISE)
 add_unit_test(rpc_timeouts.cpp)
 target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue)
+endif()
 
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress.cpp)
