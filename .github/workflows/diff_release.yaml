@@ -479,7 +479,7 @@ jobs:
           test-memgraph query_modules_e2e
 
       - name: Copy memgraph logs
-        if: always()
+        if: failure()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -490,7 +490,7 @@ jobs:
       - name: Save test data
         continue-on-error: true
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: "Query modules tests(Release build)-${{ inputs.run_id }}"
           path: build/memgraph-logs-query-modules
