@@ -222,11 +222,15 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                  indices_metadata.label_property_stats.size());
     for (const auto &item : indices_metadata.label_property_stats) {
       const auto label_id = item.first;
-      const auto property_id = item.second.first;
+      const auto &property_ids = item.second.first;
       const auto &stats = item.second.second;
-      mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+      mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
+      auto const properties_str = utils::Join(property_ids | ranges::views::transform([&](PropertyId prop) {
+                                                return name_id_mapper->IdToName(prop.AsUint());
+                                              }),
+                                              ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
-                   name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
+                   name_id_mapper->IdToName(label_id.AsUint()), properties_str);
     }
     spdlog::info("Label+property indices statistics are recreated.");
   }

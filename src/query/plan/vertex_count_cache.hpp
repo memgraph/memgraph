@@ -178,11 +178,6 @@ class VertexCountCache {
   }
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                const storage::PropertyId &property) const {
-    return db_->GetIndexStats(label, property);
-  }
-
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
                                                                 std::span<storage::PropertyId const> properties) const {
     return db_->GetIndexStats(label, properties);
   }

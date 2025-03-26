@@ -130,9 +130,9 @@ struct MetadataDelta {
   MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
       : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property,
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
                 LabelPropertyIndexStats const &stats)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, property, stats} {}
+      : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
   MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
       : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
@@ -284,7 +284,7 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      PropertyId property;
+      std::vector<PropertyId> properties;
       LabelPropertyIndexStats stats;
     } label_property_stats;
 

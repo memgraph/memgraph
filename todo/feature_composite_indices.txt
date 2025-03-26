@@ -99,3 +99,11 @@ basis:
 
 Check, hints work for composite
 Check, hints work for point type (mutrally excluisive from label+properties hint)
+
+
+double check needed
+Stats -> durability + replication
+metadelta deltas -> do they exits for everything correctly (no more singlar -> plural properties)
+[0] -> check this hack is not used anywhere around property index
+make apply cycle functional -> the hardcoded domain type
+refactor Abort processor (index cleanup)

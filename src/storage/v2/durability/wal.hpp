@@ -183,9 +183,13 @@ struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
 struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
 struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::string>;
+  using ctr_types =
+      std::tuple<std::string,
+                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
+                                            [](std::string v) { return std::vector{v}; }>,
+                 std::string>;
   std::string label;
-  std::string property;
+  std::vector<std::string> properties;
   std::string json_stats;
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
@@ -369,8 +373,8 @@ void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, L
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
                           TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
-void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
-                              LabelPropertyIndexStats const &stats);
+void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);

@@ -25,41 +25,6 @@
 
 namespace memgraph::storage {
 
-struct IndexOrderedPropertyValues {
-  IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
-
-  friend auto operator<=>(IndexOrderedPropertyValues const &, IndexOrderedPropertyValues const &) = default;
-
-  std::vector<PropertyValue> values_;
-};
-
-struct PropertiesPermutationHelper {
-  using permutation_cycles = std::vector<std::vector<std::size_t>>;
-  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
-
-  void apply_permutation(std::span<PropertyValue> values) const;
-
-  auto extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
-
-  auto matches_value(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
-      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
-
-  /// returned match results are in sorted properties ordering
-  auto matches_values(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
-      -> std::vector<bool>;
-
-  auto with_property_id(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
-             return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
-           });
-  }
-
- private:
-  std::vector<PropertyId> sorted_properties_;
-  std::vector<std::size_t> position_lookup_;
-  permutation_cycles cycles_;
-};
-
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
@@ -114,14 +79,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp);
-  void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp);
-
   IndexStats Analysis() const;
 
-  using PropertiesIds = std::vector<PropertyId>;
+  void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
   class Iterable {
    public:
@@ -184,20 +144,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
                                   std::span<PropertyValueRange const> bounds) const override;
 
-  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStatsNew();
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStats();
 
-  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStats(const storage::LabelId &label);
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteIndexStatsNew(const storage::LabelId &label);
-
-  void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
-                     const storage::LabelPropertyIndexStats &stats);
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteIndexStats(const storage::LabelId &label);
 
   void SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties,
                      storage::LabelPropertyIndexStats const &stats);
-
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-      const std::pair<storage::LabelId, storage::PropertyId> &key) const;
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const;
@@ -240,15 +192,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> new_stats_;
-
-  //*** OLD to remove
-  std::map<std::tuple<LabelId, PropertyId>, utils::SkipList<Entry>> index_;  // TODO: remove
-  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>>
-      indices_by_property_;  // TODO: remove
-  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
-                      utils::ReadPrioritizedRWLock>
-      stats_;  // TODO: remove
-  //***
 };
 
 }  // namespace memgraph::storage

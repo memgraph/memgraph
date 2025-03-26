@@ -74,11 +74,96 @@ struct LabelPropertiesIndicesInfo {
   std::vector<PropertyId> properties_;
 };
 
+using PropertiesIds = std::vector<PropertyId>;
+
+struct IndexOrderedPropertyValues {
+  IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
+
+  friend auto operator<=>(IndexOrderedPropertyValues const &, IndexOrderedPropertyValues const &) = default;
+
+  std::vector<PropertyValue> values_;
+};
+
+struct PropertiesPermutationHelper {
+  using permutation_cycles = std::vector<std::vector<std::size_t>>;
+  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
+
+  void apply_permutation(std::span<PropertyValue> values) const;
+
+  auto extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
+
+  auto matches_value(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
+      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
+
+  /// returned match results are in sorted properties ordering
+  auto matches_values(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
+
+  auto with_property_id(IndexOrderedPropertyValues const &values) const {
+    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
+             return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
+           });
+  }
+
+ private:
+  std::vector<PropertyId> sorted_properties_;
+  std::vector<std::size_t> position_lookup_;
+  permutation_cycles cycles_;
+};
+
 class LabelPropertyIndex {
  public:
+  // Becasue of composite index we need to track more info
+  struct IndexInfo {
+    PropertiesIds const *properties_;
+    PropertiesPermutationHelper const *helper_;
+  };
+  using AbortableInfo =
+      std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
   struct IndexStats {
-    std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
+    std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
+
+    void collect_on_label_removal(LabelId label, Vertex *vertex) {
+      const auto &it = l2p.find(label);
+      if (it != l2p.end()) {
+        for (const auto &[property, index_info] : it->second) {
+          for (auto const &[properties, helper] : index_info) {
+            auto current_values = helper->extract(vertex->properties);
+            helper->apply_permutation(current_values);
+            // Only if current_values has at least one non-null value do we need to cleanup its index entry
+            if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
+              cleanup_collection[label][properties].emplace_back(IndexOrderedPropertyValues{std::move(current_values)},
+                                                                 vertex);
+            }
+          }
+        }
+      }
+    }
+
+    void collect_on_property_change(PropertyId propId, Vertex *vertex) {
+      const auto &it = p2l.find(propId);
+      if (it != p2l.end()) {
+        for (auto const &[label, index_info] : it->second) {
+          for (auto const &[properties, helper] : index_info) {
+            auto current_values = helper->extract(vertex->properties);
+            helper->apply_permutation(current_values);
+            // Only if current_values has at least one non-null value do we need to cleanup its index entry
+            if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
+              cleanup_collection[label][properties].emplace_back(IndexOrderedPropertyValues{std::move(current_values)},
+                                                                 vertex);
+            }
+          }
+        }
+      }
+    }
+
+    // collection
+    AbortableInfo cleanup_collection;
+
+    void process(LabelPropertyIndex &index, uint64_t start_timestamp) {
+      index.AbortEntries(cleanup_collection, start_timestamp);
+    }
   };
 
   LabelPropertyIndex() = default;
@@ -96,6 +181,8 @@ class LabelPropertyIndex {
 
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                    const Transaction &tx) = 0;
+
+  virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 
   virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
 

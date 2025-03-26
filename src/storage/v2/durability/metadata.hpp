@@ -45,7 +45,7 @@ struct RecoveredIndicesAndConstraints {
     std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_properties;
     std::vector<std::pair<LabelId, PropertyId>> point_label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
-    std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
+    std::vector<std::pair<LabelId, std::pair<std::vector<PropertyId>, LabelPropertyIndexStats>>> label_property_stats;
     std::vector<EdgeTypeId> edge;
     std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
     std::vector<PropertyId> edge_property;

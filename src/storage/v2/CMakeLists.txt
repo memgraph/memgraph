@@ -85,6 +85,9 @@ target_sources(mg-storage-v2
         id_types.hpp
         property_value_utils.hpp
         property_constants.hpp
+        storage.hpp
+        inmemory/storage.hpp
+        disk/storage.hpp
 )
 
 find_package(gflags REQUIRED)

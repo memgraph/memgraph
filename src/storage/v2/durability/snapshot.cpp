@@ -1757,10 +1757,11 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2097,10 +2098,11 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2520,10 +2522,11 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2960,10 +2963,11 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -3453,10 +3457,11 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -3988,8 +3993,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       for (uint64_t i = 0; i < *size; ++i) {
         const auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label property index statistics!");
-        const auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Couldn't read property for label property index statistics!");
+        auto n_props = snapshot.ReadUint();
+        if (!n_props)
+          throw RecoveryFailure("Couldn't read the number of properties for label property index statistics!");
+        std::vector<PropertyId> properties;
+        properties.reserve(*n_props);
+        for (auto i = 0; i != *n_props; ++i) {
+          const auto property = snapshot.ReadUint();
+          if (!property) throw RecoveryFailure("Couldn't read property for label property index statistics!");
+          const auto property_id = get_property_from_id(*property);
+          properties.emplace_back(property_id);
+        }
         const auto count = snapshot.ReadUint();
         if (!count) throw RecoveryFailure("Couldn't read count for label property index statistics!!");
         const auto distinct_values_count = snapshot.ReadUint();
@@ -4003,9 +4017,9 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+            label_id,
+            std::make_pair(std::move(properties), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -4714,13 +4728,14 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write label+properties indices.
     {
-      // TODO(composite_index): update once storage changes work
       auto label_property = storage->indices_.label_property_index_->ListIndices();
       snapshot.WriteUint(label_property.size());
       for (const auto &[label, properties] : label_property) {
         write_mapping(label);
-        // TODO(composite_index): update once we have multiple properties
-        write_mapping(properties[0]);
+        snapshot.WriteUint(properties.size());
+        for (auto prop : properties) {
+          write_mapping(prop);
+        }
       }
       if (snapshot_aborted()) {
         return false;
@@ -4738,8 +4753,12 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : label) {
         auto stats = inmem_index->GetIndexStats(item);
         if (stats) {
+          // TODO: should we use write_mapping for the label + properties here?
           snapshot.WriteUint(item.first.AsUint());
-          snapshot.WriteUint(item.second[0].AsUint());  // @TODO update for composite index props
+          snapshot.WriteUint(item.second.size());
+          for (auto const &prop : item.second) {
+            snapshot.WriteUint(prop.AsUint());
+          }
           snapshot.WriteUint(stats->count);
           snapshot.WriteUint(stats->distinct_values_count);
           snapshot.WriteDouble(stats->statistic);

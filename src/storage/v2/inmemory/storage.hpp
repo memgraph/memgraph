@@ -276,13 +276,6 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->GetIndexStats(label);
     }
 
-    // TODO(composite_index) Remove methods taking a single property
-    std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                  const storage::PropertyId &property) const override {
-      return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
-          ->GetIndexStats(std::make_pair(label, property));
-    }
-
     auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
         -> std::optional<storage::LabelPropertyIndexStats> override {
       return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
@@ -291,18 +284,11 @@ class InMemoryStorage final : public Storage {
 
     void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
 
-    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                       const LabelPropertyIndexStats &stats) override;
-
     void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
                        const LabelPropertyIndexStats &stats) override;
 
-    template <typename TResult, typename TIndex>
-    TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {
-      return index->DeleteIndexStats(label);
-    }
-
-    std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(const storage::LabelId &label) override;
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyIndexStats(
+        const storage::LabelId &label) override;
 
     bool DeleteLabelIndexStats(const storage::LabelId &label) override;
 

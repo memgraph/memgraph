@@ -1002,13 +1002,18 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                        "The label property index doesn't exist!");
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
+        auto const name_to_propid = [&](std::string_view prop_str) {
+          return PropertyId::FromUint(name_id_mapper->NameToId(prop_str));
+        };
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        auto properties = data.properties | ranges::views::transform(name_to_propid) | ranges::to_vector;
+
         LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
           throw RecoveryFailure("Failed to read statistics!");
         }
-        indices_constraints->indices.label_property_stats.emplace_back(label_id, std::make_pair(property_id, stats));
+        indices_constraints->indices.label_property_stats.emplace_back(label_id,
+                                                                       std::make_pair(std::move(properties), stats));
       },
       [&](WalLabelPropertyIndexStatsClear const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1313,10 +1318,13 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
   encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
 }
 
-void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
-                              LabelPropertyIndexStats const &stats) {
+void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
-  encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  encoder.WriteUint(properties.size());
+  for (auto const &prop : properties) {
+    encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  }
   encoder.WriteString(ToJson(stats));
 }
 

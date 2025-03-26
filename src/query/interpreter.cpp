@@ -2925,6 +2925,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   return results;
 }
 
+// TODO: these TypedValue should be using the query allocator
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -2968,13 +2969,14 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   };
 
   auto populate_label_property_results = [execution_db_accessor](auto index_info) {
-    std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_property_results;
+    std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> label_property_results;
     label_property_results.reserve(index_info.size());
     std::for_each(index_info.begin(), index_info.end(),
                   [execution_db_accessor,
                    &label_property_results](const std::pair<storage::LabelId, storage::PropertyId> &label_property) {
-                    const auto &res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
-                    label_property_results.insert(label_property_results.end(), res.begin(), res.end());
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
+                    label_property_results.insert(label_property_results.end(), std::move_iterator{res.begin()},
+                                                  std::move_iterator{res.end()});
                   });
 
     return label_property_results;
@@ -2999,12 +3001,16 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
         return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
       });
 
-  std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_property_index) {
-                   return std::vector<TypedValue>{
-                       TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-                       TypedValue(execution_db_accessor->PropertyToName(label_property_index.second))};
-                 });
+  std::transform(
+      label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_property_index) {
+        auto properties = label_property_index.second | ranges::views::transform([&](storage::PropertyId prop) {
+                            return TypedValue{execution_db_accessor->PropertyToName(prop)};
+                          }) |
+                          ranges::to_vector;
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
+                                       TypedValue(std::move(properties))};
+      });
 
   return results;
 }
