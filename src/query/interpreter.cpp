@@ -2902,25 +2902,21 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     results.push_back(std::move(result));
   });
 
-  std::for_each(label_property_stats.begin(), label_property_stats.end(),
-                [execution_db_accessor, &results](const auto &stat_entry) {
-                  std::vector<TypedValue> result;
-                  result.reserve(kComputeStatisticsNumResults);
-
-                  result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-                  result.emplace_back(stat_entry.first.second |
-                                      rv::transform([execution_db_accessor](auto const &property) {
-                                        return execution_db_accessor->PropertyToName(property);
-                                      }) |
-                                      ranges::to_vector);
-
-                  result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
-                  result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
-                  result.emplace_back(stat_entry.second.avg_group_size);
-                  result.emplace_back(stat_entry.second.statistic);
-                  result.emplace_back(stat_entry.second.avg_degree);
-                  results.push_back(std::move(result));
-                });
+  auto prop_to_name = [execution_db_accessor](auto const &property) {
+    return execution_db_accessor->PropertyToName(property);
+  };
+  std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
+    std::vector<TypedValue> result;
+    result.reserve(kComputeStatisticsNumResults);
+    result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
+    result.emplace_back(stat_entry.first.second | rv::transform(prop_to_name) | ranges::to_vector);
+    result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
+    result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
+    result.emplace_back(stat_entry.second.avg_group_size);
+    result.emplace_back(stat_entry.second.statistic);
+    result.emplace_back(stat_entry.second.avg_degree);
+    results.push_back(std::move(result));
+  });
 
   return results;
 }
@@ -3001,15 +2997,14 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
         return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
       });
 
+  auto prop_to_name = [&](storage::PropertyId prop) { return TypedValue{execution_db_accessor->PropertyToName(prop)}; };
   std::transform(
       label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_property_index) {
-        auto properties = label_property_index.second | ranges::views::transform([&](storage::PropertyId prop) {
-                            return TypedValue{execution_db_accessor->PropertyToName(prop)};
-                          }) |
-                          ranges::to_vector;
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-                                       TypedValue(std::move(properties))};
+      [&](const auto &label_property_index) {
+        return std::vector<TypedValue>{
+            TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
+            TypedValue(label_property_index.second | ranges::views::transform(prop_to_name) | ranges::to_vector),
+        };
       });
 
   return results;
@@ -3107,10 +3102,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   for (const auto &prop : index_query->properties_) {
     properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
-  }
-
-  if (properties.size() > 1 && !flags::AreExperimentsEnabled(flags::Experiments::COMPOSITE_INDEX)) {
-    throw utils::NotYetImplemented("composite indices");
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
