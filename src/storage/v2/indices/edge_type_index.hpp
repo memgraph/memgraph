@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 
+#include <map>
 #include <vector>
 
 namespace memgraph::storage {
@@ -47,6 +48,28 @@ class EdgeTypeIndex {
                                         EdgeRef edge_ref, EdgeTypeId edge_type, const Transaction &tx) = 0;
 
   virtual void DropGraphClearIndices() = 0;
+
+  using AbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
+
+  struct AbortProcessor {
+    explicit AbortProcessor(std::vector<EdgeTypeId> edge_type) : edge_type_(std::move(edge_type)) {}
+
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge) {
+      if (std::binary_search(edge_type_.begin(), edge_type_.end(), edge_type)) {
+        cleanup_collection_[edge_type].emplace_back(from_vertex, to_vertex, edge);
+      }
+    }
+
+    void Process(EdgeTypeIndex &index, uint64_t start_timestamp) {
+      index.AbortEntries(cleanup_collection_, start_timestamp);
+    }
+
+   private:
+    std::vector<EdgeTypeId> edge_type_;
+    AbortableInfo cleanup_collection_;
+  };
+
+  virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 };
 
 }  // namespace memgraph::storage
