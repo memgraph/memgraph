@@ -90,15 +90,14 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
   }
 }
 
-void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices,
-                                      uint64_t exact_start_timestamp) {
-  auto const it = index_.find(labelId);
-  if (it == index_.end()) return;
-
-  auto &label_storage = it->second;
-  auto vertices_acc = label_storage.access();
-  for (auto *vertex : vertices) {
-    vertices_acc.remove(Entry{vertex, exact_start_timestamp});
+void InMemoryLabelIndex::AbortEntries(LabelIndex::AbortableInfo const &info, uint64_t exact_start_timestamp) {
+  for (auto const &[label, to_remove] : info) {
+    auto it = index_.find(label);
+    DMG_ASSERT(it != index_.end());
+    auto acc = it->second.access();
+    for (auto vertex : to_remove) {
+      acc.remove(Entry{vertex, exact_start_timestamp});
+    }
   }
 }
 
@@ -212,13 +211,13 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   return false;
 }
 
-std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
+LabelIndex::AbortProcessor InMemoryLabelIndex::GetAbortProcessor() const {
   std::vector<LabelId> res;
   res.reserve(index_.size());
   for (const auto &[label, _] : index_) {
     res.emplace_back(label);
   }
-  return res;
+  return LabelIndex::AbortProcessor{res};
 }
 
 void InMemoryLabelIndex::DropGraphClearIndices() {

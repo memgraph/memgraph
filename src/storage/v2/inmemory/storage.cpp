@@ -979,7 +979,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    auto index_abort_processor = storage_->indices_.Analysis();  // TODO: rename? Abort related
+    auto index_abort_processor = storage_->indices_.GetAbortProcessor();
 
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -987,7 +987,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<LabelId, std::vector<Vertex *>> label_cleanup;
     std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
     std::map<std::pair<EdgeTypeId, PropertyId>,
              std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
@@ -1094,17 +1093,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 std::swap(*it, *vertex->labels.rbegin());
                 vertex->labels.pop_back();
 
-                // For label index
-                //  check if there is a label index for the label and add entry if so
-                if (std::binary_search(index_abort_processor.label.begin(), index_abort_processor.label.end(),
-                                       current->label.value)) {
-                  label_cleanup[current->label.value].emplace_back(vertex);
-                }
-
-                // For label+properties index
-                //  check if we care about the label; this will return all the propertyIds we care about and then get
-                //  the current property values for each relevant index
-                index_abort_processor.collect_on_label_removal(current->label.value, vertex);
+                index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
                 // we have to remove the vertex from the vector index if this label is indexed and vertex has
                 // needed property
@@ -1145,7 +1134,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // For property label index
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
-                index_abort_processor.collect_on_property_change(current->property.key, vertex);
+                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
 
                 const auto &vector_index_labels = index_abort_processor.vector.p2l.find(current->property.key);
                 const auto has_vector_index = vector_index_labels != index_abort_processor.vector.p2l.end();
@@ -1300,12 +1289,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       });
     }
 
-    // INDICES
-    for (auto const &[label, vertices] : label_cleanup) {
-      storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
-    }
-
-    index_abort_processor.process(storage_->indices_, transaction_.start_timestamp);
+    // Cleanup INDICES
+    index_abort_processor.Process(storage_->indices_, transaction_.start_timestamp);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();

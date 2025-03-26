@@ -26,10 +26,6 @@
 
 namespace memgraph::storage {
 
-void Indices::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const {
-  static_cast<InMemoryLabelIndex *>(label_index_.get())->AbortEntries(labelId, vertices, exact_start_timestamp);
-}
-
 void Indices::AbortEntries(EdgeTypeId edge_type,
                            std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
                            uint64_t exact_start_timestamp) const {
@@ -123,8 +119,8 @@ Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(c
   });
 }
 
-Indices::IndexStats Indices::Analysis() const {
-  return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
+Indices::AbortProcessor Indices::GetAbortProcessor() const {
+  return {static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
           static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis(),
           static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->Analysis(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
@@ -132,4 +128,17 @@ Indices::IndexStats Indices::Analysis() const {
           vector_index_.Analysis()};
 }
 
+void Indices::AbortProcessor::CollectOnLabelRemoval(LabelId labelId, Vertex *vertex) {
+  label.collect_on_label_removal(labelId, vertex);
+  property_label.collect_on_label_removal(labelId, vertex);
+}
+
+void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
+  property_label.collect_on_property_change(propId, vertex);
+}
+
+void Indices::AbortProcessor::Process(Indices &indices, uint64_t start_timestamp) {
+  label.process(*indices.label_index_, start_timestamp);
+  property_label.process(*indices.label_property_index_, start_timestamp);
+}
 }  // namespace memgraph::storage

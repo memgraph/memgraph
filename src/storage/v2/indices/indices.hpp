@@ -48,7 +48,6 @@ struct Indices {
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices
-  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const;
   void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
                     uint64_t exact_start_timestamp) const;
   void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
@@ -57,29 +56,21 @@ struct Indices {
 
   void DropGraphClearIndices();
 
-  struct IndexStats {
-    std::vector<LabelId> label;
-    LabelPropertyIndex::IndexStats property_label;
+  struct AbortProcessor {
+    LabelIndex::AbortProcessor label;
+    LabelPropertyIndex::AbortProcessor property_label;
     std::vector<EdgeTypeId> edge_type;
     EdgeTypePropertyIndex::IndexStats property_edge_type;
     EdgePropertyIndex::IndexStats property_edge;
-    // TODO: point?
+    // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
     VectorIndex::IndexStats vector;
 
-    void collect_on_label_removal(LabelId labelId, Vertex *vertex) {
-      property_label.collect_on_label_removal(labelId, vertex);
-    }
-
-    void collect_on_property_change(PropertyId propId, Vertex *vertex) {
-      property_label.collect_on_property_change(propId, vertex);
-    }
-
-    void process(Indices &indices, uint64_t start_timestamp) {
-      property_label.process(*indices.label_property_index_, start_timestamp);
-    }
+    void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+    void Process(Indices &indices, uint64_t start_timestamp);
   };
-  IndexStats Analysis() const;
+  AbortProcessor GetAbortProcessor() const;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`
