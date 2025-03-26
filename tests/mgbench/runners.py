@@ -377,7 +377,11 @@ class PythonClient(BaseClient):
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._database_port = 6379
+        self._database_port = (
+            benchmark_context.vendor_args["database-port"]
+            if "database-port" in benchmark_context.vendor_args.keys()
+            else 7687
+        )
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags("python3", self._client_binary, **kwargs)

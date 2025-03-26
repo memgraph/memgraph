@@ -37,7 +37,7 @@ class FalkorDBClient(PythonClient):
         return result.run_time_ms
 
 
-class Neo4jClient:
+class Neo4jClient(PythonClient):
     def __init__(self, host, port, user="", password=""):
         self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
 
@@ -348,14 +348,15 @@ def main():
     summary = {
         "count": count,
         "duration": final_duration,
-        "time_limit": args.time_dependent_execution,
-        "queries_executed": total_iterations,
-        "throughput": throughput,
-        "raw_throughput": raw_throughput,
         "latency_stats": latency_stats,
-        "retries": final_retries,
+        "metadata": {},
         "num_workers": args.num_workers,
+        "queries_executed": total_iterations,
+        "raw_throughput": raw_throughput,
         "results": results,
+        "retries": final_retries,
+        "throughput": throughput,
+        "time_limit": args.time_dependent_execution,
     }
 
     if args.output:
