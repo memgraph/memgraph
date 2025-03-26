@@ -64,9 +64,10 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Delete);
   PRE_VISIT(ScanAll);
   PRE_VISIT(ScanAllByLabel);
-  PRE_VISIT(ScanAllByLabelPropertyValue);
-  PRE_VISIT(ScanAllByLabelPropertyRange);
-  PRE_VISIT(ScanAllByLabelProperty);
+  // PRE_VISIT(ScanAllByLabelPropertyValue);
+  // PRE_VISIT(ScanAllByLabelPropertyRange);
+  // PRE_VISIT(ScanAllByLabelProperty);
+  PRE_VISIT(ScanAllByLabelProperties);
   PRE_VISIT(ScanAllByEdgeType);
   PRE_VISIT(ScanAllByEdgeTypeProperty);
   PRE_VISIT(ScanAllByEdgeTypePropertyValue);
@@ -409,71 +410,109 @@ class ExpectOptional : public OpChecker<Optional> {
   const std::list<BaseOpChecker *> &optional_;
 };
 
-class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
- public:
-  ExpectScanAllByLabelPropertyValue(memgraph::storage::LabelId label,
-                                    const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                    memgraph::query::Expression *expression)
-      : label_(label), property_(prop_pair.second), expression_(expression) {}
+// class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
+//  public:
+//   ExpectScanAllByLabelPropertyValue(memgraph::storage::LabelId label,
+//                                     const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+//                                     memgraph::query::Expression *expression)
+//       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
-  void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+//   void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
+//     EXPECT_EQ(scan_all.label_, label_);
+//     EXPECT_EQ(scan_all.property_, property_);
+//     // TODO: Proper expression equality
+//     EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+//   }
+
+//  private:
+//   memgraph::storage::LabelId label_;
+//   memgraph::storage::PropertyId property_;
+//   memgraph::query::Expression *expression_;
+// };
+
+// class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
+//  public:
+//   ExpectScanAllByLabelPropertyRange(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
+//                                     std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
+//                                     std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
+//       : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
+
+//   void ExpectOp(ScanAllByLabelPropertyRange &scan_all, const SymbolTable &) override {
+//     EXPECT_EQ(scan_all.label_, label_);
+//     EXPECT_EQ(scan_all.property_, property_);
+//     if (lower_bound_) {
+//       ASSERT_TRUE(scan_all.lower_bound_);
+//       // TODO: Proper expression equality
+//       EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
+//       EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
+//     }
+//     if (upper_bound_) {
+//       ASSERT_TRUE(scan_all.upper_bound_);
+//       // TODO: Proper expression equality
+//       EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
+//       EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
+//     }
+//   }
+
+//  private:
+//   memgraph::storage::LabelId label_;
+//   memgraph::storage::PropertyId property_;
+//   std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
+//   std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
+// };
+
+// class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
+//  public:
+//   ExpectScanAllByLabelProperty(memgraph::storage::LabelId label,
+//                                const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+//       : label_(label), property_(prop_pair.second) {}
+
+//   void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
+//     EXPECT_EQ(scan_all.label_, label_);
+//     EXPECT_EQ(scan_all.property_, property_);
+//   }
+
+//  private:
+//   memgraph::storage::LabelId label_;
+//   memgraph::storage::PropertyId property_;
+// };
+
+class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties> {
+ public:
+  ExpectScanAllByLabelProperties(memgraph::storage::LabelId label,
+                                 std::vector<memgraph::storage::PropertyId> properties,
+                                 std::vector<ExpressionRange> expression_ranges)
+      : label_(label), properties_(std::move(properties)), expression_ranges_(std::move(expression_ranges)) {}
+
+  void ExpectOp(ScanAllByLabelProperties &scan, const SymbolTable &) override {
+    EXPECT_EQ(scan.label_, label_);
+    EXPECT_EQ(scan.properties_, properties_);
+    ASSERT_EQ(scan.expression_ranges_.size(), expression_ranges_.size());
+
+    auto const compare_bound_expression = [](std::optional<utils::Bound<Expression *>> const &lhs,
+                                             std::optional<utils::Bound<Expression *>> const &rhs) {
+      if (!lhs && !rhs) return true;
+      if (!lhs || !rhs) return false;
+      if (lhs->type() != rhs->type()) return false;
+      // In keeping with the other tests, we are comparing expressions by
+      // hash code of their types, rather than performing a full expression
+      // comparison.
+      if (typeid(lhs->value()).hash_code() != typeid(rhs->value()).hash_code()) return false;
+      return true;
+    };
+
+    auto const compare_expression_range = [&](auto &&lhs, auto &&rhs) {
+      if (lhs.type_ != rhs.type_) return false;
+      return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
+    };
+
+    EXPECT_TRUE(ranges::equal(scan.expression_ranges_, expression_ranges_, compare_expression_range));
   }
 
  private:
   memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
-};
-
-class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
- public:
-  ExpectScanAllByLabelPropertyRange(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                    std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
-                                    std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
-      : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
-
-  void ExpectOp(ScanAllByLabelPropertyRange &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-    if (lower_bound_) {
-      ASSERT_TRUE(scan_all.lower_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
-    }
-    if (upper_bound_) {
-      ASSERT_TRUE(scan_all.upper_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
-    }
-  }
-
- private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
-  std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
-  std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
-};
-
-class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
- public:
-  ExpectScanAllByLabelProperty(memgraph::storage::LabelId label,
-                               const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
-      : label_(label), property_(prop_pair.second) {}
-
-  void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-  }
-
- private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
+  std::vector<memgraph::storage::PropertyId> properties_;
+  std::vector<ExpressionRange> expression_ranges_;
 };
 
 class ExpectScanAllByEdgeTypePropertyValue : public OpChecker<ScanAllByEdgeTypePropertyValue> {
