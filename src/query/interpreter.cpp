@@ -980,13 +980,23 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter] {
+      callback.fn = [auth, username, role_databases = std::move(role_databases), db_handler,
+                     interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
-
-        auth->ClearRole(username, &*interpreter->system_transaction_);
-        return std::vector<std::vector<TypedValue>>();
+        try {
+          std::vector<memgraph::dbms::DatabaseAccess>
+              dbs;  // Hold pointer to database to protect it until query is done
+          for (const auto &db_name : role_databases) {
+            dbs.emplace_back(
+                db_handler->Get(db_name));  // Will throw if databases doesn't exist and protect it during pull
+          }
+          auth->ClearRole(username, role_databases, &*interpreter->system_transaction_);
+          return std::vector<std::vector<TypedValue>>();
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:

@@ -598,15 +598,25 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
   }
 }
 
-void AuthQueryHandler::ClearRole(const std::string &username, system::Transaction *system_tx) {
+void AuthQueryHandler::ClearRole(const std::string &username, const std::vector<std::string> &role_databases,
+                                 system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    // TODO
-    user->ClearRole();
+
+    bool all = role_databases.empty() || role_databases[0] == "*";
+    if (all) {
+      // Default role
+      user->ClearRole();
+    } else {
+      // Database specific role
+      for (const auto &db_name : role_databases) {
+        user->ClearRoleForDB(db_name);
+      }
+    }
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());

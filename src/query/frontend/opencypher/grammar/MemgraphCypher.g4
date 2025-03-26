@@ -408,9 +408,9 @@ showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName ( ON db=wildcardListOfSymbolicNames );
+setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName ( ON db=wildcardListOfSymbolicNames ) ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ROLE FOR user=userOrRoleName ( ON db=wildcardListOfSymbolicNames ) ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
