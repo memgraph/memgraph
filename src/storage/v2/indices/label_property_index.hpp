@@ -120,7 +120,7 @@ class LabelPropertyIndex {
   };
   using AbortableInfo =
       std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
-  struct IndexStats {
+  struct AbortProcessor {
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
 
