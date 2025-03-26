@@ -476,14 +476,14 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        if benchmark_context.vendor_name not in cls.subclasses:
-            raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
-
         subclass_name = (
             benchmark_context.vendor_name
             if benchmark_context.installation_type == BenchmarkInstallationType.NATIVE
             else f"{benchmark_context.vendor_name}{benchmark_context.installation_type}"
         )
+
+        if subclass_name not in cls.subclasses:
+            raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
         return cls.subclasses[subclass_name](
             benchmark_context=benchmark_context,
@@ -1241,7 +1241,11 @@ class FalkorDBDocker(BaseRunner):
                 DOCKER_NETWORK_NAME,
                 "--name",
                 self._container_name,
+                "-e",
+                "FALKOR_LOG_LEVEL=debug",
                 "-it",
+                "-v",
+                "falkordb_data:/data",
                 "-p",
                 f"{self._falkordb_port}:{self._falkordb_port}",
                 "-p",
@@ -1264,7 +1268,8 @@ class FalkorDBDocker(BaseRunner):
         log.init("Starting FalkorDB for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        _wait_for_server_socket(self._bolt_port, delay=0.5)
+        ip_address = _get_docker_container_ip(self._container_name)
+        _wait_for_server_socket(self._falkordb_port, delay=0.5)
         log.log("Database started.")
 
     def stop_db_init(self, message):
