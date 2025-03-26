@@ -23,7 +23,7 @@
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
-#include "utils/pmr/map.hpp"
+#include "utils/pmr/flat_map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
@@ -107,12 +107,13 @@ class TypedValue {
   // std::map with incomplete type, but this is still murky territory. Note that
   // since C++17, std::vector is explicitly said to support incomplete types.
 
-  using TString = utils::pmr::string;
-  using TVector = utils::pmr::vector<TypedValue>;
-  using TMap = utils::pmr::map<utils::pmr::string, TypedValue>;
-
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<TypedValue>;
+  using alloc_trait = std::allocator_traits<allocator_type>;
+
+  using TString = utils::pmr::string;
+  using TVector = utils::pmr::vector<TypedValue>;
+  using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
@@ -280,7 +281,7 @@ class TypedValue {
                       utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
     std::construct_at(&map_v, memory_);
-    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
+    for (const auto &kv : value) map_v.emplace(TString(kv.first, memory_), kv.second);
   }
 
   /**
@@ -298,7 +299,7 @@ class TypedValue {
 
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    std::construct_at(&map_v, value, memory);
+    std::construct_at(&map_v, value, memory_);
   }
 
   explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())

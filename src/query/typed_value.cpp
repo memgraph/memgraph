@@ -35,7 +35,7 @@ TypedValue::TypedValue(TMap &&other) : TypedValue(std::move(other), other.get_al
 TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
     : memory_(memory), type_(Type::Map) {
   std::construct_at(&map_v, memory_);
-  for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
+  for (auto &kv : other) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
 }
 
 TypedValue::TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
@@ -93,7 +93,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       std::construct_at(&map_v, memory_);
-      for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
+      for (const auto &kv : map) map_v.emplace(TString(kv.first, memory_), kv.second);
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -187,7 +187,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
-      for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
+      for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -643,7 +643,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TMap &, Map, map_v)
 TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other) {
   if (type_ == Type::Map) {
     map_v.clear();
-    for (const auto &kv : other) map_v.emplace(kv.first, kv.second);
+    for (const auto &kv : other) map_v.emplace(TString(kv.first, memory_), kv.second);
   } else {
     *this = TypedValue(other, memory_);
   }
@@ -703,7 +703,7 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TMap, Map, map_v)
 TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
   if (type_ == Type::Map) {
     map_v.clear();
-    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
+    for (auto &kv : other) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
   } else {
     *this = TypedValue(std::move(other), memory_);
   }
