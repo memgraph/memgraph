@@ -97,11 +97,11 @@ class CoordinatorInstance {
 
   auto GetRoutingTable() const -> RoutingTable;
 
-  static auto GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
-      -> std::optional<std::string>;
+  auto GetInstanceForFailover() const -> std::optional<std::string>;
 
-  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instances_info)
-      -> std::optional<NewMainRes>;
+  static auto ChooseMostUpToDateInstance(
+      std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> const &dbs_info)
+      -> std::optional<std::string>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
