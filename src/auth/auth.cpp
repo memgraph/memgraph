@@ -429,9 +429,9 @@ void Auth::LinkUser(User &user) const {
 void Auth::MtLinkUser(User &user) const {
   auto link = storage_.Get(kMtLinkPrefix + user.username());
   if (link) {
-    nlohmann::json mt_roles(*link);
+    auto mt_roles = nlohmann::json::parse(*link);
     for (const auto &[db, mt_role] : mt_roles.items()) {
-      if (auto role = GetRole(mt_role)) {
+      if (auto role = GetRole(mt_role.get<std::string>())) {
         user.SetRoleForDB(db, *role);
       }
     }
@@ -460,11 +460,11 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
     puts.emplace(kLinkPrefix + user.username(), "");
   }
   // Mt role data
-  std::unordered_map<std::string, std::string> mt_roles;
+  nlohmann::json mt_roles;
   for (const auto &[db, role] : user.db_to_role()) {
-    mt_roles.emplace(db, role.Serialize().dump());
+    mt_roles.emplace(db, role.rolename());
   }
-  puts.emplace(kMtLinkPrefix + user.username(), nlohmann::json{mt_roles}.dump());
+  puts.emplace(kMtLinkPrefix + user.username(), mt_roles.dump());
 
   // Make durable
   if (!storage_.PutMultiple(puts)) {
@@ -605,14 +605,6 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   return Role::Deserialize(ParseJson(*existing_role));
 }
 
-std::optional<Role> Auth::GetMtRoles(const std::string &rolename_orig) const {
-  auto rolename = utils::ToLowerCase(rolename_orig);
-  auto existing_role = storage_.Get(kRolePrefix + rolename);
-  if (!existing_role) return std::nullopt;
-
-  return Role::Deserialize(ParseJson(*existing_role));
-}
-
 void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
@@ -650,6 +642,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
     }
   }
   keys.push_back(kRolePrefix + rolename);
+  // TODO Mt data as well
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }

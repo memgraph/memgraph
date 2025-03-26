@@ -672,7 +672,7 @@ Permissions User::GetPermissions() const {
   return permissions_;
 }
 
-Permissions User::GetPermissions(std::optional<std::string_view> db) const {
+Permissions User::GetPermissions(const std::optional<std::string_view> &db) const {
   // Checking role for specific database
   if (db) {
     const auto role = db_to_role_.find(*db);
@@ -721,7 +721,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
   }
   // Checking default role
   if (role_) {
-    return role()->fine_grained_access_handler().edge_type_permissions();
+    return role_->fine_grained_access_handler().edge_type_permissions();
   }
   return FineGrainedAccessPermissions{};
 }
@@ -736,7 +736,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(std:
   }
   // Checking default role
   if (role_) {
-    return role()->fine_grained_access_handler().label_permissions();
+    return role_->fine_grained_access_handler().label_permissions();
   }
   return FineGrainedAccessPermissions{};
 }
@@ -752,7 +752,13 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
 // TODO Pass db?
-const Role *User::role() const {
+const Role *User::role(const std::optional<std::string> &db_name) const {
+  if (db_name) {
+    auto role = db_to_role_.find(*db_name);
+    if (role != db_to_role_.end()) {
+      return &role->second;
+    }
+  }
   if (role_.has_value()) {
     return &role_.value();
   }

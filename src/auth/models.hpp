@@ -504,7 +504,7 @@ class User final {
   Permissions GetPermissions() const;
 
 #ifdef MG_ENTERPRISE
-  Permissions GetPermissions(std::optional<std::string_view> db) const;
+  Permissions GetPermissions(const std::optional<std::string_view> &db) const;
 
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db = std::nullopt) const;
@@ -524,7 +524,7 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  const Role *role() const;
+  const Role *role(const std::optional<std::string> &db_name = std::nullopt) const;
 
 #ifdef MG_ENTERPRISE
   const auto &db_to_role() const { return db_to_role_; }
