@@ -832,9 +832,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  std::optional<std::vector<LabelIx>> FindBestLabelIndicesGroup(
+  /// Find the best label index group from the given groups of label indices.
+  /// The best group is the one with the smallest total number of vertices.
+  /// Returns the best group and vertex count if all labels in the group have an index.
+  std::optional<std::pair<std::vector<LabelIx>, int64_t>> FindBestLabelIndicesGroup(
       const std::vector<std::vector<LabelIx>> &vector_indices_groups) {
-    std::optional<std::vector<LabelIx>> best_group;
+    std::optional<std::pair<std::vector<LabelIx>, int64_t>> best_group;
     std::size_t min_total_vertices = std::numeric_limits<std::size_t>::max();
 
     for (const auto &group : vector_indices_groups) {
@@ -846,7 +849,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                           [&](std::size_t sum, LabelIx label) { return sum + db_->VerticesCount(GetLabel(label)); });
       if (total_vertices < min_total_vertices) {
         min_total_vertices = total_vertices;
-        best_group = group;
+        best_group = std::make_pair(group, total_vertices);
       }
     }
     return best_group;
@@ -855,6 +858,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct CandidateIndices {
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
+  };
+
+  struct CandidateGroupIndices {
+    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
+    std::vector<std::vector<std::pair<LabelIx, PropertyIx>>> candidate_indices_groups_{};
   };
 
   CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
@@ -929,6 +937,45 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
     return found;
+  }
+
+  CandidateGroupIndices GetCandidateGroupIndices(const Symbol &symbol,
+                                                 const std::unordered_set<Symbol> &bound_symbols) {
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      return std::all_of(used_symbols.begin(), used_symbols.end(),
+                         [&](const auto &used_symbol) { return utils::Contains(bound_symbols, used_symbol); });
+    };
+
+    CandidateGroupIndices candidate_groups{};
+    auto or_labels = filters_.OrLabels(symbol);
+
+    for (const auto &group : or_labels) {
+      std::vector<std::pair<LabelIx, PropertyIx>> valid_group;
+      for (const auto &filter : filters_.PropertyFilters(symbol)) {
+        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
+          continue;
+        }
+
+        const auto &property = filter.property_filter->property_;
+        bool all_labels_indexed = true;
+
+        for (const auto &label : group) {
+          if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
+            all_labels_indexed = false;
+            break;
+          }
+          valid_group.emplace_back(label, property);
+        }
+
+        if (all_labels_indexed && !valid_group.empty()) {
+          candidate_groups.candidate_indices_groups_.push_back(valid_group);
+          for (const auto &[label, property] : valid_group) {
+            candidate_groups.candidate_index_lookup_.insert({std::make_pair(label, property), filter});
+          }
+        }
+      }
+    }
+    return candidate_groups;
   }
 
   CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
@@ -1049,6 +1096,74 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
     return found;
+  }
+
+  /// Finds the best label-property index group for the symbol that has "or labels".
+  std::optional<std::pair<std::vector<LabelPropertyIndex>, int64_t>> FindBestLabelPropertyIndicesGroup(
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto candidate_groups = GetCandidateGroupIndices(symbol, bound_symbols);
+    if (candidate_groups.candidate_indices_groups_.empty()) return std::nullopt;
+
+    auto compare_groups = [](const std::vector<LabelPropertyIndex> &a, int64_t a_vertex_count,
+                             const std::vector<LabelPropertyIndex> &b, int64_t b_vertex_count) {
+      if (a_vertex_count * 10 < b_vertex_count) return true;
+
+      double a_avg_group_size = 0, b_avg_group_size = 0;
+      double a_statistic = 0, b_statistic = 0;
+      int count_a = 0, count_b = 0;
+
+      for (const auto &index : a) {
+        if (index.index_stats) {
+          a_avg_group_size += index.index_stats->avg_group_size;
+          a_statistic += index.index_stats->statistic;
+          count_a++;
+        }
+      }
+      for (const auto &index : b) {
+        if (index.index_stats) {
+          b_avg_group_size += index.index_stats->avg_group_size;
+          b_statistic += index.index_stats->statistic;
+          count_b++;
+        }
+      }
+
+      if (count_a > 0) a_avg_group_size /= count_a;
+      if (count_b > 0) b_avg_group_size /= count_b;
+      if (count_a > 0) a_statistic /= count_a;
+      if (count_b > 0) b_statistic /= count_b;
+
+      int cmp_avg_group = utils::CompareDecimal(a_avg_group_size, b_avg_group_size);
+      if (cmp_avg_group < 0) return true;
+      if (cmp_avg_group == 0) {
+        return utils::CompareDecimal(a_statistic, b_statistic) < 0;
+      }
+      return false;
+    };
+
+    std::optional<std::vector<LabelPropertyIndex>> best_group;
+    int64_t best_vertex_count = std::numeric_limits<int64_t>::max();
+
+    for (const auto &group : candidate_groups.candidate_indices_groups_) {
+      std::vector<LabelPropertyIndex> current_group;
+      int64_t total_vertex_count = 0;
+
+      for (const auto &[label, property] : group) {
+        int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+        total_vertex_count += vertex_count;
+        auto index_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+        auto &filter = candidate_groups.candidate_index_lookup_.at({label, property});
+
+        current_group.emplace_back(label, filter, vertex_count, index_stats);
+      }
+
+      if (!best_group || compare_groups(current_group, total_vertex_count, *best_group, best_vertex_count)) {
+        best_group = std::move(current_group);
+        best_vertex_count = total_vertex_count;
+      }
+    }
+
+    if (!best_group) return std::nullopt;
+    return std::make_pair(std::move(*best_group), best_vertex_count);
   }
 
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
@@ -1203,10 +1318,46 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (!or_labels.empty()) {
-      auto best_indexing_group = FindBestLabelIndicesGroup(or_labels);
-      if (best_indexing_group) {
+      // first check for label property indices
+      auto best_label_property_indexing_group = FindBestLabelPropertyIndicesGroup(node_symbol, bound_symbols);
+      if (best_label_property_indexing_group) {
+        const auto &[label_property_group, group_vertex_count] = *best_label_property_indexing_group;
+        if (!max_vertex_count || group_vertex_count <= *max_vertex_count) {
+          std::unique_ptr<LogicalOperator> prev;
+          for (const auto &label_property : label_property_group) {
+            auto scan = std::make_unique<ScanAllByLabelProperty>(
+                input, node_symbol, GetLabel(label_property.label),
+                GetProperty(label_property.filter.property_filter->property_), view);
+            if (prev) {
+              prev = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
+                                             std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+            } else {
+              prev = std::move(scan);
+            }
+          }
+          for (const auto &found_index : label_property_group) {
+            filters_.EraseFilter(found_index.filter);
+          }
+          std::vector<Expression *> removed_expressions;
+          std::vector<LabelIx> labels_to_erase;
+          labels_to_erase.reserve(label_property_group.size());
+          for (const auto &label_property : label_property_group) {
+            labels_to_erase.push_back(label_property.label);
+          }
+          filters_.EraseOrLabelFilter(node_symbol, labels_to_erase, &removed_expressions);
+          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+          auto distinct_op = std::make_unique<Distinct>(std::move(prev), std::vector<Symbol>{node_symbol});
+          return distinct_op;
+        }
+      }
+
+      // if no label property indices are found, check for label indices
+      auto best_label_indexing_group = FindBestLabelIndicesGroup(or_labels);
+      if (best_label_indexing_group) {
+        const auto &[label_group, group_vertex_count] = *best_label_indexing_group;
+        if (!max_vertex_count || group_vertex_count <= *max_vertex_count) return nullptr;
         std::unique_ptr<LogicalOperator> prev;
-        for (const auto &label : *best_indexing_group) {
+        for (const auto &label : label_group) {
           auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
           if (prev) {
             prev = std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
@@ -1216,7 +1367,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         }
         std::vector<Expression *> removed_expressions;
-        filters_.EraseOrLabelFilter(node_symbol, *best_indexing_group, &removed_expressions);
+        filters_.EraseOrLabelFilter(node_symbol, label_group, &removed_expressions);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
         auto distinct_op = std::make_unique<Distinct>(std::move(prev), std::vector<Symbol>{node_symbol});
         return distinct_op;
