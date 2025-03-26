@@ -1100,12 +1100,15 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp);
           const auto label = storage->NameToLabel(data.label);
-          const auto property = storage->NameToProperty(data.property);
+          auto properties =
+              data.properties |
+              ranges::views::transform([&](std::string_view prop_str) { return storage->NameToProperty(prop_str); }) |
+              ranges::to_vector;
           LabelPropertyIndexStats stats{};
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
           }
-          transaction->SetIndexStats(label, property, stats);
+          transaction->SetIndexStats(label, properties, stats);
         },
         [&](WalLabelPropertyIndexStatsClear const &data) {
           spdlog::trace("   Delta {}. Clear label-property index statistics on :{}", current_delta_idx, data.label);
