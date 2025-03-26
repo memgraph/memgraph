@@ -372,7 +372,7 @@ class BoltClientDocker(BaseClient):
 
 class PythonClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
-        self._client_binary = "tests/mgbench/python_client.py"
+        self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
