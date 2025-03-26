@@ -321,8 +321,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     auto unique_acc = main.db.UniqueAccess();
-    unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property),
-                              lp_stats);
+    unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label),
+                              std::array{main.db.storage()->NameToProperty(property)}, lp_stats);
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
@@ -346,15 +346,15 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     const auto indices = replica.db.Access()->ListAllIndices();
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica.db.storage()->NameToLabel(label)));
-    ASSERT_THAT(indices.label_property,
+    ASSERT_THAT(indices.label_property_new,
                 UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
-                                                    replica.db.storage()->NameToProperty(property))));
+                                                    std::vector{replica.db.storage()->NameToProperty(property)})));
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_TRUE(l_stats_rep);
     ASSERT_EQ(l_stats_rep->count, l_stats.count);
     ASSERT_EQ(l_stats_rep->avg_degree, l_stats.avg_degree);
-    const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label),
-                                                                  replica.db.storage()->NameToProperty(property));
+    const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(
+        replica.db.storage()->NameToLabel(label), std::array{replica.db.storage()->NameToProperty(property)});
     ASSERT_TRUE(lp_stats_rep);
     ASSERT_EQ(lp_stats_rep->count, lp_stats.count);
     ASSERT_EQ(lp_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
@@ -417,12 +417,12 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     const auto indices = replica.db.Access()->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
-    ASSERT_EQ(indices.label_property.size(), 0);
+    ASSERT_EQ(indices.label_property_new.size(), 0);
 
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_FALSE(l_stats_rep);
-    const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label),
-                                                                  replica.db.storage()->NameToProperty(property));
+    const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(
+        replica.db.storage()->NameToLabel(label), std::array{replica.db.storage()->NameToProperty(property)});
     ASSERT_FALSE(lp_stats_rep);
 
     const auto constraints = replica.db.Access()->ListAllConstraints();
