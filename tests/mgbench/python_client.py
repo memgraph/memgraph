@@ -23,6 +23,9 @@ class PythonClient(ABC):
                     raise Exception(f"Could not execute query '{query}' {attempt} times! Error message: {e}")
                 time.sleep(0.1)  # Brief pause before retrying
 
+    def close(self):
+        pass
+
 
 class FalkorDBClient(PythonClient):
     GRAPH_NAME = "benchmark_graph"
@@ -40,15 +43,16 @@ class FalkorDBClient(PythonClient):
 class Neo4jClient(PythonClient):
     def __init__(self, host, port, user="", password=""):
         self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
+        self._session = self._driver.session()
 
     def close(self):
+        self._session.close()
         self._driver.close()
 
     def execute_query(self, query, params=None):
-        with self._driver.session() as session:
-            result = session.run(query, parameters=params or {})
-            summary = result.consume()
-            return summary.result_available_after
+        result = self._session.run(query, parameters=params or {})
+        summary = result.consume()
+        return summary.result_available_after
 
 
 def get_python_client(vendor):
@@ -81,6 +85,7 @@ def execute_validation_task(
     }
 
     durations[0] = duration
+    client.close()
 
 
 def execute_queries_task(
@@ -106,6 +111,7 @@ def execute_queries_task(
                 worker_timer_end = time.time()
                 durations[worker_id] = worker_timer_end - worker_timer_start
                 results[worker_id] = aggregate
+                client.close()
                 return
 
             position.value += 1
@@ -161,6 +167,7 @@ def execute_time_dependent_task(
         durations[worker_id] = worker_end_time - worker_start_time
 
     results[worker_id] = aggregate
+    client.close()
 
 
 def execute_workload(queries, args):

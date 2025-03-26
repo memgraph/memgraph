@@ -929,8 +929,7 @@ class MemgraphDocker(BaseRunner):
                 f"{self._image_name}:{self._image_version}",
                 "--storage_wal_enabled=false",
                 "--data_recovery_on_startup=true",
-                "--storage_snapshot_interval_sec",
-                "0",
+                "--storage_snapshot_interval_sec=0",
             ]
             command.extend(self._get_args(**self._vendor_args))
             ret = self._run_command(command)
