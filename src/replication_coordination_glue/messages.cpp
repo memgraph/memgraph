@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,9 +58,9 @@ constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUEN
 constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
                                                       nullptr};
 
-constexpr utils::TypeInfo SwapMainUUIDReq::kType{utils::TypeId::COORD_SWAP_UUID_REQ, "SwapUUIDReq", nullptr};
+constexpr utils::TypeInfo SwapMainUUIDReq::kType{utils::TypeId::COORD_SWAP_UUID_REQ, "SwapMainUUIDReq", nullptr};
 
-constexpr utils::TypeInfo SwapMainUUIDRes::kType{utils::TypeId::COORD_SWAP_UUID_RES, "SwapUUIDRes", nullptr};
+constexpr utils::TypeInfo SwapMainUUIDRes::kType{utils::TypeId::COORD_SWAP_UUID_RES, "SwapMainUUIDRes", nullptr};
 
 void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
