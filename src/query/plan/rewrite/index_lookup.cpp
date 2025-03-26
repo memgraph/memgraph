@@ -10,8 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/plan/rewrite/index_lookup.hpp"
-#include "query/interpret/eval.hpp"
-#include "storage/v2/property_value_utils.hpp"
 #include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)

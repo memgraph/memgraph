@@ -12,6 +12,10 @@
 #include "query/frontend/ast/ast.hpp"
 #include "utils/typeinfo.hpp"
 
+#include "range/v3/all.hpp"
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph {
 
 constexpr utils::TypeInfo query::LabelIx::kType{utils::TypeId::AST_LABELIX, "LabelIx", nullptr};
@@ -184,6 +188,17 @@ constexpr utils::TypeInfo query::CypherUnion::kType{utils::TypeId::AST_CYPHER_UN
 constexpr utils::TypeInfo query::Query::kType{utils::TypeId::AST_QUERY, "Query", &query::Tree::kType};
 
 constexpr utils::TypeInfo query::IndexHint::kType{utils::TypeId::AST_INDEX_HINT, "IndexHint", &query::Tree::kType};
+
+query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
+  IndexHint object;
+  object.index_type_ = index_type_;
+  object.label_ix_ = storage->GetLabelIx(label_ix_.name);
+  if (property_ixs_) {
+    auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
+    object.property_ixs_ = *property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
+  }
+  return object;
+}
 
 constexpr utils::TypeInfo query::PreQueryDirectives::kType{utils::TypeId::AST_PRE_QUERY_DIRECTIVES,
                                                            "PreQueryDirectives", &query::Tree::kType};
