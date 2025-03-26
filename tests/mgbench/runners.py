@@ -905,7 +905,7 @@ class MemgraphDocker(BaseRunner):
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
         self._image_name = "memgraph/memgraph-mage"
-        self._image_version = "3.0-memgraph-3.0"
+        self._image_version = "3.1-memgraph-3.1"
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
