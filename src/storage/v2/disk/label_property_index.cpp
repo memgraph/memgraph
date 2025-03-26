@@ -242,4 +242,6 @@ std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPro
   return res;
 }
 
+void DiskLabelPropertyIndex::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {}
+
 }  // namespace memgraph::storage
