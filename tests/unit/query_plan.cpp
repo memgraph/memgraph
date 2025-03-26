@@ -2948,7 +2948,7 @@ TYPED_TEST(TestPlanner, PeriodicCommitWithDelete) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectDelete(), ExpectPeriodicCommit(), ExpectEmptyResult());
 }
 
-TYPED_TEST(TestPlanner, ORLabelExpressionWithoutIndex) {
+TYPED_TEST(TestPlanner, ORLabelExpressionWithoutBothIndices) {
   // Test MATCH (n:Label1|Label2) RETURN n
   FakeDbAccessor dba;
   auto label1 = dba.Label("Label1");

@@ -355,18 +355,18 @@ class PatternVisitor : public ExpressionVisitor<void> {
       op.expression_->Accept(*this);
     }
   }
-  void Visit(Identifier &op) override {};
-  void Visit(PrimitiveLiteral &op) override {};
-  void Visit(PropertyLookup &op) override {};
-  void Visit(AllPropertiesLookup &op) override {};
-  void Visit(ParameterLookup &op) override {};
+  void Visit(Identifier &op) override{};
+  void Visit(PrimitiveLiteral &op) override{};
+  void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
+  void Visit(ParameterLookup &op) override{};
   void Visit(RegexMatch &op) override {
     op.string_expr_->Accept(*this);
     op.regex_->Accept(*this);
   }
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override {};
+  void Visit(EnumValueAccess &op) override{};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
@@ -543,7 +543,7 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
-  auto OrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
+  auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
   auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
   /// Remove a filter; may invalidate iterators.
@@ -660,7 +660,7 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
   return labels;
 }
 
-inline auto Filters::OrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
+inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
   std::vector<std::vector<LabelIx>> or_labels;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
