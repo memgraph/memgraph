@@ -24,20 +24,20 @@ class PythonClient(ABC):
                 time.sleep(0.1)  # Brief pause before retrying
 
 
-class FalkorDBPythonClient(PythonClient):
-    GRAPH_NAME = "social"
+class FalkorDBClient(PythonClient):
+    GRAPH_NAME = "benchmark_graph"
 
     def __init__(self, host, port):
         super().__init__()
         self._db = FalkorDB(host=host, port=port)
-        self._graph = self._db.select_graph(FalkorDBPythonClient.GRAPH_NAME)
+        self._graph = self._db.select_graph(FalkorDBClient.GRAPH_NAME)
 
     def execute_query(self, query, params):
         result = self._graph.query(query, params)
         return result.run_time_ms
 
 
-class Neo4jPythonClient:
+class Neo4jClient:
     def __init__(self, host, port, user="", password=""):
         self._driver = GraphDatabase.driver(f"bolt://{host}:{port}", auth=(user, password))
 
@@ -53,9 +53,9 @@ class Neo4jPythonClient:
 
 def get_python_client(vendor):
     if vendor == "memgraph" or vendor == "neo4j":
-        return Neo4jPythonClient
+        return Neo4jClient
     if vendor == "falkordb":
-        return FalkorDBPythonClient
+        return FalkorDBClient
     raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
