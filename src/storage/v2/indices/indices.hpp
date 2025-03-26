@@ -48,8 +48,6 @@ struct Indices {
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices
-  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
-                    uint64_t exact_start_timestamp) const;
   void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                     std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
                     uint64_t exact_start_timestamp) const;
@@ -57,20 +55,23 @@ struct Indices {
   void DropGraphClearIndices();
 
   struct AbortProcessor {
-    LabelIndex::AbortProcessor label;
-    LabelPropertyIndex::AbortProcessor property_label;
-    std::vector<EdgeTypeId> edge_type;
-    EdgeTypePropertyIndex::IndexStats property_edge_type;
+    LabelIndex::AbortProcessor label_;
+    LabelPropertyIndex::AbortProcessor property_label_;
+    EdgeTypeIndex::AbortProcessor edge_type_;
+
+    EdgeTypePropertyIndex::IndexStats property_edge_type_;
     EdgePropertyIndex::IndexStats property_edge;
     // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
-    VectorIndex::IndexStats vector;
+    VectorIndex::IndexStats vector_;
 
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
     void Process(Indices &indices, uint64_t start_timestamp);
   };
-  AbortProcessor GetAbortProcessor() const;
+
+  auto GetAbortProcessor() const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`

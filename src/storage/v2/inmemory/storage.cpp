@@ -987,7 +987,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
     std::map<std::pair<EdgeTypeId, PropertyId>,
              std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
         edge_property_cleanup;
@@ -1015,8 +1014,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::SET_PROPERTY: {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
-                const auto &edge_types = index_abort_processor.property_edge_type.p2et.find(current->property.key);
-                if (edge_types != index_abort_processor.property_edge_type.p2et.end()) {
+                const auto &edge_types = index_abort_processor.property_edge_type_.p2et.find(current->property.key);
+                if (edge_types != index_abort_processor.property_edge_type_.p2et.end()) {
                   auto old_value = edge->properties.GetProperty(current->property.key);
                   if (!old_value.IsNull()) {
                     for (const auto &edge_type : edge_types->second) {
@@ -1097,8 +1096,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
                 // we have to remove the vertex from the vector index if this label is indexed and vertex has
                 // needed property
-                const auto &vector_properties = index_abort_processor.vector.l2p.find(current->label.value);
-                if (vector_properties != index_abort_processor.vector.l2p.end()) {
+                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
+                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
                   // label is in the vector index
                   for (const auto &property : vector_properties->second) {
                     if (vertex->properties.HasProperty(property)) {
@@ -1115,8 +1114,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 vertex->labels.push_back(current->label.value);
                 // we have to add the vertex to the vector index if this label is indexed and vertex has needed
                 // property
-                const auto &vector_properties = index_abort_processor.vector.l2p.find(current->label.value);
-                if (vector_properties != index_abort_processor.vector.l2p.end()) {
+                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
+                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
                   // label is in the vector index
                   for (const auto &property : vector_properties->second) {
                     auto current_value = vertex->properties.GetProperty(property);
@@ -1136,8 +1135,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  value
                 index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
 
-                const auto &vector_index_labels = index_abort_processor.vector.p2l.find(current->property.key);
-                const auto has_vector_index = vector_index_labels != index_abort_processor.vector.p2l.end();
+                const auto &vector_index_labels = index_abort_processor.vector_.p2l.find(current->property.key);
+                const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
                 if (has_vector_index) {
                   auto current_value = vertex->properties.GetProperty(current->property.key);
                   auto has_indexed_label = [&vector_index_labels](auto label) {
@@ -1196,11 +1195,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // TODO: Change edge type index to work with EdgeRef rather than Edge *
                 if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
-                if (std::binary_search(index_abort_processor.edge_type.begin(), index_abort_processor.edge_type.end(),
-                                       current->vertex_edge.edge_type)) {
-                  edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
-                                                                                 current->vertex_edge.edge.ptr);
-                }
+                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex, edge.ptr);
+                // TODO: ensure collector also processeses for edge_type+property index
 
                 break;
               }
@@ -1294,9 +1291,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
-    }
-    for (auto const &[edge_type, edge] : edge_type_cleanup) {
-      storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
     }
     for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
       storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);

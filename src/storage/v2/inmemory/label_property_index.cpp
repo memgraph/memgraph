@@ -929,7 +929,7 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   new_stats_->clear();
 }
 
-LabelPropertyIndex::AbortProcessor InMemoryLabelPropertyIndex::Analysis() const {
+auto InMemoryLabelPropertyIndex::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
   AbortProcessor res{};
   for (const auto &[label, per_properties] : new_index_) {
     for (auto const &[props, index] : per_properties) {
