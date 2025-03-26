@@ -35,3 +35,8 @@ def connect(**kwargs):
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     return connection.cursor()
+
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
+    cursor.execute(query, params)
+    return cursor.fetchall()

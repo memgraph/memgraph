@@ -43,14 +43,12 @@ class Client {
       {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
       {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
       {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
-      {"GetInstanceUUIDReq"sv, 10000},        // coordinator to data instances
       {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
       {"StateCheckReq"sv, 10000},             // coordinator to data instances
       {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
       {"FrequentHeartbeatReq"sv, 10000},      // coord to data instances
       {"HeartbeatReq"sv, 10000},              // main to replica
       {"TimestampReq"sv, 10000},              // main to replica
-      {"SystemHeartbeatReq"sv, 10000},        // main to replica
       {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
       {"AppendDeltasReq"sv, 30000},    // Waiting 30'' on a progress/final response
       {"CurrentWalReq"sv, 30000},      // Waiting 30'' on a progress/final response
@@ -77,6 +75,7 @@ class Client {
           res_load_(res_load) {}
 
    public:
+    // NOLINTNEXTLINE
     StreamHandler(StreamHandler &&other) noexcept
         : self_{std::exchange(other.self_, nullptr)},
           timeout_ms_{std::move(other.timeout_ms_)},
@@ -84,6 +83,8 @@ class Client {
           guard_{std::move(other.guard_)},
           req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_)},
           res_load_{std::move(other.res_load_)} {}
+
+    // NOLINTNEXTLINE
     StreamHandler &operator=(StreamHandler &&other) noexcept {
       if (&other != this) {
         self_ = std::exchange(other.self_, nullptr);
@@ -329,7 +330,7 @@ class Client {
     if (!client_) {
       client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
-        spdlog::error("Couldn't connect to remote address {}", endpoint_);
+        spdlog::error("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
         throw GenericRpcFailedException();
       }

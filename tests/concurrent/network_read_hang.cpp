@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,7 +64,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   // initialize listen socket
   Endpoint endpoint(interface, 0);
 
-  std::cout << endpoint << std::endl;
+  std::cout << endpoint.SocketAddress() << std::endl;
 
   // initialize server
   TestData data;

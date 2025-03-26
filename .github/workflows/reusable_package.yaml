@@ -89,6 +89,9 @@ jobs:
             echo "FOR_DOCKER=true" >> $GITHUB_ENV
             echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
+          if [[ "${{ inputs.additional_build_args }}" == *"--disable-jemalloc" ]]; then
+            artifact_name="${artifact_name}-malloc"
+          fi
           if [[ "${{ inputs.arch }}" == 'arm' ]]; then
             artifact_name="${artifact_name}-aarch64"
           fi
@@ -97,6 +100,15 @@ jobs:
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
           echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
+
+      - name: Set Additional Build Args
+        run: |
+          args="${{ inputs.additional_build_args }}"
+          if [[ "${{ inputs.os }}" == "centos-9" || "${{ inputs.os }}" == "centos-10" || "${{ inputs.os }}" == "fedora-41" ]]; then
+            args="$args --init-skip-prep-testing"
+          fi
+          echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
+          echo "Final build args: $args"
 
       - name: "Spin up mgbuild container"
         run: |
@@ -114,7 +126,7 @@ jobs:
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
-          build-memgraph ${{ inputs.additional_build_args }}
+          build-memgraph ${{ env.ADDITIONAL_BUILD_ARGS }}
 
       - name: "Make package"
         run: |

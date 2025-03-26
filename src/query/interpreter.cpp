@@ -653,8 +653,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
-      case BOLT_ENDPOINT_ALREADY_EXISTS:
-        throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
       case MGMT_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such management endpoint already exists!");
@@ -785,7 +783,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   }
 
   const auto forbid_on_replica = [has_license = license_check_result.HasError(),
-                                  is_replica = interpreter_context->repl_state->IsReplica()]() {
+                                  is_replica = interpreter_context->repl_state.ReadLock()->IsReplica()]() {
     if (is_replica) {
 #if MG_ENTERPRISE
       if (has_license) {
@@ -3489,7 +3487,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
         }
         auto ttl_info = ttl::TtlInfo{period, start_time};
-        if (interpreter_context->repl_state->IsReplica()) {
+        if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
           // Special case for REPLICA
           info = "TTL configured. Background job will not run, since instance is REPLICA.";
         } else {
@@ -5156,7 +5154,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
-  const bool is_replica = interpreter_context->repl_state->IsReplica();
+  const bool is_replica = interpreter_context->repl_state.ReadLock()->IsReplica();
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE: {
@@ -5760,7 +5758,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     }
 
     auto result = RouteResult{};
-    if (interpreter_context_->repl_state->IsMain()) {
+    if (interpreter_context_->repl_state.ReadLock()->IsMain()) {
       result.servers.emplace_back(std::vector<std::string>{address->second}, "WRITE");
     } else {
       result.servers.emplace_back(std::vector<std::string>{address->second}, "READ");
@@ -6035,11 +6033,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query = PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
-      auto const replication_role = interpreter_context_->repl_state->GetRole();
+      auto const replication_role = interpreter_context_->repl_state.ReadLock()->GetRole();
       prepared_query =
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
-      auto const replication_role = interpreter_context_->repl_state->GetRole();
+      auto const replication_role = interpreter_context_->repl_state.ReadLock()->GetRole();
       prepared_query =
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
@@ -6130,14 +6128,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     bool const write_query = IsQueryWrite(rw_type);
     if (write_query) {
-      if (interpreter_context_->repl_state->IsReplica()) {
+      if (interpreter_context_->repl_state.ReadLock()->IsReplica()) {
         query_execution = nullptr;
         throw WriteQueryOnReplicaException();
       }
 #ifdef MG_ENTERPRISE
       if (interpreter_context_->coordinator_state_.has_value() &&
           interpreter_context_->coordinator_state_->get().IsDataInstance() &&
-          !interpreter_context_->repl_state->IsMainWriteable()) {
+          !interpreter_context_->repl_state.ReadLock()->IsMainWriteable()) {
         query_execution = nullptr;
         throw WriteQueryOnMainException();
       }
@@ -6357,7 +6355,7 @@ void Interpreter::Commit() {
       // Commit is doing replication and timestamp update
       // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot abort!
       // What we are trying to do is set the transaction back to IDLE
-      // We cannot simply put it to IDLE, since the status is used as a syncronization method and we have to follow
+      // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
@@ -6455,7 +6453,7 @@ void Interpreter::Commit() {
     }
     current_db_.CleanupDBTransaction(false);
   };
-  utils::OnScopeExit members_reseter(reset_necessary_members);
+  utils::OnScopeExit const reset_members(reset_necessary_members);
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
@@ -6503,11 +6501,13 @@ void Interpreter::Commit() {
                 // commit time
                 MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
               }
+              default:
+                LOG_FATAL("Unknown constraint violation type");
             }
           } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
             throw QueryException("Unable to commit due to serialization error.");
           } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-            throw QueryException("Unable to commit due to persistance error.");
+            throw QueryException("Unable to commit due to persistence error.");
           } else {
             static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
           }

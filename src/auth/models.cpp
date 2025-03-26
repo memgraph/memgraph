@@ -510,7 +510,14 @@ Role Role::Deserialize(const nlohmann::json &data) {
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    auto usr_imp = data[kUserImp].is_null() ? std::nullopt : std::make_optional<UserImpersonation>(data[kUserImp]);
+
+    std::optional<UserImpersonation> usr_imp = std::nullopt;
+    auto imp_data = data.find(kUserImp);
+    if (imp_data != data.end()) {
+      usr_imp = imp_data.value().is_null() ? std::nullopt : std::make_optional<UserImpersonation>(imp_data.value());
+    } else {
+      spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
+    }
     return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access),
             std::move(usr_imp)};
   }
@@ -793,7 +800,13 @@ User User::Deserialize(const nlohmann::json &data) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
 
-    auto usr_imp = data[kUserImp].is_null() ? std::nullopt : std::make_optional<UserImpersonation>(data[kUserImp]);
+    std::optional<UserImpersonation> usr_imp = std::nullopt;
+    auto imp_data = data.find(kUserImp);
+    if (imp_data != data.end()) {
+      usr_imp = imp_data.value().is_null() ? std::nullopt : std::make_optional<UserImpersonation>(imp_data.value());
+    } else {
+      spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
+    }
 
     return {data[kUsername],      std::move(password_hash),
             permissions,          std::move(fine_grained_access_handler),

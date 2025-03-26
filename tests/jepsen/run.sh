@@ -191,9 +191,18 @@ PROCESS_RESULTS() {
     all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
     all_workload_run_folders=""
     for workload in $all_workloads; do
-        INFO "jepsen.log for $workload/latest"
-        docker exec jepsen-control bash -c "tail -n 50 /jepsen/memgraph/store/$workload/latest/jepsen.log"
-        all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/latest"
+      workload_dir="/jepsen/memgraph/store/$workload/latest"
+      # Construct the full path of jepsen.log
+      log_file_path="$workload_dir/jepsen.log"
+      # Check if the directory exists before proceeding
+      if docker exec jepsen-control bash -c "[ -d '$workload_dir' ]"; then
+        INFO "Checking jepsen.log for $workload/latest"
+        # Execute the existence check and tail command in the same subshell to avoid context errors
+        docker exec jepsen-control bash -c "if [ -f '$log_file_path' ]; then tail -n 50 '$log_file_path'; else echo 'jepsen.log does not exist for $workload'; fi"
+        all_workload_run_folders="$all_workload_run_folders $workload_dir"
+      else
+        INFO "$workload_dir does not exist."
+      fi
     done
     INFO "Packing results..."
     docker exec jepsen-control bash -c "tar --ignore-failed-read -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
