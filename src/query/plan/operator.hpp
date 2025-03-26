@@ -59,7 +59,7 @@ struct ExpressionRange {
   static auto IsNotNull() -> ExpressionRange;
 
   auto evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
-  auto thing(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
+  auto plantime_resolve(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
 
   ExpressionRange(ExpressionRange const &other, AstStorage &storage);
 

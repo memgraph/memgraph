@@ -235,7 +235,7 @@ std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expre
   return std::nullopt;
 }
 
-auto ExpressionRange::thing(Parameters const &parameters) const -> std::optional<storage::PropertyValueRange> {
+auto ExpressionRange::plantime_resolve(Parameters const &params) const -> std::optional<storage::PropertyValueRange> {
   struct UnknownAtPlanTime {};
 
   using obpv = std::optional<utils::Bound<storage::PropertyValue>>;
@@ -244,7 +244,7 @@ auto ExpressionRange::thing(Parameters const &parameters) const -> std::optional
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto property_value = ConstPropertyValue(value->value(), parameters);
+      auto property_value = ConstPropertyValue(value->value(), params);
       if (property_value) {
         return utils::Bound{std::move(*property_value), value->type()};
       } else {
