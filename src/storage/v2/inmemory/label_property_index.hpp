@@ -27,18 +27,6 @@ namespace memgraph::storage {
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
-  struct Entry {
-    PropertyValue value;
-    Vertex *vertex;
-    uint64_t timestamp;
-
-    bool operator<(const Entry &rhs) const;
-    bool operator==(const Entry &rhs) const;
-
-    bool operator<(const PropertyValue &rhs) const;
-    bool operator==(const PropertyValue &rhs) const;
-  };
-
   struct NewEntry {
     IndexOrderedPropertyValues values;
     Vertex *vertex;
@@ -121,8 +109,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     LabelId label_;
     PropertiesIds const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
-    //    std::vector<PropertyId> properties_; //TODO: PropertiesIds *
-    // TODO: PropertiesPermutationHelper *
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;

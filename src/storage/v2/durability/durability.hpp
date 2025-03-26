@@ -98,7 +98,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &prop_id, Indices *indices,
+void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             const std::optional<std::filesystem::path> &storage_dir = std::nullopt,

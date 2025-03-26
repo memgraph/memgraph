@@ -46,6 +46,4 @@ static_assert(PropertyValue::Type::TemporalData < PropertyValue::Type::ZonedTemp
 static_assert(PropertyValue::Type::ZonedTemporalData < PropertyValue::Type::Enum);
 static_assert(PropertyValue::Type::Enum < PropertyValue::Type::Point2d);
 static_assert(PropertyValue::Type::Point2d < PropertyValue::Type::Point3d);
-
-// @TODO should have a constant null
 }  // namespace memgraph::storage

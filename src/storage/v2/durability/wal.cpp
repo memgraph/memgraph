@@ -33,6 +33,9 @@
 #include "utils/logging.hpp"
 #include "utils/tag.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 static constexpr std::string_view kInvalidWalErrorMessage =
     "Invalid WAL data! Your durability WAL files somehow got corrupted. Please contact the Memgraph team for support.";
 
@@ -782,7 +785,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        if (ranges::contains(vertex->labels, label_id)) throw RecoveryFailure("The vertex already has the label!");
+        if (r::contains(vertex->labels, label_id)) throw RecoveryFailure("The vertex already has the label!");
         std::optional<utils::small_vector<LabelId>> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
@@ -792,7 +795,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto it = std::ranges::find(vertex->labels, label_id);
+        auto it = r::find(vertex->labels, label_id);
         if (it == vertex->labels.end()) throw RecoveryFailure("The vertex doesn't have the label!");
         std::optional<utils::small_vector<LabelId>> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
@@ -826,12 +829,11 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           return EdgeRef{data.gid};
         });
         auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
-        if (ranges::contains(from_vertex->out_edges, out_link))
+        if (r::contains(from_vertex->out_edges, out_link))
           throw RecoveryFailure("The from vertex already has this edge!");
         from_vertex->out_edges.push_back(out_link);
         auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
-        if (ranges::contains(to_vertex->in_edges, in_link))
-          throw RecoveryFailure("The to vertex already has this edge!");
+        if (r::contains(to_vertex->in_edges, in_link)) throw RecoveryFailure("The to vertex already has this edge!");
         to_vertex->in_edges.push_back(in_link);
 
         ret.next_edge_id = std::max(ret.next_edge_id, data.gid.AsUint() + 1);
@@ -859,14 +861,14 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
         {
           auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
-          auto it = std::ranges::find(from_vertex->out_edges, out_link);
+          auto it = r::find(from_vertex->out_edges, out_link);
           if (it == from_vertex->out_edges.end()) throw RecoveryFailure("The from vertex doesn't have this edge!");
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
         }
         {
           auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
-          auto it = std::ranges::find(to_vertex->in_edges, in_link);
+          auto it = r::find(to_vertex->in_edges, in_link);
           if (it == to_vertex->in_edges.end()) throw RecoveryFailure("The to vertex doesn't have this edge!");
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
@@ -896,7 +898,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
             if (data.from_gid.has_value()) {
               const auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
-              const auto found_edge = std::ranges::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
+              const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
                 const auto &[edge_type, to_vertex, edge_ref] = edge_info;
                 return edge_ref.ptr == &*edge;
               });
@@ -973,19 +975,15 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto prop_ids = data.properties | ranges::views::transform([&](std::string_view name) {
-                          return PropertyId::FromUint(name_id_mapper->NameToId(name));
-                        }) |
-                        ranges::to_vector;
+        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
+        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
         AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto prop_ids = data.properties | ranges::views::transform([&](std::string_view name) {
-                          return PropertyId::FromUint(name_id_mapper->NameToId(name));
-                        }) |
-                        ranges::to_vector;
+        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
+        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
@@ -1002,11 +1000,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                        "The label property index doesn't exist!");
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
-        auto const name_to_propid = [&](std::string_view prop_str) {
-          return PropertyId::FromUint(name_id_mapper->NameToId(prop_str));
-        };
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto properties = data.properties | ranges::views::transform(name_to_propid) | ranges::to_vector;
+        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
+        auto properties = data.properties | rv::transform(name_to_id) | r::to_vector;
 
         LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
@@ -1118,8 +1114,8 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         }
       },
       [&](WalVectorIndexCreate const &data) {
-        if (std::ranges::any_of(indices_constraints->indices.vector_indices,
-                                [&](const auto &index) { return index.index_name == data.index_name; })) {
+        if (r::any_of(indices_constraints->indices.vector_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 

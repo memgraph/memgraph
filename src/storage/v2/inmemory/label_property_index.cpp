@@ -190,18 +190,6 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 
 }  // namespace
 
-bool InMemoryLabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
-  return std::tie(value, vertex, timestamp) < std::tie(rhs.value, rhs.vertex, rhs.timestamp);
-}
-
-bool InMemoryLabelPropertyIndex::Entry::operator==(const Entry &rhs) const {
-  return std::tie(value, vertex, timestamp) == std::tie(rhs.value, rhs.vertex, rhs.timestamp);
-}
-
-bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
-
-bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
-
 bool InMemoryLabelPropertyIndex::NewEntry::operator<(const NewEntry &rhs) const {
   return std::tie(values, vertex, timestamp) < std::tie(rhs.values, rhs.vertex, rhs.timestamp);
 }
