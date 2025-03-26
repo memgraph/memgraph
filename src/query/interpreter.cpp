@@ -746,10 +746,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
 #ifdef MG_ENTERPRISE
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges =
-      auth_query->label_privileges_;
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges =
-      auth_query->edge_type_privileges_;
+  auto role_databases = auth_query->role_databases_;
+  auto label_privileges = auth_query->label_privileges_;
+  auto edge_type_privileges = auth_query->edge_type_privileges_;
   auto impersonation_targets = auth_query->impersonation_targets_;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
@@ -960,13 +959,23 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SET_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, username, rolename, role_databases = std::move(role_databases), db_handler,
+                     interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
-
-        auth->SetRole(username, rolename, &*interpreter->system_transaction_);
-        return std::vector<std::vector<TypedValue>>();
+        try {
+          std::vector<memgraph::dbms::DatabaseAccess>
+              dbs;  // Hold pointer to database to protect it until query is done
+          for (const auto &db_name : role_databases) {
+            dbs.emplace_back(
+                db_handler->Get(db_name));  // Will throw if databases doesn't exist and protect it during pull
+          }
+          auth->SetRole(username, rolename, role_databases, &*interpreter->system_transaction_);
+          return std::vector<std::vector<TypedValue>>();
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
       };
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:

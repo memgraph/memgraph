@@ -434,7 +434,6 @@ void Auth::MtLinkUser(User &user) const {
       if (auto role = GetRole(mt_role)) {
         user.SetRoleForDB(db, *role);
       }
-      // TODO: How to handle missing roles?
     }
   }
 }
@@ -463,7 +462,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   // Mt role data
   std::unordered_map<std::string, std::string> mt_roles;
   for (const auto &[db, role] : user.db_to_role()) {
-    mt_roles.emplace(db, role.Serialize());
+    mt_roles.emplace(db, role.Serialize().dump());
   }
   puts.emplace(kMtLinkPrefix + user.username(), nlohmann::json{mt_roles}.dump());
 
@@ -812,8 +811,9 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     try {
       User user = auth::User::Deserialize(ParseJson(it->second));
       LinkUser(user);
-      MtLinkUser(user);  // TODO Enterprise only
+      MtLinkUser(user);
       user.db_access().Revoke(db);
+      user.db_to_role().erase(db);
       SaveUser(user, system_tx);
     } catch (AuthException &) {
       continue;

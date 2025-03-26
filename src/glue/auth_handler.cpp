@@ -565,7 +565,7 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(c
 }
 
 void AuthQueryHandler::SetRole(const std::string &username, const std::string &rolename,
-                               system::Transaction *system_tx) {
+                               const std::vector<std::string> &role_databases, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -576,12 +576,22 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
     if (!role) {
       throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
     }
-    if (const auto *current_role = user->role(); current_role != nullptr) {
-      throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                                   current_role->rolename());
+
+    bool all = role_databases.empty() || role_databases[0] == "*";
+    if (all) {
+      // Default role
+      if (const auto *current_role = user->role(); current_role != nullptr) {
+        throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
+                                                     current_role->rolename());
+      }
+      user->SetRole(*role);
+    } else {
+      // Database specific role
+      for (const auto &db_name : role_databases) {
+        user->SetRoleForDB(db_name, *role);
+      }
     }
-    // TODO
-    user->SetRole(*role);
+
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -595,6 +605,7 @@ void AuthQueryHandler::ClearRole(const std::string &username, system::Transactio
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
+    // TODO
     user->ClearRole();
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {

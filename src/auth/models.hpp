@@ -528,6 +528,7 @@ class User final {
 
 #ifdef MG_ENTERPRISE
   const auto &db_to_role() const { return db_to_role_; }
+  auto &db_to_role() { return db_to_role_; }
 
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }

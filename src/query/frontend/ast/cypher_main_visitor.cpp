@@ -1795,6 +1795,7 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->role_databases_ = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
   return auth;
 }
 

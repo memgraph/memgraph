@@ -383,6 +383,8 @@ nullif : literal ;
 
 rowVar : variable ;
 
+wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
+
 userOrRoleName : symbolicName ;
 
 createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
@@ -406,7 +408,7 @@ showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName ( ON db=wildcardListOfSymbolicNames );
 
 clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
@@ -417,8 +419,6 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
-
-wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
 
 grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO userOrRole=userOrRoleName ;
 
