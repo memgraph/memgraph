@@ -107,3 +107,7 @@ metadelta deltas -> do they exits for everything correctly (no more singlar -> p
 [0] -> check this hack is not used anywhere around property index
 make apply cycle functional -> the hardcoded domain type
 refactor Abort processor (index cleanup)
+
+Headers -> cpp
+
+schema documentation update to "label+properties"
