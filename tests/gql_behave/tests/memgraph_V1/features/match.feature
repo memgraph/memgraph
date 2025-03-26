@@ -847,4 +847,4 @@ Feature: Match
             """
         Then the result should be:
             | n        |
-            | ({k: 2}) |
+            | ({k: 1}) |
