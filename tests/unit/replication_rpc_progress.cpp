@@ -23,18 +23,14 @@
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
-using memgraph::dbms::InMemoryReplicationHandlers;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
-using memgraph::slk::Save;
 using memgraph::storage::Config;
-using memgraph::storage::Delta;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::ReplicaStream;
-using memgraph::storage::Storage;
 using memgraph::storage::replication::AppendDeltasReq;
 using memgraph::storage::replication::AppendDeltasRes;
 using memgraph::storage::replication::AppendDeltasRpc;
