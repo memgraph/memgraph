@@ -2968,10 +2968,13 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithIndex) {
   // Test MATCH (n:Label1|Label2) RETURN n
   FakeDbAccessor dba;
   auto label1 = dba.Label("Label1");
-  [[maybe_unused]] auto label2 = dba.Label("Label2");
+  auto label2 = dba.Label("Label2");
+  auto property = PROPERTY_PAIR(dba, "prop");
 
   dba.SetIndexCount(label1, 1);
   dba.SetIndexCount(label2, 1);
+  dba.SetIndexCount(label1, property.second, 1);  // this index shouldn't be used in this query
+  dba.SetIndexCount(label2, property.second, 1);  // this index shouldn't be used in this query
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -3109,7 +3112,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
   DeleteListContent(&right_subquery_part);
 }
 
-TYPED_TEST(TestPlanner, LabelExpressionWhereClauseMultipleLabels) {
+TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabelsNoIndex) {
   // Test MATCH (n) WHERE n:Label1 OR n:Label2 AND n:Label3 RETURN n -> fallback to scan all and generic filter
   FakeDbAccessor dba;
   auto label1_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label1")};
@@ -3129,6 +3132,51 @@ TYPED_TEST(TestPlanner, LabelExpressionWhereClauseMultipleLabels) {
                    WHERE(OR(LABELS_TEST(node_identifier, label1_ix),
                             AND(LABELS_TEST(node_identifier, label2_ix), LABELS_TEST(node_identifier, label3_ix)))),
                    RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, LabelExpressionUsingPropertyIndex) {
+  // Test MATCH (n:Label1|Label2) WHERE n.prop = 1 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto property = PROPERTY_PAIR(dba, "prop");
+
+  dba.SetIndexCount(label1_id, 1);
+  dba.SetIndexCount(label2_id, 1);
+  dba.SetIndexCount(label1_id, property.second, 1);
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperty(label1_id, property)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
+            ExpectFilter(), ExpectProduce());
+
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, LabelExpressionUsingPropertyIndexNoLabelIndex) {
+  // Test MATCH (n:Label1|Label2) RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto property = PROPERTY_PAIR(dba, "prop");
+
+  dba.SetIndexCount(label1_id, property.second, 1);
+  dba.SetIndexCount(label2_id, property.second, 1);
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 

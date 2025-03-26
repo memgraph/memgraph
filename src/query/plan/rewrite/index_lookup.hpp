@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -1059,7 +1060,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       std::vector<std::variant<LabelIx, LabelPropertyIndex>> indices;
       int64_t group_vertex_count = 0;
       for (const auto &label : group) {
-        int64_t index_vertex_count = 0;
+        int64_t index_vertex_count = std::numeric_limits<std::int64_t>::max();
         FilterInfo best_filter_info;
         auto label_id = GetLabel(label);
         for (const auto &filter : filters_.PropertyFilters(symbol)) {
@@ -1077,7 +1078,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             best_filter_info = filter;
           }
         }
-        if (index_vertex_count > 0) {
+        if (index_vertex_count < std::numeric_limits<std::int64_t>::max() && index_vertex_count > 0) {
           indices.push_back(LabelPropertyIndex{label, std::move(best_filter_info), index_vertex_count, std::nullopt});
         } else {
           // In case there is no label property index we will try to find label index
