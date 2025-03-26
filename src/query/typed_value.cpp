@@ -663,7 +663,7 @@ TypedValue &TypedValue::operator=(const Path &other) {
   if (type_ == Type::Path) {
     auto path = path_v.release();
     if (path) {
-      utils::Allocator<Graph>(memory_).delete_object(path);
+      utils::Allocator<Path>(memory_).delete_object(path);
     }
     auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(other);
     path_v = std::unique_ptr<Path>(path_ptr);
@@ -714,7 +714,7 @@ TypedValue &TypedValue::operator=(Path &&other) {
   if (type_ == Type::Path) {
     auto path = path_v.release();
     if (path) {
-      utils::Allocator<Graph>(memory_).delete_object(path);
+      utils::Allocator<Path>(memory_).delete_object(path);
     }
     path_v = std::make_unique<Path>(std::move(other));
   } else {
@@ -762,7 +762,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
-            utils::Allocator<Graph>(memory_).delete_object(path);
+            utils::Allocator<Path>(memory_).delete_object(path);
           }
           if (other.path_v) {
             auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(*other.path_v);
@@ -857,7 +857,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
-            utils::Allocator<Graph>(memory_).delete_object(path);
+            utils::Allocator<Path>(memory_).delete_object(path);
           }
           path_v = std::move(other.path_v);
           break;
