@@ -11,17 +11,16 @@
 
 #pragma once
 
-#include "rpc/client.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::replication_coordination_glue {
 
-struct DatabaseHistory {
+struct InstanceDBInfo {
   utils::UUID db_uuid;
-  std::vector<std::pair<std::string, uint64_t>> history;
+  uint64_t latest_durable_timestamp;
   std::string name;  // db name
 };
 
-using DatabaseHistories = std::vector<DatabaseHistory>;
+using InstanceInfo = std::vector<InstanceDBInfo>;
 
 }  // namespace memgraph::replication_coordination_glue
