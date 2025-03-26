@@ -12,6 +12,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include <atomic>
+
 #include "rpc_messages.hpp"
 
 #include "coordination/coordinator_rpc.hpp"
@@ -72,7 +74,10 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
+namespace {
 constexpr int port{8181};
+std::atomic_bool rpc_akn{false};
+}  // namespace
 
 // RPC client is setup with timeout but shouldn't be triggered.
 TEST(RpcTimeout, TimeoutNoFailure) {
@@ -223,15 +228,18 @@ void RegisterRpcCallback(Server &rpc_server) {
     if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
       Load(&req, req_reader);
     }
-    // Simulate done
-    std::this_thread::sleep_for(75ms);
+    rpc_akn.wait(true);    // Wait for the timeout
+    rpc_akn.store(false);  // Reset to signal handler is finished
   });
 }
 
 template <memgraph::rpc::IsRpc T>
 void SendAndAssert(Client &client) {
+  rpc_akn.store(false);
   auto stream = client.Stream<T>();
   EXPECT_THROW(stream.AwaitResponse(), GenericRpcFailedException);
+  rpc_akn.store(true);  // Signal the timeout occurred
+  rpc_akn.wait(false);  // Wait for the reset
 }
 
 TEST(RpcTimeout, Timeouts) {
