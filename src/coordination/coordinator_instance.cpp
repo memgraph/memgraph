@@ -1032,39 +1032,28 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
   spdlog::trace("Instance {} finished fail callback.", instance_name);
 }
 
-auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
+auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instances_info)
     -> std::optional<NewMainRes> {
   utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
 
   std::optional<NewMainRes> new_main_res;
 
-  for (auto const &[instance_name, instance_db_histories] : instance_database_histories) {
-    std::ranges::for_each(instance_db_histories, [&instance_name](auto &&db_history) {
-      spdlog::debug("Instance {}: db_history_name {}, default db {}.", instance_name, db_history.name,
-                    dbms::kDefaultDB);
+  for (auto const &[instance_name, instance_info] : instances_info) {
+    std::ranges::for_each(instance_info, [&instance_name](auto const &instance_db_info) {
+      spdlog::debug("Instance {}: db {}.", instance_name, instance_db_info.name);
     });
 
     // Find default db for instance and its history
-    auto default_db_history_data = std::ranges::find_if(
-        instance_db_histories,
-        [default_db = memgraph::dbms::kDefaultDB](auto const &db_history) { return db_history.name == default_db; });
+    auto default_db_info = std::ranges::find_if(instance_info, [default_db = dbms::kDefaultDB](auto const &db_history) {
+      return db_history.name == default_db;
+    });
 
-    MG_ASSERT(default_db_history_data != instance_db_histories.end(), "No history for default DB on instance {}",
-              instance_name);
+    MG_ASSERT(default_db_info != instance_info.end(), "No history for default DB on instance {}", instance_name);
 
-    const auto &instance_default_db_history = default_db_history_data->history;
-
-    std::ranges::for_each(instance_default_db_history | ranges::views::reverse,
-                          [&instance_name](auto &&epoch_history_it) {
-                            spdlog::debug("Instance {}: epoch {}, last_durable_timestamp: {}.", instance_name,
-                                          std::get<0>(epoch_history_it), std::get<1>(epoch_history_it));
-                          });
-
-    const auto &[epoch, latest_commit_timestamp] = *instance_default_db_history.crbegin();
-    if (!new_main_res || latest_commit_timestamp > new_main_res->latest_commit_timestamp) {
-      new_main_res = std::make_optional<NewMainRes>(instance_name, epoch, latest_commit_timestamp);
-      spdlog::debug("Currently the most up to date instance is {} with epoch {} and commit timestamp {}.",
-                    instance_name, epoch, latest_commit_timestamp);
+    if (!new_main_res || default_db_info->latest_durable_timestamp > new_main_res->latest_durable_timestamp) {
+      new_main_res = std::make_optional<NewMainRes>(instance_name, default_db_info->latest_durable_timestamp);
+      spdlog::debug("Currently the most up to date instance is {} with commit timestamp {}.", instance_name,
+                    default_db_info->latest_durable_timestamp);
     }
   }
 
@@ -1089,7 +1078,7 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(const std::list<R
   };
 
   // instance name -> histories
-  std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>> instance_db_histories;
+  std::vector<std::pair<std::string, replication_coordination_glue::InstanceInfo>> instance_db_histories;
 
   for (auto const &instance : instances) {
     if (auto maybe_history = get_history(instance); maybe_history.has_value()) {
@@ -1102,11 +1091,12 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(const std::list<R
 
   if (auto maybe_newest_instance = ChooseMostUpToDateInstance(instance_db_histories);
       maybe_newest_instance.has_value()) {
-    auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] = *maybe_newest_instance;
-    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
-                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-    return most_up_to_date_instance;
+    auto const &[instance_name, latest_durable_timestamp] = *maybe_newest_instance;
+    spdlog::trace("The most up to date instance is {} with latest durable timestamp {}.", instance_name,
+                  latest_durable_timestamp);  // NOLINT
+    return instance_name;
   }
+  spdlog::trace("Couldn't find new main instance to perform a failover.");
   return std::nullopt;
 }
 

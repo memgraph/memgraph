@@ -47,7 +47,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   // replica  1: A(24)  B(36)  C(48) D(50) E(51)
   // replica  2: A(24)  B(36)  C(48) D(50) E(51)
   // replica  3: A(24)  B(36)  C(48) D(50) E(51)
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
+  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::InstanceInfo>>
       instance_database_histories;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
@@ -64,16 +64,16 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
     return std::make_pair(std::string(pair.first), pair.second);
   });
 
-  memgraph::replication_coordination_glue::DatabaseHistory history{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history};
+  memgraph::replication_coordination_glue::InstanceInfo instance_1_db_histories_{history};
   instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history};
+  memgraph::replication_coordination_glue::InstanceInfo instance_2_db_histories_{history};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history};
+  memgraph::replication_coordination_glue::InstanceInfo instance_3_db_histories_{history};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
@@ -84,10 +84,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
                                                    .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
 
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
+  auto [instance_name, latest_commit_timestamp] = *instance.ChooseMostUpToDateInstance(instance_database_histories);
   ASSERT_TRUE(instance_name == "instance_1" || instance_name == "instance_2" || instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == db_histories.back().first);
   ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
 }
 
@@ -98,7 +96,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   // replica  1: A(24)  B(12)  C(15) D(17) E(51)
   // replica  2: A(24)  B(12)  C(15) D(17) E(57)
   // replica  3: A(24)  B(12)  C(15) D(17) E(59)
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
+  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::InstanceInfo>>
       instance_database_histories;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
@@ -109,29 +107,29 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   histories.emplace_back(memgraph::utils::UUID{}, 59);
 
   memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  auto default_name = std::string(memgraph::dbms::kDefaultDB);
 
   auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
     return std::make_pair(std::string(pair.first), pair.second);
   });
 
   db_histories.back().second = 51;
-  memgraph::replication_coordination_glue::DatabaseHistory history1{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history1{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history1};
+  memgraph::replication_coordination_glue::InstanceInfo instance_1_db_histories_{history1};
   instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
 
   db_histories.back().second = 57;
-  memgraph::replication_coordination_glue::DatabaseHistory history2{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history2};
+  memgraph::replication_coordination_glue::InstanceDBInfo history2{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories.back().second, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceInfo instance_2_db_histories_{history2};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
   db_histories.back().second = 59;
-  memgraph::replication_coordination_glue::DatabaseHistory history3{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history3};
+  memgraph::replication_coordination_glue::InstanceDBInfo history3{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories.back().second, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceInfo instance_3_db_histories_{history3};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
@@ -141,11 +139,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
                                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
                                                    .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
+  auto [instance_name, latest_commit_timestamp] = *instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == db_histories.back().first);
   ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
 }
 
@@ -156,7 +152,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   // replica  1: A(24)  B(36)  C(48) D(50) E(51) F(60) G(65)  X  up
   // replica  2: A(24)  B(36)  C(48) D(50) E(51)  X     X     X  up
   // replica  3: A(24)  B(36)  C(48) D(50) E(51)  X     X     X  up
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
+  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::InstanceInfo>>
       instance_database_histories;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
@@ -167,19 +163,19 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   histories.emplace_back(memgraph::utils::UUID{}, 51);
 
   memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  auto default_name = std::string(memgraph::dbms::kDefaultDB);
 
   auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
     return std::make_pair(std::string(pair.first), pair.second);
   });
 
-  memgraph::replication_coordination_glue::DatabaseHistory history{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history};
+  memgraph::replication_coordination_glue::InstanceInfo instance_1_db_histories_{history};
   instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history};
+  memgraph::replication_coordination_glue::InstanceInfo instance_2_db_histories_{history};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
   histories.emplace_back(memgraph::utils::UUID{}, 60);
@@ -189,10 +185,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
         return std::make_pair(std::string(pair.first), pair.second);
       });
 
-  memgraph::replication_coordination_glue::DatabaseHistory history_longest{
-      .db_uuid = db_uuid, .history = db_histories_longest, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history_longest{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories_longest.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_longest};
+  memgraph::replication_coordination_glue::InstanceInfo instance_3_db_histories_{history_longest};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
@@ -202,11 +198,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
                                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
                                                    .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
+  auto [instance_name, latest_commit_timestamp] = *instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == db_histories_longest.back().first);
   ASSERT_TRUE(latest_commit_timestamp == db_histories_longest.back().second);
 }
 
@@ -216,7 +210,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   // replica  1: A(1)  B(2)   C(3)    X     X up
   // replica  2: A(1)  B(2)    X     D(5)   X up
   // replica  3: A(1)  B(2)    X     D(4)   X up
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
+  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::InstanceInfo>>
       instance_database_histories;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
@@ -225,16 +219,16 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   histories.emplace_back(memgraph::utils::UUID{}, 3);
 
   memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  auto default_name = std::string(memgraph::dbms::kDefaultDB);
 
   auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
     return std::make_pair(std::string(pair.first), pair.second);
   });
 
-  memgraph::replication_coordination_glue::DatabaseHistory history{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history};
+  memgraph::replication_coordination_glue::InstanceInfo instance_1_db_histories_{history};
   instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
 
   db_histories.pop_back();
@@ -247,17 +241,17 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
         return std::make_pair(std::string(pair.first), pair.second);
       });
 
-  memgraph::replication_coordination_glue::DatabaseHistory history_3{
-      .db_uuid = db_uuid, .history = db_histories_different, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history_3{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories_different.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_3};
+  memgraph::replication_coordination_glue::InstanceInfo instance_3_db_histories_{history_3};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   db_histories_different.back().second = 4;
-  memgraph::replication_coordination_glue::DatabaseHistory history_2{
-      .db_uuid = db_uuid, .history = db_histories_different, .name = default_name};
+  memgraph::replication_coordination_glue::InstanceDBInfo history_2{
+      .db_uuid = db_uuid, .latest_durable_timestamp = db_histories_different.back().second, .name = default_name};
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history_2};
+  memgraph::replication_coordination_glue::InstanceInfo instance_2_db_histories_{history_2};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
@@ -267,10 +261,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
                                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
                                                    .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
+  auto [instance_name, latest_commit_timestamp] = *instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == std::string(newest_different_epoch));
   ASSERT_TRUE(latest_commit_timestamp == oldest_commit_timestamp);
 }

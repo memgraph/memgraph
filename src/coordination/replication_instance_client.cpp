@@ -100,7 +100,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
 }
 
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
-    -> std::optional<replication_coordination_glue::DatabaseHistories> {
+    -> std::optional<replication_coordination_glue::InstanceInfo> {
   try {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
