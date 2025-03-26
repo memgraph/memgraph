@@ -67,6 +67,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void DropGraphClearIndices() override{};
 
+  void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
       entries_for_deletion;
