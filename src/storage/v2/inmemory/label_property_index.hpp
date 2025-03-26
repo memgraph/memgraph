@@ -79,7 +79,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  IndexStats Analysis() const;
+  AbortProcessor Analysis() const;
 
   void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
