@@ -28,6 +28,7 @@ class BenchmarkContext:
         vendor_name: str = None,
         installation_type: str = None,
         client_binary: str = None,
+        client_language: str = None,
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
         single_threaded_runtime_sec: int = 0,
@@ -52,6 +53,7 @@ class BenchmarkContext:
         self.vendor_name = vendor_name
         self.installation_type = installation_type
         self.client_binary = client_binary
+        self.client_language = client_language
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
         self.single_threaded_runtime_sec = single_threaded_runtime_sec
@@ -97,6 +99,6 @@ class BenchmarkContext:
 
     def get_active_variant(self) -> str:
         return self.active_variant
-    
+
     def get_installation_type(self) -> str:
         return self.installation_type

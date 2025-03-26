@@ -1,8 +1,9 @@
-from abc import ABC, abstractmethod
 import argparse
 import json
 import time
+from abc import ABC, abstractmethod
 from multiprocessing import Array, Lock, Manager, Process, Queue, Value
+
 from falkordb import FalkorDB
 from neo4j import GraphDatabase
 
@@ -55,7 +56,7 @@ def get_python_client(vendor):
         return Neo4jPythonClient
     if vendor == "falkordb":
         return FalkorDBPythonClient
-    raise Exception("Unknown vendor!")
+    raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
 def execute_validation_task(

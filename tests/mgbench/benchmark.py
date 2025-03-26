@@ -62,7 +62,7 @@ SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
 
 def parse_args():
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
-    
+
     benchmark_parser.add_argument(
         "--vendor-name",
         type=str,
@@ -70,7 +70,7 @@ def parse_args():
         choices=GraphVendors.get_all_vendors(),
         help="Input vendor binary name (memgraph, neo4j, falkordb)",
     )
-    
+
     benchmark_parser.add_argument(
         "--installation-type",
         type=str,
@@ -224,6 +224,14 @@ def parse_args():
         type=str,
         default=helpers.get_binary_path("tests/mgbench/client"),
         help="Client binary used for benchmarking",
+    )
+
+    benchmark_parser.add_argument(
+        "--client-language",
+        type=str,
+        default=BenchmarkClientLanguage.CPP,
+        choices=BenchmarkClientLanguage.get_all_client_languages(),
+        help="Client language implementation (cpp or docker)",
     )
 
     return benchmark_parser.parse_args()
@@ -903,6 +911,7 @@ if __name__ == "__main__":
         vendor_name=args.vendor_name,
         installation_type=args.installation_type,
         client_binary=args.client_binary if args.installation_type == "native" else None,
+        client_language=args.client_language,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,

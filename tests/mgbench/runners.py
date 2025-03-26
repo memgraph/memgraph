@@ -23,7 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkInstallationType
+from constants import BenchmarkClientLanguage, BenchmarkInstallationType
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -370,7 +370,7 @@ class BoltClientDocker(BaseClient):
         return ret
 
 
-class FalkorDBClient(BaseClient):
+class PythonClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
         self._client_binary = "tests/mgbench/python_client.py"
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
@@ -603,7 +603,11 @@ class Memgraph(BaseRunner):
             f.close()
 
     def fetch_client(self) -> BoltClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+            return BoltClient(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+            return PythonClient(benchmark_context=self.benchmark_context)
+        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def _get_args(self, **kwargs):
         data_directory = os.path.join(self._directory.name, "memgraph")
@@ -862,7 +866,11 @@ class Neo4j(BaseRunner):
                 f.close()
 
     def fetch_client(self) -> BoltClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+            return BoltClient(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+            return PythonClient(benchmark_context=self.benchmark_context)
+        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def _start(self, **kwargs):
         if self._neo4j_pid.exists():
@@ -983,7 +991,11 @@ class MemgraphDocker(BaseRunner):
         self.remove_container(self._container_name)
 
     def fetch_client(self) -> BaseClient:
-        return BoltClientDocker(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+            return BoltClientDocker(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+            return PythonClient(benchmark_context=self.benchmark_context)
+        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
@@ -1130,7 +1142,11 @@ class Neo4jDocker(BaseRunner):
         self.remove_container(self._container_name)
 
     def fetch_client(self) -> BaseClient:
-        return BoltClientDocker(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+            return BoltClientDocker(benchmark_context=self.benchmark_context)
+        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+            return PythonClient(benchmark_context=self.benchmark_context)
+        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
@@ -1270,7 +1286,8 @@ class FalkorDBDocker(BaseRunner):
         self.remove_container(self._container_name)
 
     def fetch_client(self) -> BaseClient:
-        return FalkorDBClient(benchmark_context=self.benchmark_context)
+        # FalkorDB supports only the Python client
+        return PythonClient(benchmark_context=self.benchmark_context)
 
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]

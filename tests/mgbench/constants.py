@@ -29,6 +29,15 @@ class BenchmarkInstallationType:
         return [cls.NATIVE, cls.DOCKER]
 
 
+class BenchmarkClientLanguage:
+    CPP = "cpp"
+    PYTHON = "python"
+
+    @classmethod
+    def get_all_client_languages(cls):
+        return [cls.CPP, cls.PYTHON]
+
+
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
 RUN_CONFIGURATION = "__run_configuration__"

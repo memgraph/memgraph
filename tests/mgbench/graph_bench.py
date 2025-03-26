@@ -16,7 +16,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from constants import GraphVendors, BenchmarkInstallationType
+from constants import BenchmarkClientLanguage, BenchmarkInstallationType, GraphVendors
 
 
 def parse_arguments():
@@ -41,6 +41,15 @@ def parse_arguments():
         choices=BenchmarkInstallationType.get_all_installation_types(),
         required=True,
         help="Specify installation type: native or docker",
+    )
+
+    parser.add_argument(
+        "--client-language",
+        type=str,
+        default=BenchmarkClientLanguage.CPP,
+        choices=BenchmarkClientLanguage.get_all_client_languages(),
+        required=True,
+        help="Specify client language implementation: cpp or docker",
     )
 
     parser.add_argument(
@@ -125,6 +134,7 @@ def run_full_benchmarks(
     vendor,
     installation_type,
     binary,
+    client_language,
     dataset,
     dataset_size,
     dataset_group,
@@ -229,6 +239,8 @@ def run_full_benchmarks(
             vendor,
             "--installation-type",
             installation_type,
+            "--client-language",
+            client_language,
             "--num-workers-for-benchmark",
             str(workers),
             "--single-threaded-runtime-sec",
@@ -305,6 +317,7 @@ if __name__ == "__main__":
             vendor_name,
             args.installation_type,
             vendor_binary,
+            args.client_language,
             args.dataset_name,
             args.dataset_size,
             args.dataset_group,
