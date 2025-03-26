@@ -371,17 +371,14 @@ class BoltClientDocker(BaseClient):
 
 
 class PythonClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext):
+    def __init__(self, benchmark_context: BenchmarkContext, database_port: int):
+        super().__init__(benchmark_context=benchmark_context)
         self._vendor = benchmark_context.vendor_name
         self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._database_port = (
-            benchmark_context.vendor_args["database-port"]
-            if "database-port" in benchmark_context.vendor_args.keys()
-            else 7687
-        )
+        self._database_port = database_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags("python3", self._client_binary, **kwargs)
@@ -607,11 +604,11 @@ class Memgraph(BaseRunner):
                 f.write("\n")
             f.close()
 
-    def fetch_client(self) -> BoltClient:
+    def fetch_client(self) -> BaseClient:
         if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClient(benchmark_context=self.benchmark_context)
+            return BoltClient(self.benchmark_context)
         if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(benchmark_context=self.benchmark_context)
+            return PythonClient(self.benchmark_context, self._bolt_port)
         raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def _get_args(self, **kwargs):
@@ -870,11 +867,11 @@ class Neo4j(BaseRunner):
                 f.write(memory_usage.stdout)
                 f.close()
 
-    def fetch_client(self) -> BoltClient:
+    def fetch_client(self) -> BaseClient:
         if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClient(benchmark_context=self.benchmark_context)
+            return BoltClient(self.benchmark_context)
         if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(benchmark_context=self.benchmark_context)
+            return PythonClient(self.benchmark_context, self._bolt_port)
         raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def _start(self, **kwargs):
@@ -997,9 +994,9 @@ class MemgraphDocker(BaseRunner):
 
     def fetch_client(self) -> BaseClient:
         if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClientDocker(benchmark_context=self.benchmark_context)
+            return BoltClientDocker(self.benchmark_context)
         if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(benchmark_context=self.benchmark_context)
+            return PythonClient(self.benchmark_context, self._bolt_port)
         raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def remove_container(self, containerName):
@@ -1150,7 +1147,7 @@ class Neo4jDocker(BaseRunner):
         if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
             return BoltClientDocker(benchmark_context=self.benchmark_context)
         if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(benchmark_context=self.benchmark_context)
+            return PythonClient(self.benchmark_context, self._bolt_port)
         raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def remove_container(self, containerName):
@@ -1292,7 +1289,7 @@ class FalkorDBDocker(BaseRunner):
 
     def fetch_client(self) -> BaseClient:
         # FalkorDB supports only the Python client
-        return PythonClient(benchmark_context=self.benchmark_context)
+        return PythonClient(self.benchmark_context, self._falkordb_port)
 
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]
