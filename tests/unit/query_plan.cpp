@@ -3112,7 +3112,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
   DeleteListContent(&right_subquery_part);
 }
 
-TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabelsNoIndex) {
+TYPED_TEST(TestPlanner, LabelExpressionCombination) {
   // Test MATCH (n) WHERE n:Label1 OR n:Label2 AND n:Label3 RETURN n -> fallback to scan all and generic filter
   FakeDbAccessor dba;
   auto label1_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("Label1")};
@@ -3138,7 +3138,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabelsNoIndex) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, LabelExpressionUsingPropertyIndex) {
+TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndex) {
   // Test MATCH (n:Label1|Label2) WHERE n.prop = 1 RETURN n
   FakeDbAccessor dba;
   auto label1_id = dba.Label("Label1");
@@ -3184,7 +3184,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndexNoLabelIndex) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, ORLabelExpressionMultipleLabelsWithPropertyIndex) {
+TYPED_TEST(TestPlanner, ORLabelExpressionMultipleMatchStatementsPropertyIndex) {
   // Test MATCH (n:Label1|Label2) MATCH (n:Label3|Label4) WHERE n.prop = 1 RETURN n
   FakeDbAccessor dba;
   auto label1_id = dba.Label("Label1");
