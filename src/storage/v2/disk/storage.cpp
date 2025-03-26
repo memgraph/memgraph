@@ -912,7 +912,7 @@ StorageInfo DiskStorage::GetInfo() {
     auto access = Access();
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
-    info.label_property_indices = lbl.label_property.size();
+    info.label_property_indices = lbl.label_property_new.size();
     info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
@@ -2333,7 +2333,6 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(),
-          {/* old label / property index */},
           disk_label_property_index->ListIndices(),
           {/* edge type indices */},
           {/* edge_type_property */},

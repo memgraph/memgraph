@@ -81,7 +81,6 @@ class EdgeAccessor;
 
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, PropertyId>> label_property;  // @TODO remove this
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_property_new;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
