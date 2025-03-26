@@ -361,6 +361,14 @@
                           (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                             (utils/process-service-unavailable-exc op node))
 
+                          (catch org.neo4j.driver.exceptions.ClientException e
+                            (cond
+                              (utils/not-main-anymore? e)
+                              (assoc op :type :info :value {:str "Not main anymore"})
+
+                              :else
+                              (assoc op :type :fail :value (str e))))
+
                           (catch org.neo4j.driver.exceptions.TransientException e
                             (cond
                               (utils/sync-replica-down? e)

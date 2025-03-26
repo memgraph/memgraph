@@ -67,6 +67,12 @@
   [f]
   {:type :info :f f})
 
+(defn not-main-anymore?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Cannot commit because instance is not main anymore")
+  )
+
 (defn node-is-down
   "Log that a node is down"
   [node]
