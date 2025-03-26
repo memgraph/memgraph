@@ -1346,9 +1346,10 @@ class LabelsTest : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;  // maybe not needed -> everything can go in or_labels_
+  std::vector<memgraph::query::LabelIx> labels_;  // TODO: Maybe we should unify this with or_labels_
   std::vector<std::vector<memgraph::query::LabelIx>>
-      or_labels_;  // because we need to support OR in labels -> node has to have at least one of the labels
+      or_labels_;  // Because we need to support OR in labels -> node has to have at least one of the labels in "inner"
+                   // vector
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();

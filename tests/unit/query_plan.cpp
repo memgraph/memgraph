@@ -3165,7 +3165,7 @@ TYPED_TEST(TestPlanner, LabelExpressionUsingPropertyIndex) {
   DeleteListContent(&right_subquery_part);
 }
 
-TYPED_TEST(TestPlanner, LabelExpressionUsingPropertyIndexNoLabelIndex) {
+TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndexNoLabelIndex) {
   // Test MATCH (n:Label1|Label2) RETURN n
   FakeDbAccessor dba;
   auto label1_id = dba.Label("Label1");
@@ -3181,6 +3181,38 @@ TYPED_TEST(TestPlanner, LabelExpressionUsingPropertyIndexNoLabelIndex) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, ORLabelExpressionMultipleLabelsWithPropertyIndex) {
+  // Test MATCH (n:Label1|Label2) MATCH (n:Label3|Label4) WHERE n.prop = 1 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto label3_id = dba.Label("Label3");
+  auto label4_id = dba.Label("Label4");
+  auto property = PROPERTY_PAIR(dba, "prop");
+
+  dba.SetIndexCount(label1_id, 2);
+  dba.SetIndexCount(label2_id, 2);
+  dba.SetIndexCount(label3_id, property.second, 1);
+  dba.SetIndexCount(label4_id, property.second, 1);
+  // Plan should use label property index on Label3 and Label4 because of smaller count
+
+  auto node_identifier = IDENT("n");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label3", "Label4"}))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(1))), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperty(label4_id, property)};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperty(label3_id, property)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
+            ExpectFilter(), ExpectProduce());
+
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
 }
 
 }  // namespace

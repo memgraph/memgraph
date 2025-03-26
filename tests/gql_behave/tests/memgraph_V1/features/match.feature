@@ -889,6 +889,27 @@ Feature: Match
             | (:Label2)        |
             | (:Label1:Label2) |
 
+    Scenario: Using OR expression with label property index
+        Given an empty graph
+        And with new index :Label1(id)
+        And with new index :Label2(id)
+        And having executed:
+            """
+            CREATE (a:Label1 {id: 1})
+            CREATE (b:Label2 {id: 2})
+            CREATE (c:Label1:Label2 {id: 1})
+            CREATE (d:Label1:Label2 {id: 2})
+            CREATE (e:Label3 {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) WHERE n.id < 2 RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:Label1 {id: 1})        |
+            | (:Label1:Label2 {id: 1}) |
+
     Scenario: Using OR expression in CREATE
         Given an empty graph
         When executing query:
