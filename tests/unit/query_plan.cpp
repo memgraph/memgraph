@@ -3172,6 +3172,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndexNoLabelIndex) {
   auto label2_id = dba.Label("Label2");
   auto property = PROPERTY_PAIR(dba, "prop");
 
+  // Here no label index is present (but label property index is) hence we should fallback to scan all and filtering
   dba.SetIndexCount(label1_id, property.second, 1);
   dba.SetIndexCount(label2_id, property.second, 1);
 
