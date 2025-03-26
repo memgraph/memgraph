@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "GQL Behave Tests(Release build)-${{ inputs.run_id }}"
+          name: "GQL Behave Tests(Release build)-${{ github.run_id }}"
           path: build/memgraph-logs-gql-behave-tests
 
       - name: Save quality assurance status
@@ -492,7 +492,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "Query modules tests(Release build)-${{ inputs.run_id }}"
+          name: "Query modules tests(Release build)-${{ github.run_id }}"
           path: build/memgraph-logs-query-modules
 
       - name: Stop mgbuild container
