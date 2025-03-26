@@ -75,10 +75,6 @@ struct EdgeTypeIx {
   int64_t ix;
 };
 
-
-
-
-
 }  // namespace memgraph::query
 
 namespace std {
@@ -129,7 +125,7 @@ class AstStorage {
 
   EdgeTypeIx GetEdgeTypeIx(const std::string &name) { return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)}; }
 
-  //TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
+  // TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
   std::vector<std::string> labels_;
   std::vector<std::string> edge_types_;
   std::vector<std::string> properties_;
@@ -2252,17 +2248,7 @@ struct IndexHint {
   // This is not the exact properies of the index, it is the prefix (which might be exact)
   std::optional<std::vector<memgraph::query::PropertyIx>> property_ixs_{std::nullopt};
 
-  IndexHint Clone(AstStorage *storage) const {
-    IndexHint object;
-    object.index_type_ = index_type_;
-    object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-    if (property_ixs_) {
-      object.property_ixs_ = *property_ixs_ |
-                             ranges::views::transform([&](auto &&v) { return storage->GetPropertyIx(v.name); }) |
-                             ranges::to_vector;
-    }
-    return object;
-  }
+  IndexHint Clone(AstStorage *storage) const;
 };
 
 struct PreQueryDirectives {
