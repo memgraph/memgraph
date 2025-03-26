@@ -188,47 +188,10 @@ struct CurrentWalRes {
 
 using CurrentWalRpc = rpc::RequestResponse<CurrentWalReq, CurrentWalRes>;
 
-struct TimestampReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(TimestampReq *self, memgraph::slk::Reader *reader);
-  static void Save(const TimestampReq &self, memgraph::slk::Builder *builder);
-  TimestampReq() = default;
-  explicit TimestampReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid(main_uuid), uuid{uuid} {}
-
-  utils::UUID main_uuid;
-  utils::UUID uuid;
-};
-
-struct TimestampRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(TimestampRes *self, memgraph::slk::Reader *reader);
-  static void Save(const TimestampRes &self, memgraph::slk::Builder *builder);
-  TimestampRes() = default;
-  TimestampRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
-
-  bool success;
-  uint64_t current_commit_timestamp;
-};
-
-using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
-
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
 namespace memgraph::slk {
-
-void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::TimestampRes *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::TimestampReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::TimestampReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::CurrentWalRes &self, memgraph::slk::Builder *builder);
 
