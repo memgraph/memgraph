@@ -35,6 +35,7 @@ target_sources(mg-query
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp
     frontend/semantic/required_privileges.cpp
+    frontend/semantic/rw_checker.cpp
     frontend/semantic/symbol_generator.cpp
     frontend/stripped.cpp
     interpret/awesome_memgraph_functions.cpp

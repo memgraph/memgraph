@@ -11,10 +11,10 @@
 
 #include <optional>
 #include <utility>
-#include "auth/auth.hpp"
-#include "auth/exceptions.hpp"
 
 #include "audit/log.hpp"
+#include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/SessionHL.hpp"
@@ -49,7 +49,12 @@ auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query
     tx_timeout = it->second.ValueInt();
   }
 
-  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout};
+  bool is_read = false;
+  if (auto const it = as_map.find("mode"); it != as_map.cend() && it->second.IsString()) {
+    is_read = it->second.ValueString() == "r";
+  }
+
+  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout, is_read};
 }
 
 class TypedValueResultStreamBase {
