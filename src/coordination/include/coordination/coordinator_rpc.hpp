@@ -185,11 +185,11 @@ struct GetDatabaseHistoriesRes {
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo db_histories)
-      : database_histories(std::move(db_histories)) {}
+  explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo instance_info)
+      : instance_info(std::move(instance_info)) {}
   GetDatabaseHistoriesRes() = default;
 
-  replication_coordination_glue::InstanceInfo database_histories;
+  replication_coordination_glue::InstanceInfo instance_info;
 };
 
 using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;

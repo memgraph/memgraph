@@ -47,16 +47,24 @@ inline void Load(ReplicationClientInfo *obj, Reader *reader) {
   Load(&obj->replication_server, reader);
 }
 
+inline void Save(const replication_coordination_glue::InstanceInfo &obj, Builder *builder) {
+  Save(obj.last_committed_system_timestamp, builder);
+  Save(obj.dbs_info, builder);
+}
+
+inline void Load(replication_coordination_glue::InstanceInfo *obj, Reader *reader) {
+  Load(&obj->last_committed_system_timestamp, reader);
+  Load(&obj->dbs_info, reader);
+}
+
 inline void Save(const replication_coordination_glue::InstanceDBInfo &obj, Builder *builder) {
   Save(obj.db_uuid, builder);
   Save(obj.latest_durable_timestamp, builder);
-  Save(obj.name, builder);
 }
 
 inline void Load(replication_coordination_glue::InstanceDBInfo *obj, Reader *reader) {
   Load(&obj->db_uuid, reader);
   Load(&obj->latest_durable_timestamp, reader);
-  Load(&obj->name, reader);
 }
 
 inline void Save(const InstanceStatus &obj, Builder *builder) {
