@@ -113,7 +113,7 @@ namespace r = ranges;
 namespace rv = ranges::views;
 
 namespace {
-constexpr std::chrono::milliseconds kAccessTimeout{1000};
+constexpr std::chrono::milliseconds kAccessTimeout{1000};  // TODO Make it a user defined arg
 }  // namespace
 
 namespace memgraph::metrics {
