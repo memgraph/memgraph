@@ -39,6 +39,7 @@
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "flags/storage_access.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
@@ -112,10 +113,6 @@
 namespace r = ranges;
 namespace rv = ranges::views;
 
-namespace {
-constexpr std::chrono::milliseconds kAccessTimeout{1000};  // TODO Make it a user defined arg
-}  // namespace
-
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -140,9 +137,11 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
   auto &db_acc = *db_acc_;
   if (unique) {
-    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+    db_transactional_accessor_ =
+        db_acc->UniqueAccess(override_isolation_level, std::chrono::seconds{FLAGS_storage_access_timeout_sec});
   } else {
-    db_transactional_accessor_ = db_acc->Access(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+    db_transactional_accessor_ =
+        db_acc->Access(override_isolation_level, std::chrono::seconds{FLAGS_storage_access_timeout_sec});
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
