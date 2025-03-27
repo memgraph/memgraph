@@ -23,12 +23,17 @@ namespace memgraph::storage {
 /** Representation for a range of property values, which may be:
  * - BOUNDED: including only values between a lower and upper bounds
  * - IS_NOT_NULL: including every non-null value
+ * - INVALID: an range no property value can ever match, caused by different
+ *            types for lower and upper bounds. For example:
+ *            n.a > 42 and n.a < "hello".
  */
 enum class PropertyRangeType { BOUNDED, IS_NOT_NULL, INVALID };
 struct PropertyValueRange {
   using Type = PropertyRangeType;
 
-  static auto InValid() -> PropertyValueRange { return {Type::INVALID, std::nullopt, std::nullopt}; };
+  static auto Invalid(utils::Bound<PropertyValue> lower, utils::Bound<PropertyValue> upper) -> PropertyValueRange {
+    return {Type::INVALID, std::move(lower), std::move(upper)};
+  };
 
   static auto Bounded(std::optional<utils::Bound<PropertyValue>> lower,
                       std::optional<utils::Bound<PropertyValue>> upper) -> PropertyValueRange {
