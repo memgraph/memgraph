@@ -1141,10 +1141,6 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     return instance.GetClient().SendGetDatabaseHistoriesRpc();
   };
 
-  // db_uuid -> db_name
-  // TODO: (andi) add or remove
-  std::map<utils::UUID, std::string> db_metadata;
-
   std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info;
 
   for (auto const &instance : repl_instances_) {
