@@ -235,7 +235,7 @@ std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPro
     for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
       if (IndexExists(label, std::array{property})) {
         // NOLINTNEXTLINE(google-runtime-int)
-        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)});
+        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)}, label, std::vector{property});
       }
     }
   }

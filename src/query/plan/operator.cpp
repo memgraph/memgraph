@@ -212,7 +212,7 @@ auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage:
 
       // When scanning a range, the bounds must be the same type
       if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
-        return storage::PropertyValueRange::InValid();
+        return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
@@ -279,7 +279,7 @@ auto ExpressionRange::plantime_resolve(Parameters const &params) const -> std::o
 
       // When scanning a range, the bounds must be the same type
       if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
-        return storage::PropertyValueRange::InValid();
+        return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
@@ -1215,6 +1215,7 @@ ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<Logical
       label_(label),
       properties_(std::move(properties)),
       expression_ranges_(std::move(expression_ranges)) {
+  DMG_ASSERT(!properties_.empty(), "Properties are not optional.");
   DMG_ASSERT(!expression_ranges_.empty(), "Expressions are not optional.");
 }
 
