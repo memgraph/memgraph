@@ -16,11 +16,13 @@
 namespace memgraph::replication_coordination_glue {
 
 struct InstanceDBInfo {
-  utils::UUID db_uuid;
+  std::string db_uuid;
   uint64_t latest_durable_timestamp;
-  std::string name;  // db name
 };
 
-using InstanceInfo = std::vector<InstanceDBInfo>;
+struct InstanceInfo {
+  std::vector<InstanceDBInfo> dbs_info;
+  uint64_t last_committed_system_timestamp;
+};
 
 }  // namespace memgraph::replication_coordination_glue

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,7 @@ struct State {
     last_committed_system_timestamp_.store(timestamp);
   }
 
-  auto LastCommittedSystemTimestamp() -> uint64_t { return last_committed_system_timestamp_.load(); }
+  auto LastCommittedSystemTimestamp() const -> uint64_t { return last_committed_system_timestamp_.load(); }
 
  private:
   friend struct ReplicaHandlerAccessToState;

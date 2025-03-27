@@ -100,7 +100,7 @@ class CoordinatorInstance {
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 
   static auto ChooseMostUpToDateInstance(
-      std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> const &dbs_info)
+      std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
       -> std::optional<std::string>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;

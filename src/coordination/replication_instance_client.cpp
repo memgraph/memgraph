@@ -106,7 +106,7 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.AwaitResponse();
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
-    return res.database_histories;
+    return res.instance_info;
 
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());

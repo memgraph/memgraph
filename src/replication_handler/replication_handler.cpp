@@ -365,11 +365,11 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
 
 auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo {
   replication_coordination_glue::InstanceInfo results;
+  results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
-    results.emplace_back(db_acc->storage()->uuid(),
-                         repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire),
-                         std::string(db_acc->name()));
+    results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
+                                  repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
   });
 
   return results;

@@ -1033,9 +1033,35 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
 }
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(
-    std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> const &dbs_info)
+    std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
     -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
+
+  // Find the instance with the largest system committed timestamp
+  auto const largest_sys_ts_instance = std::ranges::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
+    return lhs.second.last_committed_system_timestamp < rhs.second.last_committed_system_timestamp;
+  });
+
+  if (largest_sys_ts_instance == instances_info.end()) {
+    spdlog::error("Couldn't retrieve history for any instance. Failover won't be performed.");
+    return std::nullopt;
+  }
+
+  // db_uuid -> vector<std::pair<instance_name, latest_durable_timestamp>>
+  std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> dbs_info;
+
+  for (auto const &largest_sys_ts_instance_dbs_info = largest_sys_ts_instance->second.dbs_info;
+       auto const &db_info : largest_sys_ts_instance_dbs_info) {
+    dbs_info.try_emplace(db_info.db_uuid);
+  }
+
+  for (auto const &[instance_name, instance_info] : instances_info) {
+    for (auto const &instance_db_info : instance_info.dbs_info) {
+      if (auto db_it = dbs_info.find(instance_db_info.db_uuid); db_it != dbs_info.end()) {
+        db_it->second.emplace_back(instance_name, instance_db_info.latest_durable_timestamp);
+      }
+    }
+  }
 
   // Instance name -> cnt on how many DBs is instance the newest
   std::map<std::string, uint64_t> total_instances_counter;
@@ -1044,14 +1070,12 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   // New handling
   for (auto const &[db_uuid, db_info] : dbs_info) {
-    // TODO: (andi) Log db_name
     spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
 
     // There could be multiple instances with the same timestamp
     std::vector<std::string> newest_db_instances;
     uint64_t curr_ldt{0};
 
-    // TODO: (andi) This is some STL algorithm
     for (auto const &[instance_name, latest_durable_timestamp] : db_info) {
       // Sum eagerly timestamps
       if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, latest_durable_timestamp);
@@ -1072,7 +1096,6 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
     if (newest_db_instances.empty()) {
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
-      // TODO: (andi) Log db_name
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
                    curr_ldt, db_uuid, fmt::join(newest_db_instances, ", "));
       for (auto const &db_newest_instance_name : newest_db_instances) {
@@ -1114,37 +1137,25 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     return std::nullopt;
   }
 
-  spdlog::trace("{} data instances can become new main.", repl_instances_.size());
-
   auto const get_instance_info = [](auto const &instance) {
     return instance.GetClient().SendGetDatabaseHistoriesRpc();
   };
 
-  // db_uuid -> vector<std::pair<instance_name, latest_durable_timestamp>>
-  std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> dbs_info;
   // db_uuid -> db_name
+  // TODO: (andi) add or remove
   std::map<utils::UUID, std::string> db_metadata;
 
-  // TODO: (andi) Take into account only DBs from the instance with the latest system timestamp
+  std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info;
 
   for (auto const &instance : repl_instances_) {
     if (auto maybe_instance_info = get_instance_info(instance); maybe_instance_info.has_value()) {
-      auto &instance_info = *maybe_instance_info;
-      auto instance_name = instance.InstanceName();
-      // TODO: (andi) Remove this log in production, not needed
-      spdlog::trace("Received failover info for instance {}.", instance_name);
-      for (auto &instance_db_info : instance_info) {
-        auto [db_it, _] = dbs_info.try_emplace(std::string{instance_db_info.db_uuid});
-        db_it->second.emplace_back(instance_name, instance_db_info.latest_durable_timestamp);
-      }
-
+      instances_info.emplace(instance.InstanceName(), std::move(*maybe_instance_info));
     } else {
-      // TODO: (andi) Remove this log in production not needed
-      spdlog::trace("Couldn't receive history for instance {}.", instance.InstanceName());
+      spdlog::error("Couldn't retrieve failover info for instance {}", instance.InstanceName());
     }
   }
 
-  return ChooseMostUpToDateInstance(dbs_info);
+  return ChooseMostUpToDateInstance(instances_info);
 }
 
 }  // namespace memgraph::coordination
