@@ -3007,7 +3007,8 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
   // expect union of union and scan all by label
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
+  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part),
+                                                 new ExpectDistinct()};
   std::list<BaseOpChecker *> second_subquery_plan{new ExpectScanAllByLabel()};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(first_subquery_plan, second_subquery_plan), ExpectDistinct(),
@@ -3072,7 +3073,8 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
 
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
+  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part),
+                                                 new ExpectDistinct()};
   std::list<BaseOpChecker *> second_subquery_plan{new ExpectScanAllByLabel()};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(first_subquery_plan, second_subquery_plan), ExpectDistinct(),
@@ -3154,13 +3156,14 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndex) {
   dba.SetIndexCount(label1_id, property.second, 1);
 
   auto node_identifier = IDENT("n");
+  auto lit_1 = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
-                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(1))), RETURN("n")));
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), lit_1)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperty(label1_id, property)};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelPropertyValue(label1_id, property, lit_1)};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());
@@ -3204,14 +3207,15 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMultipleMatchStatementsPropertyIndex) {
   // Plan should use label property index on Label3 and Label4 because of smaller count
 
   auto node_identifier = IDENT("n");
+  auto lit_1 = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
                                    MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label3", "Label4"}))),
-                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(1))), RETURN("n")));
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), lit_1)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperty(label4_id, property)};
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperty(label3_id, property)};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelPropertyValue(label3_id, property, lit_1)};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelPropertyValue(label4_id, property, lit_1)};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());
