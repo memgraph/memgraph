@@ -605,7 +605,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<st
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                                                      std::span<storage::PropertyValueRange const> property_ranges,
                                                      View view) {
-  throw utils::NotYetImplemented("composite index");
+  if (properties.size() != 1) throw utils::NotYetImplemented("composite index");
+
+  auto const &range{property_ranges.front()};
+  if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+    return Vertices(label, properties, view);
+  } else {
+    return Vertices(label, properties.front(), range.lower_, range.upper_, view);
+  }
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
