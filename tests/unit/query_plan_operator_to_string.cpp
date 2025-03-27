@@ -124,7 +124,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyRange) {
                                          memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
   last_op->dba_ = &this->dba;
 
-  std::string expected_string{"ScanAllByLabelPropertyRange (node :Label {prop})"};
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
@@ -135,7 +135,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyValue) {
       std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   last_op->dba_ = &this->dba;
 
-  std::string expected_string{"ScanAllByLabelPropertyValue (node :Label {prop})"};
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
@@ -146,7 +146,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperty) {
                                                        std::vector{ExpressionRange::IsNotNull()});
   last_op->dba_ = &this->dba;
 
-  std::string expected_string{"ScanAllByLabelProperty (node :Label {prop})"};
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
