@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@ bool SendSwapUUID(const char *address, int port, const char *uuid) {
     memgraph::rpc::Client rpc_client{endpoint, &cntxt};
     memgraph::utils::UUID new_uuid{};
     new_uuid.set(uuid);
-    std::cout << "Sending swap UUID " << std::string(new_uuid) << " to " << endpoint << std::endl;
+    std::cout << "Sending swap UUID " << std::string(new_uuid) << " to " << endpoint.SocketAddress() << std::endl;
     return memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(rpc_client, new_uuid);
   } catch (...) {
     return false;

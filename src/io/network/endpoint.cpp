@@ -74,10 +74,6 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
   return std::get<2>(*result);
 }
 
-std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  return os << endpoint.GetResolvedSocketAddress();
-}
-
 std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
   auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
     char buffer[INET_ADDRSTRLEN];
@@ -121,7 +117,8 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
 
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
-      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}", address, port);
+      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}. Error occurred: {}", address, port,
+                    gai_strerror(status));
       return std::nullopt;
     }
 

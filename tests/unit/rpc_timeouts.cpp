@@ -12,20 +12,35 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include <atomic>
+
 #include "rpc_messages.hpp"
 
+#include "coordination/coordinator_rpc.hpp"
+#include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
+using memgraph::coordination::DemoteMainToReplicaRpc;
+using memgraph::coordination::EnableWritingOnMainRpc;
+using memgraph::coordination::GetDatabaseHistoriesRpc;
+using memgraph::coordination::PromoteToMainRpc;
+using memgraph::coordination::RegisterReplicaOnMainRpc;
+using memgraph::coordination::ShowInstancesRpc;
+using memgraph::coordination::StateCheckRpc;
+using memgraph::coordination::UnregisterReplicaRpc;
 using memgraph::io::network::Endpoint;
+using memgraph::replication::SystemRecoveryRpc;
+using memgraph::replication_coordination_glue::FrequentHeartbeatRpc;
+using memgraph::replication_coordination_glue::SwapMainUUIDRpc;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
-using memgraph::slk::Save;
+using memgraph::storage::replication::HeartbeatRpc;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
@@ -59,7 +74,10 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
+namespace {
 constexpr int port{8181};
+std::atomic_bool rpc_akn{false};
+}  // namespace
 
 // RPC client is setup with timeout but shouldn't be triggered.
 TEST(RpcTimeout, TimeoutNoFailure) {
@@ -201,4 +219,81 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
   auto stream = client.Stream<Echo>("Sending request");
   EXPECT_THROW(stream.AwaitResponse(), GenericRpcFailedException);
+}
+
+template <memgraph::rpc::IsRpc T>
+void RegisterRpcCallback(Server &rpc_server) {
+  rpc_server.Register<T>([](auto *req_reader, auto /* *res_builder */) {
+    typename T::Request req;
+    if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
+      Load(&req, req_reader);
+    }
+    rpc_akn.wait(true);    // Wait for the timeout
+    rpc_akn.store(false);  // Reset to signal handler is finished
+  });
+}
+
+template <memgraph::rpc::IsRpc T>
+void SendAndAssert(Client &client) {
+  rpc_akn.store(false);
+  auto stream = client.Stream<T>();
+  EXPECT_THROW(stream.AwaitResponse(), GenericRpcFailedException);
+  rpc_akn.store(true);  // Signal the timeout occurred
+  rpc_akn.wait(false);  // Wait for the reset
+}
+
+TEST(RpcTimeout, Timeouts) {
+  Endpoint endpoint{"localhost", port};
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 2};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  RegisterRpcCallback<ShowInstancesRpc>(rpc_server);
+  RegisterRpcCallback<DemoteMainToReplicaRpc>(rpc_server);
+  RegisterRpcCallback<PromoteToMainRpc>(rpc_server);
+  RegisterRpcCallback<RegisterReplicaOnMainRpc>(rpc_server);
+  RegisterRpcCallback<UnregisterReplicaRpc>(rpc_server);
+  RegisterRpcCallback<EnableWritingOnMainRpc>(rpc_server);
+  RegisterRpcCallback<GetDatabaseHistoriesRpc>(rpc_server);
+  RegisterRpcCallback<StateCheckRpc>(rpc_server);
+  RegisterRpcCallback<SwapMainUUIDRpc>(rpc_server);
+  RegisterRpcCallback<FrequentHeartbeatRpc>(rpc_server);
+  RegisterRpcCallback<HeartbeatRpc>(rpc_server);
+  RegisterRpcCallback<SystemRecoveryRpc>(rpc_server);
+
+  ASSERT_TRUE(rpc_server.Start());
+
+  auto const rpc_timeouts = std::unordered_map{
+      std::make_pair("ShowInstancesReq"sv, 50),
+      std::make_pair("DemoteMainToReplicaReq"sv, 50),
+      std::make_pair("PromoteToMainReq"sv, 50),
+      std::make_pair("RegisterReplicaOnMainReq"sv, 50),
+      std::make_pair("UnregisterReplicaReq"sv, 50),
+      std::make_pair("EnableWritingOnMainReq"sv, 50),
+      std::make_pair("GetDatabaseHistoriesReq"sv, 50),
+      std::make_pair("StateCheckReq"sv, 50),
+      std::make_pair("SwapMainUUIDReq"sv, 50),
+      std::make_pair("FrequentHeartbeatReq"sv, 50),
+      std::make_pair("HeartbeatReq"sv, 50),
+      std::make_pair("SystemRecoveryReq"sv, 50),
+
+  };
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  SendAndAssert<ShowInstancesRpc>(client);
+  SendAndAssert<DemoteMainToReplicaRpc>(client);
+  SendAndAssert<PromoteToMainRpc>(client);
+  SendAndAssert<UnregisterReplicaRpc>(client);
+  SendAndAssert<EnableWritingOnMainRpc>(client);
+  SendAndAssert<GetDatabaseHistoriesRpc>(client);
+  SendAndAssert<StateCheckRpc>(client);
+  SendAndAssert<SwapMainUUIDRpc>(client);
+  SendAndAssert<FrequentHeartbeatRpc>(client);
+  SendAndAssert<HeartbeatRpc>(client);
+  SendAndAssert<SystemRecoveryRpc>(client);
 }

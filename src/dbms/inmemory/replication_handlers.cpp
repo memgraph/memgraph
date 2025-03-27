@@ -33,13 +33,13 @@
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
-using memgraph::storage::EdgeTypeId;
 using memgraph::storage::LabelIndexStats;
 using memgraph::storage::LabelPropertyIndexStats;
 using memgraph::storage::PropertyId;
 using memgraph::storage::UniqueConstraints;
 using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
+using namespace std::chrono_literals;
 
 namespace memgraph::dbms {
 
@@ -58,6 +58,8 @@ class SnapshotObserver final : public utils::Observer<void> {
 };
 
 namespace {
+
+constexpr auto kWaitForMainLockTimeout = 30s;
 
 auto GenerateOldDir() -> std::string {
   return ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
@@ -218,10 +220,6 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
-      });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
@@ -421,7 +419,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 
   spdlog::info("Received snapshot saved to {}", recovery_snapshot_path);
   {
-    auto storage_guard = std::lock_guard{storage->main_lock_};
+    auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
+    if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
+      spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+      rpc::SendFinalResponse(storage::replication::SnapshotRes{}, res_builder, fmt::format("db: {}", storage->name()));
+      return;
+    }
+
     spdlog::trace("Clearing database {} before recovering from snapshot.", storage->name());
 
     // Clear the database
@@ -532,7 +536,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   if (req.reset_needed) {
     {
-      auto storage_guard = std::lock_guard{storage->main_lock_};
+      auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
+      if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
+        spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+        rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, storage->name());
+        return;
+      }
+
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
       storage->Clear();
@@ -621,7 +631,12 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   if (req.reset_needed) {
     {
-      auto storage_guard = std::lock_guard{storage->main_lock_};
+      auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
+      if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
+        spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
+        rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
+        return;
+      }
       spdlog::trace("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                     storage->name());
       storage->Clear();
@@ -741,31 +756,6 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     spdlog::error("Loading WAL from {} failed because of {}.", *maybe_wal_path, e.what());
     return {false, 0};
   }
-}
-
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
-                                                   const std::optional<utils::UUID> &current_main_uuid,
-                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
-  storage::replication::TimestampReq req;
-  slk::Load(&req, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
-  if (!db_acc) {
-    const storage::replication::TimestampRes res{false, 0};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
-    const storage::replication::TimestampRes res{false, 0};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
-  // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
-  auto const *storage = db_acc->get()->storage();
-  const storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  rpc::SendFinalResponse(res, res_builder);
 }
 
 // The number of applied deltas also includes skipped deltas.
