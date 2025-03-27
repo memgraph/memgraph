@@ -771,10 +771,10 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         auto moved_it = moved.find(kv.first);
         ASSERT_NE(moved_it, moved.end());
         // flat_map doesn't propagate memory resource to elements
-        expect_allocator(*moved_it, memgraph::utils::NewDeleteResource());
+        expect_allocator(*moved_it, &monotonic_memory);
         auto copied_it = copied.find(kv.first);
         ASSERT_NE(copied_it, copied.end());
-        expect_allocator(*copied_it, memgraph::utils::NewDeleteResource());
+        expect_allocator(*copied_it, &monotonic_memory);
         EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, moved_it->second));
         EXPECT_TRUE(TypedValue::BoolEqual{}(kv.second, copied_it->second));
       }
