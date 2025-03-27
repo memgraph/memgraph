@@ -23,6 +23,7 @@
 #include "utils/message.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph {
 std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_view module_mappings) {
@@ -431,8 +432,16 @@ void Auth::MtLinkUser(User &user) const {
   if (link) {
     auto mt_roles = nlohmann::json::parse(*link);
     for (const auto &[db, mt_role] : mt_roles.items()) {
-      if (auto role = GetRole(mt_role.get<std::string>())) {
+      try {
+        const auto &rolename = mt_role.at("rolename");
+        const auto &uuid = mt_role.at("uuid");
+        const auto role = GetRole(rolename.get<std::string>());
+        // Should probably just ignore if roles don't light up. Role just changed, ignore it.
+        if (!role) throw 1;
+        if (role->uuid() != uuid.get<utils::UUID>()) throw 1;
         user.SetRoleForDB(db, *role);
+      } catch (...) {
+        // ???
       }
     }
   }
@@ -461,8 +470,12 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   }
   // Mt role data
   nlohmann::json mt_roles;
+  // TODO Think about splitting this up into multiple keys
   for (const auto &[db, role] : user.db_to_role()) {
-    mt_roles.emplace(db, role.rolename());
+    auto [it, succ] = mt_roles.emplace(db, nlohmann::json::object());
+    if (!succ) throw 1;
+    it->emplace("rolename", role.rolename());
+    it->emplace("uuid", role.uuid());
   }
   puts.emplace(kMtLinkPrefix + user.username(), mt_roles.dump());
 
@@ -636,13 +649,13 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
   std::vector<std::string> keys;
+  keys.push_back(kRolePrefix + rolename);
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     if (utils::ToLowerCase(it->second) == rolename) {
       keys.push_back(it->first);
     }
   }
-  keys.push_back(kRolePrefix + rolename);
-  // TODO Mt data as well
+  // Mt roles are not removed, would require a full scan. Using UUIDs to determine if the role is the correct one.
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }

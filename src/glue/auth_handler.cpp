@@ -243,7 +243,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-
+  // TODO
   auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
       user->GetUserFineGrainedAccessLabelPermissions(), "LABEL", "USER");
   auto all_role_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(

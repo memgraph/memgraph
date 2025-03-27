@@ -437,13 +437,14 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
-Role::Role(const std::string &rolename, const Permissions &permissions)
-    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
+Role::Role(const std::string &rolename, const Permissions &permissions, utils::UUID uuid)
+    : rolename_(utils::ToLowerCase(rolename)), uuid_{uuid}, permissions_(permissions) {}
 #ifdef MG_ENTERPRISE
-Role::Role(const std::string &rolename, const Permissions &permissions,
+Role::Role(const std::string &rolename, const Permissions &permissions, utils::UUID uuid,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access,
            std::optional<UserImpersonation> usr_imp)
     : rolename_(utils::ToLowerCase(rolename)),
+      uuid_{uuid},
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
       db_access_(std::move(db_access)),
@@ -470,6 +471,7 @@ nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kRoleName] = rolename_;
   data[kPermissions] = permissions_.Serialize();
+  data[kUUID] = uuid_;
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
@@ -493,6 +495,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
   if (!data[kRoleName].is_string() || !data[kPermissions].is_object()) {
     throw AuthException("Couldn't load role data!");
   }
+
+  utils::UUID uuid{};
+  auto uuid_it = data.find(kUUID);
+  if (uuid_it != data.end() && uuid_it->is_array()) uuid = uuid_it.value();
+
   auto permissions = Permissions::Deserialize(data[kPermissions]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -511,11 +518,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
     auto usr_imp = data[kUserImp].is_null() ? std::nullopt : std::make_optional<UserImpersonation>(data[kUserImp]);
-    return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access),
-            std::move(usr_imp)};
+    return {data[kRoleName],      permissions,       uuid, std::move(fine_grained_access_handler),
+            std::move(db_access), std::move(usr_imp)};
   }
 #endif
-  return {data[kRoleName], permissions};
+  return {data[kRoleName], permissions, uuid};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -712,30 +719,16 @@ const FineGrainedAccessPermissions &User::GetUserFineGrainedAccessLabelPermissio
 
 FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db) const {
-  if (db) {
-    // Checking role for specific database
-    const auto role = db_to_role_.find(*db);
-    if (role != db_to_role_.end()) {
-      return role->second.fine_grained_access_handler().edge_type_permissions();
-    }
-  }
-  // Checking default role
-  if (role_) {
-    return role_->fine_grained_access_handler().edge_type_permissions();
+  auto *user_role = role(db);
+  if (user_role) {
+    return user_role->fine_grained_access_handler().edge_type_permissions();
   }
   return FineGrainedAccessPermissions{};
 }
 
 FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(std::optional<std::string_view> db) const {
-  if (db) {
-    // Checking role for specific database
-    const auto role = db_to_role_.find(*db);
-    if (role != db_to_role_.end()) {
-      return role->second.fine_grained_access_handler().label_permissions();
-    }
-  }
-  // Checking default role
-  if (role_) {
+  auto *user_role = role(db);
+  if (user_role) {
     return role_->fine_grained_access_handler().label_permissions();
   }
   return FineGrainedAccessPermissions{};
@@ -752,7 +745,7 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
 // TODO Pass db?
-const Role *User::role(const std::optional<std::string> &db_name) const {
+const Role *User::role(std::optional<std::string_view> db_name) const {
   if (db_name) {
     auto role = db_to_role_.find(*db_name);
     if (role != db_to_role_.end()) {
@@ -804,7 +797,8 @@ User User::Deserialize(const nlohmann::json &data) {
 
   // Version with user UUID
   utils::UUID uuid{};
-  if (data[kUUID].is_array()) uuid = data[kUUID];
+  auto uuid_it = data.find(kUUID);
+  if (uuid_it != data.end() && uuid_it->is_array()) uuid = uuid_it.value();
 
   std::optional<HashedPassword> password_hash{};
   if (password_hash_json.is_object()) {

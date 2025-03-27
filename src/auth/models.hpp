@@ -380,9 +380,9 @@ class Role {
   Role() = default;
 
   explicit Role(const std::string &rolename);
-  Role(const std::string &rolename, const Permissions &permissions);
+  Role(const std::string &rolename, const Permissions &permissions, utils::UUID uuid);
 #ifdef MG_ENTERPRISE
-  Role(const std::string &rolename, const Permissions &permissions,
+  Role(const std::string &rolename, const Permissions &permissions, utils::UUID uuid,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {},
        std::optional<UserImpersonation> usr_imp = std::nullopt);
 #endif
@@ -393,6 +393,7 @@ class Role {
   ~Role() = default;
 
   const std::string &rolename() const;
+  const auto &uuid() const { return uuid_; }
   const Permissions &permissions() const;
   Permissions &permissions();
   Permissions GetPermissions() const { return permissions_; }
@@ -445,6 +446,7 @@ class Role {
 
  private:
   std::string rolename_;
+  utils::UUID uuid_;
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
@@ -524,7 +526,7 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  const Role *role(const std::optional<std::string> &db_name = std::nullopt) const;
+  const Role *role(std::optional<std::string_view> db_name = std::nullopt) const;
 
 #ifdef MG_ENTERPRISE
   const auto &db_to_role() const { return db_to_role_; }
