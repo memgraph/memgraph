@@ -1666,9 +1666,9 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       [res] {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
-        res->rows.push_back(mgp_result_record{.signature = &res->field_to_id,
+        res->rows.push_back(mgp_result_record{.signature = res->signature,
                                               .values = memgraph::utils::pmr::vector<memgraph::query::TypedValue>(
-                                                  res->field_to_id.size(), memgraph::query::TypedValue(memory), memory),
+                                                  res->signature->size(), memgraph::query::TypedValue(memory), memory),
                                               .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
@@ -1688,12 +1688,12 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
-    auto const field_id = find_it->second.second;
+    auto const field_id = find_it->second.id;
     if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
       record->has_deleted_values = true;
       return;
     }
-    auto const *field_type = find_it->second.first;
+    auto const *field_type = find_it->second.type;
     if (!field_type->SatisfiesType(*val)) [[unlikely]] {
       throw std::logic_error{
           fmt::format("The type of value doesn't satisfy the type '{}'!", field_type->GetPresentableName())};
@@ -4062,6 +4062,8 @@ mgp_error AddResultToProp(T *prop, const char *name, mgp_type *type, bool is_dep
     };
     auto *memory = prop->results.get_allocator().GetMemoryResource();
     prop->results.emplace(memgraph::utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
+    prop->results_metadata.emplace(memgraph::utils::pmr::string(name, memory),
+                                   ResultsMetadata(type->impl.get(), is_deprecated, prop->results_metadata.size()));
   });
 }
 

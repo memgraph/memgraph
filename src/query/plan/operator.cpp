@@ -5669,7 +5669,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 #endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
-    MG_ASSERT(result->signature == &proc.results);
+    MG_ASSERT(result->signature == &proc.results_metadata);
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
@@ -5682,7 +5682,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: Add a tracking MemoryResource without limits, so that we report
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
-    MG_ASSERT(result->signature == &proc.results);
+    MG_ASSERT(result->signature == &proc.results_metadata);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
   }
@@ -5775,7 +5775,8 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_.SetSignature(&proc->results);
+      result_.signature = &proc->results_metadata;
+      result_.lock_on_module = true;
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
 
       auto *memory = context.evaluation_context.memory;
@@ -5792,7 +5793,7 @@ class CallProcedureCursor : public Cursor {
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
       result_signature_size_ = result_.signature->size();
-      result_.SetSignature(nullptr);
+      result_.lock_on_module = false;
       if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
@@ -5810,7 +5811,7 @@ class CallProcedureCursor : public Cursor {
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
     // `mgp_result_record_insert`.
-    // TODO Ivan: check missing
+    // TODO Ivan: check if procedure didn't yield all results
     if (values.size() != result_signature_size_) {
       throw QueryRuntimeException(
           "Procedure '{}' did not yield all fields as required by its "
@@ -5819,10 +5820,10 @@ class CallProcedureCursor : public Cursor {
     }
     for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
       std::string_view field_name(self_->result_fields_[i]);
-      auto field_id_it = result_.field_to_id.find(field_name);
-      MG_ASSERT(field_id_it != result_.field_to_id.end());
+      auto metadata_it = result_.signature->find(field_name);
+      MG_ASSERT(metadata_it != result_.signature->end());
 
-      frame[self_->result_symbols_[i]] = std::move(values[field_id_it->second.second]);
+      frame[self_->result_symbols_[i]] = std::move(values[metadata_it->second.id]);
       if (context.frame_change_collector &&
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
