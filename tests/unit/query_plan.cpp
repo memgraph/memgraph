@@ -57,9 +57,10 @@ namespace {
 class Planner {
  public:
   template <class TDbAccessor>
-  Planner(QueryParts query_parts, PlanningContext<TDbAccessor> context) {
+  Planner(QueryParts query_parts, PlanningContext<TDbAccessor> context,
+          const std::vector<memgraph::query::IndexHint> &index_hints) {
     memgraph::query::Parameters parameters;
-    PostProcessor post_processor(parameters);
+    PostProcessor post_processor(parameters, index_hints, context.db);
     plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &context);
     plan_ = post_processor.Rewrite(std::move(plan_), &context);
   }
@@ -3216,6 +3217,44 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMultipleMatchStatementsPropertyIndex) {
 
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelPropertyValue(label3_id, property, lit_1)};
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelPropertyValue(label4_id, property, lit_1)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
+            ExpectFilter(), ExpectProduce());
+
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
+  // Test MATCH (n:Label1|Label2) MATCH (n:Label3|Label4) WHERE n.prop < 2 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  auto label3_id = dba.Label("Label3");
+  auto label4_id = dba.Label("Label4");
+  auto property = PROPERTY_PAIR(dba, "prop");
+
+  dba.SetIndexCount(label1_id, 5);
+  dba.SetIndexCount(label2_id, property.second, 1);
+  dba.SetIndexCount(label3_id, property.second, 1);
+  dba.SetIndexCount(label4_id, property.second, 1);
+  // Plan should use label index on Label1 and do a union with the Label2 property index because of the index hint
+
+  auto index_hint = memgraph::query::IndexHint{.index_type_ = memgraph::query::IndexHint::IndexType::LABEL,
+                                               .label_ = this->storage.GetLabelIx("Label1"),
+                                               .property_ = std::nullopt};
+  auto node_identifier = IDENT("n");
+  auto lit_2 = LITERAL(2);
+  Bound upper_bound(lit_2, Bound::Type::EXCLUSIVE);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label3", "Label4"}))),
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "n", property.second), lit_2)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query, {index_hint});
+
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
+  std::list<BaseOpChecker *> right_subquery_part{
+      new ExpectScanAllByLabelPropertyRange(label2_id, property.second, std::nullopt, upper_bound)};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());

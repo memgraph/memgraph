@@ -772,6 +772,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   struct IndexGroup {
     std::vector<std::variant<LabelIx, LabelPropertyIndex>> indices;
     int64_t vertex_count;
+    int64_t num_of_index_hints;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -1039,32 +1040,34 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return found;
   }
 
-  /// Find the best index group for the given symbol. The best index group is determined by the number of vertices in
+  /// Find the best index group for the given symbol. Firstly, we prioritize the group with most index hints.
+  /// After that the best index group is determined by the number of vertices in
   /// the whole group combined. The group is constructed by trying to find the best LabelPropertyIndex and if not
   /// possible then LabelIndex. If there is no LabelIndex, the group is empty.
-  /// TODO: Utilize index hints + find a better way to determine best index then just number of vertices
+  /// TODO: Find a better way to determine best index then just number of vertices
   IndexGroup FindBestIndexGroup(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
                                 const std::vector<std::vector<LabelIx>> &or_labels) {
+    // Helper function to check if all used symbols are bound
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
-      for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
-          return false;
-        }
-      }
-      return true;
+      return std::all_of(used_symbols.begin(), used_symbols.end(), [&bound_symbols](const auto &used_symbol) {
+        return utils::Contains(bound_symbols, used_symbol);
+      });
     };
-    IndexGroup best_group;
-    best_group.vertex_count = std::numeric_limits<std::int64_t>::max();
 
-    // Go through each label and try to construct firstly LabelPropertyIndex and if not possible then LabelIndex
-    // Best group is determined by the number of vertices in the whole group combined
+    IndexGroup best_group = {
+        .indices = {}, .vertex_count = std::numeric_limits<std::int64_t>::max(), .num_of_index_hints = 0};
+
+    // Iterate through label groups and attempt to construct index groups
     for (const auto &group : or_labels) {
-      std::vector<std::variant<LabelIx, LabelPropertyIndex>> indices;
-      int64_t group_vertex_count = 0;
+      IndexGroup current_group = {.indices = {}, .vertex_count = 0, .num_of_index_hints = 0};
+
       for (const auto &label : group) {
-        int64_t index_vertex_count = std::numeric_limits<std::int64_t>::max();
-        FilterInfo best_filter_info;
         auto label_id = GetLabel(label);
+        int64_t best_vertex_count = std::numeric_limits<std::int64_t>::max();
+        FilterInfo best_filter_info;
+        bool best_has_hint = false;
+
+        // Try to find the best LabelPropertyIndex
         for (const auto &filter : filters_.PropertyFilters(symbol)) {
           if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
             continue;
@@ -1074,34 +1077,53 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             continue;
           }
 
-          auto vertex_count = db_->VerticesCount(label_id, property_id);
-          if (vertex_count < index_vertex_count) {
-            index_vertex_count = vertex_count;
+          int64_t vertex_count = db_->VerticesCount(label_id, property_id);
+          bool has_hint = index_hints_.HasLabelPropertyIndex(db_, label_id, property_id);
+
+          if (vertex_count < best_vertex_count || (has_hint && !best_has_hint)) {
+            if (!best_has_hint && has_hint) {
+              current_group.num_of_index_hints++;
+            }
+            best_has_hint = has_hint;
+            best_vertex_count = vertex_count;
             best_filter_info = filter;
           }
         }
-        if (index_vertex_count < std::numeric_limits<std::int64_t>::max() && index_vertex_count > 0) {
-          indices.push_back(LabelPropertyIndex{label, std::move(best_filter_info), index_vertex_count, std::nullopt});
-        } else {
-          // In case there is no label property index we will try to find label index
-          if (!db_->LabelIndexExists(label_id)) continue;
-          index_vertex_count = db_->VerticesCount(label_id);
-          if (index_vertex_count > 0) {
-            indices.push_back(label);
+
+        // Check LabelIndex if no valid LabelPropertyIndex is found
+        auto label_index_exists = db_->LabelIndexExists(label_id);
+        if (label_index_exists && !best_has_hint && index_hints_.HasLabelIndex(db_, label_id)) {
+          best_vertex_count = db_->VerticesCount(label_id);
+          current_group.num_of_index_hints++;
+          current_group.indices.push_back(label);
+        } else if (best_vertex_count < std::numeric_limits<std::int64_t>::max() && best_vertex_count > 0) {
+          current_group.indices.emplace_back(LabelPropertyIndex{.label = label,
+                                                                .filter = std::move(best_filter_info),
+                                                                .vertex_count = best_vertex_count,
+                                                                .index_stats = {}});
+        } else {  // Try LabelIndex as a fallback
+          if (!label_index_exists) continue;
+          best_vertex_count = db_->VerticesCount(label_id);
+          if (best_vertex_count > 0) {
+            current_group.indices.push_back(label);
           }
         }
-        group_vertex_count += index_vertex_count;
+
+        current_group.vertex_count += best_vertex_count;
       }
-      if (indices.size() != group.size()) {
-        // This means that we could not find an index for each label in the group and hence we can just use ScanAll on
-        // this group
-        continue;
+
+      if (current_group.indices.size() != group.size()) {
+        continue;  // Skip if index isn't found for all labels in the group -> use ScanAll + Filter
       }
-      if (group_vertex_count < best_group.vertex_count) {
-        best_group.indices = std::move(indices);
-        best_group.vertex_count = group_vertex_count;
+
+      // Prioritize groups with more index hints; if equal, use the lowest vertex count
+      if (current_group.num_of_index_hints > best_group.num_of_index_hints ||
+          (current_group.num_of_index_hints == best_group.num_of_index_hints &&
+           current_group.vertex_count < best_group.vertex_count)) {
+        best_group = std::move(current_group);
       }
     }
+
     return best_group;
   }
 
