@@ -46,6 +46,7 @@
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
 
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
@@ -1036,42 +1037,65 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
     -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
 
+  // Instance name -> cnt on how many DBs is instance the newest
   std::map<std::string, uint64_t> total_instances_counter;
+  // Instance name -> sum of all DBs
+  std::map<std::string, uint64_t> total_instances_sum;
 
   // New handling
   for (auto const &[db_uuid, db_info] : dbs_info) {
     // TODO: (andi) Log db_name
     spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
 
-    // TODO: (andi) Abstract into some struct maybe
-    std::optional<std::pair<std::string, uint64_t>> newest_db_instance;
+    // There could be multiple instances with the same timestamp
+    std::vector<std::string> newest_db_instances;
+    uint64_t curr_ldt{0};
 
     // TODO: (andi) This is some STL algorithm
     for (auto const &[instance_name, latest_durable_timestamp] : db_info) {
-      if (!newest_db_instance.has_value() || newest_db_instance->second < latest_durable_timestamp) {
-        newest_db_instance.emplace(instance_name, latest_durable_timestamp);
+      // Sum eagerly timestamps
+      if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, latest_durable_timestamp);
+          !inserted) {
+        instance_it->second += latest_durable_timestamp;
+      }
+
+      // If no new instance exists, or it instance has newer timestamp -> update
+      if (newest_db_instances.empty() || curr_ldt < latest_durable_timestamp) {
+        newest_db_instances.clear();
+        newest_db_instances.emplace_back(instance_name);
+        curr_ldt = latest_durable_timestamp;
+      } else if (curr_ldt == latest_durable_timestamp) {
+        newest_db_instances.emplace_back(instance_name);
       }
     }
 
-    if (!newest_db_instance.has_value()) {
+    if (newest_db_instances.empty()) {
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       // TODO: (andi) Log db_name
-      auto const &[db_newest_instance_name, db_largest_durable_timestamp] = *newest_db_instance;
-      spdlog::info("The newest instance for db with uuid {} is {} with latest durable timestamp {}", db_uuid,
-                   db_newest_instance_name, db_largest_durable_timestamp);
-      auto [instance_it, inserted] = total_instances_counter.try_emplace(db_newest_instance_name, 1);
-      if (!inserted) {
-        instance_it->second++;
+      spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
+                   curr_ldt, db_uuid, fmt::join(newest_db_instances, ", "));
+      for (auto const &db_newest_instance_name : newest_db_instances) {
+        if (auto [instance_it, inserted] = total_instances_counter.try_emplace(db_newest_instance_name, 1); !inserted) {
+          instance_it->second++;
+        }
       }
     }
   }
 
-  // TODO: (andi) Abstract this into function and add a 2nd criteria => sum over timestamps
   std::optional<std::pair<std::string, uint64_t>> newest_instance;
   for (auto const &[instance_name, cnt_newest_dbs] : total_instances_counter) {
     if (!newest_instance.has_value() || newest_instance->second < cnt_newest_dbs) {
       newest_instance.emplace(instance_name, cnt_newest_dbs);
+    } else if (newest_instance->second == cnt_newest_dbs) {
+      // Instances are the best over the same number of instances, let the sum of timestamps decide
+      spdlog::info("Instances {} and {} are most up to date on the same number of instances.", instance_name,
+                   newest_instance->first);
+      if (total_instances_sum[instance_name] > total_instances_sum[newest_instance->first]) {
+        spdlog::info("Instance {} has the total sum of timestamps larger than {}. It will be considered newer.",
+                     instance_name, newest_instance->first);
+        newest_instance.emplace(instance_name, cnt_newest_dbs);
+      }
     }
   }
   if (newest_instance.has_value()) {
