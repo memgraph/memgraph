@@ -3959,16 +3959,22 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     // Recover label+property indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of label property indices!");
-      spdlog::info("Recovering metadata of {} label+property indices.", *size);
+      if (!size) throw RecoveryFailure("Couldn't recover the number of label properties indices.");
+      spdlog::info("Recovering metadata of {} label+properties indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
+        if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto properties = std::invoke([&]() {
-          // TODO(composite_index): This code is not correct for what we intend to deliver
-          auto property = snapshot.ReadUint();
-          if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-          return std::vector{get_property_from_id(*property)};
+          auto n_props = snapshot.ReadUint();
+          if (!n_props) throw RecoveryFailure("Couldn't read number of properties for label properties index.");
+          std::vector<PropertyId> props;
+          props.reserve(*n_props);
+          for (uint64_t i = 0; i < *n_props; ++i) {
+            auto property = snapshot.ReadUint();
+            if (!property) throw RecoveryFailure("Couldn't read property for label properties index.");
+            props.emplace_back(get_property_from_id(*property));
+          }
+          return props;
         });
 
         auto properties_string =
