@@ -30,6 +30,7 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -242,23 +243,34 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
 
   // Recover edge-type + property indices.
-  {
-    spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
-    MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
-              "Trying to recover edge type+property indices while properties on edges are disabled.");
-    auto *mem_edge_type_property_index =
-        static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
-
-    for (const auto &item : indices_metadata.edge_property) {
-      // TODO: parallel execution
-      if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_info)) {
-        throw RecoveryFailure("The edge-type property index must be created here!");
-      }
-      spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                   name_id_mapper->IdToName(item.second.AsUint()));
+  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_type_property.size());
+  MG_ASSERT(indices_metadata.edge_type_property.empty() || properties_on_edges,
+            "Trying to recover edge type+property indices while properties on edges are disabled.");
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
+  for (const auto &item : indices_metadata.edge_type_property) {
+    // TODO: parallel execution
+    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_info)) {
+      throw RecoveryFailure("The edge-type property index must be created here!");
     }
-    spdlog::info("Edge-type + property indices are recreated.");
+    spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                 name_id_mapper->IdToName(item.second.AsUint()));
   }
+  spdlog::info("Edge-type + property indices are recreated.");
+
+  // Recover global edge property indices.
+  spdlog::info("Recreating {} global edge property indices from metadata.", indices_metadata.edge_property.size());
+  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
+            "Trying to recover global edge property indices while properties on edges are disabled.");
+  auto *mem_edge_property_index = static_cast<InMemoryEdgePropertyIndex *>(indices->edge_property_index_.get());
+  for (const auto &property : indices_metadata.edge_property) {
+    // TODO: parallel execution
+    if (!mem_edge_property_index->CreateIndex(property, vertices->access(), snapshot_info)) {
+      throw RecoveryFailure("The global edge property index must be created here!");
+    }
+    spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
+  }
+  spdlog::info("Global edge property indices are recreated.");
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {

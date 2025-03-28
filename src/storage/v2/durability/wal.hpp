@@ -100,6 +100,11 @@ struct EdgeTypePropertyOpInfo {
   std::string edge_type;
   std::string property;
 };
+struct EdgePropertyOpInfo {
+  friend bool operator==(const EdgePropertyOpInfo &, const EdgePropertyOpInfo &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string property;
+};
 struct TypeConstraintOpInfo {
   friend bool operator==(const TypeConstraintOpInfo &, const TypeConstraintOpInfo &) = default;
   using ctr_types = std::tuple<std::string, std::string, TypeConstraintKind>;
@@ -172,6 +177,8 @@ struct WalLabelPropertyIndexStatsSet {
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
 struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
+struct WalEdgePropertyIndexCreate : EdgePropertyOpInfo {};
+struct WalEdgePropertyIndexDrop : EdgePropertyOpInfo {};
 struct WalUniqueConstraintCreate : LabelPropertiesOpInfo {};
 struct WalUniqueConstraintDrop : LabelPropertiesOpInfo {};
 struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
@@ -229,12 +236,13 @@ struct WalDeltaData {
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
                WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionEnd, WalLabelIndexCreate,
                WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
-               WalEdgeTypeIndexDrop, WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop,
-               WalPointIndexCreate, WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
-               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
-               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
-               WalVectorIndexCreate, WalVectorIndexDrop>
+               WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
+               WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
+               WalExistenceConstraintCreate, WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet,
+               WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate,
+               WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate,
+               WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
+               WalVectorIndexDrop>
       data_ = WalTransactionEnd{};
 };
 
@@ -269,6 +277,8 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalEdgeTypeIndexDrop const &) { return true; },
                         [](WalEdgeTypePropertyIndexCreate const &) { return true; },
                         [](WalEdgeTypePropertyIndexDrop const &) { return true; },
+                        [](WalEdgePropertyIndexCreate const &) { return true; },
+                        [](WalEdgePropertyIndexDrop const &) { return true; },
                         [](WalTextIndexCreate const &) { return true; },
                         [](WalTextIndexDrop const &) { return true; },
                         [](WalExistenceConstraintCreate const &) { return true; },
@@ -333,6 +343,7 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
 void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
                                  PropertyId prop);
+void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop);
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old);

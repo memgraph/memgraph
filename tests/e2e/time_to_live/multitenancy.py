@@ -22,7 +22,11 @@ def assert_db(cursor, db):
 
 
 def get_n(cursor):
-    return execute_and_fetch_all(cursor, "MATCH(n) RETURN COUNT(n)")[0][0]
+    return execute_and_fetch_all(cursor, "MATCH(n:TTL) RETURN COUNT(n)")[0][0]
+
+
+def get_n_edges(cursor):
+    return execute_and_fetch_all(cursor, "MATCH ()-[e]->() RETURN COUNT(e)")[0][0]
 
 
 def test_ttl_on_default(connect):
@@ -40,7 +44,9 @@ def test_ttl_on_default(connect):
 
     # 1/
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+    memgraph.execute("UNWIND RANGE(1,10) AS i CREATE ()-[:E{ttl:0}]->()")
     mg_sleep_and_assert(0, partial(get_n, memgraph))
+    mg_sleep_and_assert(0, partial(get_n_edges, memgraph))
 
     # 2/
     memgraph.execute("CREATE DATABASE clean")
@@ -49,7 +55,9 @@ def test_ttl_on_default(connect):
 
     # 3/
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+    memgraph.execute("UNWIND RANGE(1,10) AS i CREATE ()-[:E{ttl:0}]->()")
     mg_assert_until(10, partial(get_n, memgraph), 3)
+    mg_assert_until(10, partial(get_n_edges, memgraph), 3)
 
 
 def test_ttl_on_clean(connect):
@@ -71,13 +79,17 @@ def test_ttl_on_clean(connect):
 
     # 2/
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+    memgraph.execute("UNWIND RANGE(1,10) AS i CREATE ()-[:E{ttl:0}]->()")
     mg_sleep_and_assert(0, partial(get_n, memgraph))
+    mg_sleep_and_assert(0, partial(get_n_edges, memgraph))
 
     # 3/
     memgraph.execute("USE DATABASE memgraph")
     assert_db(memgraph, "memgraph")
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+    memgraph.execute("UNWIND RANGE(1,10) AS i CREATE ()-[:E{ttl:0}]->()")
     mg_assert_until(10, partial(get_n, memgraph), 3)
+    mg_assert_until(10, partial(get_n_edges, memgraph), 3)
 
 
 if __name__ == "__main__":

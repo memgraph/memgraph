@@ -110,6 +110,9 @@ extern const Event ScanAllByEdgeTypeOperator;
 extern const Event ScanAllByEdgeTypePropertyOperator;
 extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeTypePropertyRangeOperator;
+extern const Event ScanAllByEdgePropertyOperator;
+extern const Event ScanAllByEdgePropertyValueOperator;
+extern const Event ScanAllByEdgePropertyRangeOperator;
 extern const Event ScanAllByEdgeIdOperator;
 extern const Event ScanAllByPointDistanceOperator;
 extern const Event ScanAllByPointWithinbboxOperator;
@@ -955,6 +958,112 @@ std::string ScanAllByEdgeTypePropertyRange::ToString() const {
                               [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
       dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
       common_.node2_symbol.name());
+}
+
+ScanAllByEdgeProperty::ScanAllByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol,
+                                             Symbol node1_symbol, Symbol node2_symbol, EdgeAtom::Direction direction,
+                                             storage::PropertyId property, storage::View view)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view), property_(property) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgeProperty)
+
+UniqueCursorPtr ScanAllByEdgeProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyOperator);
+
+  const auto get_edges = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Edges(view_, property_));
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(mem, *this, input_->MakeCursor(mem), view_,
+                                                                       std::move(get_edges), "ScanAllByEdgeProperty");
+}
+
+std::string ScanAllByEdgeProperty::ToString() const {
+  return fmt::format("ScanAllByEdgeProperty ({0}){1}[{2} {{{3}}}]{4}({5})", common_.node1_symbol.name(),
+                     common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+                     dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+                     common_.node2_symbol.name());
+}
+
+ScanAllByEdgePropertyValue::ScanAllByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                                                       Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
+                                                       EdgeAtom::Direction direction, storage::PropertyId property,
+                                                       Expression *expression, storage::View view)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
+      property_(property),
+      expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgePropertyValue)
+
+UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyValueOperator);
+
+  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Edges(view_, common_.edge_types[0], property_,
+                                                           storage::PropertyValue()))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) return std::nullopt;
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    }
+    return std::make_optional(db->Edges(view_, property_, storage::PropertyValue(value)));
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
+      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgePropertyValue");
+}
+
+std::string ScanAllByEdgePropertyValue::ToString() const {
+  return fmt::format("ScanAllByEdgePropertyValue ({0}){1}[{2} {{{3}}}]{4}({5})", common_.node1_symbol.name(),
+                     common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+                     dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+                     common_.node2_symbol.name());
+}
+
+ScanAllByEdgePropertyRange::ScanAllByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                                                       Symbol edge_symbol, Symbol node1_symbol, Symbol node2_symbol,
+                                                       EdgeAtom::Direction direction, storage::PropertyId property,
+                                                       std::optional<Bound> lower_bound,
+                                                       std::optional<Bound> upper_bound, storage::View view)
+    : ScanAllByEdge(input, edge_symbol, node1_symbol, node2_symbol, direction, {}, view),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgePropertyRange)
+
+UniqueCursorPtr ScanAllByEdgePropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgePropertyRangeOperator);
+
+  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Edges(view_, common_.edge_types[0], property_, std::nullopt,
+                                                           std::nullopt))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+
+    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
+    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
+
+    // If any bound is null, then the comparison would result in nulls. This
+    // is treated as not satisfying the filter, so return no vertices.
+    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
+    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+
+    return std::make_optional(db->Edges(view_, property_, maybe_lower, maybe_upper));
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
+      mem, *this, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgePropertyRange");
+}
+
+std::string ScanAllByEdgePropertyRange::ToString() const {
+  return fmt::format("ScanAllByEdgePropertyRange ({0}){1}[{2} {{{3}}}]{4}({5})", common_.node1_symbol.name(),
+                     common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+                     dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+                     common_.node2_symbol.name());
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
