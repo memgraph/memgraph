@@ -102,5 +102,5 @@ rm "${working_dir}/${package_name}.${extension}"
 if [[ -n "$src_path" ]]; then
   rm -rf "${working_dir}/src"
 fi
-docker image rm $image_name
+docker image rm $image_name || true
 echo "Built Docker image at '${working_dir}/${image_package_name}'"

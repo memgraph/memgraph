@@ -107,6 +107,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
+      additional_build_args: ${{ matrix.additional_build_args }}
     secrets: inherit
 
   DockerArtifact:
