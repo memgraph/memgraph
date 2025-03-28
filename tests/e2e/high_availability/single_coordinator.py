@@ -748,9 +748,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     # 8. Instance_2 commits and replicates data
     # 9. Instance_4 up, instance_2 will replicate data to instance4
     # 10. instance_2 down (MAIN), instance 1 up (missed epoch) and
-    # instance 4 up (In this case we should always choose instance_4 because it has up-to-date data)
-    # 11 Instance 4 new main
-    # 12 instance_1 gets up-to-date data
+    # instance 4 up (In this case we should always
 
     # 1
 
@@ -851,10 +849,19 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     # 9
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_2")
-    interactive_mg_runner.start(memgraph_instances_description, "instance_1")
+
+    expected_data_on_coord = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor))
 
     # 10
 
+    interactive_mg_runner.start(memgraph_instances_description, "instance_1")
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
