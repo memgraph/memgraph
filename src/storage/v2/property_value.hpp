@@ -553,10 +553,10 @@ inline auto operator<=>(const PropertyValueImpl<Alloc> &first, const PropertyVal
     case PropertyValueType::Bool:
       return first.ValueBool() <=> second.ValueBool();
     case PropertyValueType::Int:
-      if (second.type() == PropertyValueType::Double) [[unlikely]] {
-        return to_weak_order(first.ValueInt() <=> second.ValueDouble());
-      } else {
+      if (second.type() == PropertyValueType::Int) {
         return first.ValueInt() <=> second.ValueInt();
+      } else {
+        return to_weak_order(first.ValueInt() <=> second.ValueDouble());
       }
     case PropertyValueType::Double:
       if (second.type() == PropertyValueType::Double) {
