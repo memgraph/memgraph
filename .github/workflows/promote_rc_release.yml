@@ -43,17 +43,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, debian-11, debian-12, docker, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, centos-10, debian-11, debian-12, docker, fedora-41, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
         malloc: [false]
         include:
-          - os: debian-11
-            arch: arm
-          - os: debian-12
-            arch: arm
           - os: docker
-            arch: arm
-          - os: ubuntu-22.04
             arch: arm
           - os: ubuntu-24.04
             arch: arm
