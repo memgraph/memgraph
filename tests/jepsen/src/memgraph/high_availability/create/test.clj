@@ -181,29 +181,17 @@
   [txn]
   (mgquery/collect-ids txn))
 
-(defn is-main?
-  "Tests if data instance is main. Returns bool true/false, catches all exceptions."
-  [bolt-conn]
-  (try
-    (utils/with-session bolt-conn session
-      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
-            role-vec (vec (apply concat role-map))
-            role (last role-vec)]
-        (info "Role:" role)
-        (info "is-main?" (= role "main"))
-        (= role "main")))
-    (catch Exception _
-      false)))
-
 (defrecord Client [nodes-config first-leader first-main license organization]
   jclient/Client
   ; Open Bolt connection to all nodes.
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
     (let [bolt-conn (utils/open-bolt node)
+          bolt-routing-conn (utils/open-bolt-routing node)
           node-config (get nodes-config node)]
       (assoc this
              :bolt-conn bolt-conn
+             :bolt-routing-conn bolt-routing-conn
              :node-config node-config
              :node node)))
 
@@ -218,6 +206,7 @@
 
   (invoke! [this _test op]
     (let [bolt-conn (:bolt-conn this)
+          bolt-routing-conn (:bolt-routing-conn this)
           node (:node this)]
       (case (:f op)
         :get-nodes (if (hautils/data-instance? node)
@@ -230,10 +219,10 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :add-nodes (if (and (hautils/data-instance? node) (is-main? bolt-conn))
+        :add-nodes (if (hautils/coord-instance? node)
                      (let [max-idx (atom nil)]
                        (try
-                         (utils/with-session bolt-conn session
+                         (utils/with-session bolt-routing-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
                            (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size}) (map :id) (reduce conj []) first)]
@@ -425,14 +414,14 @@
                                        (map :value))
 
             failed-add-nodes (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :add-nodes (:f %)))
-                                       (map :value))
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :add-nodes (:f %)))
+                                  (map :value))
 
             failed-get-nodes (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :get-nodes (:f %)))
-                                       (map :value))
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :get-nodes (:f %)))
+                                  (map :value))
 
             si-reads  (->> history
                            (filter #(= :ok (:type %)))
@@ -556,11 +545,13 @@
         first-leader (random-coord (keys nodes-config))
         first-main (random-data-instance (keys nodes-config))
         organization (:organization opts)
-        license (:license opts)]
+        license (:license opts)
+        recovery-time (:recovery-time opts)
+        nemesis-start-sleep (:nemesis-start-sleep opts)]
     {:client    (Client. nodes-config first-leader first-main license organization)
      :checker   (checker/compose
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 900}
-     :nemesis-config (nemesis/create db nodes-config)}))
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time recovery-time}
+     :nemesis-config (nemesis/create db nodes-config nemesis-start-sleep)}))
