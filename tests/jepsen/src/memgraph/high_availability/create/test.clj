@@ -15,12 +15,27 @@
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
+(defn is-main?
+  "Tests if data instance is main. Returns bool true/false, catches all exceptions."
+  [bolt-conn]
+  (try
+    (utils/with-session bolt-conn session
+      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
+            role-vec (vec (apply concat role-map))
+            role (last role-vec)]
+        (info "Role:" role)
+        (info "is-main?" (= role "main"))
+        (= role "main")))
+    (catch Exception _
+      false)))
+
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
 
 (def batch-size 5000)
 
+(def delay-requests-sec 5)
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
@@ -208,52 +223,93 @@
       (case (:f op)
         :get-nodes (if (hautils/data-instance? node)
                      (try
-                       (dbclient/with-transaction bolt-conn txn
-                         (let [indices (->> (mg-get-nodes txn) (map :id) (reduce conj []))]
+                       (utils/with-session bolt-conn session
+                         (let [indices (->> (mg-get-nodes session) (map :id) (reduce conj []))]
                            (assoc op :type :ok :value {:indices indices :node node})))
-                        ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
+
+; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                        (catch Exception e
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
+        :create-unique-constraint (if (and (hautils/data-instance? node) (is-main? bolt-conn))
+                                    (try
+                                      (utils/with-session bolt-conn session
+                                        (mgquery/create-unique-constraint session)
+
+                                        (assoc op :type :ok :value {:str "Created unique constraint"}))
+
+                                      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                        (utils/process-service-unavailable-exc op node))
+
+                                      (catch org.neo4j.driver.exceptions.ClientException e
+                                        (cond
+                                          (utils/concurrent-system-queries? e)
+                                          (assoc op :type :info :value {:str "Concurrent system queries are not allowed"})
+
+                                          :else
+                                          (assoc op :type :fail :value (str e))))
+
+                                      (catch Exception e
+                                        (assoc op :type :fail :value (str e))))
+
+                                    (assoc op :type :info :value "Not main data instance."))
+
         :add-nodes (if (hautils/coord-instance? node)
-                     (let [max-idx (atom nil)
-                           bolt-routing-conn (utils/open-bolt-routing node)
-                     ]
-                       (try
-                         (utils/with-session bolt-routing-conn session
-                           ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
-                           ; fail result.
-                           (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size}) (map :id) (reduce conj []) first)]
-                             (reset! max-idx local-idx)
-                             (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
+                     (try
+                       (utils/with-session bolt-conn session
+                         (let [instances (reduce conj [] (mgquery/get-all-instances session))
+                               current-leader (hautils/get-current-leader instances)]
+                           (if (= current-leader node)
+                             (let [bolt-routing-conn (utils/open-bolt-routing node)
+                                   max-idx (atom nil)]
+                               (try
+                                 (utils/with-session bolt-routing-conn session
+                                   (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
+                                                        (map :id)
+                                                        (reduce conj [])
+                                                        first)]
+                                     (reset! max-idx local-idx)
+                                     (dbclient/disconnect bolt-routing-conn)
+                                     (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
+                                 (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                   (dbclient/disconnect bolt-routing-conn)
+                                   (utils/process-service-unavailable-exc op node))
+                                 (catch Exception e
+                                   (dbclient/disconnect bolt-routing-conn)
+                                   (cond
+                                     (utils/server-no-longer-available e)
+                                     (assoc op :type :info :value {:str "Server no longer available."})
 
-                         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                           (utils/process-service-unavailable-exc op node))
+                                     (utils/no-write-server e)
+                                     (assoc op :type :info :value {:str "Failed to obtain connection towards write server."})
 
-                         (catch Exception e
-                           ; Even if sync replica is down, nodes will get created on the main.
-                           (cond
-                                 (utils/sync-replica-down? e)
-                                 (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
+                                     (utils/sync-replica-down? e)
+                                     (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
-                                 (utils/main-became-replica? e)
-                                 (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
+                                     (utils/main-became-replica? e)
+                                     (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
 
-                                 (utils/main-unwriteable? e)
-                                 (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
+                                     (utils/main-unwriteable? e)
+                                     (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
 
-                                 (or (utils/query-forbidden-on-replica? e)
-                                     (utils/query-forbidden-on-main? e))
-                                 (assoc op :type :info :value (str e))
+                                     (utils/txn-asked-to-abort? e)
+                                     (assoc op :type :ok :value {:str "Txn was asked to abort"})
 
-                                 :else
-                                 (assoc op :type :fail :value (str e)))))
+                                     (utils/unique-constraint-violated? e)
+                                     (assoc op :type :ok :value {:str "Unique constraint was violated."})
 
-                         (dbclient/disconnect bolt-routing-conn)
-                     )
-
-                     (assoc op :type :info :value "Not main data instance."))
+                                     (or (utils/query-forbidden-on-replica? e)
+                                         (utils/query-forbidden-on-main? e))
+                                     (assoc op :type :info :value (str e))
+                                     :else
+                                     (assoc op :type :fail :value (str e))))))
+                             (assoc op :type :info :value "This coordinator is not the current leader."))))
+                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                         (utils/process-service-unavailable-exc op node))
+                       (catch Exception e
+                         (assoc op :type :fail :value (str e))))
+                     (assoc op :type :info :value "Not coordinator instance."))
 
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (hautils/coord-instance? node)
@@ -266,7 +322,13 @@
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
-                                   (assoc op :type :fail :value (str e))))
+                                   (cond
+                                     (utils/txn-asked-to-abort? e)
+                                     (assoc op :type :ok :value {:str "Txn was asked to abort"})
+
+                                     :else
+                                     (assoc op :type :fail :value (str e)))))
+
                                (assoc op :type :info :value "Not coordinator"))
         :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
@@ -509,6 +571,11 @@
                 initial-result
                 updates)))))
 
+(defn create-unique-constraint
+  "Invoke show-instances-read op."
+  [_ _]
+  {:type :invoke, :f :create-unique-constraint, :value nil})
+
 (defn show-instances-reads
   "Invoke show-instances-read op."
   [_ _]
@@ -536,7 +603,8 @@
    (gen/phases
     (gen/once setup-cluster)
     (gen/sleep 5)
-    (gen/delay 2
+    (gen/once create-unique-constraint)
+    (gen/delay delay-requests-sec
                (gen/mix [show-instances-reads add-nodes])))))
 
 (defn workload
