@@ -42,7 +42,6 @@
 #include "dbms/constants.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
