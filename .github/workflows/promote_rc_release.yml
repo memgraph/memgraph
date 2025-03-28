@@ -49,8 +49,10 @@ jobs:
         include:
           - os: docker
             arch: arm
+            malloc: false
           - os: ubuntu-24.04
             arch: arm
+            malloc: false
           - os: ubuntu-24.04
             arch: amd
             malloc: true
