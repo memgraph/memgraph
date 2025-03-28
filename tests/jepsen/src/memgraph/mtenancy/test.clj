@@ -670,7 +670,8 @@
         license (:license opts)
         num-tenants (:num-tenants opts)
         recovery-time (:recovery-time opts)
-        nemesis-start-sleep (:nemesis-start-sleep opts)]
+        nemesis-start-sleep (:nemesis-start-sleep opts)
+        ]
     {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)
