@@ -16,7 +16,6 @@
 #include <optional>
 #include <variant>
 
-#include "exceptions.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "query/database_access.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -25,7 +24,6 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/range.hpp"
-#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"

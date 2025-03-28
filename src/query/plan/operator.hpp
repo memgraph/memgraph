@@ -1402,6 +1402,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
       std::string OR_label_string;
       if (!filter_expression->or_labels_.empty()) {
         if (AND_label_names.empty()) {
+          // If there is no AND_labels or if there is only one OR_labels vector we
+          // don't need parentheses
           OR_label_string =
               filter_expression->or_labels_.size() == 1
                   ? utils::IterableToString(filter_expression->or_labels_[0], "|",

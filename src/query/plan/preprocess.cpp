@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <algorithm>
-#include <cstdint>
 #include <functional>
 #include <stack>
 #include <string_view>
@@ -416,18 +415,17 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         // If it's an OR expression, we are adding to the OR labels of the existing LabelsTest
         if (node->label_expression_) {
           auto &existing_or_labels = existing_labels_test->or_labels_;
-          auto as_set = [&]() {
-            std::unordered_set<LabelIx> as_set;
-            for (const auto &label_vec : existing_or_labels) {
-              for (const auto &label : label_vec) {
-                as_set.insert(label);
-              }
+          std::unordered_set<LabelIx> as_set;
+          for (const auto &label_vec : existing_or_labels) {
+            for (const auto &label : label_vec) {
+              as_set.insert(label);
             }
-            return as_set;
-          }();
+          }
+
           std::vector<LabelIx> labels_vec_to_add;
           for (const auto &label : labels) {
             if (as_set.insert(label).second) {
+              // If the label was not already in the current labels set, add it to the vector
               labels_vec_to_add.push_back(label);
             }
           }
@@ -741,15 +739,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
         auto &existing_or_labels = existing_labels_test->or_labels_;
-        auto as_set = [&]() {
-          std::unordered_set<LabelIx> as_set;
-          for (const auto &label_vec : existing_or_labels) {
-            for (const auto &label : label_vec) {
-              as_set.insert(label);
-            }
+        std::unordered_set<LabelIx> as_set;
+        for (const auto &label_vec : existing_or_labels) {
+          for (const auto &label : label_vec) {
+            as_set.insert(label);
           }
-          return as_set;
-        }();
+        }
+
         auto before_count = as_set.size();
         for (auto &label_vec : labels_test->or_labels_) {
           label_vec.erase(std::remove_if(label_vec.begin(), label_vec.end(),
@@ -757,7 +753,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
                           label_vec.end());
         }
         if (as_set.size() != before_count) {
-          for (auto &label_vec : labels_test->or_labels_) {
+          for (const auto &label_vec : labels_test->or_labels_) {
             existing_or_labels.push_back(label_vec);
           }
           it->or_labels = existing_or_labels;
@@ -906,15 +902,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
           // First cover OR expressions in LabelsTest
           auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
           auto &existing_or_labels = existing_labels_test->or_labels_;
-          auto as_set = [&]() {
-            std::unordered_set<LabelIx> as_set;
-            for (const auto &label_vec : existing_or_labels) {
-              for (const auto &label : label_vec) {
-                as_set.insert(label);
-              }
+          std::unordered_set<LabelIx> as_set;
+          for (const auto &label_vec : existing_or_labels) {
+            for (const auto &label : label_vec) {
+              as_set.insert(label);
             }
-            return as_set;
-          }();
+          }
+
           auto before_count = as_set.size();
           // If symbol isn't already seen in this OR expression emplace back new vector of or labels
           std::vector<LabelIx> *or_labels_vec = nullptr;

@@ -17,7 +17,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -28,14 +27,11 @@
 
 #include <gflags/gflags.h>
 
-#include "frontend/ast/ast.hpp"
-#include "frontend/semantic/symbol.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/view.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 

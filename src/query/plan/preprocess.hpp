@@ -19,7 +19,6 @@
 #include <utility>
 #include <vector>
 
-#include "frontend/semantic/symbol.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
