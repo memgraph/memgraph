@@ -20,13 +20,71 @@
 #include <boost/beast/version.hpp>
 #include <nlohmann/json.hpp>
 
-#include <utils/event_counter.hpp>
-#include <utils/event_gauge.hpp>
 #include "license/license_sender.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/event_counter.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 
+namespace memgraph::metrics {
+
+// clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define RpcCounter(Rpc)            \
+  extern const Event Rpc##Success; \
+  extern const Event Rpc##Fail;
+
+extern const Event SuccessfulFailovers;
+extern const Event RaftFailedFailovers;
+extern const Event NoAliveInstanceFailedFailovers;
+extern const Event BecomeLeaderSuccess;
+extern const Event FailedToBecomeLeader;
+extern const Event ShowInstance;
+extern const Event ShowInstances;
+extern const Event DemoteInstance;
+extern const Event UnregisterReplInstance;
+extern const Event RemoveCoordInstance;
+RpcCounter(StateCheckRpc)
+RpcCounter(UnregisterReplicaRpc)
+RpcCounter(EnableWritingOnMainRpc)
+RpcCounter(PromoteToMainRpc)
+RpcCounter(DemoteMainToReplicaRpc)
+RpcCounter(RegisterReplicaOnMainRpc)
+RpcCounter(SwapMainUUIDRpc)
+RpcCounter(GetDatabaseHistoriesRpc)
+// clang-format on
+
+}  // namespace memgraph::metrics
+
 namespace memgraph::http {
+
+// NOLINTNEXTLINE
+inline const static std::array<metrics::Event, 26> coord_counters_to_reset{metrics::SuccessfulFailovers,
+                                                                           metrics::RaftFailedFailovers,
+                                                                           metrics::NoAliveInstanceFailedFailovers,
+                                                                           metrics::BecomeLeaderSuccess,
+                                                                           metrics::FailedToBecomeLeader,
+                                                                           metrics::ShowInstance,
+                                                                           metrics::ShowInstances,
+                                                                           metrics::DemoteInstance,
+                                                                           metrics::UnregisterReplInstance,
+                                                                           metrics::RemoveCoordInstance,
+                                                                           metrics::StateCheckRpcFail,
+                                                                           metrics::StateCheckRpcSuccess,
+                                                                           metrics::UnregisterReplicaRpcFail,
+                                                                           metrics::UnregisterReplicaRpcSuccess,
+                                                                           metrics::EnableWritingOnMainRpcFail,
+                                                                           metrics::EnableWritingOnMainRpcSuccess,
+                                                                           metrics::PromoteToMainRpcFail,
+                                                                           metrics::PromoteToMainRpcSuccess,
+                                                                           metrics::DemoteMainToReplicaRpcFail,
+                                                                           metrics::DemoteMainToReplicaRpcSuccess,
+                                                                           metrics::RegisterReplicaOnMainRpcFail,
+                                                                           metrics::RegisterReplicaOnMainRpcSuccess,
+                                                                           metrics::SwapMainUUIDRpcFail,
+                                                                           metrics::SwapMainUUIDRpcSuccess,
+                                                                           metrics::GetDatabaseHistoriesRpcFail,
+                                                                           metrics::GetDatabaseHistoriesRpcSuccess};
 
 struct MetricsResponse {
   uint64_t vertex_count;
@@ -76,7 +134,7 @@ class MetricsService {
                            .event_histograms = GetEventHistograms()};
   }
 
-  nlohmann::json AsJson(MetricsResponse response) {
+  inline static nlohmann::json AsJson(MetricsResponse response) {
     auto metrics_response = nlohmann::json();
     const auto *general_type = "General";
 
@@ -108,9 +166,18 @@ class MetricsService {
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
     event_counters.reserve(memgraph::metrics::CounterEnd());
 
+    // After pulling metrics, we need to reset HA counters on coordinators because on each pull we are only sending
+    // deltas
+    auto const is_coordinator = flags::CoordinationSetupInstance().IsCoordinator();
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
-      event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
-                                  memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
+      if (is_coordinator && std::find(coord_counters_to_reset.cbegin(), coord_counters_to_reset.cend(), i)) {
+        event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+                                    memgraph::metrics::global_counters[i].exchange(0, std::memory_order_acq_rel));
+
+      } else {
+        event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+                                    memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
+      }
     }
 
     return event_counters;
