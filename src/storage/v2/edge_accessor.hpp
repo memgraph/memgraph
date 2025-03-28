@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,11 +33,11 @@ class EdgeAccessor final {
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
                Transaction *transaction, bool for_deleted = false)
       : edge_(edge),
-        edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
         storage_(storage),
         transaction_(transaction),
+        edge_type_(edge_type),
         for_deleted_(for_deleted) {}
 
   static std::optional<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -100,12 +100,11 @@ class EdgeAccessor final {
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
   EdgeRef edge_;
-  EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
   Storage *storage_;
   Transaction *transaction_;
-
+  EdgeTypeId edge_type_;
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this
   // flag.

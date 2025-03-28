@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -770,6 +770,7 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         expect_allocator(kv, memgraph::utils::NewDeleteResource());
         auto moved_it = moved.find(kv.first);
         ASSERT_NE(moved_it, moved.end());
+        // flat_map doesn't propagate memory resource to elements
         expect_allocator(*moved_it, &monotonic_memory);
         auto copied_it = copied.find(kv.first);
         ASSERT_NE(copied_it, copied.end());
