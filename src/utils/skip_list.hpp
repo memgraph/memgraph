@@ -23,6 +23,7 @@
 
 #include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
+#include "utils/counter.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -751,8 +752,8 @@ class SkipList final : detail::SkipListNode_base {
     ~Accessor() {
       if (skiplist_ != nullptr) {
         skiplist_->gc_.ReleaseId(id_);
-        auto d = std::bernoulli_distribution(1.0 / 1024.0);
-        if (d(detail::thread_local_mt19937())) {
+        thread_local auto gc_run_interval = utils::ResettableCounter<1024>();
+        if (gc_run_interval()) {
           skiplist_->run_gc();
         }
       }
@@ -1085,13 +1086,32 @@ class SkipList final : detail::SkipListNode_base {
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
       TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       // Existence test is missing in the paper.
-      while (curr != nullptr && curr->obj < key) {
-        pred = curr;
-        curr = pred->nexts[layer].load(std::memory_order_acquire);
-      }
-      // Existence test is missing in the paper.
-      if (layer_found == -1 && curr && curr->obj == key) {
-        layer_found = layer;
+
+      if constexpr (std::three_way_comparable_with<TObj, TKey>) {
+        while (curr != nullptr) {
+          auto cmp_res = curr->obj <=> key;
+          if (cmp_res == std::weak_ordering::less) {
+            pred = curr;
+            curr = pred->nexts[layer].load(std::memory_order_acquire);
+          } else if (cmp_res == std::weak_ordering::equivalent) {
+            // Existence test is missing in the paper.
+            if (layer_found == -1) {
+              layer_found = layer;
+            }
+            break;
+          } else if (cmp_res == std::weak_ordering::greater) {
+            break;
+          }
+        }
+      } else {
+        while (curr != nullptr && curr->obj < key) {
+          pred = curr;
+          curr = pred->nexts[layer].load(std::memory_order_acquire);
+        }
+        // Existence test is missing in the paper.
+        if (layer_found == -1 && curr && curr->obj == key) {
+          layer_found = layer;
+        }
       }
       preds[layer] = pred;
       succs[layer] = curr;

@@ -32,8 +32,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const NewEntry &rhs) const;
-    bool operator==(const NewEntry &rhs) const;
+    friend auto operator<=>(NewEntry const &, NewEntry const &) = default;
+    friend bool operator==(NewEntry const &, NewEntry const &) = default;
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;

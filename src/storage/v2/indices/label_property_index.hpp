@@ -122,6 +122,8 @@ class LabelPropertyIndex {
   struct IndexInfo {
     PropertiesIds const *properties_;
     PropertiesPermutationHelper const *helper_;
+
+    friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
   using AbortableInfo =
       std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
@@ -131,33 +133,38 @@ class LabelPropertyIndex {
 
     void collect_on_label_removal(LabelId label, Vertex *vertex) {
       const auto &it = l2p.find(label);
-      if (it != l2p.end()) {
-        for (const auto &[property, index_info] : it->second) {
-          for (auto const &[properties, helper] : index_info) {
-            auto current_values = helper->extract(vertex->properties);
-            helper->apply_permutation(current_values);
-            // Only if current_values has at least one non-null value do we need to cleanup its index entry
-            if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
-              cleanup_collection[label][properties].emplace_back(IndexOrderedPropertyValues{std::move(current_values)},
-                                                                 vertex);
-            }
-          }
+      if (it == l2p.end()) return;
+
+      auto dedup = std::set<IndexInfo>{};
+      for (const auto &[property, index_info] : it->second) {
+        for (auto const &info : index_info) {
+          dedup.insert(info);
+        }
+      }
+      for (auto const &[properties, helper] : dedup) {
+        auto current_values = helper->extract(vertex->properties);
+        // Only if current_values has at least one non-null value do we need to cleanup its index entry
+        if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
+          helper->apply_permutation(current_values);
+          cleanup_collection[label][properties].emplace_back(IndexOrderedPropertyValues{std::move(current_values)},
+                                                             vertex);
         }
       }
     }
 
     void collect_on_property_change(PropertyId propId, Vertex *vertex) {
       const auto &it = p2l.find(propId);
-      if (it != p2l.end()) {
-        for (auto const &[label, index_info] : it->second) {
-          for (auto const &[properties, helper] : index_info) {
-            auto current_values = helper->extract(vertex->properties);
+      if (it == p2l.end()) return;
+
+      for (auto const &[label, index_info] : it->second) {
+        if (!utils::Contains(vertex->labels, label)) continue;
+        for (auto const &[properties, helper] : index_info) {
+          auto current_values = helper->extract(vertex->properties);
+          // Only if current_values has at least one non-null value do we need to cleanup its index entry
+          if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
             helper->apply_permutation(current_values);
-            // Only if current_values has at least one non-null value do we need to cleanup its index entry
-            if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
-              cleanup_collection[label][properties].emplace_back(IndexOrderedPropertyValues{std::move(current_values)},
-                                                                 vertex);
-            }
+            cleanup_collection[label][properties].emplace_back(IndexOrderedPropertyValues{std::move(current_values)},
+                                                               vertex);
           }
         }
       }

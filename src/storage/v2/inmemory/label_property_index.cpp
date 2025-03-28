@@ -190,14 +190,6 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 
 }  // namespace
 
-bool InMemoryLabelPropertyIndex::NewEntry::operator<(const NewEntry &rhs) const {
-  return std::tie(values, vertex, timestamp) < std::tie(rhs.values, rhs.vertex, rhs.timestamp);
-}
-
-bool InMemoryLabelPropertyIndex::NewEntry::operator==(const NewEntry &rhs) const {
-  return std::tie(values, vertex, timestamp) == std::tie(rhs.values, rhs.vertex, rhs.timestamp);
-}
-
 bool InMemoryLabelPropertyIndex::NewEntry::operator<(std::vector<PropertyValue> const &rhs) const {
   return std::ranges::lexicographical_compare(
       std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
@@ -300,10 +292,6 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
 
 void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                                      const Transaction &tx) {
-  if (value.IsNull()) {
-    return;
-  }
-
   auto const it = new_indices_by_property_.find(property);
   if (it == new_indices_by_property_.end()) {
     return;
@@ -539,15 +527,8 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 
     enum class InBoundResult { UNDER, IN_BOUNDS, IN_BOUNDS_AT_UB, OVER };
 
-    auto const value_within_bounds = [](std::optional<utils::Bound<PropertyValue>> const &lb,
-                                        std::optional<utils::Bound<PropertyValue>> const &ub,
-                                        PropertyValue const &cmp_value) -> InBoundResult {
-      if (lb) {
-        auto lb_cmp_res = cmp_value <=> lb->value();
-        if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
-          return InBoundResult::UNDER;
-        }
-      }
+    auto const value_within_upper_bounds = [](std::optional<utils::Bound<PropertyValue>> const &ub,
+                                              PropertyValue const &cmp_value) -> InBoundResult {
       if (ub) {
         auto ub_cmp_res = cmp_value <=> ub->value();
         if (is_gt(ub_cmp_res)) {
@@ -560,11 +541,47 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       return InBoundResult::IN_BOUNDS;
     };
 
+    auto const value_within_bounds = [&](std::optional<utils::Bound<PropertyValue>> const &lb,
+                                         std::optional<utils::Bound<PropertyValue>> const &ub,
+                                         PropertyValue const &cmp_value) -> InBoundResult {
+      if (lb) {
+        auto lb_cmp_res = cmp_value <=> lb->value();
+        if (is_lt(lb_cmp_res) || (lb->IsExclusive() && is_eq(lb_cmp_res))) {
+          return InBoundResult::UNDER;
+        }
+      }
+      return value_within_upper_bounds(ub, cmp_value);
+    };
+
     enum class Result { Skip, NoMoreValidEntries, WithAllBounds };
 
     auto bounds_checker = [&]() {
       auto at_boundary_counter = 0;
-      for (auto level = 0; level != self_->lower_bound_.size(); ++level) {
+      // level 0
+      switch (value_within_upper_bounds(self_->upper_bound_[0], index_iterator_->values.values_[0])) {
+        case InBoundResult::UNDER:
+          DMG_ASSERT(false, "this can't happen");
+          break;
+        case InBoundResult::IN_BOUNDS:
+          // This property value is within the boundary, proceed onto the next member of the prefix level
+          break;
+        case InBoundResult::IN_BOUNDS_AT_UB: {
+          // This property value is within the boundary, proceed onto the next member of the prefix level
+          // But also this is the boundary of this given prefix level
+          // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
+          // early as possible
+          ++at_boundary_counter;
+          break;
+        }
+        case InBoundResult::OVER: {
+          // This property value is over the boundary
+          // We are at level 0, hence no preceeding prefix levels, we can safely know that there are no more
+          // entries that would be within any of the preceeding boundaries.
+          return Result::NoMoreValidEntries;
+        }
+      };
+      // rest of the levels
+      for (auto level = 1; level < self_->lower_bound_.size(); ++level) {
         switch (value_within_bounds(self_->lower_bound_[level], self_->upper_bound_[level],
                                     index_iterator_->values.values_[level])) {
           case InBoundResult::UNDER: {
@@ -931,14 +948,14 @@ auto InMemoryLabelPropertyIndex::GetAbortProcessor() const -> LabelPropertyIndex
 }
 
 void InMemoryLabelPropertyIndex::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
-  for (auto const &[label, thing] : info) {
+  for (auto const &[label, by_properties] : info) {
     auto it = new_index_.find(label);
     DMG_ASSERT(it != new_index_.end());
-    for (auto const &[prop, thing2] : thing) {
+    for (auto const &[prop, to_remove] : by_properties) {
       auto it2 = it->second.find(*prop);
       DMG_ASSERT(it2 != it->second.end());
       auto acc = it2->second.skiplist.access();
-      for (auto &[values, vertex] : thing2) {
+      for (auto &[values, vertex] : to_remove) {
         acc.remove(NewEntry{std::move(values), vertex, start_timestamp});
       }
     }

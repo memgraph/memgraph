@@ -111,3 +111,17 @@ refactor Abort processor (index cleanup)
 Headers -> cpp
 
 schema documentation update to "label+properties"
+
+
+Reject: CREATE INDEX ON :L(a,a);
+
+When create index then insert: multiple entries are made e.g. (A null null), (A B null), (A B C)
+-> TODO: defer insertion until after the InitProperties (know all properties that changed)
+-> OR: defer insertion of index entries until AdvanceCommand/Commit
+
+We can make InMemoryLabelPropertyIndex::AbortEntries faster
+      for (auto &[values, vertex] : to_remove) {
+        acc.remove(NewEntry{std::move(values), vertex, start_timestamp});
+      }
+We could do a sort + bulk remove that would fast iterate to the next matching entry
+Like std::set_intersection
