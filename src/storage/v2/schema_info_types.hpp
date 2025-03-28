@@ -194,11 +194,14 @@ struct TrackingInfo {
   }
 };
 
+// TODO Split into key and data and use map
 struct SchemaInfoPostProcess {
   EdgeRef edge_ref;
   EdgeTypeId edge_type;
   Vertex *from;
   Vertex *to;
+  mutable bool deleted;
+  mutable bool prop_change;
 };
 
 }  // namespace memgraph::storage
