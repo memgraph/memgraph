@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -118,34 +118,35 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabel) {
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyRange) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"),
-      memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
-      memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+      std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+                                         memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
   last_op->dba_ = &this->dba;
 
-  std::string expected_string{"ScanAllByLabelPropertyRange (node :Label {prop})"};
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyValue) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op =
-      std::make_shared<ScanAllByLabelPropertyValue>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-                                                    this->dba.NameToProperty("prop"), ADD(LITERAL(21), LITERAL(21)));
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+      std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   last_op->dba_ = &this->dba;
 
-  std::string expected_string{"ScanAllByLabelPropertyValue (node :Label {prop})"};
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperty) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelProperty>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-                                                     this->dba.NameToProperty("prop"));
+  last_op = std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                       std::vector{this->dba.NameToProperty("prop")},
+                                                       std::vector{ExpressionRange::IsNotNull()});
   last_op->dba_ = &this->dba;
 
-  std::string expected_string{"ScanAllByLabelProperty (node :Label {prop})"};
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,8 +20,8 @@
 
 namespace memgraph::storage {
 
-using EnumTypeId = strong::type<uint64_t, struct EnumId_, strong::regular, strong::partially_ordered>;
-using EnumValueId = strong::type<uint64_t, struct EnumValueId_, strong::regular, strong::partially_ordered>;
+using EnumTypeId = strong::type<uint64_t, struct EnumId_, strong::regular, strong::weakly_ordered>;
+using EnumValueId = strong::type<uint64_t, struct EnumValueId_, strong::regular, strong::weakly_ordered>;
 
 struct Enum {
   Enum() = default;  // needed for slk
@@ -30,7 +30,7 @@ struct Enum {
 
   //  friend auto operator==(Enum const &, Enum const &) -> bool = default;
   //  friend auto operator<(Enum const &, Enum const &) -> bool = default;
-  friend auto operator<=>(Enum const &, Enum const &) -> std::partial_ordering = default;
+  friend auto operator<=>(Enum const &, Enum const &) -> std::weak_ordering = default;
 
   friend auto as_tuple(const Enum &obj) { return std::tie(obj.type_id_, obj.value_id_); }
 

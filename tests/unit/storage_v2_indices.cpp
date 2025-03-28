@@ -22,6 +22,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "storage_test_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -590,94 +591,95 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
+  // @TODO add test for composite indices
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
+    EXPECT_EQ(acc->ListAllIndices().label_property_new.size(), 0);
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property,
-                UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-
-  {
-    auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property,
-                UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_id).HasError());
+    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
-  }
-
-  {
-    auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_property,
-        UnorderedElementsAre(std::make_pair(this->label1, this->prop_id), std::make_pair(this->label2, this->prop_id)));
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-  {
-    auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property,
-                UnorderedElementsAre(std::make_pair(this->label2, this->prop_id)));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+  }
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id}),
+                                     std::make_pair(this->label2, std::vector{this->prop_id})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
+  }
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+                UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_id})));
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, this->prop_id).HasError());
+    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
+    EXPECT_EQ(acc->ListAllIndices().label_property_new.size(), 0);
   }
 }
 
@@ -690,12 +692,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -785,7 +787,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -836,18 +838,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc = this->storage->Access();
 
-  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 0);
+  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 0);
   {
     auto vertex = this->CreateVertex(acc.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
   }
 
   {
@@ -855,7 +857,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
     ASSERT_NO_ERROR(vertex.AddLabel(this->label2));  // NOTE: this is not label1
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     // We expect index for label1+id to be uneffected
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
   }
 }
 
@@ -863,7 +865,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -906,7 +908,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -980,7 +982,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
@@ -993,22 +995,25 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
       }
     }
 
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 55);
+    // @TODO have no tests for approx vertex count with composite indices
+
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 55);
     for (int i = 1; i <= 10; ++i) {
-      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val, PropertyValue(i)), i);
+      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}, std::array{PropertyValue(i)}), i);
     }
 
-    EXPECT_EQ(
-        acc->ApproximateVertexCount(this->label1, this->prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
-                                    memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
-        2 + 3 + 4 + 5 + 6);
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val},
+                                          std::array{memgraph::storage::PropertyValueRange::Bounded(
+                                              memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                              memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+              2 + 3 + 4 + 5 + 6);
   }
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1225,7 +1230,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
         verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]),
                {values.begin() + i, values.begin() + j + 1});
       } else {
-        verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]), {});
+        // TODO: this no longer applies...we allow scan over multiple types
+        // verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]), {});
       }
     }
   }
@@ -1234,11 +1240,111 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   verify(std::nullopt, std::nullopt, values);
 }
 
+TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP() << "DiskStorage does not support label/property composite indices";
+  }
+
+  PropertyId prop_a;
+  PropertyId prop_b;
+
+  {
+    auto acc = this->storage->Access();
+    prop_a = acc->NameToProperty("a");
+    prop_b = acc->NameToProperty("b");
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto a_values = ranges::views::iota(0, 5) | ranges::views::transform([](int val) { return PropertyValue(val); }) |
+                  ranges::to_vector;
+  auto b_values =
+      std::vector{PropertyValue(2),      PropertyValue(3.0),     PropertyValue(4),         PropertyValue(6.0),
+                  PropertyValue("alfa"), PropertyValue("bravo"), PropertyValue("charlie"), PropertyValue()};
+
+  // Create vertices with every cartesian product of a and b values
+  {
+    auto acc = this->storage->Access();
+    for (auto &&[a_val, b_val] : ranges::views::cartesian_product(a_values, b_values)) {
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
+      ASSERT_TRUE(v.SetProperty(prop_a, a_val).HasValue());
+      ASSERT_TRUE(v.SetProperty(prop_b, b_val).HasValue());
+    }
+
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+
+  auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
+
+  auto bounded = [&](auto &&lower, auto &&upper) {
+    return PropertyValueRange::Bounded(inclusive_bound(PropertyValue(lower)), inclusive_bound(PropertyValue(upper)));
+  };
+
+  using enum PropertyValueType;
+
+  auto const test = [&](std::span<memgraph::storage::PropertyId const> props,
+                        std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
+                        auto &&props_validator) {
+    CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, expected_num_vertices, props_validator);
+  };
+
+  // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+         EXPECT_NE(values[1].type(), Null);
+       });
+
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+         EXPECT_EQ(values[1].type(), String);
+         EXPECT_TRUE(values[1].ValueString() == "alfa" || values[1].ValueString() == "bravo");
+       });
+
+  // Check 1 <= n.a <= 3 AND 1 <= n.b <= 6
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+         EXPECT_TRUE(values[1].type() == Int || values[1].type() == Double);
+         EXPECT_TRUE(values[1].type() == Double || values[1].ValueInt() == 2 || values[1].ValueInt() == 4);
+         EXPECT_TRUE(values[1].type() == Int || values[1].ValueDouble() == 3.0 || values[1].ValueDouble() == 6.0);
+       });
+
+  // Check 1 <= n.a <= 3
+  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3)}, 24, [](std::span<PropertyValue const> values) {
+    EXPECT_EQ(values[0].type(), Int);
+    EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+  });
+
+  // Check n.a IS NOT NULL AND 1 <= n.b <= 3
+  test(std::array{prop_a, prop_b}, std::array{PropertyValueRange::IsNotNull(), bounded(1, 3)}, 10,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_NE(values[0].type(), Null);
+
+         auto b_type = values[1].type();
+         EXPECT_TRUE(b_type == Int || b_type == Double);
+         if (b_type == Int) {
+           EXPECT_TRUE(values[1].ValueInt() >= 1 && values[1].ValueInt() <= 3);
+         } else {
+           EXPECT_TRUE(values[1].ValueDouble() >= 1 && values[1].ValueDouble() <= 3);
+         }
+       });
+}
+
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1271,7 +1377,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1303,7 +1409,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1336,7 +1442,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();

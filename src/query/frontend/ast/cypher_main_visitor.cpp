@@ -301,13 +301,16 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         if (!index_hint_ctx->propertyKeyName()) {
           pre_query_directives.index_hints_.emplace_back(
-              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
           continue;
         }
         pre_query_directives.index_hints_.emplace_back(
+            /*TODO make hints composite*/
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
-                      .label_ = label,
-                      .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+                      .label_ix_ = label,
+                      .property_ixs_ =
+                          std::vector{std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))}});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
@@ -367,9 +370,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  if (ctx->propertyKeyName()) {
-    auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
-    index_query->properties_ = {name_key};
+  index_query->properties_.reserve(ctx->propertyKeyName().size());
+  for (auto *property_key_name : ctx->propertyKeyName()) {
+    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
+    index_query->properties_.emplace_back(std::move(prop_key));
   }
   return index_query;
 }
@@ -377,11 +381,12 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
 antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
-  if (ctx->propertyKeyName()) {
-    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
-    index_query->properties_ = {key};
-  }
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->properties_.reserve(ctx->propertyKeyName().size());
+  for (auto *property_key_name : ctx->propertyKeyName()) {
+    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
+    index_query->properties_.emplace_back(std::move(prop_key));
+  }
   return index_query;
 }
 

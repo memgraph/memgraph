@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -184,28 +184,35 @@ void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  return index_.erase({label, property}) > 0U;
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
+  return index_.erase({label, properties[0]}) > 0U;
 }
 
-bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return utils::Contains(index_, std::make_pair(label, property));
+bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
+  return utils::Contains(index_, std::make_pair(label, properties[0]));
 }
 
-std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
-  return {index_.begin(), index_.end()};
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndices() const {
+  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyId>> {
+    auto [label, property] = index;
+    return {label, {property}};
+  };
+
+  return index_ | ranges::views::transform(convert) | ranges::to_vector;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const { return 10; }
-
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
-                                                        const PropertyValue & /*value*/) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
+                                                        std::span<PropertyId const> /*properties*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
-    LabelId /*label*/, PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
-    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+                                                        std::span<PropertyValue const> /*values*/) const {
+  return 10;
+}
+
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> /*properties*/,
+                                                        std::span<PropertyValueRange const> /*bounds*/) const {
   return 10;
 }
 
@@ -219,5 +226,22 @@ void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys)
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
 std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
+
+std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(
+    std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
+  auto res = std::vector<LabelPropertiesIndicesInfo>{};
+  // NOTE: only looking for singular property index, as disk does not support composite indices
+  for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
+    for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
+      if (IndexExists(label, std::array{property})) {
+        // NOLINTNEXTLINE(google-runtime-int)
+        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)}, label, std::vector{property});
+      }
+    }
+  }
+  return res;
+}
+
+void DiskLabelPropertyIndex::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {}
 
 }  // namespace memgraph::storage
