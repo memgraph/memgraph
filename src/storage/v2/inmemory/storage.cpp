@@ -2624,17 +2624,17 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
-  // TODO: Think about role check here
-  // What will happen if MAIN is being demoted at this point?
-
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
   durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
+                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
+  abort_snapshot_.store(false, std::memory_order_release);
+
   return {};
 }
 

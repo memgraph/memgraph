@@ -15,12 +15,15 @@
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/functional.hpp"
 #include "utils/synchronized.hpp"
 
 #include <spdlog/spdlog.h>
 
 namespace memgraph::replication {
+
+using namespace std::chrono_literals;
 
 namespace {
 #ifdef MG_ENTERPRISE
@@ -196,6 +199,21 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
                                                    const std::optional<utils::UUID> &main_uuid) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
+
+    bool snapshot_locks_taken{true};
+    dbms_handler_.ForEach([&snapshot_locks_taken](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      storage->abort_snapshot_.store(true, std::memory_order_release);
+      if (!storage->snapshot_lock_.try_lock_for(10s)) {
+        snapshot_locks_taken = false;
+        return;
+      }
+    });
+
+    if (!snapshot_locks_taken) {
+      return false;
+    }
+
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;

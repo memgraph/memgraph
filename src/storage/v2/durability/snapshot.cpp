@@ -45,6 +45,11 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+using namespace std::chrono_literals;
+namespace {
+constexpr auto kCheckIfSnapshotAborted = 3s;
+}  // namespace
+
 namespace memgraph::storage::durability {
 
 // Snapshot format:
@@ -4424,7 +4429,17 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                     utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                    utils::FileRetainer *file_retainer) {
+                    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot) {
+  utils::Timer timer;
+
+  auto const snapshot_aborted = [abort_snapshot, &timer]() -> bool {
+    if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
+      timer.ResetStartTime();
+      return abort_snapshot != nullptr && abort_snapshot->load(std::memory_order_acquire);
+    }
+    return false;
+  };
+
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
@@ -4484,12 +4499,18 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   std::vector<BatchInfo> edge_batch_infos;
   auto items_in_current_batch{0UL};
   auto batch_start_offset{0UL};
+
   // Store all edges.
   if (storage->config_.salient.items.properties_on_edges) {
     offset_edges = snapshot.GetPosition();
     batch_start_offset = offset_edges;
     auto acc = edges->access();
+
     for (auto &edge : acc) {
+      if (snapshot_aborted()) {
+        return;
+      }
+
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
       bool is_visible = true;
@@ -4567,6 +4588,10 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     batch_start_offset = offset_vertices;
     auto acc = vertices->access();
     for (auto &vertex : acc) {
+      if (snapshot_aborted()) {
+        return;
+      }
+
       // The visibility check is implemented for vertices so we use it here.
       auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
       if (!va) continue;
@@ -4656,6 +4681,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : label) {
         write_mapping(item);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write label indices statistics.
@@ -4681,6 +4709,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(i);  // Write real size
         snapshot.SetPosition(last_pos);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write label+property indices.
@@ -4690,6 +4721,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : label_property) {
         write_mapping(item.first);
         write_mapping(item.second);
+      }
+      if (snapshot_aborted()) {
+        return;
       }
     }
 
@@ -4720,6 +4754,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(i);  // Write real size
         snapshot.SetPosition(last_pos);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write edge-type indices.
@@ -4731,6 +4768,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : edge_type) {
         write_mapping(item);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write edge-type + property indices.
@@ -4740,6 +4780,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : edge_type) {
         write_mapping(item.first);
         write_mapping(item.second);
+      }
+      if (snapshot_aborted()) {
+        return;
       }
     }
 
@@ -4760,6 +4803,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(label);
         write_mapping(property);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write vector indices.
@@ -4776,6 +4822,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(resize_coefficient);
         snapshot.WriteUint(capacity);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write text indices.
@@ -4785,6 +4834,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &[index_name, label] : text_indices) {
         snapshot.WriteString(index_name);
         write_mapping(label);
+      }
+      if (snapshot_aborted()) {
+        return;
       }
     }
   }
@@ -4802,6 +4854,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item.first);
         write_mapping(item.second);
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
 
     // Write unique constraints.
@@ -4815,6 +4870,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
           write_mapping(property);
         }
       }
+      if (snapshot_aborted()) {
+        return;
+      }
     }
     // Write type constraints
     {
@@ -4824,6 +4882,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(label);
         write_mapping(property);
         snapshot.WriteUint(static_cast<uint64_t>(type));
+      }
+      if (snapshot_aborted()) {
+        return;
       }
     }
   }
@@ -4836,6 +4897,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     for (auto item : used_ids) {
       snapshot.WriteUint(item);
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
+    }
+    if (snapshot_aborted()) {
+      return;
     }
   }
 
@@ -4854,6 +4918,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteString(evalue);
       }
     }
+    if (snapshot_aborted()) {
+      return;
+    }
   }
 
   // Write epoch history
@@ -4864,6 +4931,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     for (const auto &[epoch_id, last_durable_timestamp] : epoch_history) {
       snapshot.WriteString(epoch_id);
       snapshot.WriteUint(last_durable_timestamp);
+    }
+    if (snapshot_aborted()) {
+      return;
     }
   }
 
@@ -4879,32 +4949,47 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                                                      : transaction->start_timestamp);  // Fallback to start ts
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
+    if (snapshot_aborted()) {
+      return;
+    }
   }
 
-  auto write_batch_infos = [&snapshot](const std::vector<BatchInfo> &batch_infos) {
+  auto write_batch_infos = [&snapshot, &snapshot_aborted](const std::vector<BatchInfo> &batch_infos) -> bool {
     snapshot.WriteUint(batch_infos.size());
     for (const auto &batch_info : batch_infos) {
       snapshot.WriteUint(batch_info.offset);
       snapshot.WriteUint(batch_info.count);
+      if (snapshot_aborted()) {
+        return true;
+      }
     }
+    return false;
   };
 
   // Write edge batches
   {
     offset_edge_batches = snapshot.GetPosition();
-    write_batch_infos(edge_batch_infos);
+    if (write_batch_infos(edge_batch_infos)) {
+      return;
+    }
   }
 
   // Write vertex batches
   {
     offset_vertex_batches = snapshot.GetPosition();
-    write_batch_infos(vertex_batch_infos);
+    if (write_batch_infos(vertex_batch_infos)) {
+      return;
+    }
   }
 
   // Write true offsets.
   {
     snapshot.SetPosition(offset_offsets);
     write_offsets();
+  }
+
+  if (snapshot_aborted()) {
+    return;
   }
 
   // Finalize snapshot file.

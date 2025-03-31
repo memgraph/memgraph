@@ -80,6 +80,6 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                     utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                    utils::FileRetainer *file_retainer);
+                    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot = nullptr);
 
 }  // namespace memgraph::storage::durability
