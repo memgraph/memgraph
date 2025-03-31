@@ -782,7 +782,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 3);
-        for (auto vertex : acc->Vertices(base_label_indexed, property_id, memgraph::storage::View::OLD)) {
+        for (auto vertex : acc->Vertices(base_label_indexed, std::array{property_id},
+                                         std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                         memgraph::storage::View::OLD)) {
           vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumBaseVertices / 3);
@@ -812,7 +814,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc->Vertices(base_label_indexed, property_id, memgraph::storage::View::OLD);
+          auto iterable = acc->Vertices(base_label_indexed, std::array{property_id},
+                                        std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                        memgraph::storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -904,7 +908,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 3);
-        for (auto vertex : acc->Vertices(extended_label_indexed, property_count, memgraph::storage::View::OLD)) {
+        for (auto vertex : acc->Vertices(extended_label_indexed, std::array{property_count},
+                                         std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                         memgraph::storage::View::OLD)) {
           vertices.emplace_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumExtendedVertices / 3);
@@ -934,7 +940,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc->Vertices(extended_label_indexed, property_count, memgraph::storage::View::OLD);
+          auto iterable = acc->Vertices(extended_label_indexed, std::array{property_count},
+                                        std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                        memgraph::storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }

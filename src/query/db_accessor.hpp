@@ -295,31 +295,6 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property) {
-    return VerticesIterable(accessor_->Vertices(label, property, view));
-  }
-
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property,
-                            const storage::PropertyValue &value) {
-    return VerticesIterable(accessor_->Vertices(label, std::array{property}, value, view));
-  }
-
-  VerticesIterable Vertices(storage::View view, storage::LabelId label,
-                            std::span<storage::PropertyId const> properties) {
-    return VerticesIterable(accessor_->Vertices(label, properties, view));
-  }
-
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, std::span<storage::PropertyId const> properties,
-                            const storage::PropertyValue &value) {
-    return VerticesIterable(accessor_->Vertices(label, properties, value, view));
-  }
-
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, storage::PropertyId property,
-                            const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                            const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
-  }
-
   VerticesIterable Vertices(storage::View view, storage::LabelId label, std::span<storage::PropertyId const> properties,
                             std::span<storage::PropertyValueRange const> property_ranges) {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
