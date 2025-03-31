@@ -2802,7 +2802,12 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       }
 
       auto const &[label, properties] = key;
-      for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties)) {
+
+      auto prop_ranges = std::vector<storage::PropertyValueRange>();
+      prop_ranges.reserve(properties.size());
+      ranges::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
+
+      for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges)) {
         // @TODO currently using a linear pass to get the property values. Instead, gather
         // all in one pass and permute as we usually do.
 
