@@ -96,6 +96,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       utils::SkipList<NewEntry>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
+      bool skip_lower_bound_check_{false};
     };
 
     Iterator begin();

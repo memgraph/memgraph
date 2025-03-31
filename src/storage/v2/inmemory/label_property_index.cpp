@@ -558,30 +558,32 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto bounds_checker = [&]() {
       auto at_boundary_counter = 0;
       // level 0
-      switch (value_within_upper_bounds(self_->upper_bound_[0], index_iterator_->values.values_[0])) {
-        case InBoundResult::UNDER:
-          DMG_ASSERT(false, "this can't happen");
-          break;
-        case InBoundResult::IN_BOUNDS:
-          // This property value is within the boundary, proceed onto the next member of the prefix level
-          break;
-        case InBoundResult::IN_BOUNDS_AT_UB: {
-          // This property value is within the boundary, proceed onto the next member of the prefix level
-          // But also this is the boundary of this given prefix level
-          // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
-          // early as possible
-          ++at_boundary_counter;
-          break;
-        }
-        case InBoundResult::OVER: {
-          // This property value is over the boundary
-          // We are at level 0, hence no preceeding prefix levels, we can safely know that there are no more
-          // entries that would be within any of the preceeding boundaries.
-          return Result::NoMoreValidEntries;
-        }
-      };
+      if (skip_lower_bound_check_) {
+        switch (value_within_upper_bounds(self_->upper_bound_[0], index_iterator_->values.values_[0])) {
+          case InBoundResult::UNDER:
+            DMG_ASSERT(false, "this can't happen");
+            break;
+          case InBoundResult::IN_BOUNDS:
+            // This property value is within the boundary, proceed onto the next member of the prefix level
+            break;
+          case InBoundResult::IN_BOUNDS_AT_UB: {
+            // This property value is within the boundary, proceed onto the next member of the prefix level
+            // But also this is the boundary of this given prefix level
+            // We must track if all preceeding prefix levels of are at the boundary to be able to exit scan as
+            // early as possible
+            ++at_boundary_counter;
+            break;
+          }
+          case InBoundResult::OVER: {
+            // This property value is over the boundary
+            // We are at level 0, hence no preceeding prefix levels, we can safely know that there are no more
+            // entries that would be within any of the preceeding boundaries.
+            return Result::NoMoreValidEntries;
+          }
+        };
+      }
       // rest of the levels
-      for (auto level = 1; level < self_->lower_bound_.size(); ++level) {
+      for (auto level = skip_lower_bound_check_ ? 1 : 0; level < self_->lower_bound_.size(); ++level) {
         switch (value_within_bounds(self_->lower_bound_[level], self_->upper_bound_[level],
                                     index_iterator_->values.values_[level])) {
           case InBoundResult::UNDER: {
@@ -614,6 +616,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     };
 
     auto const res = bounds_checker();
+    skip_lower_bound_check_ = false;
     if (res == Result::Skip) {
       continue;
     } else if (res == Result::NoMoreValidEntries) {
