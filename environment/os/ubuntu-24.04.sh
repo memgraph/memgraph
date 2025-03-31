@@ -79,30 +79,55 @@ list() {
 
 check() {
     local missing=""
-    for pkg in $1; do
+    local missing_custom=""
+    declare -n packages=$1
+
+    # check custom packages first
+    for pkg in "${packages[@]}"; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing="$pkg $missing"
+                missing_custom="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing="$pkg $missing"
+                missing_custom="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-rust ]; then
             if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
+                missing_custom="$pkg $missing"
             fi
             continue
         fi
-        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
-        fi
     done
-    if [ "$missing" != "" ]; then
+
+    # pop custom items off the package list
+    filtered=()
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3|custom-golang1.18.9|custom-rust|custom-node)
+                echo "here"
+                continue
+                ;;
+            *) 
+                filtered+=( "$pkg" )
+                ;;
+        esac
+    done
+    packages=("${filtered[@]}")
+
+    # call python script to check the rest
+    missing=$(python3 "$DIR/check-packages.py" "ubuntu-24.04" "${packages[@]}")
+
+    # combine with custom packages
+    if [ -n "$missing_custom" ]; then
+        missing="$missing $missing_custom"
+    fi
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
@@ -119,45 +144,64 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+    # Create an array for packages to be installed via apt later.
+    local apt_packages=()
+    # Create an array from all arguments passed (the package list)
+    local -n packages="$1"
 
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == dotnet-sdk-8.0 ]; then
-            if ! dpkg -s dotnet-sdk-8.0 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-8.0
-            fi
-            continue
-        fi
-        if [ "$pkg" == openjdk-17-jdk-headless ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                apt install -y "$pkg"
-                # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        apt install -y "$pkg"
+    # Iterate through each package in the provided list
+    for pkg in "${packages[@]}"; do
+        echo "Checking package $pkg"
+        case "$pkg" in
+            custom-maven3.9.3)
+                install_custom_maven "3.9.3"
+                ;;
+            custom-golang1.18.9)
+                install_custom_golang "1.18.9"
+                ;;
+            custom-rust)
+                install_rust "1.80"
+                ;;
+            custom-node)
+                install_node "20"
+                ;;
+            dotnet-sdk-8.0)
+                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
+                    wget -nv https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                    dpkg -i packages-microsoft-prod.deb
+                    apt-get update
+                    apt-get install -y apt-transport-https dotnet-sdk-8.0
+                fi
+                ;;
+            openjdk-17-jdk-headless)
+                # We delay installation so we can update alternatives after
+                if ! dpkg -s "$pkg" &>/dev/null; then
+                    apt_packages+=("$pkg")
+                fi
+                ;;
+            *)
+                # For a generic package, add it to the list
+                apt_packages+=("$pkg")
+                ;;
+        esac
     done
+    
+    # Now use your python script to check which generic packages are missing.
+    # It should output a space-separated list.
+    missing=$(python3 "$DIR/check-packages.py" "ubuntu-24.04" "${apt_packages[@]}")
+
+    # If there are missing packages, install them all in one apt install call.
+    if [ -n "$missing" ]; then
+        echo "Installing missing packages: $missing"
+        apt install -y $missing
+    fi
+
+    # For openjdk-17-jdk-headless, update alternatives if it is installed.
+    if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
+        update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+        update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
+    fi
 }
 
 deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"
