@@ -26,7 +26,7 @@ on:
       push_to_github:
         type: string
         description: "Should the final package be pushed to GitHub. Default value is false."
-        default: false
+        default: false # TODO: empty string
       push_to_s3:
         type: string
         description: "Should the final package be pushed to an S3 bucket. Default value is false."

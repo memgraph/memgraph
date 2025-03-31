@@ -46,6 +46,7 @@ jobs:
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
       run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
+      run_upload_to_s3_mage: ${{ steps.setup.outputs.run_upload_to_s3_mage }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
@@ -122,4 +123,20 @@ jobs:
       toolchain: 'v6'
       run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
     secrets: inherit
-  
+
+  # TODO Ivan: make this happen with a label as well
+  # TODO Ivan: add arm
+  UploadToS3:
+    needs: DiffSetup
+    uses: ./.github/workflows/package_memgraph.yaml
+    with:
+      build_type: Release
+      os: ubuntu-24.04
+      toolchain: v6
+      arch: amd
+      push_to_github: false
+      push_to_s3: ${{ needs.DiffSetup.outputs.run_upload_to_s3_mage }}
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: mage-ci/${{ github.ref_name }}
+    secrets: inherit

@@ -59,9 +59,41 @@ on:
         description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'download.memgraph.io' use format 'memgraph/vX.Y.Z'."
         default: ''
 
+  workflow_call:
+    inputs:
+      build_type:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      toolchain:
+        required: true
+        type: string
+      push_to_github:
+        required: false
+        type: boolean
+        default: false
+      push_to_s3:
+        required: false
+        type: boolean
+        default: false
+      s3_bucket:
+        required: false
+        type: string
+      s3_region:
+        required: false
+        type: string
+      s3_dest_dir:
+        required: false
+        type: string
+      s3_file_name:
+        required: false
+        type: string
+
 jobs:
   CentOS9:
-    if: ${{ github.event.inputs.os == 'centos-9' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'centos-9' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-9"
@@ -77,7 +109,7 @@ jobs:
     secrets: inherit
 
   CentOS10:
-    if: ${{ github.event.inputs.os == 'centos-10' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'centos-10' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-10"
@@ -93,7 +125,7 @@ jobs:
     secrets: inherit
 
   Debian11:
-    if: ${{ github.event.inputs.os == 'debian-11' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'debian-11' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
@@ -108,7 +140,7 @@ jobs:
     secrets: inherit
 
   Debian11-arm:
-    if: ${{ github.event.inputs.os == 'debian-11-arm' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'debian-11-arm' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
@@ -123,7 +155,7 @@ jobs:
     secrets: inherit
 
   Debian12:
-    if: ${{ (github.event.inputs.os == 'debian-12' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && (github.event.inputs.os == 'debian-12' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
@@ -138,7 +170,7 @@ jobs:
     secrets: inherit
 
   Debian12-arm:
-    if: ${{ (github.event.inputs.os == 'debian-12-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && (github.event.inputs.os == 'debian-12-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
@@ -153,7 +185,7 @@ jobs:
     secrets: inherit
 
   Docker-v6:
-    if: ${{ (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
@@ -169,7 +201,7 @@ jobs:
     secrets: inherit
 
   Docker-v6-arm:
-    if: ${{ (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
@@ -185,7 +217,7 @@ jobs:
     secrets: inherit
 
   Fedora41:
-    if: ${{ (github.event.inputs.os == 'fedora-41' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && (github.event.inputs.os == 'fedora-41' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "fedora-41"
@@ -201,7 +233,7 @@ jobs:
     secrets: inherit
 
   RockyLinux9_3:
-    if: ${{ (github.event.inputs.os == 'rocky-9.3' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && (github.event.inputs.os == 'rocky-9.3' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "rocky-9.3"
@@ -217,7 +249,7 @@ jobs:
     secrets: inherit
 
   Ubuntu22_04:
-    if: ${{ github.event.inputs.os == 'ubuntu-22.04' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'ubuntu-22.04' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-22.04"
@@ -232,7 +264,7 @@ jobs:
     secrets: inherit
 
   Ubuntu24_04:
-    if: ${{ github.event.inputs.os == 'ubuntu-24.04' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'ubuntu-24.04' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
@@ -247,7 +279,7 @@ jobs:
     secrets: inherit
 
   Ubuntu24_04-arm:
-    if: ${{ github.event.inputs.os == 'ubuntu-24.04-arm' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'ubuntu-24.04-arm' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
@@ -262,7 +294,7 @@ jobs:
     secrets: inherit
 
   Ubuntu24_04-malloc:
-    if: ${{ github.event.inputs.os == 'ubuntu-24.04' || github.event.inputs.os == 'all' }}
+    if: ${{ (github.event.inputs.push_to_s3 == 'true' || github.event.inputs.push_to_github == 'true') && github.event.inputs.os == 'ubuntu-24.04' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
