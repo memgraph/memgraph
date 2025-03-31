@@ -200,11 +200,19 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
+    utils::OnScopeExit const unlock_snapshots{[this]() {
+      dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+        auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+        storage->snapshot_lock_.unlock();
+      });
+    }};
+
     bool snapshot_locks_taken{true};
     dbms_handler_.ForEach([&snapshot_locks_taken](dbms::DatabaseAccess db_acc) {
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       storage->abort_snapshot_.store(true, std::memory_order_release);
       if (!storage->snapshot_lock_.try_lock_for(10s)) {
+        spdlog::error("Failed to take snapshot lock on DB {}", std::string{storage->uuid()});
         snapshot_locks_taken = false;
         return;
       }
