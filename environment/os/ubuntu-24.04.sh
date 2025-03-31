@@ -109,7 +109,6 @@ check() {
     for pkg in "${packages[@]}"; do
         case "$pkg" in
             custom-maven3.9.3|custom-golang1.18.9|custom-rust|custom-node)
-                echo "here"
                 continue
                 ;;
             *) 
@@ -151,7 +150,6 @@ install() {
 
     # Iterate through each package in the provided list
     for pkg in "${packages[@]}"; do
-        echo "Checking package $pkg"
         case "$pkg" in
             custom-maven3.9.3)
                 install_custom_maven "3.9.3"
