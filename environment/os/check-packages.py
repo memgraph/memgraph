@@ -14,6 +14,14 @@ def check_packages(os,packages):
     else:
         raise NotImplementedError(f"OS: {os} not supported")
 
+
+def compare_packages(installed,packages):
+    """
+    Compared installed packages to list of required packages to check for
+    """
+    return [package for package in packages if not package in installed]
+
+
 def check_packages_apt(packages):
 
     # list installed packages
@@ -24,14 +32,20 @@ def check_packages_apt(packages):
     )
     installed = [item.split("/")[0] for item in apt.stdout.splitlines()]
 
-    # compare lists of packages and return missing ones
-    missing = [package for package in packages if not package in installed]
-
-    return missing
+    return compare_packages(installed,packages)
 
 def check_packages_dnf(packages):
 
-    pass
+    # list installed packages
+    rpm = subprocess.run(
+        ["rpm","--query","--all","--queryformat","'%{NAME}\n'"],
+        capture_output=True,
+        test=True
+    )
+    
+    installed = rpm.stdout.splitlines()
+
+    return compare_packages(installed,packages)
 
 
 
