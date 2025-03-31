@@ -382,7 +382,9 @@ build_memgraph () {
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
+  echo "1"
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
+  echo "2"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
