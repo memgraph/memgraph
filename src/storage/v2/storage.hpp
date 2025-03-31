@@ -214,22 +214,8 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) = 0;
-
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                                       std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
-
-    // @TODO vv this overload looks suspicious: taking n properties and a single value!
-    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
-                                      const PropertyValue &value, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 

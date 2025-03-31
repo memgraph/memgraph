@@ -158,19 +158,6 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
-
-    VerticesIterable Vertices(LabelId label, std::span<PropertyId const> property, View view) override;
-
-    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
-
-    VerticesIterable Vertices(LabelId label, PropertyId property,
-                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
-
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
-                              PropertyValue const &value, View view) override;
-
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 

@@ -68,19 +68,6 @@ class DiskStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
-
-    VerticesIterable Vertices(LabelId label, std::span<PropertyId const> property, View view) override;
-
-    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
-
-    VerticesIterable Vertices(LabelId label, PropertyId property,
-                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
-
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
-                              const PropertyValue &value, View view) override;
-
     VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
@@ -301,6 +288,13 @@ class DiskStorage final : public Storage {
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
+   private:
+    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property, View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property,
+                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view);
   };
 
   using Storage::Access;

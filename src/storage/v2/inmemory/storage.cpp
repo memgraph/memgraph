@@ -1655,42 +1655,6 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
   return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
 }
 
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, PropertyValueRange::IsNotNull(), view,
-                                                             storage_, &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
-                                                             std::span<storage::PropertyId const> properties,
-                                                             View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(
-      label, properties, std::array{PropertyValueRange::IsNotNull()}, view, storage_, &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
-                                                             const PropertyValue &value, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(
-      label, property, PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value)),
-      view, storage_, &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label,
-                                                             std::span<storage::PropertyId const> properties,
-                                                             PropertyValue const &value, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(
-      label, properties,
-      std::array{PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value))}, view,
-      storage_, &transaction_));
-};
-
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyId const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
@@ -1698,15 +1662,6 @@ VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
       mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(
-      label, property, PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
