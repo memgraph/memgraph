@@ -21,6 +21,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/fnv.hpp"
 
 #include <boost/container/flat_map.hpp>
 #include "range/v3/all.hpp"
@@ -863,6 +864,49 @@ struct hash<memgraph::storage::ExtendedPropertyType> {
     boost::hash_combine(seed, type.temporal_type);
     boost::hash_combine(seed, type.enum_type.value_of());
     return seed;
+  }
+};
+
+template <>
+struct hash<memgraph::storage::PropertyValue> {
+  size_t operator()(memgraph::storage::PropertyValue const &value) const noexcept {
+    using enum memgraph::storage::PropertyValueType;
+
+    // Hashing here based on the choices made when we hash TypedValues
+    switch (value.type()) {
+      case Null:
+        return 31;
+      case Bool:
+        return std::hash<bool>{}(value.ValueBool());
+      case Int:
+        return std::hash<double>{}(static_cast<double>(value.ValueInt()));
+      case Double:
+        return std::hash<double>{}(value.ValueDouble());
+      case String:
+        return std::hash<std::string_view>{}(value.ValueString());
+      case List: {
+        return memgraph::utils::FnvCollection<memgraph::storage::PropertyValue::list_t,
+                                              memgraph::storage::PropertyValue>{}(value.ValueList());
+      }
+      case Map: {
+        size_t hash = 6543457;
+        for (const auto &kv : value.ValueMap()) {
+          hash ^= std::hash<std::string_view>{}(kv.first);
+          hash ^= this->operator()(kv.second);
+        }
+        return hash;
+      }
+      case TemporalData:
+        return std::hash<memgraph::storage::TemporalData>{}(value.ValueTemporalData());
+      case ZonedTemporalData:
+        return std::hash<memgraph::storage::ZonedTemporalData>{}(value.ValueZonedTemporalData());
+      case Enum:
+        return std::hash<memgraph::storage::Enum>{}(value.ValueEnum());
+      case Point2d:
+        return std::hash<memgraph::storage::Point2d>{}(value.ValuePoint2d());
+      case Point3d:
+        return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
+    }
   }
 };
 
