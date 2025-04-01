@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <iosfwd>
 #include <string_view>
 
+#include "utils/fnv.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::storage {
@@ -98,3 +99,26 @@ struct ZonedTemporalData {
 };
 
 }  // namespace memgraph::storage
+
+namespace std {
+
+template <>
+struct hash<memgraph::storage::TemporalData> {
+  size_t operator()(memgraph::storage::TemporalData const &temporal_data) const noexcept {
+    return memgraph::utils::HashCombine<size_t, size_t>{}(
+        std::hash<memgraph::storage::TemporalType>{}(temporal_data.type),
+        std::hash<int64_t>{}(temporal_data.microseconds));
+  }
+};
+
+template <>
+struct hash<memgraph::storage::ZonedTemporalData> {
+  size_t operator()(memgraph::storage::ZonedTemporalData const &temporal_data) const noexcept {
+    return memgraph::utils::HashCombine3<size_t, size_t, size_t>{}(
+        std::hash<memgraph::storage::ZonedTemporalType>{}(temporal_data.type),
+        std::hash<uint64_t>{}(temporal_data.microseconds.time_since_epoch().count()),
+        std::hash<memgraph::utils::Timezone>{}(temporal_data.timezone));
+  }
+};
+
+}  // namespace std

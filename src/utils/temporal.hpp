@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <limits>
 
 #include "utils/exceptions.hpp"
+#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
@@ -584,3 +585,29 @@ LocalDateTime CurrentLocalDateTime();
 ZonedDateTime CurrentZonedDateTime();
 Timezone DefaultTimezone();
 }  // namespace memgraph::utils
+
+namespace std {
+
+template <>
+struct hash<memgraph::utils::Timezone> {
+  size_t operator()(memgraph::utils::Timezone const &tz) const noexcept {
+    auto const &offset{tz.GetOffset()};
+
+    if (std::holds_alternative<std::chrono::minutes>(offset)) {
+      return memgraph::utils::HashCombine<size_t, size_t>{}(
+          std::hash<size_t>{}(offset.index()), std::hash<uint64_t>{}(std::get<std::chrono::minutes>(offset).count()));
+    } else if (std::holds_alternative<std::chrono::time_zone const *>(offset)) {
+      return memgraph::utils::HashCombine<size_t, size_t>{}(
+          std::hash<size_t>{}(offset.index()),
+          std::hash<std::string_view>{}(std::get<std::chrono::time_zone const *>(offset)->name()));
+    } else {
+      DMG_ASSERT("No hash algorithm defined for Timezone alternative");
+      return 0;
+    }
+
+    // std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }}
+    return 0;
+  }
+};
+
+}  // namespace std
