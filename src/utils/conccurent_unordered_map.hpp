@@ -14,11 +14,10 @@
 #include <mutex>
 #include <shared_mutex>
 #include <tuple>
-#include <unordered_map>
 
 #include "absl/container/node_hash_map.h"
 #include "utils/logging.hpp"
-#include "utils/rw_spin_lock.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::utils {
 
@@ -38,7 +37,7 @@ class ConcurrentUnorderedMap {
     {
       // NOTE: Since we lock and unlock, this emplace can still fail if someone inserted in the meantime
       auto l = std::unique_lock{mtx_};
-      if (map_.size() + 1 >= map_.capacity()) map_.reserve(map_.size() * 2);
+      if (map_.size() + 1 > map_.capacity()) map_.reserve(map_.size() * 2);
       auto [it, _] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
       return it->second;
     }
@@ -50,7 +49,7 @@ class ConcurrentUnorderedMap {
     DMG_ASSERT(mtx_.is_locked());
     auto itr = map_.find(key);
     if (itr != map_.end()) return itr->second;
-    if (map_.size() + 1 >= map_.capacity()) map_.reserve(map_.size() * 2);
+    if (map_.size() + 1 > map_.capacity()) map_.reserve(map_.size() * 2);
     auto [it, _] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
     return it->second;
   }
@@ -135,7 +134,7 @@ class ConcurrentUnorderedMap {
 
    private:
     absl::node_hash_map<K, T, H, E>::iterator itr_;
-    std::unique_lock<RWSpinLock> lock_;
+    std::unique_lock<ReadPrioritizedRWLock> lock_;
   };
 
   struct ConstIterator {
@@ -162,7 +161,7 @@ class ConcurrentUnorderedMap {
 
    private:
     absl::node_hash_map<K, T, H, E>::const_iterator itr_;
-    std::shared_lock<RWSpinLock> lock_;
+    std::shared_lock<ReadPrioritizedRWLock> lock_;
   };
 
   ConstIterator begin() const {
@@ -181,7 +180,7 @@ class ConcurrentUnorderedMap {
 
  private:
   absl::node_hash_map<K, T, H, E> map_;
-  mutable RWSpinLock mtx_;
+  mutable ReadPrioritizedRWLock mtx_;
 };
 
 }  // namespace memgraph::utils

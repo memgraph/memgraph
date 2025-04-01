@@ -219,34 +219,25 @@ struct TrackingInfo {
   TrackingInfo &operator+=(const TrackingInfo<OtherAtomic> &rhs) {
     n += rhs.n;
     for (const auto &[id, val] : rhs.properties) {
-      auto [it, _] = properties.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::make_tuple());
-      auto &prop = it->second;
+      auto &prop = properties[id];
       prop.n += val.n;
       for (const auto &[type, n] : val.types) {
-        auto [it, _] =
-            prop.types.emplace(std::piecewise_construct, std::forward_as_tuple(type), std::forward_as_tuple(0));
-        it->second += n;
+        prop.types[type] += n;
       }
     }
     return *this;
   }
 
   void Increment(auto &id, auto &type) {
-    auto [prop_it, ps] = properties.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::make_tuple());
-    auto &prop = prop_it->second;
+    auto &prop = properties[id];
     ++prop.n;
-    auto [type_it, ts] =
-        prop.types.emplace(std::piecewise_construct, std::forward_as_tuple(type), std::forward_as_tuple(0));
-    ++type_it->second;
+    ++prop.types[type];
   }
 
   void Decrement(auto &id, auto &type) {
-    auto [prop_it, ps] = properties.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::make_tuple());
-    auto &prop = prop_it->second;
+    auto &prop = properties[id];
     --prop.n;
-    auto [type_it, ts] =
-        prop.types.emplace(std::piecewise_construct, std::forward_as_tuple(type), std::forward_as_tuple(0));
-    --type_it->second;
+    --prop.types[type];
   }
 };
 

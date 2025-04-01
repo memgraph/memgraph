@@ -567,6 +567,8 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
         if (post_process_->size() >= post_process_->capacity()) post_process_->reserve(post_process_->size() * 2);
       }
     }
+
+    // Here we have a unique access. Do we pay the price here and update via deltas now?
   };
 
   for (const auto &edge : vertex->in_edges) {
@@ -667,12 +669,22 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(EdgeRef edge, Vertex *from,
   DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // Empty edge; just update the top level stats
   tracking_->CreateEdge(from, to, edge_type);
-  if (created_edges_) created_edges_->emplace(edge.ptr);  // Same size so doesn't matter
+  // Too expensive
+  // if (created_edges_) {
+  //   auto [it, succ] = created_edges_->emplace(edge.ptr);  // Same size so doesn't matter
+  //   if (succ && created_edges_->size() >= created_edges_->capacity())
+  //   created_edges_->reserve(created_edges_->size());
+  // }
 }
 
 void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
-  // Analytical or edge created during this TX
-  if (!post_process_ || (created_edges_ && created_edges_->contains(edge_ref.ptr))) {
+  // Edges are cleared from both directions
+  // In transactional this means no other tx can't modify the vertices or edge; so they are stable
+  // Problems?
+  //    vertex label changes <- has unique access at the time, so could be updated maybe there
+  //    edge prop changes <- needs a lock over vertices
+  // Analytical or edge created during this TX <- all objects are stable
+  if (!post_process_ || true || (created_edges_ && created_edges_->contains(edge_ref.ptr))) {
     // Analytical: no need to lock since the vertex labels cannot change due to shared lock
     // Transactional: no need to lock IF edge created during this TX
     tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
