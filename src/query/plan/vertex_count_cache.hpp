@@ -15,7 +15,6 @@
 #include <optional>
 
 #include "query/db_accessor.hpp"
-#include "query/typed_value.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -84,11 +83,9 @@ class VertexCountCache {
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
-    // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(value);
-    if (value_vertex_count.find(tv_value) == value_vertex_count.end())
-      value_vertex_count[tv_value] = db_->VerticesCount(label, std::array{property}, std::array{value});
-    return value_vertex_count.at(tv_value);
+    if (value_vertex_count.find(value) == value_vertex_count.end())
+      value_vertex_count[value] = db_->VerticesCount(label, std::array{property}, std::array{value});
+    return value_vertex_count.at(value);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) {
@@ -106,12 +103,10 @@ class VertexCountCache {
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property, const storage::PropertyValue &value) {
     auto edge_type_prop = std::make_pair(edge_type, property);
-    auto &value_edge_count = type_property_value_edge_count_[edge_type_prop];
-    // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(value);
-    if (value_edge_count.find(tv_value) == value_edge_count.end())
-      value_edge_count[tv_value] = db_->EdgesCount(edge_type, property, value);
-    return value_edge_count.at(tv_value);
+    auto &value_edge_count = property_value_edge_count_[edge_type_prop];
+    if (value_edge_count.find(value) == value_edge_count.end())
+      value_edge_count[value] = db_->EdgesCount(edge_type, property, value);
+    return value_edge_count.at(value);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property,
@@ -238,11 +233,11 @@ class VertexCountCache {
     size_t operator()(const BoundsKey &key) const {
       const auto &maybe_lower = key.first;
       const auto &maybe_upper = key.second;
-      query::TypedValue lower;
-      query::TypedValue upper;
-      if (maybe_lower) lower = TypedValue(maybe_lower->value());
-      if (maybe_upper) upper = TypedValue(maybe_upper->value());
-      query::TypedValue::Hash hash;
+      storage::PropertyValue lower;
+      storage::PropertyValue upper;
+      if (maybe_lower) lower = maybe_lower->value();
+      if (maybe_upper) upper = maybe_upper->value();
+      std::hash<storage::PropertyValue> hash;
       return utils::HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
     }
   };
@@ -251,11 +246,11 @@ class VertexCountCache {
     bool operator()(const BoundsKey &a, const BoundsKey &b) const {
       auto bound_equal = [](const auto &maybe_bound_a, const auto &maybe_bound_b) {
         if (maybe_bound_a && maybe_bound_b && maybe_bound_a->type() != maybe_bound_b->type()) return false;
-        query::TypedValue bound_a;
-        query::TypedValue bound_b;
-        if (maybe_bound_a) bound_a = TypedValue(maybe_bound_a->value());
-        if (maybe_bound_b) bound_b = TypedValue(maybe_bound_b->value());
-        return query::TypedValue::BoolEqual{}(bound_a, bound_b);
+        storage::PropertyValue bound_a;
+        storage::PropertyValue bound_b;
+        if (maybe_bound_a) bound_a = maybe_bound_a->value();
+        if (maybe_bound_b) bound_b = maybe_bound_b->value();
+        return bound_a == bound_b;
       };
       return bound_equal(a.first, b.first) && bound_equal(a.second, b.second);
     }
@@ -271,15 +266,9 @@ class VertexCountCache {
   std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
-  std::unordered_map<
-      LabelPropertyKey,
-      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
-      LabelPropertyHash>
+  std::unordered_map<LabelPropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, LabelPropertyHash>
       property_value_vertex_count_;
-  std::unordered_map<
-      EdgeTypePropertyKey,
-      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
-      EdgeTypePropertyHash>
+  std::unordered_map<EdgeTypePropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, EdgeTypePropertyHash>
       property_value_edge_count_;
   std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
                                                              query::TypedValue::BoolEqual>>
