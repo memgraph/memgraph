@@ -11,6 +11,7 @@
 
 #include <cstdint>
 
+#include "query/typed_value.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
@@ -18,6 +19,7 @@
 #include "storage/v2/property_value_utils.hpp"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
+#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 
 namespace r = ranges;
@@ -189,6 +191,34 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }
 
 }  // namespace
+
+size_t PropertyValueRange::hash() const noexcept {
+  const auto &maybe_lower = lower_;
+  const auto &maybe_upper = upper_;
+  memgraph::query::TypedValue lower;
+  memgraph::query::TypedValue upper;
+  if (maybe_lower) lower = memgraph::query::TypedValue(maybe_lower->value());
+  if (maybe_upper) upper = memgraph::query::TypedValue(maybe_upper->value());
+  memgraph::query::TypedValue::Hash hash;
+  return memgraph::utils::HashCombine3<memgraph::storage::PropertyRangeType, size_t, size_t>{}(type_, hash(lower),
+                                                                                               hash(upper));
+}
+
+bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept {
+  if (lhs.type_ != rhs.type_) return false;
+  if (!lhs.lower_ && !rhs.lower_ && !lhs.upper_ && !rhs.upper_) return true;
+  if (static_cast<bool>(lhs.lower_) != static_cast<bool>(rhs.lower_)) return false;
+  if (static_cast<bool>(lhs.upper_) != static_cast<bool>(rhs.upper_)) return false;
+  if (lhs.lower_) {
+    if (lhs.lower_->type() != rhs.lower_->type()) return false;
+    if (lhs.lower_->value() != rhs.lower_->value()) return false;
+  }
+  if (lhs.upper_) {
+    if (lhs.upper_->type() != rhs.upper_->type()) return false;
+    if (lhs.upper_->value() != rhs.upper_->value()) return false;
+  }
+  return true;
+}
 
 bool InMemoryLabelPropertyIndex::NewEntry::operator<(std::vector<PropertyValue> const &rhs) const {
   return std::ranges::lexicographical_compare(

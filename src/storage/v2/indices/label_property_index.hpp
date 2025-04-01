@@ -21,9 +21,11 @@
 namespace memgraph::storage {
 
 /** Representation for a range of property values, which may be:
- * - BOUNDED: including only values between a lower and upper bounds
- * - IS_NOT_NULL: including every non-null value
- * - INVALID: an range no property value can ever match, caused by different
+ * - BOUNDED: including only values between a lower and upper bounds. By setting
+ *            both bounds to the same inclusive value, BOUNDED can also be used
+ *            to check for exact property equality.
+ * - IS_NOT_NULL: including every non-null value.
+ * - INVALID: a range no property value can ever match, caused by different
  *            types for lower and upper bounds. For example:
  *            n.a > 42 and n.a < "hello".
  */
@@ -58,6 +60,10 @@ struct PropertyValueRange {
     }
     return true;
   }
+
+  size_t hash() const noexcept;
+
+  friend bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept;
 
   // TODO: make private?
   Type type_;
@@ -218,3 +224,10 @@ class LabelPropertyIndex {
 };
 
 }  // namespace memgraph::storage
+
+namespace std {
+template <>
+struct hash<memgraph::storage::PropertyValueRange> {
+  size_t operator()(const memgraph::storage::PropertyValueRange &pvr) const noexcept { return pvr.hash(); }
+};
+}  // namespace std

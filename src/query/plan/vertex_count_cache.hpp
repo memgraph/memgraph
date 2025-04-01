@@ -57,15 +57,17 @@ class VertexCountCache {
   }
 
   int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
-                        std::span<storage::PropertyValue const> values) {
-    // TODO(composite_index) cache count based on properties + values
-    return db_->VerticesCount(label, properties, values);
-  }
-
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
                         std::span<storage::PropertyValueRange const> bounds) {
-    // TODO(composite_index) cache count based on properties + bounds
-    return db_->VerticesCount(label, properties, bounds);
+    auto key = std::make_tuple(label, std::vector(properties.begin(), properties.end()),
+                               std::vector(bounds.begin(), bounds.end()));
+    auto it = label_properties_ranges_vertex_count_.find(key);
+    if (it != label_properties_ranges_vertex_count_.end()) {
+      return it->second;
+    } else {
+      auto const count = db_->VerticesCount(label, properties, bounds);
+      label_properties_ranges_vertex_count_[key] = count;
+      return count;
+    }
   }
 
   std::optional<int64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) {
@@ -187,6 +189,8 @@ class VertexCountCache {
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
   using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
+  using LabelPropertiesRangesKey =
+      std::tuple<storage::LabelId, std::vector<storage::PropertyId>, std::vector<storage::PropertyValueRange>>;
   using EdgeTypePropertyKey = std::pair<storage::EdgeTypeId, storage::PropertyId>;
 
   struct LabelPropertyHash {
@@ -198,6 +202,26 @@ class VertexCountCache {
   struct LabelPropertiesHash {
     size_t operator()(const LabelPropertiesKey &key) const {
       return utils::HashCombine<storage::LabelId, std::vector<storage::PropertyId>>{}(key.first, key.second);
+    }
+  };
+
+  struct LabelPropertiesRangesHash {
+    size_t operator()(LabelPropertiesRangesKey const &key) const noexcept {
+      auto const &label{std::get<0>(key)};
+      auto const &props{std::get<1>(key)};
+      auto const &ranges{std::get<2>(key)};
+
+      auto label_hash = std::hash<storage::LabelId>{};
+      auto props_hash = utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{};
+      auto ranges_hash = utils::FnvCollection<std::vector<storage::PropertyValueRange>, storage::PropertyValueRange>{};
+
+      return utils::HashCombine3<size_t, size_t, size_t>{}(label_hash(label), props_hash(props), ranges_hash(ranges));
+    }
+  };
+
+  struct LabelPropertiesRangesEqual {
+    bool operator()(LabelPropertiesRangesKey const &lhs, LabelPropertiesRangesKey const &rhs) const noexcept {
+      return lhs == rhs;
     }
   };
 
@@ -242,6 +266,8 @@ class VertexCountCache {
   std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
   std::unordered_map<storage::EdgeTypeId, int64_t> edge_type_edge_count_;
   std::unordered_map<LabelPropertiesKey, int64_t, LabelPropertiesHash> label_properties_vertex_count_;
+  std::unordered_map<LabelPropertiesRangesKey, int64_t, LabelPropertiesRangesHash, LabelPropertiesRangesEqual>
+      label_properties_ranges_vertex_count_;
   std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
@@ -254,7 +280,7 @@ class VertexCountCache {
       EdgeTypePropertyKey,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
       EdgeTypePropertyHash>
-      type_property_value_edge_count_;
+      property_value_edge_count_;
   std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
                                                              query::TypedValue::BoolEqual>>
       edge_property_value_edge_count_;
