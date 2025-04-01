@@ -506,7 +506,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
         if (schema_acc) {
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                         acc.CreateEdge(edge, from_vertex, to_vertex, edge_type);
                                        },
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
@@ -622,7 +622,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
         if (schema_acc) {
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                         acc.CreateEdge(edge, from_vertex, to_vertex, edge_type);
                                        },
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
@@ -782,7 +782,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
           if (config_.enable_schema_info) {
             mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                         transaction_.transaction_id,
+                                                         transaction_.edge_prop_change_, transaction_.transaction_id,
                                                          mem_storage->config_.salient.items.properties_on_edges);
           }
 

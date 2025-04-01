@@ -11,13 +11,16 @@
 
 #pragma once
 
+#include <atomic>
 #include <boost/container_hash/hash_fwd.hpp>
 #include <cstdint>
 #include <functional>
 #include <nlohmann/json.hpp>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -55,6 +58,15 @@ struct EdgeKeyRef {
   const VertexKey &to;
 
   EdgeKeyRef(EdgeTypeId id, const VertexKey &from, const VertexKey &to) : type{id}, from{from}, to(to) {}
+
+  bool operator==(const EdgeKeyRef &other) const {
+    // Fast check
+    if (type != other.type || from.size() != other.from.size() || to.size() != other.to.size()) return false;
+    if (from.empty() && to.empty()) return true;
+    // Slow check
+    return std::is_permutation(from.begin(), from.end(), other.from.begin(), other.from.end()) &&
+           std::is_permutation(to.begin(), to.end(), other.to.begin(), other.to.end());
+  }
 };
 
 /**
@@ -92,15 +104,26 @@ struct EdgeKey {
 /**
  * @brief
  */
-template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
+// template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
+template <bool Atomic>
 struct PropertyInfo {
-  std::atomic_int n{0};                                     //!< Number of objects with this property
-  TContainer<ExtendedPropertyType, std::atomic_int> types;  //!< Numer of property instances with a specific type
+  using int_type = typename std::conditional<Atomic, std::atomic<int>, int>::type;
+  int_type n{0};  //!< Number of objects with this property
+  using map_type =
+      typename std::conditional<Atomic, utils::ConcurrentUnorderedMap<ExtendedPropertyType, std::atomic_int>,
+                                absl::node_hash_map<ExtendedPropertyType, int>>::type;
+
+  map_type types;  //!< Numer of property instances with a specific type
 
   nlohmann::json ToJson(const EnumStore &enum_store, std::string_view key, uint32_t max_count) const {
     nlohmann::json::object_t property_info;
     property_info.emplace("key", key);
-    const auto num = n.load();
+    const auto num = std::invoke([&] {
+      if constexpr (Atomic)
+        return n.load(std::memory_order_relaxed);
+      else
+        return n;
+    });
     property_info.emplace("count", num);
     property_info.emplace("filling_factor", (100.0 * num) / max_count);
     const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
@@ -154,7 +177,11 @@ struct PropertyInfo {
         }
       }
       type_info.emplace("type", ss.str());
-      type_info.emplace("count", type.second.load());
+      if constexpr (Atomic) {
+        type_info.emplace("count", type.second.load());
+      } else {
+        type_info.emplace("count", type.second);
+      }
       types_itr->second.emplace_back(std::move(type_info));
     }
     return property_info;
@@ -164,33 +191,62 @@ struct PropertyInfo {
 /**
  * @brief
  */
-template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
+template <bool Atomic>
 struct TrackingInfo {
-  std::atomic_int n{0};                                         //!< Number of tracked objects
-  TContainer<PropertyId, PropertyInfo<TContainer>> properties;  //!< Property statistics defined by the tracked object
+  using int_type = typename std::conditional<Atomic, std::atomic<int>, int>::type;
+  int_type n{0};  //!< Number of tracked objects
+  using map_type = typename std::conditional<Atomic, utils::ConcurrentUnorderedMap<PropertyId, PropertyInfo<Atomic>>,
+                                             absl::node_hash_map<PropertyId, PropertyInfo<Atomic>>>::type;
+  map_type properties;  //!< Property statistics defined by the tracked object
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
     nlohmann::json::object_t tracking_info;
-    tracking_info.emplace("count", n.load());
+    const auto num = std::invoke([&] {
+      if constexpr (Atomic)
+        return n.load(std::memory_order_relaxed);
+      else
+        return n;
+    });
+    tracking_info.emplace("count", num);
     const auto &[prop_itr, _] = tracking_info.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : properties) {
-      prop_itr->second.emplace_back(
-          info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(n.load(), 1)));
+      prop_itr->second.emplace_back(info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(num, 1)));
     }
     return tracking_info;
   }
 
-  template <template <class...> class TOtherContainer>
-  TrackingInfo &operator+=(const TrackingInfo<TOtherContainer> &rhs) {
+  template <bool OtherAtomic>
+  TrackingInfo &operator+=(const TrackingInfo<OtherAtomic> &rhs) {
     n += rhs.n;
     for (const auto &[id, val] : rhs.properties) {
-      auto &prop = properties[id];
+      auto [it, _] = properties.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::make_tuple());
+      auto &prop = it->second;
       prop.n += val.n;
       for (const auto &[type, n] : val.types) {
-        prop.types[type] += n;
+        auto [it, _] =
+            prop.types.emplace(std::piecewise_construct, std::forward_as_tuple(type), std::forward_as_tuple(0));
+        it->second += n;
       }
     }
     return *this;
+  }
+
+  void Increment(auto &id, auto &type) {
+    auto [prop_it, ps] = properties.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::make_tuple());
+    auto &prop = prop_it->second;
+    ++prop.n;
+    auto [type_it, ts] =
+        prop.types.emplace(std::piecewise_construct, std::forward_as_tuple(type), std::forward_as_tuple(0));
+    ++type_it->second;
+  }
+
+  void Decrement(auto &id, auto &type) {
+    auto [prop_it, ps] = properties.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::make_tuple());
+    auto &prop = prop_it->second;
+    --prop.n;
+    auto [type_it, ts] =
+        prop.types.emplace(std::piecewise_construct, std::forward_as_tuple(type), std::forward_as_tuple(0));
+    --type_it->second;
   }
 };
 
@@ -201,7 +257,6 @@ struct SchemaInfoPostProcess {
   Vertex *from;
   Vertex *to;
   mutable bool deleted;
-  mutable bool prop_change;
 };
 
 }  // namespace memgraph::storage
@@ -219,7 +274,9 @@ struct hash<memgraph::storage::VertexKey> {
 template <>
 struct equal_to<memgraph::storage::VertexKey> {
   size_t operator()(const memgraph::storage::VertexKey &lhs, const memgraph::storage::VertexKey &rhs) const {
-    return lhs.size() == rhs.size() && std::is_permutation(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    if (lhs.size() != rhs.size()) return false;
+    if (lhs.empty()) return true;
+    return std::is_permutation(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
   }
 };
 

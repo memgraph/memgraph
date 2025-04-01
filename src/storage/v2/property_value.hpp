@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -435,6 +435,13 @@ struct ExtendedPropertyType {
       enum_type = val.ValueEnum().type_id();
     }
   }
+
+  ExtendedPropertyType(const ExtendedPropertyType &) = default;
+  ExtendedPropertyType &operator=(const ExtendedPropertyType &) = default;
+  ExtendedPropertyType(ExtendedPropertyType &&) = default;
+  ExtendedPropertyType &operator=(ExtendedPropertyType &&) = default;
+
+  ~ExtendedPropertyType() = default;
 
   bool operator==(const ExtendedPropertyType &other) const {
     return type == other.type && temporal_type == other.temporal_type && enum_type == other.enum_type;
@@ -893,6 +900,15 @@ struct hash<memgraph::storage::ExtendedPropertyType> {
     boost::hash_combine(seed, type.temporal_type);
     boost::hash_combine(seed, type.enum_type.value_of());
     return seed;
+  }
+};
+
+template <>
+class equal_to<memgraph::storage::ExtendedPropertyType> {
+ public:
+  bool operator()(const memgraph::storage::ExtendedPropertyType &lhs,
+                  const memgraph::storage::ExtendedPropertyType &rhs) const {
+    return lhs == rhs;
   }
 };
 
