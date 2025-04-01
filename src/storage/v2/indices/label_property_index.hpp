@@ -43,7 +43,7 @@ struct PropertyValueRange {
   }
   static auto IsNotNull() -> PropertyValueRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
-  bool value_valid(PropertyValue const &value) const {
+  bool IsValueInRange(PropertyValue const &value) const {
     if (lower_) {
       if (lower_->IsInclusive()) {
         if (value < lower_->value()) return false;

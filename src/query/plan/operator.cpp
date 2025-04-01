@@ -1233,6 +1233,16 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     auto to_property_value_range = [&](auto &&expression_range) { return expression_range.evaluate(evaluator); };
     auto prop_value_ranges = expression_ranges_ | ranges::views::transform(to_property_value_range) | ranges::to_vector;
 
+    auto const bound_is_null = [](auto &&range) {
+      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+    };
+
+    // If either upper or lower bounds are `null`, then nothing can satisy the
+    // filter.
+    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+      return std::nullopt;
+    }
+
     return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),

@@ -810,7 +810,7 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::
 
   auto in_bounds_for_all_prefix = [&](NewEntry const &entry) {
     constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
-      return bounds.value_valid(value);
+      return bounds.IsValueInRange(value);
     };
     auto value_within_bounds = [&](auto &&p) { return std::apply(within_bounds, p); };
     return ranges::all_of(ranges::views::zip(entry.values.values_, bounds), value_within_bounds);
