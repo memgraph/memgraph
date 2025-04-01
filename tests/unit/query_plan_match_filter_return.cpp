@@ -3377,6 +3377,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
+    // CREATE (:label), (:label {prop: 42})
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
@@ -3395,7 +3396,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  // MATCH (n :label {prop: 42})
+  // MATCH (n :label {prop: null})
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, LITERAL(TypedValue()));
   // RETURN n
