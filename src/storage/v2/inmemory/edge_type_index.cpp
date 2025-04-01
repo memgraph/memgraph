@@ -114,16 +114,16 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
   return 0;
 }
 
-void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeId edge_type,
-                                         std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
-                                         uint64_t exact_start_timestamp) {
-  auto const it = index_.find(edge_type);
-  if (it == index_.end()) return;
+void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeIndex::AbortableInfo const &info, uint64_t exact_start_timestamp) {
+  for (auto const &[edge_type, edges] : info) {
+    auto const it = index_.find(edge_type);
+    DMG_ASSERT(it != index_.end());
 
-  auto &index_storage = it->second;
-  auto acc = index_storage.access();
-  for (const auto &[from_vertex, to_vertex, edge] : edges) {
-    acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
+    auto &index_storage = it->second;
+    auto acc = index_storage.access();
+    for (const auto &[from_vertex, to_vertex, edge] : edges) {
+      acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
+    }
   }
 }
 
@@ -217,13 +217,13 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
   return {it->second.access(), std::move(vertex_acc), std::move(edge_acc), edge_type, view, storage, transaction};
 }
 
-std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::Analysis() const {
+EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::GetAbortProcessor() const {
   std::vector<EdgeTypeId> res;
   res.reserve(index_.size());
   for (const auto &[edge_type, _] : index_) {
     res.emplace_back(edge_type);
   }
-  return res;
+  return AbortProcessor{res};
 }
 
 }  // namespace memgraph::storage

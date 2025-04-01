@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,6 +42,27 @@ class LabelIndex {
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
   virtual void DropGraphClearIndices() = 0;
+
+  using AbortableInfo = std::map<LabelId, std::vector<Vertex *>>;
+
+  struct AbortProcessor {
+    explicit AbortProcessor(std::vector<LabelId> label) : label_(std::move(label)) {}
+
+    void collect_on_label_removal(LabelId label, Vertex *vertex) {
+      if (std::binary_search(label_.begin(), label_.end(), label)) {
+        cleanup_collection_[label].emplace_back(vertex);
+      }
+    }
+    void process(LabelIndex &index, uint64_t start_timestamp) {
+      index.AbortEntries(cleanup_collection_, start_timestamp);
+    }
+
+   private:
+    std::vector<LabelId> label_;
+    AbortableInfo cleanup_collection_;
+  };
+
+  virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 };
 
 }  // namespace memgraph::storage

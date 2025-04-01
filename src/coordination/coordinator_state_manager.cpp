@@ -72,7 +72,7 @@ void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
           [](auto const &server) {
             return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
           }) |
-      ranges::to<std::vector>();
+      ranges::to_vector;
   j = nlohmann::json{{kServers, servers_vec},
                      {kPrevLogIdx, cluster_config.get_prev_log_idx()},
                      {kLogIdx, cluster_config.get_log_idx()},
