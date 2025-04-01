@@ -11,7 +11,6 @@
 
 #include <cstdint>
 
-#include "query/typed_value.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
@@ -195,11 +194,11 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 size_t PropertyValueRange::hash() const noexcept {
   const auto &maybe_lower = lower_;
   const auto &maybe_upper = upper_;
-  memgraph::query::TypedValue lower;
-  memgraph::query::TypedValue upper;
-  if (maybe_lower) lower = memgraph::query::TypedValue(maybe_lower->value());
-  if (maybe_upper) upper = memgraph::query::TypedValue(maybe_upper->value());
-  memgraph::query::TypedValue::Hash hash;
+  PropertyValue lower;
+  PropertyValue upper;
+  if (maybe_lower) lower = maybe_lower->value();
+  if (maybe_upper) upper = maybe_upper->value();
+  std::hash<PropertyValue> hash;
   return memgraph::utils::HashCombine3<memgraph::storage::PropertyRangeType, size_t, size_t>{}(type_, hash(lower),
                                                                                                hash(upper));
 }
