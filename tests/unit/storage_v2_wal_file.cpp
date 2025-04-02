@@ -270,6 +270,13 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEdgePropertyIndex(encoder, mapper_, *property_ids.begin());
+        });
+        break;
+      }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
       case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
@@ -372,6 +379,10 @@ class DeltaGenerator final {
             return {WalEdgeTypePropertyIndexCreate{edge_type, *properties.begin()}};
           case EDGE_PROPERTY_INDEX_DROP:
             return {WalEdgeTypePropertyIndexDrop{edge_type, *properties.begin()}};
+          case GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+            return {WalEdgePropertyIndexCreate{*properties.begin()}};
+          case GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+            return {WalEdgePropertyIndexDrop{*properties.begin()}};
           case TEXT_INDEX_CREATE:
             return {WalTextIndexCreate{name, label}};
           case TEXT_INDEX_DROP:

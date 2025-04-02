@@ -738,6 +738,12 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   }
 
   {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->db->storage()->NameToProperty("prop")).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
@@ -746,8 +752,8 @@ TYPED_TEST(DumpTest, EdgeIndicesKeys) {
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), "CREATE EDGE INDEX ON :`EdgeType`;", "CREATE EDGE INDEX ON :`EdgeType`(`prop`);",
-                  kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
-                  "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+                  "CREATE GLOBAL EDGE INDEX ON :(`prop`);", kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__ {__mg_id__: 0});", "CREATE (:__mg_vertex__ {__mg_id__: 1});",
                   "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
                   "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType`]->(v);",
                   kDropInternalIndex, kRemoveInternalLabelProperty);

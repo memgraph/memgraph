@@ -414,6 +414,28 @@ antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeInde
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateGlobalEdgeIndex(MemgraphCypher::CreateGlobalEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::CREATE;
+  index_query->global_ = true;
+  if (ctx->propertyKeyName()) {
+    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {name_key};
+  }
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropGlobalEdgeIndex(MemgraphCypher::DropGlobalEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::DROP;
+  index_query->global_ = true;
+  if (ctx->propertyKeyName()) {
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {key};
+  }
+  return index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreatePointIndex(MemgraphCypher::CreatePointIndexContext *ctx) {
   auto *index_query = storage_->Create<PointIndexQuery>();
   index_query->action_ = PointIndexQuery::Action::CREATE;

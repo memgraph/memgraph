@@ -1134,6 +1134,20 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
                                         data.property);
           }
         },
+        [&](WalEdgePropertyIndexCreate const &data) {
+          spdlog::trace("       Create global edge index on ({})", data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+            throw utils::BasicException("Failed to create global edge property index on ({}).", data.property);
+          }
+        },
+        [&](WalEdgePropertyIndexDrop const &data) {
+          spdlog::trace("       Drop global edge index on ({})", data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+            throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
+          }
+        },
         [&](WalTextIndexCreate const &) {
           /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
         },
