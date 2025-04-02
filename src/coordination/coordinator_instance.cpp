@@ -1047,67 +1047,83 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
     return std::nullopt;
   }
 
+  spdlog::trace("The instance with the newest system committed timestamp is {}", largest_sys_ts_instance->first);
+
   // db_uuid -> vector<std::pair<instance_name, latest_durable_timestamp>>
   std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> dbs_info;
 
+  // Use only DBs from the instance with the largest committed system timestamps
   for (auto const &largest_sys_ts_instance_dbs_info = largest_sys_ts_instance->second.dbs_info;
-       auto const &db_info : largest_sys_ts_instance_dbs_info) {
-    dbs_info.try_emplace(db_info.db_uuid);
+       auto const &[db_uuid, _] : largest_sys_ts_instance_dbs_info) {
+    dbs_info.try_emplace(db_uuid);
   }
 
+  // Pre-process received failover data
   for (auto const &[instance_name, instance_info] : instances_info) {
-    for (auto const &instance_db_info : instance_info.dbs_info) {
-      if (auto db_it = dbs_info.find(instance_db_info.db_uuid); db_it != dbs_info.end()) {
-        db_it->second.emplace_back(instance_name, instance_db_info.latest_durable_timestamp);
+    for (auto const &[db_uuid, _] : instance_info.dbs_info) {
+      if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
+        db_it->second.emplace_back(instance_name, _);
       }
     }
   }
 
   // Instance name -> cnt on how many DBs is instance the newest
   std::map<std::string, uint64_t> total_instances_counter;
-  // Instance name -> sum of all DBs
+  // Instance name -> sum of timestamps on all DBs
   std::map<std::string, uint64_t> total_instances_sum;
 
-  // New handling
-  for (auto const &[db_uuid, db_info] : dbs_info) {
-    spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
-
-    // There could be multiple instances with the same timestamp
+  auto const find_newest_instances_for_db =
+      [&total_instances_sum](std::vector<std::pair<std::string, uint64_t>> const &db_info)
+      -> std::pair<std::vector<std::string>, uint64_t> {
+    // There could be multiple instances with the same timestamp, that's why we are returning vector
     std::vector<std::string> newest_db_instances;
     uint64_t curr_ldt{0};
-
+    // Loop through instances
     for (auto const &[instance_name, latest_durable_timestamp] : db_info) {
-      // Sum eagerly timestamps
+      // Sum timestamps for each instance
       if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, latest_durable_timestamp);
           !inserted) {
         instance_it->second += latest_durable_timestamp;
       }
 
-      // If no new instance exists, or it instance has newer timestamp -> update
+      // If no new instance exists, or instance has newer timestamp -> do the update
       if (newest_db_instances.empty() || curr_ldt < latest_durable_timestamp) {
         newest_db_instances.clear();
         newest_db_instances.emplace_back(instance_name);
         curr_ldt = latest_durable_timestamp;
       } else if (curr_ldt == latest_durable_timestamp) {
+        // Otherwise, we have more instances with the max timestamp, add it to the vector
         newest_db_instances.emplace_back(instance_name);
       }
     }
+    return {newest_db_instances, curr_ldt};
+  };
 
-    if (newest_db_instances.empty()) {
+  auto const update_instances_counter = [&total_instances_counter](
+                                            std::vector<std::string> const &newest_db_instances) {
+    for (auto const &db_newest_instance_name : newest_db_instances) {
+      if (auto [instance_it, inserted] = total_instances_counter.try_emplace(db_newest_instance_name, 1); !inserted) {
+        instance_it->second++;
+      }
+    }
+  };
+
+  // Process each DB
+  for (auto const &[db_uuid, db_info] : dbs_info) {
+    spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
+    if (auto const [newest_db_instances, curr_ldt] = find_newest_instances_for_db(db_info);
+        newest_db_instances.empty()) {
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
                    curr_ldt, db_uuid, fmt::join(newest_db_instances, ", "));
-      for (auto const &db_newest_instance_name : newest_db_instances) {
-        if (auto [instance_it, inserted] = total_instances_counter.try_emplace(db_newest_instance_name, 1); !inserted) {
-          instance_it->second++;
-        }
-      }
+      update_instances_counter(newest_db_instances);
     }
   }
 
   std::optional<std::pair<std::string, uint64_t>> newest_instance;
   for (auto const &[instance_name, cnt_newest_dbs] : total_instances_counter) {
+    // If better on more DBs, update currently the best
     if (!newest_instance.has_value() || newest_instance->second < cnt_newest_dbs) {
       newest_instance.emplace(instance_name, cnt_newest_dbs);
     } else if (newest_instance->second == cnt_newest_dbs) {
