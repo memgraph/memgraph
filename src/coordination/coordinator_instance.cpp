@@ -1042,7 +1042,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
     return lhs.second.last_committed_system_timestamp < rhs.second.last_committed_system_timestamp;
   });
 
-  if (largest_sys_ts_instance == instances_info.end()) {
+  if (largest_sys_ts_instance == instances_info.end()) [[unlikely]] {
     spdlog::error("Couldn't retrieve history for any instance. Failover won't be performed.");
     return std::nullopt;
   }
@@ -1060,9 +1060,9 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   // Pre-process received failover data
   for (auto const &[instance_name, instance_info] : instances_info) {
-    for (auto const &[db_uuid, _] : instance_info.dbs_info) {
+    for (auto const &[db_uuid, ldt] : instance_info.dbs_info) {
       if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
-        db_it->second.emplace_back(instance_name, _);
+        db_it->second.emplace_back(instance_name, ldt);
       }
     }
   }
@@ -1157,6 +1157,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     return instance.GetClient().SendGetDatabaseHistoriesRpc();
   };
 
+  // instance_name -> InstanceInfo
   std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info;
 
   for (auto const &instance : repl_instances_) {
