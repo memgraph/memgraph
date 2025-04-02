@@ -12,265 +12,455 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include "coordination/coordinator_instance.hpp"
-#include "dbms/constants.hpp"
-#include "replication_coordination_glue/common.hpp"
 #include "utils/functional.hpp"
 
-using memgraph::coordination::CoordinatorInstanceInitConfig;
+using memgraph::coordination::CoordinatorInstance;
+using memgraph::replication_coordination_glue::InstanceDBInfo;
+using memgraph::replication_coordination_glue::InstanceInfo;
+using memgraph::utils::UUID;
 
-class CoordinationUtils : public ::testing::Test {
- protected:
-  void SetUp() override {
-    if (!std::filesystem::exists(test_folder_)) {
-      std::filesystem::create_directories(test_folder_);
-    }
-  }
-
-  void TearDown() override {
-    if (!std::filesystem::exists(test_folder_)) return;
-    std::filesystem::remove_all(test_folder_);
-  }
-
-  std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_coordination"};
-
-  int const bolt_port{8688};
-  int const coordinator_port{20111};
-  int const management_port{30111};
-  int32_t const coordinator_id{11};
-};
-
-// Networking is used in this test, be careful with ports used.
-TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
+TEST(CoordinationUtils, FailoverFirstInstanceNewest) {
   // Choose any if everything is same
-  // X = dead
-  // Main      : A(24)  B(36)  C(48) D(50) E(51) X
-  // replica  1: A(24)  B(36)  C(48) D(50) E(51)
-  // replica  2: A(24)  B(36)  C(48) D(50) E(51)
-  // replica  3: A(24)  B(36)  C(48) D(50) E(51)
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
-      instance_database_histories;
 
-  std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
-  histories.emplace_back(memgraph::utils::UUID{}, 24);
-  histories.emplace_back(memgraph::utils::UUID{}, 36);
-  histories.emplace_back(memgraph::utils::UUID{}, 48);
-  histories.emplace_back(memgraph::utils::UUID{}, 50);
-  histories.emplace_back(memgraph::utils::UUID{}, 51);
+  auto const default_db_uuid = std::string{UUID()};
 
-  memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 51}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 51}},
+                    .last_committed_system_timestamp = 1
 
-  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-    return std::make_pair(std::string(pair.first), pair.second);
-  });
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 51}},
+                    .last_committed_system_timestamp = 1}},
 
-  memgraph::replication_coordination_glue::DatabaseHistory history{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  };
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history};
-  instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
-
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history};
-  instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
-
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history};
-  instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
-
-  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
-                                                   .coordinator_port = coordinator_port,
-                                                   .bolt_port = bolt_port,
-                                                   .management_port = management_port,
-                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
-                                                   .coordinator_hostname = "localhost"};
-  memgraph::coordination::CoordinatorInstance instance{init_config1};
-
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
-  ASSERT_TRUE(instance_name == "instance_1" || instance_name == "instance_2" || instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == db_histories.back().first);
-  ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
+  auto const maybe_instance_name = CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_1" || *maybe_instance_name == "instance_2" ||
+              *maybe_instance_name == "instance_3");
 }
 
-TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
-  // Prioritize one with the biggest last durable timestamp on last epoch
-  // X = dead
-  // Main      : A(24)  B(36)  C(48) D(50) E(59) X
-  // replica  1: A(24)  B(12)  C(15) D(17) E(51)
-  // replica  2: A(24)  B(12)  C(15) D(17) E(57)
-  // replica  3: A(24)  B(12)  C(15) D(17) E(59)
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
-      instance_database_histories;
+TEST(CoordinationUtils, FailoverSecondInstanceNewest) {
+  // Instanc2 newest
 
-  std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
-  histories.emplace_back(memgraph::utils::UUID{}, 24);
-  histories.emplace_back(memgraph::utils::UUID{}, 36);
-  histories.emplace_back(memgraph::utils::UUID{}, 48);
-  histories.emplace_back(memgraph::utils::UUID{}, 50);
-  histories.emplace_back(memgraph::utils::UUID{}, 59);
+  auto const default_db_uuid = std::string{UUID()};
 
-  memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 51}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 53}},
+                    .last_committed_system_timestamp = 1
 
-  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-    return std::make_pair(std::string(pair.first), pair.second);
-  });
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 51}},
+                    .last_committed_system_timestamp = 1}},
 
-  db_histories.back().second = 51;
-  memgraph::replication_coordination_glue::DatabaseHistory history1{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  };
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history1};
-  instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
-
-  db_histories.back().second = 57;
-  memgraph::replication_coordination_glue::DatabaseHistory history2{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history2};
-  instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
-
-  db_histories.back().second = 59;
-  memgraph::replication_coordination_glue::DatabaseHistory history3{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history3};
-  instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
-
-  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
-                                                   .coordinator_port = coordinator_port,
-                                                   .bolt_port = bolt_port,
-                                                   .management_port = management_port,
-                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
-                                                   .coordinator_hostname = "localhost"};
-  memgraph::coordination::CoordinatorInstance instance{init_config1};
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
-
-  ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == db_histories.back().first);
-  ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
+  auto const maybe_instance_name = CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_2");
 }
 
-TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
-  // Prioritize one biggest commit timestamp
-  // X = dead
-  // Main      : A(24)  B(36)  C(48) D(50) E(51)   X    X     X  X
-  // replica  1: A(24)  B(36)  C(48) D(50) E(51) F(60) G(65)  X  up
-  // replica  2: A(24)  B(36)  C(48) D(50) E(51)  X     X     X  up
-  // replica  3: A(24)  B(36)  C(48) D(50) E(51)  X     X     X  up
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
-      instance_database_histories;
+TEST(CoordinationUtils, FailoverLastInstanceNewest) {
+  // Prioritize one with the largest last durable timestamp on
 
-  std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
-  histories.emplace_back(memgraph::utils::UUID{}, 24);
-  histories.emplace_back(memgraph::utils::UUID{}, 36);
-  histories.emplace_back(memgraph::utils::UUID{}, 48);
-  histories.emplace_back(memgraph::utils::UUID{}, 50);
-  histories.emplace_back(memgraph::utils::UUID{}, 51);
+  auto const default_db_uuid = std::string{UUID()};
 
-  memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 51}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 57}},
+                    .last_committed_system_timestamp = 1
 
-  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-    return std::make_pair(std::string(pair.first), pair.second);
-  });
+       }},
+      {"instance_3",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 59}},
+                    .last_committed_system_timestamp = 1}},
 
-  memgraph::replication_coordination_glue::DatabaseHistory history{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  };
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history};
-  instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
-
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history};
-  instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
-
-  histories.emplace_back(memgraph::utils::UUID{}, 60);
-  histories.emplace_back(memgraph::utils::UUID{}, 65);
-  auto db_histories_longest =
-      memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-        return std::make_pair(std::string(pair.first), pair.second);
-      });
-
-  memgraph::replication_coordination_glue::DatabaseHistory history_longest{
-      .db_uuid = db_uuid, .history = db_histories_longest, .name = default_name};
-
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_longest};
-  instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
-
-  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
-                                                   .coordinator_port = coordinator_port,
-                                                   .bolt_port = bolt_port,
-                                                   .management_port = management_port,
-                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
-                                                   .coordinator_hostname = "localhost"};
-  memgraph::coordination::CoordinatorInstance instance{init_config1};
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
-
-  ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == db_histories_longest.back().first);
-  ASSERT_TRUE(latest_commit_timestamp == db_histories_longest.back().second);
+  auto const maybe_instance_name = CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_3");
 }
 
-TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
-  // When history diverged, also prioritize one with the biggest last durable timestamp
-  // Main      : A(1)  B(2)   C(3)    X
-  // replica  1: A(1)  B(2)   C(3)    X     X up
-  // replica  2: A(1)  B(2)    X     D(5)   X up
-  // replica  3: A(1)  B(2)    X     D(4)   X up
-  std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
-      instance_database_histories;
+TEST(CoordinationUtils, MTFailover1) {
+  // Instance 2 newest for all DBs
 
-  std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
-  histories.emplace_back(memgraph::utils::UUID{}, 1);
-  histories.emplace_back(memgraph::utils::UUID{}, 2);
-  histories.emplace_back(memgraph::utils::UUID{}, 3);
+  auto const default_db_uuid = std::string{UUID()};
+  auto const db_a = std::string{UUID()};
+  auto const db_b = std::string{UUID()};
 
-  memgraph::utils::UUID db_uuid;
-  std::string default_name = std::string(memgraph::dbms::kDefaultDB);
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 11},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 51},
+                                            InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 57},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 33},
+                                      },
+                                  .last_committed_system_timestamp = 1
 
-  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-    return std::make_pair(std::string(pair.first), pair.second);
-  });
+                     }},
+      {"instance_3", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 12},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 56},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 31},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
 
-  memgraph::replication_coordination_glue::DatabaseHistory history{
-      .db_uuid = db_uuid, .history = db_histories, .name = default_name};
+  };
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_1_db_histories_{history};
-  instance_database_histories.emplace_back("instance_1", instance_1_db_histories_);
+  auto const maybe_instance_name = CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_2");
+}
 
-  db_histories.pop_back();
+TEST(CoordinationUtils, MTFailover2) {
+  // Instance 3 newest for 2 DBs
 
-  auto oldest_commit_timestamp{5};
-  auto newest_different_epoch = memgraph::utils::UUID{};
-  histories.emplace_back(newest_different_epoch, oldest_commit_timestamp);
-  auto db_histories_different =
-      memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-        return std::make_pair(std::string(pair.first), pair.second);
-      });
+  auto const default_db_uuid = std::string{UUID()};
+  auto const db_a = std::string{UUID()};
+  auto const db_b = std::string{UUID()};
 
-  memgraph::replication_coordination_glue::DatabaseHistory history_3{
-      .db_uuid = db_uuid, .history = db_histories_different, .name = default_name};
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 11},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 51},
+                                            InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 57},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 33},
+                                      },
+                                  .last_committed_system_timestamp = 1
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_3};
-  instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
+                     }},
+      {"instance_3", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 0},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 58},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 36},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
 
-  db_histories_different.back().second = 4;
-  memgraph::replication_coordination_glue::DatabaseHistory history_2{
-      .db_uuid = db_uuid, .history = db_histories_different, .name = default_name};
+  };
 
-  memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history_2};
-  instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
+  auto const maybe_instance_name = CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_3");
+}
 
-  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
-                                                   .coordinator_port = coordinator_port,
-                                                   .bolt_port = bolt_port,
-                                                   .management_port = management_port,
-                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
-                                                   .coordinator_hostname = "localhost"};
-  memgraph::coordination::CoordinatorInstance instance{init_config1};
-  auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      *instance.ChooseMostUpToDateInstance(instance_database_histories);
+TEST(CoordinationUtils, MTFailover3) {
+  // Instance 2 best for default db, best for db_a
+  // Instance 1 best for default db
+  // Instance 3 best for db_b
 
-  ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(latest_epoch == std::string(newest_different_epoch));
-  ASSERT_TRUE(latest_commit_timestamp == oldest_commit_timestamp);
+  auto const default_db_uuid = std::string{UUID()};
+  auto const db_a = std::string{UUID()};
+  auto const db_b = std::string{UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 51},
+                                            InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 57},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 33},
+                                      },
+                                  .last_committed_system_timestamp = 1
+
+                     }},
+      {"instance_3", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 0},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 55},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 34},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+
+  };
+
+  auto const maybe_instance_name = CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_2");
+}
+
+TEST(CoordinationUtils, MTFailover4) {
+  // Instance 1 best for all 3 DBs
+  // Instance 2 and 3 for default_db_uuid and db_a
+
+  auto const default_db_uuid = std::string{UUID()};
+  auto const db_a = std::string{UUID()};
+  auto const db_b = std::string{UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 51},
+                                            InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 51},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 29},
+                                      },
+                                  .last_committed_system_timestamp = 1
+
+                     }},
+      {"instance_3", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 51},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 28},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_1");
+}
+
+TEST(CoordinationUtils, MTFailover5) {
+  // The decision needs to be done by summing timestamps
+  // All 3 instances are up to date on db_b
+  // Instance 1 is the best on default_db_uuid and has +5 over instance_2
+  // Instance 2 is the best on db_a and has +6 over instance 1 -> therefore the winner
+
+  auto const default_db_uuid = std::string{UUID()};
+  auto const db_a = std::string{UUID()};
+  auto const db_b = std::string{UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 19},
+                                            InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 10},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 25},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30},
+                                      },
+                                  .last_committed_system_timestamp = 1
+
+                     }},
+      {"instance_3", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 8},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 8},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 30},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_2");
+}
+
+TEST(CoordinationUtils, MTFailover6) {
+  // The decision needs to be done by summing timestamps
+  // Instance 1 is the best on default_db_uuid and has +6 over instance_1
+  // Instance 2 is the best on db_a and has +5 over instance 1
+  // --> Instance 1 is the winner
+
+  auto const default_db_uuid = std::string{UUID()};
+  auto const db_a = std::string{UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 16},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 19}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 10},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 24},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_1");
+}
+
+TEST(CoordinationUtils, MTFailover7) {
+  // Instances are equally good on the same number of instances and they have the same total sum of timestamps.
+  // Take the 1st one as winner
+
+  auto const default_db_uuid = std::string{memgraph::utils::UUID()};
+  auto const db_a = std::string{memgraph::utils::UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 16},
+                                            InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 10}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 10},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 16},
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_1");
+}
+
+TEST(CoordinationUtils, MTFailover8) {
+  // Both instances are equally good on default DB.
+  // Instance has larger sys timstamp so db_b and default_db_uuid are the relevant ones
+
+  auto const default_db_uuid = std::string{memgraph::utils::UUID()};
+  auto const db_a = std::string{memgraph::utils::UUID()};
+  auto const db_b = std::string{memgraph::utils::UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 16},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 20},
+
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 16},
+                                          InstanceDBInfo{.db_uuid = db_b, .latest_durable_timestamp = 20},
+                                      },
+                                  .last_committed_system_timestamp = 2}},
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_2");
+}
+
+TEST(CoordinationUtils, MTFailover9) {
+  // Only take into account default DB for instance_2 on which it is better
+
+  auto const default_db_uuid = std::string{memgraph::utils::UUID()};
+  auto const db_a = std::string{memgraph::utils::UUID()};
+  auto const db_b = std::string{memgraph::utils::UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 16},
+                                          InstanceDBInfo{.db_uuid = db_a, .latest_durable_timestamp = 20},
+
+                                      },
+                                  .last_committed_system_timestamp = 1}},
+      {"instance_2", InstanceInfo{.dbs_info =
+                                      std::vector{
+                                          InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 17},
+                                      },
+                                  .last_committed_system_timestamp = 2}},
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_TRUE(*maybe_instance_name == "instance_2");
+}
+
+TEST(CoordinationUtils, FailoverNoInstancesAvailable) {
+  auto const default_db_uuid = std::string{memgraph::utils::UUID()};
+  std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> instances_nfo{{default_db_uuid, {}}};
+
+  std::map<std::string, InstanceInfo> instances_info{};
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_FALSE(maybe_instance_name.has_value());
+}
+
+TEST(CoordinationUtils, FailoverSomeInstancesMissingTimestamps) {
+  // missing timestamps
+  auto const default_db_uuid = std::string{memgraph::utils::UUID()};
+  std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> instnces_info{
+      {default_db_uuid, {{"instance_1", 0}, {"instance_2", 15}, {"instance_3", 0}}}};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 0}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_2",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 15}},
+                    .last_committed_system_timestamp = 1}},
+      {"instance_3",
+       InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid, .latest_durable_timestamp = 0}},
+                    .last_committed_system_timestamp = 1}},
+
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_EQ(*maybe_instance_name, "instance_2");
+}
+
+TEST(CoordinationUtils, FailoverSingleInstanceOnly) {
+  auto const default_db_uuid = std::string{memgraph::utils::UUID()};
+
+  std::map<std::string, InstanceInfo> instances_info{
+      {"instance_1", InstanceInfo{.dbs_info = std::vector{InstanceDBInfo{.db_uuid = default_db_uuid,
+                                                                         .latest_durable_timestamp = 100}},
+                                  .last_committed_system_timestamp = 1}},
+  };
+
+  auto const maybe_instance_name =
+      memgraph::coordination::CoordinatorInstance::ChooseMostUpToDateInstance(instances_info);
+  ASSERT_TRUE(maybe_instance_name.has_value());
+  // NOLINTNEXTLINE
+  ASSERT_EQ(*maybe_instance_name, "instance_1");
 }

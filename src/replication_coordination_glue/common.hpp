@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,21 +11,18 @@
 
 #pragma once
 
-#include "rpc/client.hpp"
-#include "utils/uuid.hpp"
-
-#include "messages.hpp"
-#include "rpc/messages.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::replication_coordination_glue {
 
-struct DatabaseHistory {
-  memgraph::utils::UUID db_uuid;
-  std::vector<std::pair<std::string, uint64_t>> history;
-  std::string name;  // db name
+struct InstanceDBInfo {
+  std::string db_uuid;
+  uint64_t latest_durable_timestamp;
 };
 
-using DatabaseHistories = std::vector<DatabaseHistory>;
+struct InstanceInfo {
+  std::vector<InstanceDBInfo> dbs_info;
+  uint64_t last_committed_system_timestamp;
+};
 
 }  // namespace memgraph::replication_coordination_glue

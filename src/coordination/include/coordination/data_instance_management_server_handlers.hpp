@@ -64,7 +64,8 @@ class DataInstanceManagementServerHandlers {
       switch (instance_client.GetError()) {
         case RegisterReplicaError::NO_ACCESS: {
           spdlog::error(
-              "Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.");
+              "Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.",
+              config.instance_name);
           slk::Save(TResponse{false}, res_builder);
           return false;
         }
