@@ -593,9 +593,19 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreateEdgeIndex(MemgraphCypher::CreateEdgeIndexContext *ctx) override;
 
   /**
+   * @return EdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateGlobalEdgeIndex(MemgraphCypher::CreateGlobalEdgeIndexContext *ctx) override;
+
+  /**
    * @return DropEdgeIndex*
    */
   antlrcpp::Any visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) override;
+
+  /**
+   * @return DropEdgeIndex*
+   */
+  antlrcpp::Any visitDropGlobalEdgeIndex(MemgraphCypher::DropGlobalEdgeIndexContext *ctx) override;
 
   /**
    * @return CreatePointIndexQuery*
