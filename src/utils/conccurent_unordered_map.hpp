@@ -37,8 +37,8 @@ class ConcurrentUnorderedMap {
     {
       // NOTE: Since we lock and unlock, this emplace can still fail if someone inserted in the meantime
       auto l = std::unique_lock{mtx_};
-      if (map_.size() + 1 > map_.capacity()) map_.reserve(map_.size() * 2);
-      auto [it, _] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
+      auto [it, succ] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
+      if (succ && map_.size() >= map_.capacity()) map_.reserve(map_.size() * 2);
       return it->second;
     }
   }
@@ -49,8 +49,8 @@ class ConcurrentUnorderedMap {
     DMG_ASSERT(mtx_.is_locked());
     auto itr = map_.find(key);
     if (itr != map_.end()) return itr->second;
-    if (map_.size() + 1 > map_.capacity()) map_.reserve(map_.size() * 2);
-    auto [it, _] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
+    auto [it, succ] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
+    if (succ && map_.size() >= map_.capacity()) map_.reserve(map_.size() * 2);
     return it->second;
   }
 

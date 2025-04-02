@@ -104,26 +104,15 @@ struct EdgeKey {
 /**
  * @brief
  */
-// template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
-template <bool Atomic>
+template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
 struct PropertyInfo {
-  using int_type = typename std::conditional<Atomic, std::atomic<int>, int>::type;
-  int_type n{0};  //!< Number of objects with this property
-  using map_type =
-      typename std::conditional<Atomic, utils::ConcurrentUnorderedMap<ExtendedPropertyType, std::atomic_int>,
-                                absl::node_hash_map<ExtendedPropertyType, int>>::type;
-
-  map_type types;  //!< Numer of property instances with a specific type
+  std::atomic_int n{0};                                     //!< Number of objects with this property
+  TContainer<ExtendedPropertyType, std::atomic_int> types;  //!< Numer of property instances with a specific type
 
   nlohmann::json ToJson(const EnumStore &enum_store, std::string_view key, uint32_t max_count) const {
     nlohmann::json::object_t property_info;
     property_info.emplace("key", key);
-    const auto num = std::invoke([&] {
-      if constexpr (Atomic)
-        return n.load(std::memory_order_relaxed);
-      else
-        return n;
-    });
+    const auto num = n.load(std::memory_order_relaxed);
     property_info.emplace("count", num);
     property_info.emplace("filling_factor", (100.0 * num) / max_count);
     const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
@@ -177,11 +166,7 @@ struct PropertyInfo {
         }
       }
       type_info.emplace("type", ss.str());
-      if constexpr (Atomic) {
-        type_info.emplace("count", type.second.load());
-      } else {
-        type_info.emplace("count", type.second);
-      }
+      type_info.emplace("count", type.second.load(std::memory_order_relaxed));
       types_itr->second.emplace_back(std::move(type_info));
     }
     return property_info;
@@ -191,22 +176,14 @@ struct PropertyInfo {
 /**
  * @brief
  */
-template <bool Atomic>
+template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
 struct TrackingInfo {
-  using int_type = typename std::conditional<Atomic, std::atomic<int>, int>::type;
-  int_type n{0};  //!< Number of tracked objects
-  using map_type = typename std::conditional<Atomic, utils::ConcurrentUnorderedMap<PropertyId, PropertyInfo<Atomic>>,
-                                             absl::node_hash_map<PropertyId, PropertyInfo<Atomic>>>::type;
-  map_type properties;  //!< Property statistics defined by the tracked object
+  std::atomic_int n{0};                                         //!< Number of tracked objects
+  TContainer<PropertyId, PropertyInfo<TContainer>> properties;  //!< Property statistics defined by the tracked object
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
     nlohmann::json::object_t tracking_info;
-    const auto num = std::invoke([&] {
-      if constexpr (Atomic)
-        return n.load(std::memory_order_relaxed);
-      else
-        return n;
-    });
+    const auto num = n.load(std::memory_order_relaxed);
     tracking_info.emplace("count", num);
     const auto &[prop_itr, _] = tracking_info.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : properties) {
@@ -215,8 +192,8 @@ struct TrackingInfo {
     return tracking_info;
   }
 
-  template <bool OtherAtomic>
-  TrackingInfo &operator+=(const TrackingInfo<OtherAtomic> &rhs) {
+  template <template <class...> class TOtherContainer>
+  TrackingInfo &operator+=(const TrackingInfo<TOtherContainer> &rhs) {
     n += rhs.n;
     for (const auto &[id, val] : rhs.properties) {
       auto &prop = properties[id];

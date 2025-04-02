@@ -147,7 +147,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
 
   // Need to follow lock ordering: 1. vertices in order of GID 2. edge
   auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
@@ -177,13 +177,14 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                            *transaction_);
     if (schema_acc) {
-      std::visit(utils::Overloaded{
-                     [this, property, new_type = ExtendedPropertyType{value},
-                      old_type = ExtendedPropertyType{*current_value}](SchemaInfo::VertexModifyingAccessor &acc) {
-                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
-                     },
-                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
+      std::visit(
+          utils::Overloaded{
+              [this, property, new_type = ExtendedPropertyType{value},
+               old_type = ExtendedPropertyType{*current_value}](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
+                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
+              },
+              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+          *schema_acc);
     }
   });
 
@@ -199,7 +200,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
 
   // Need to follow lock ordering: 1. vertices in order of GID 2. edge
   auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
@@ -219,7 +220,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
                                              *transaction_);
       if (schema_acc) {
         std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
-                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                         SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                                        acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type,
                                                        ExtendedPropertyType{});
                                      },
@@ -239,7 +240,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
 
   // Need to follow lock ordering: 1. vertices in order of GID 2. edge
   auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
@@ -264,7 +265,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
       if (schema_acc) {
         std::visit(utils::Overloaded{
                        [this, property, new_type = ExtendedPropertyType{new_value},
-                        old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                        old_type = ExtendedPropertyType{old_value}](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                          acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
                        },
                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
@@ -281,7 +282,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
 
   // Need to follow lock ordering: 1. vertices in order of GID 2. edge
   auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
@@ -305,7 +306,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
       if (schema_acc) {
         std::visit(
             utils::Overloaded{[this, property_id = property.first, old_type = ExtendedPropertyType{property.second}](
-                                  SchemaInfo::VertexModifyingAccessor &acc) {
+                                  SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                                 acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property_id,
                                                 ExtendedPropertyType{}, old_type);
                               },

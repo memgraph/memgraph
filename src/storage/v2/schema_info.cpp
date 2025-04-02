@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/node_hash_map.h"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
@@ -24,6 +25,7 @@
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
+#include "utils/conccurent_unordered_map.hpp"
 #include "utils/logging.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
@@ -165,7 +167,7 @@ std::map<PropertyId, ExtendedPropertyType> GetCommittedProperty(const Edge &edge
 }  // namespace
 
 template <>
-TrackingInfo<false> &LocalSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
+TrackingInfo<absl::node_hash_map> &LocalSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
   auto itr = edge_state_.find(key);
   if (itr != edge_state_.end()) return itr->second;
   auto [new_itr, _] = edge_state_.emplace(std::piecewise_construct, std::forward_as_tuple(key.type, key.from, key.to),
@@ -174,7 +176,7 @@ TrackingInfo<false> &LocalSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
 }
 
 template <>
-TrackingInfo<true> &SharedSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
+TrackingInfo<utils::ConcurrentUnorderedMap> &SharedSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
   return edge_state_[key];
 }
 
@@ -231,8 +233,8 @@ void SchemaTracking<TContainer>::ProcessTransaction(
     // Can't lock once before loop because of possible deadlock from vertex
     auto pre_key = EdgeKeyRef{edge_type, from_labels.second, to_labels.second};
     auto post_key = EdgeKeyRef{edge_type, from_labels.first, to_labels.first};
-    TrackingInfo<true> *tracking_pre_info{};
-    TrackingInfo<true> *tracking_post_info = &edge_lookup(EdgeKeyRef{edge_type, from_labels.first, to_labels.first});
+    auto *tracking_post_info = &edge_lookup(EdgeKeyRef{edge_type, from_labels.first, to_labels.first});
+    decltype(tracking_post_info) tracking_pre_info{};
     if (pre_key == post_key)
       tracking_pre_info = tracking_post_info;
     else if (!edge_deleted)
@@ -427,7 +429,7 @@ void SchemaTracking<TContainer>::SetProperty(auto &tracking_info, PropertyId pro
     tracking_info.Decrement(property, before);
   }
   if (now != ExtendedPropertyType{}) {
-    tracking_info.Increment(property, before);
+    tracking_info.Increment(property, now);
   }
 }
 
@@ -554,21 +556,10 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   static constexpr bool OutEdge = !InEdge;
   auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
-    bool edge_created_during_this_tx = (created_edges_ && created_edges_->contains(edge_ref.ptr));
-    if (edge_created_during_this_tx) {
-      tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
-                                 (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
-                                 (edge_dir == InEdge) ? other_vertex->labels : old_labels,
-                                 (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_);
-    } else {  // Post process
-      auto [it, succ] = post_process_->emplace(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex : vertex,
-                                               (edge_dir == InEdge) ? vertex : other_vertex, false);
-      if (succ) {
-        if (post_process_->size() >= post_process_->capacity()) post_process_->reserve(post_process_->size() * 2);
-      }
-    }
-
-    // Here we have a unique access. Do we pay the price here and update via deltas now?
+    tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
+                               (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
+                               (edge_dir == InEdge) ? other_vertex->labels : old_labels,
+                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_);
   };
 
   for (const auto &edge : vertex->in_edges) {
@@ -669,35 +660,11 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(EdgeRef edge, Vertex *from,
   DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // Empty edge; just update the top level stats
   tracking_->CreateEdge(from, to, edge_type);
-  // Too expensive
-  // if (created_edges_) {
-  //   auto [it, succ] = created_edges_->emplace(edge.ptr);  // Same size so doesn't matter
-  //   if (succ && created_edges_->size() >= created_edges_->capacity())
-  //   created_edges_->reserve(created_edges_->size());
-  // }
 }
 
 void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
-  // Edges are cleared from both directions
-  // In transactional this means no other tx can't modify the vertices or edge; so they are stable
-  // Problems?
-  //    vertex label changes <- has unique access at the time, so could be updated maybe there
-  //    edge prop changes <- needs a lock over vertices
-  // Analytical or edge created during this TX <- all objects are stable
-  if (!post_process_ || true || (created_edges_ && created_edges_->contains(edge_ref.ptr))) {
-    // Analytical: no need to lock since the vertex labels cannot change due to shared lock
-    // Transactional: no need to lock IF edge created during this TX
-    tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
-  } else {  // Post process
-    // TODO Turn into a map
-    auto [it, succ] = post_process_->emplace(edge_ref, edge_type, from, to, true);
-    // Make sure the flag is set
-    if (succ) {
-      if (post_process_->size() >= post_process_->capacity()) post_process_->reserve(post_process_->size() * 2);
-    } else {
-      it->deleted = true;
-    }
-  }
+  // Edge has been cleared from both directions
+  tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
 }
 
 void SchemaInfo::VertexModifyingAccessor::SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now,
@@ -710,20 +677,24 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(Vertex *vertex, PropertyId
 void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to,
                                                       PropertyId property, ExtendedPropertyType now,
                                                       ExtendedPropertyType before) {
+  LOG_FATAL("Moving away from this");
+}
+void SchemaInfo::AnalyticalEdgeModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to,
+                                                              PropertyId property, ExtendedPropertyType now,
+                                                              ExtendedPropertyType before) {
   DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
   DMG_ASSERT(edge.ptr->lock.is_locked(), "Trying to read from an unlocked edge; LINE {}", __LINE__);
   if (now == before) return;  // Nothing to do
-  // Analytical or edge created during this TX
-  if (!post_process_ || (created_edges_ && created_edges_->contains(edge.ptr))) {
-    // Analytical: no need to lock since the vertex labels cannot change due to shared lock
-    // Transactional: no need to lock IF edge created during this TX
-    tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
-  } else {  // Not created during this tx; needs to be post-processed
-    post_process_->emplace(edge, type, from, to, false);
-    // Make sure the flag is set
-    auto [prop_it, succ] = (*edge_prop_change_)[edge.ptr].emplace(property, std::pair{before, now});
-    if (!succ) prop_it->second.second = now;
-  }
+  tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
+}
+void SchemaInfo::TransactionalEdgeModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from,
+                                                                 Vertex *to, PropertyId property,
+                                                                 ExtendedPropertyType now,
+                                                                 ExtendedPropertyType before) {
+  DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
+  DMG_ASSERT(edge.ptr->lock.is_locked(), "Trying to read from an unlocked edge; LINE {}", __LINE__);
+  if (now == before) return;  // Nothing to do
+  tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
 }
 
 }  // namespace memgraph::storage

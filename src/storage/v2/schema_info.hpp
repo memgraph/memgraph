@@ -94,7 +94,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 
-  void AddVertex(Vertex *vertex) override {}  //++vertex_state_[vertex->labels].n; }
+  void AddVertex(Vertex *vertex) override { ++vertex_state_[vertex->labels].n; }
 
   void DeleteVertex(Vertex *vertex) override;
 
@@ -125,17 +125,15 @@ struct SchemaTracking final : public SchemaTrackingInterface {
   friend LocalSchemaTracking;
   friend SharedSchemaTracking;
 
-#define is_atomic std::is_same_v<TContainer<int, int>, utils::ConcurrentUnorderedMap<int, int>>
-  TrackingInfo<is_atomic> &edge_lookup(const EdgeKeyRef &key);
+  TrackingInfo<TContainer> &edge_lookup(const EdgeKeyRef &key);
 
   void SetProperty(auto &tracking_info, PropertyId property, const ExtendedPropertyType &now,
                    const ExtendedPropertyType &before);
 
   void UpdateEdgeStats(auto &new_tracking, auto &old_tracking, EdgeRef edge_ref, bool prop_on_edges);
 
-  TContainer<VertexKey, TrackingInfo<is_atomic>> vertex_state_;  //!< vertex statistics
-  TContainer<EdgeKey, TrackingInfo<is_atomic>, std::hash<EdgeKey>,
-             std::equal_to<EdgeKey>>
+  TContainer<VertexKey, TrackingInfo<TContainer>> vertex_state_;  //!< vertex statistics
+  TContainer<EdgeKey, TrackingInfo<TContainer>, std::hash<EdgeKey>, std::equal_to<EdgeKey>>
       edge_state_;  //!< edge statistics
 };
 
@@ -195,6 +193,9 @@ struct SchemaInfo {
 
     void RemoveLabel(Vertex *vertex, LabelId label);
 
+    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                     ExtendedPropertyType now, ExtendedPropertyType before);
+
    private:
     void UpdateTransactionalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
 
@@ -222,6 +223,9 @@ struct SchemaInfo {
     void AddLabel(Vertex *vertex, LabelId label);
 
     void RemoveLabel(Vertex *vertex, LabelId label);
+
+    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                     ExtendedPropertyType now, ExtendedPropertyType before);
 
    private:
     void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
@@ -268,6 +272,12 @@ struct SchemaInfo {
     void RemoveLabel(Vertex *vertex, LabelId label);
 
     void CreateEdge(EdgeRef edge, Vertex *from, Vertex *to, EdgeTypeId edge_type);
+
+    void RecoverVertex(Vertex *vertex) { tracking_->RecoverVertex(vertex); }
+
+    void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) {
+      tracking_->RecoverEdge(edge_type, edge, from, to, prop_on_edges);
+    }
 
     // Multi-threaded deletion in ANALYTICAL is UB, so we can leave it with shared access
     void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge);

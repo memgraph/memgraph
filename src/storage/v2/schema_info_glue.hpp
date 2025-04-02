@@ -19,11 +19,11 @@ namespace memgraph::storage {
 inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
-  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, transaction->post_process_,
-                                                     transaction->created_edges_, transaction->edge_prop_change_,
-                                                     transaction->transaction_id, prop_on_edges);
-  }
+  // if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+  //   return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, transaction->post_process_,
+  //                                                    transaction->created_edges_, transaction->edge_prop_change_,
+  //                                                    transaction->transaction_id, prop_on_edges);
+  // }
   return storage->schema_info_.CreateVertexModifyingAccessor(prop_on_edges);
 }
 
@@ -31,11 +31,11 @@ inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoUniqueAccessor(Sto
                                                                              Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
-  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
-                                                   &transaction->created_edges_, &transaction->edge_prop_change_,
-                                                   prop_on_edges, transaction->transaction_id);
-  }
+  // if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+  //   return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
+  //                                                  &transaction->created_edges_, &transaction->edge_prop_change_,
+  //                                                  prop_on_edges, transaction->transaction_id);
+  // }
   return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
 }
 }  // namespace memgraph::storage
