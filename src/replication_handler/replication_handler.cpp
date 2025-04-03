@@ -215,7 +215,8 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
         spdlog::error("Failed to take snapshot locks while demoting to replica");
         return false;
       }
-      dbms_handler_.ForEach([&locks_metadata, &snapshot_locks](dbms::DatabaseAccess db_acc) {
+      bool hold_all_locks{true};
+      dbms_handler_.ForEach([&locks_metadata, &snapshot_locks, &hold_all_locks](dbms::DatabaseAccess db_acc) {
         // Check if already locked
         auto const metadata_it = locks_metadata.find(db_acc->name());
         if (metadata_it != locks_metadata.end() && metadata_it->second) {
@@ -228,8 +229,12 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
           locks_metadata[db_acc->name()] = true;
         } else {
           locks_metadata[db_acc->name()] = false;
+          hold_all_locks = false;
         }
       });
+      if (hold_all_locks) {
+        break;
+      }
     }
 
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
