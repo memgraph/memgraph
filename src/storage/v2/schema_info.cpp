@@ -677,8 +677,13 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(Vertex *vertex, PropertyId
 void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to,
                                                       PropertyId property, ExtendedPropertyType now,
                                                       ExtendedPropertyType before) {
-  LOG_FATAL("Moving away from this");
+  DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
+  DMG_ASSERT(edge.ptr->lock.is_locked(), "Trying to read from an unlocked edge; LINE {}", __LINE__);
+  if (now == before) return;  // Nothing to do
+  tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
 }
+
+// Prob not needed
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to,
                                                               PropertyId property, ExtendedPropertyType now,
                                                               ExtendedPropertyType before) {
