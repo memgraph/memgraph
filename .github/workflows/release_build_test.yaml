@@ -34,6 +34,10 @@ on:
           - ubuntu-20.04
           - ubuntu-22.04
           - ubuntu-24.04
+      trigger_daily_packaging:
+        type: boolean
+        description: "Set to true to trigger the daily packaging jobs for testing purposes."
+        default: false
 
 jobs:
   TestIndividual:
@@ -135,4 +139,83 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
+    secrets: inherit
+
+
+  DailyPackageArtifact:
+    if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
+    needs: [TestIndividual]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [centos-9, centos-10, debian-11, debian-12, fedora-41, ubuntu-22.04, ubuntu-24.04]
+        arch: [amd]
+        build_type: [Release]
+        additional_build_args: ['']
+        include: # Additional matrix entries for arm builds and RelWithDebInfo
+          - os: debian-11
+            build_type: Release
+            arch: arm
+            additional_build_args: ''
+          - os: debian-12
+            build_type: Release
+            arch: arm
+            additional_build_args: ''
+          - os: ubuntu-24.04
+            build_type: Release
+            arch: arm
+            additional_build_args: ''
+          - os: ubuntu-24.04
+            build_type: Release
+            arch: amd
+            additional_build_args: '--disable-jemalloc'
+          - os: ubuntu-24.04
+            build_type: RelWithDebInfo
+            arch: arm
+            additional_build_args: ''
+          - os: ubuntu-24.04
+            build_type: RelWithDebInfo
+            arch: amd
+            additional_build_args: ''
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
+      build_type: ${{ matrix.build_type }}
+      toolchain: v6
+      push_to_github: 'false'
+      push_to_s3: 'true'
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "daily-build"
+      additional_build_args: ${{ matrix.additional_build_args }}
+      test_result: ${{ needs.TestIndividual.result }}
+    secrets: inherit
+
+  DailyDockerArtifact:
+    if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
+    needs: [TestIndividual]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04]
+        arch: [amd, arm]
+        build_type: [Release]
+        include: # Include an extra docker build with RelWithDebInfo for amd
+          - os: ubuntu-24.04
+            arch: amd
+            build_type: RelWithDebInfo
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
+      build_type: ${{ matrix.build_type }}
+      toolchain: v6
+      additional_build_args: '--for-docker'
+      push_to_github: 'false'
+      push_to_s3: 'true'
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "daily-build"
+      test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
