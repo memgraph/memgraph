@@ -3211,24 +3211,13 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
     return a == b || (is_numeric(a) && is_numeric(b));
   };
 
-  auto is_orderable = [](const memgraph::storage::PropertyValue &t) {
-    // TODO: extend what is orderable to match opencypher see "Orderability and equivalence"
-    return t.IsNull() || t.IsInt() || t.IsDouble() || t.IsString();
-  };
-
   // when a range contains different types, nothing should get returned
+  // TODO: extend what is orderable to match opencypher see "Orderability and equivalence"
   for (const auto &value_a : values) {
     for (const auto &value_b : values) {
-      if (are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
-                         static_cast<memgraph::storage::PropertyValue>(value_b).type()))
-        continue;
-      if (is_orderable(value_a) && is_orderable(value_b)) {
-        // TODO: this no longer applies...we allow scan over multiple types
-        // check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
-      } else {
-        EXPECT_THROW(
-            run_scan_all(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE),
-            QueryRuntimeException);
+      if (!are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
+                          static_cast<memgraph::storage::PropertyValue>(value_b).type())) {
+        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
       }
     }
   }
