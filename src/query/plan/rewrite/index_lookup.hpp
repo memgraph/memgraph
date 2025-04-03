@@ -128,14 +128,16 @@ struct IndexHints {
     return false;
   }
 
-  // @TODO need HasLabelPropertiesIndex
-
   template <class TDbAccessor>
-  bool HasLabelPropertyIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
-    for (const auto &[index_type, label_hint, property_hint] : label_property_index_hints_) {
+  bool HasLabelPropertiesIndex(TDbAccessor *db, storage::LabelId label,
+                               std::span<storage::PropertyId const> properties) const {
+    for (const auto &[index_type, label_hint, properties_prefix] : label_property_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint.value()[0].name); /*TODO*/
-      if (label_id == label && property_id == property) {
+      auto property_ids = *properties_prefix | ranges::views::transform([&](PropertyIx prop_ix) {
+        return db->NameToProperty(prop_ix.name);
+      }) | ranges::to_vector;
+      if (label_id == label &&
+          std::ranges::equal(property_ids, properties | ranges::views::take(property_ids.size()))) {
         return true;
       }
     }
@@ -1120,9 +1122,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Hints may only ask for exact matches on the candidate index
       if (it->second.info_.properties_.size() != maybe_properties->size()) continue;
 
-      return LabelPropertyIndex{
-          .label = label, .filters = it->second.filters_, .vertex_count = std::numeric_limits<std::int64_t>::max(),
-          /*TODO pass on the index info (labelid + property_ids)*/};
+      return LabelPropertyIndex{.label = label,
+                                .properties = it->second.info_.properties_,
+                                .filters = it->second.filters_,
+                                .vertex_count = std::numeric_limits<std::int64_t>::max()};
     }
 
     std::optional<LabelPropertyIndex> found;

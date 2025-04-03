@@ -183,10 +183,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= factor;
 
-    // TODO: update hints
-    // if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
-    //   use_index_hints_ = true;
-    // }
+    if (index_hints_.HasLabelPropertiesIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
+      use_index_hints_ = true;
+    }
 
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::MakeScanAllByLabelProperties);
