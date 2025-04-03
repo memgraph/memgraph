@@ -659,17 +659,6 @@ class FakeDbAccessor {
     return 0;
   }
 
-  // TODO(composite_index) Remove these methods taking a single property
-  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    std::vector const properties{property};
-    for (const auto &index : label_properties_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == properties) {
-        return std::get<2>(index);
-      }
-    }
-    return 0;
-  }
-
   int64_t VerticesCount(memgraph::storage::LabelId label,
                         std::span<memgraph::storage::PropertyId const> properties) const {
     auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
