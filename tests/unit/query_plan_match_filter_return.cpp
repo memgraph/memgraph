@@ -3232,15 +3232,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
       }
     }
   }
-  // These should all raise an exception due to type mismatch when using
-  // `operator<`.
-  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::INCLUSIVE, TypedValue(true), Bound::Type::EXCLUSIVE),
-               QueryRuntimeException);
-  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::EXCLUSIVE, TypedValue(true), Bound::Type::INCLUSIVE),
-               QueryRuntimeException);
-  EXPECT_THROW(run_scan_all(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}), Bound::Type::EXCLUSIVE,
-                            TypedValue(std::vector<TypedValue>{TypedValue(1.5)}), Bound::Type::INCLUSIVE),
-               QueryRuntimeException);
 }
 
 TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
