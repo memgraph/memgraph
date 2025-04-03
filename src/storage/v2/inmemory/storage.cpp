@@ -233,10 +233,15 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
       CollectGarbage<true>(std::move(main_guard), periodic);
 
+      // Indices
       static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
       static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
+      static_cast<InMemoryEdgePropertyIndex *>(indices_.edge_property_index_.get())->RunGC();
+
+      // Constraints
+      static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get())->RunGC();
 
       // SkipList is already threadsafe
       edges_metadata_.run_gc();
