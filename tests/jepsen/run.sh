@@ -124,7 +124,7 @@ COPY_BINARIES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
    # Datasets need to be downloaded only if MT test is being run
-   __control_lein_run_args="$1"
+   __control_lein_run_args="${1:-}"
    binary_path="$MEMGRAPH_BINARY_PATH"
    support_lib="${MEMGRAPH_MODULE_SUPPORT_LIB_PATH}"
    if [ -L "$binary_path" ]; then
