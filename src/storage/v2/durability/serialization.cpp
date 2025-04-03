@@ -35,8 +35,12 @@ void WriteSize(Encoder *encoder, uint64_t size) {
 }
 }  // namespace
 
-void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+void Encoder::Initialize(const std::filesystem::path &path) {
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+}
+
+void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+  Initialize(path);
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
