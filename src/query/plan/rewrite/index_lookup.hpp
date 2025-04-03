@@ -335,20 +335,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST && expand.filter_lambda_.accumulated_path_symbol) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
-      return false;
+      return true;
     }
 
     std::unique_ptr<ScanAll> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
-    // With expand to existing we only get real gains with BFS, because we use a
-    // different algorithm then, so prefer expand to existing.
-    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // TODO: Perhaps take average node degree into consideration, instead of
-      // unconditionally creating an indexed scan.
-      indexed_scan = GenScanByIndex(dst_scan);
-    } else {
-      indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    }
+    // If the destination cardinality is low enough, we can leverage the STShortestPath perhaps.
+    // Otherwise it's always best to expand from the source node
+    indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     if (indexed_scan) {
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
