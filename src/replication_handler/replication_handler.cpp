@@ -206,35 +206,28 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       storage->snapshot_runner_.Pause();
     });
 
-    std::vector<std::unique_lock<std::mutex>> snapshot_locks;
-
-    std::unordered_map<std::string, bool> locks_metadata;
+    std::map<std::string, std::unique_lock<std::mutex>> snapshot_locks;
     auto const timer = utils::Timer();
     while (true) {
       if (timer.Elapsed() > 10s) {
-        spdlog::error("Failed to take snapshot locks while demoting to replica");
+        spdlog::error("Failed to take snapshot lock on all DBs within 10s while demoting to replica.");
         return false;
       }
-      bool hold_all_locks{true};
-      dbms_handler_.ForEach([&locks_metadata, &snapshot_locks, &hold_all_locks](dbms::DatabaseAccess db_acc) {
-        // Check if already locked
-        auto const metadata_it = locks_metadata.find(db_acc->name());
-        if (metadata_it != locks_metadata.end() && metadata_it->second) {
+      if (snapshot_locks.size() == dbms_handler_.Count()) {
+        break;
+      }
+
+      dbms_handler_.ForEach([&snapshot_locks](dbms::DatabaseAccess db_acc) {
+        auto const lock_it = snapshot_locks.find(db_acc->name());
+        if (lock_it != snapshot_locks.end()) {
           return;
         }
         auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         auto db_lock = std::unique_lock{storage->snapshot_lock_, std::defer_lock};
         if (db_lock.try_lock()) {
-          snapshot_locks.emplace_back(std::move(db_lock));
-          locks_metadata[db_acc->name()] = true;
-        } else {
-          locks_metadata[db_acc->name()] = false;
-          hold_all_locks = false;
+          snapshot_locks.emplace(db_acc->name(), std::move(db_lock));
         }
       });
-      if (hold_all_locks) {
-        break;
-      }
     }
 
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
