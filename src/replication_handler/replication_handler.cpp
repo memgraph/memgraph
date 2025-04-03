@@ -202,8 +202,8 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-      storage->abort_snapshot_.store(true, std::memory_order_release);
       storage->snapshot_runner_.Pause();
+      storage->abort_snapshot_.store(true, std::memory_order_release);
     });
 
     std::map<std::string, std::unique_lock<std::mutex>> snapshot_locks;
@@ -249,6 +249,12 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
 bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
+
+    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      storage->abort_snapshot_.store(false, std::memory_order_release);
+      storage->snapshot_runner_.Resume();
+    });
 
     if (locked_repl_state->IsMain()) {
       if (!force) return false;

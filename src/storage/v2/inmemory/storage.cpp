@@ -2619,7 +2619,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
-  spdlog::trace("Snapshot lock taken");
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
@@ -2758,7 +2757,6 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
 // Note:
 std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto lock = std::unique_lock{snapshot_lock_};
-  spdlog::trace("Snapshot lock taken");
 
   std::vector<SnapshotFileInfo> res;
   auto file_locker = file_retainer_.AddLocker();
