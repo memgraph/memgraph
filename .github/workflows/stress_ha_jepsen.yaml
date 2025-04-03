@@ -1,4 +1,4 @@
-name: "Jepsen stress test"
+name: "Jepsen HA stress test"
 
 on:
   workflow_dispatch:
@@ -15,9 +15,9 @@ env:
 
 jobs:
   core:
-    name: "Jepsen stress tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 900
+    name: "Jepsen HA stress tests"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
+    timeout-minutes: 720
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
