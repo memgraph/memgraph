@@ -347,6 +347,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
     }
+
     return true;
   }
 
