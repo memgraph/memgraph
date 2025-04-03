@@ -379,6 +379,20 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
     index_query->properties_.emplace_back(std::move(prop_key));
   }
+
+  auto const properties_are_unique = [seen = std::unordered_set<PropertyIx>{}](PropertyIx prop) mutable {
+    if (seen.count(prop)) {
+      return false;
+    } else {
+      seen.insert(prop);
+      return true;
+    }
+  };
+
+  if (!ranges::all_of(index_query->properties_, properties_are_unique)) {
+    throw SyntaxException("Properties cannot be repeated in a composite index.");
+  }
+
   return index_query;
 }
 
