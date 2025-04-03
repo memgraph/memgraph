@@ -778,8 +778,6 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::
   auto const it2 = it->second.find(properties);
   MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties doesn't exist", label.AsUint());
 
-  // @TODO check if we need to permute here...
-
   auto acc = it2->second.skiplist.access();
   if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
