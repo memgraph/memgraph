@@ -60,7 +60,7 @@ struct Indices {
     EdgeTypeIndex::AbortProcessor edge_type_;
 
     EdgeTypePropertyIndex::IndexStats property_edge_type_;
-    EdgePropertyIndex::IndexStats property_edge;
+    EdgePropertyIndex::IndexStats property_edge_;
     // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
     VectorIndex::IndexStats vector_;
