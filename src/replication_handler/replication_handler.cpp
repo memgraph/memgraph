@@ -206,35 +206,30 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       storage->snapshot_runner_.Pause();
     });
 
-    bool snapshot_locks_taken{true};
-    dbms_handler_.ForEach([&snapshot_locks_taken, timer = utils::Timer()](dbms::DatabaseAccess db_acc) {
-      if (!snapshot_locks_taken) {
-        return;
-      }
-      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-      while (true) {
-        if (timer.Elapsed() > 10s) {
-          spdlog::error("Failed to take snapshot locks while demoting to replica");
-          snapshot_locks_taken = false;
-          // Exit from handling db
-          return;
-        }
-        if (storage->snapshot_lock_.try_lock()) {
-          // Exit from handling db
-          return;
-        }
-      }
-    });
+    std::vector<std::unique_lock<std::mutex>> snapshot_locks;
 
-    utils::OnScopeExit const unlock_snapshots{[this]() {
-      dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    std::unordered_map<std::string, bool> locks_metadata;
+    auto const timer = utils::Timer();
+    while (true) {
+      if (timer.Elapsed() > 10s) {
+        spdlog::error("Failed to take snapshot locks while demoting to replica");
+        return false;
+      }
+      dbms_handler_.ForEach([&locks_metadata, &snapshot_locks](dbms::DatabaseAccess db_acc) {
+        // Check if already locked
+        auto const metadata_it = locks_metadata.find(db_acc->name());
+        if (metadata_it != locks_metadata.end() && metadata_it->second) {
+          return;
+        }
         auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
-        storage->snapshot_lock_.unlock();
+        auto db_lock = std::unique_lock{storage->snapshot_lock_, std::defer_lock};
+        if (db_lock.try_lock()) {
+          snapshot_locks.emplace_back(std::move(db_lock));
+          locks_metadata[db_acc->name()] = true;
+        } else {
+          locks_metadata[db_acc->name()] = false;
+        }
       });
-    }};
-
-    if (!snapshot_locks_taken) {
-      return false;
     }
 
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);

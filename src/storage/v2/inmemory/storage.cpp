@@ -2611,7 +2611,11 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
-    return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+    return CreateSnapshotError::DisabledForReplica;
+  }
+
+  if (abort_snapshot_.load(std::memory_order_acquire)) {
+    return CreateSnapshotError::AbortSnapshot;
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
@@ -2857,6 +2861,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
+          break;
+        case CreateSnapshotError::AbortSnapshot:
+          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
           break;
       }
     }
