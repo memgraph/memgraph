@@ -881,8 +881,11 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
       std::ostringstream os;
       auto trigger_statement_copy = trigger.statement;
       std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
-      os << "CREATE TRIGGER " << trigger.name << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type)
-         << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
+      os << "CREATE TRIGGER " << trigger.name;
+      if (trigger.event_type != TriggerEventType::ANY) {
+        os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
+      }
+      os << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
       stream->Result({TypedValue(os.str())});
     }
     return 0;
