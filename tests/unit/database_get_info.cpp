@@ -111,6 +111,8 @@ TYPED_TEST_SUITE(InfoTest, TestTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InfoTest, InfoCheck) {
+  constexpr bool is_using_disk_storage = std::is_same_v<typename TypeParam::first_type, memgraph::storage::DiskStorage>;
+
   auto &db_acc = *this->db_acc_;
   auto lbl = db_acc->storage()->NameToLabel("label");
   auto lbl2 = db_acc->storage()->NameToLabel("abc");
@@ -164,10 +166,35 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
+  if constexpr (!is_using_disk_storage) {
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+  }
+
   {
     auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  if constexpr (!is_using_disk_storage) {
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
   }
 
   {
