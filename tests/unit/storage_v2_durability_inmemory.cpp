@@ -108,6 +108,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto label_indexed = store->NameToLabel("base_indexed");
     auto label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
+    auto property_a = store->NameToProperty("prop_a");
+    auto property_b = store->NameToProperty("prop_b");
+    auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
     auto et1 = store->NameToEdgeType("base_et1");
@@ -161,6 +164,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       acc->SetIndexStats(label_indexed, std::array{property_id},
                          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{property_id}));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
+    {
+      // Create label+properties index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label+properties index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_indexed, std::array{property_b, property_a, property_c},
+                         memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{property_b, property_a, property_c}));
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
@@ -403,6 +420,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto base_label_indexed = store->NameToLabel("base_indexed");
     auto base_label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
+    auto property_a = store->NameToProperty("prop_a");
+    auto property_b = store->NameToProperty("prop_b");
+    auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
     auto et1 = store->NameToEdgeType("base_et1");
@@ -441,7 +461,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_properties,
-                      UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id})));
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_indexed, std::vector{property_id}),
+                          std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
@@ -458,9 +480,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed, extended_label_unused));
-          ASSERT_THAT(info.label_properties,
-                      UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id}),
-                                           std::make_pair(extended_label_indexed, std::vector{property_count})));
+          ASSERT_THAT(
+              info.label_properties,
+              UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id}),
+                                   std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c}),
+                                   std::make_pair(extended_label_indexed, std::vector{property_count})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
@@ -470,7 +494,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_properties,
-                      UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id})));
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_indexed, std::vector{property_id}),
+                          std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c})));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -481,7 +507,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_properties,
-                      UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id})));
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_indexed, std::vector{property_id}),
+                          std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c})));
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
