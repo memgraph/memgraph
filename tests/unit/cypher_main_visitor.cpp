@@ -1843,6 +1843,11 @@ TEST_P(CypherMainVisitorTest, DropIndex) {
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
+TEST_P(CypherMainVisitorTest, CannotCreateCompositeIndexWithRepeatedProperty) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, name, email)"), SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko()"), SyntaxException);
