@@ -52,6 +52,7 @@ using namespace memgraph::query;
 using namespace memgraph::query::frontend;
 using memgraph::query::TypedValue;
 using testing::ElementsAre;
+using testing::NotNull;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
@@ -5325,4 +5326,20 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     ASSERT_EQ(lc->where_, nullptr);
     ASSERT_EQ(lc->expression_, nullptr);
   }
+}
+
+TEST_P(CypherMainVisitorTest, UseHintCompositeIndices) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING INDEX :Person(name, country) MATCH (p:Person) WHERE "
+                                                           "p.name = 'Alice Smith' AND p.country = 'UK' RETURN *"));
+  ASSERT_THAT(query, NotNull());
+  auto const &hints{query->pre_query_directives_.index_hints_};
+  ASSERT_EQ(hints.size(), 1);
+  EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTY);
+  EXPECT_EQ(hints[0].label_ix_.name, "Person");
+  ASSERT_TRUE(hints[0].property_ixs_);
+  ASSERT_EQ(hints[0].property_ixs_->size(), 2);
+  EXPECT_EQ((*hints[0].property_ixs_)[0].name, "name");
+  EXPECT_EQ((*hints[0].property_ixs_)[1].name, "country");
 }
