@@ -143,15 +143,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, PropertyId property, PropertyValueRange range, View view, Storage *storage,
-                    Transaction *transaction);
-
   Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
                     View view, Storage *storage, Transaction *transaction);
 
-  Iterable Vertices(LabelId label, PropertyId property,
-                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-                    PropertyValueRange range, View view, Storage *storage, Transaction *transaction);
+  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+                    Storage *storage, Transaction *transaction);
 
   void DropGraphClearIndices() override;
 

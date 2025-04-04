@@ -890,31 +890,6 @@ void InMemoryLabelPropertyIndex::RunGC() {
   }
 }
 
-InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelId label, PropertyId property,
-                                                                          PropertyValueRange range, View view,
-                                                                          Storage *storage, Transaction *transaction) {
-  DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
-                 storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
-             "PropertyLabel index trying to access InMemory vertices from OnDisk!");
-  auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto it = new_index_.find(label);
-  MG_ASSERT(it != new_index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-            property.AsUint() /*TODO: correct the error msg*/);
-  auto it2 = it->second.find(std::array{property});
-  MG_ASSERT(it2 != it->second.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-            property.AsUint() /*TODO: correct the error msg*/);
-
-  return {it2->second.skiplist.access(),
-          std::move(vertices_acc),
-          label,
-          &it2->first,  // properties
-          &it2->second.permutations_helper,
-          std::array{std::move(range)},
-          view,
-          storage,
-          transaction};
-}
-
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelId label,
                                                                           std::span<PropertyId const> properties,
                                                                           std::span<PropertyValueRange const> ranges,
@@ -943,22 +918,22 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
 }
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
-    LabelId label, PropertyId property,
-    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, PropertyValueRange range,
-    View view, Storage *storage, Transaction *transaction) {
+    LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction) {
   auto it = new_index_.find(label);
   MG_ASSERT(it != new_index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-            property.AsUint() /*TODO: correct the error msg*/);
-  auto it2 = it->second.find(std::array{property});
+            properties[0].AsUint() /*TODO: correct the error msg*/);
+  auto it2 = it->second.find(properties);
   MG_ASSERT(it2 != it->second.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-            property.AsUint() /*TODO: correct the error msg*/);
+            properties[0].AsUint() /*TODO: correct the error msg*/);
 
   return {it2->second.skiplist.access(),
           std::move(vertices_acc),
           label,
-          &it2->first,  // properties
+          &it2->first,
           &it2->second.permutations_helper,
-          std::array{std::move(range)},
+          std::move(range),
           view,
           storage,
           transaction};
