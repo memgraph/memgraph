@@ -4286,6 +4286,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
             case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
               spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
               break;
+            case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
+              throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
           }
         }
         return QueryHandlerResult::COMMIT;
