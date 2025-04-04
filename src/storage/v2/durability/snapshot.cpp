@@ -4424,7 +4424,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
   return old_snapshot_files;
 }
 
-void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
@@ -4508,7 +4508,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     for (auto &edge : acc) {
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
 
       // The edge visibility check must be done here manually because we don't
@@ -4589,7 +4589,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
 
       // The visibility check is implemented for vertices so we use it here.
@@ -4682,7 +4682,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4710,7 +4710,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.SetPosition(last_pos);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4723,7 +4723,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item.second);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4755,7 +4755,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.SetPosition(last_pos);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4769,7 +4769,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4782,7 +4782,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item.second);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4804,7 +4804,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(property);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4823,7 +4823,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(capacity);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4836,7 +4836,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(label);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
   }
@@ -4855,7 +4855,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item.second);
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
 
@@ -4871,7 +4871,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         }
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
     // Write type constraints
@@ -4884,7 +4884,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(static_cast<uint64_t>(type));
       }
       if (snapshot_aborted()) {
-        return;
+        return false;
       }
     }
   }
@@ -4899,7 +4899,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
     }
     if (snapshot_aborted()) {
-      return;
+      return false;
     }
   }
 
@@ -4919,7 +4919,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       }
     }
     if (snapshot_aborted()) {
-      return;
+      return false;
     }
   }
 
@@ -4933,7 +4933,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteUint(last_durable_timestamp);
     }
     if (snapshot_aborted()) {
-      return;
+      return false;
     }
   }
 
@@ -4950,7 +4950,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
     if (snapshot_aborted()) {
-      return;
+      return false;
     }
   }
 
@@ -4960,25 +4960,25 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteUint(batch_info.offset);
       snapshot.WriteUint(batch_info.count);
       if (snapshot_aborted()) {
-        return true;
+        return false;
       }
     }
-    return false;
+    return true;
   };
 
   // Write edge batches
   {
     offset_edge_batches = snapshot.GetPosition();
-    if (write_batch_infos(edge_batch_infos)) {
-      return;
+    if (!write_batch_infos(edge_batch_infos)) {
+      return false;
     }
   }
 
   // Write vertex batches
   {
     offset_vertex_batches = snapshot.GetPosition();
-    if (write_batch_infos(vertex_batch_infos)) {
-      return;
+    if (!write_batch_infos(vertex_batch_infos)) {
+      return false;
     }
   }
 
@@ -4989,7 +4989,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   }
 
   if (snapshot_aborted()) {
-    return;
+    return false;
   }
 
   // Finalize snapshot file.
@@ -5006,6 +5006,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other
   // timestamp to use) and we are relaxing the ts checks on replica
+  return true;
 }
 
 }  // namespace memgraph::storage::durability

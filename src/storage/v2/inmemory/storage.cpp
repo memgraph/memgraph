@@ -2631,8 +2631,13 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
-  durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_, &abort_snapshot_);
+
+  // At the moment, the only way in which create snapshot can fail is if it got aborted
+  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
+                                  &vertices_, &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_,
+                                  &abort_snapshot_)) {
+    return CreateSnapshotError::AbortSnapshot;
+  }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
