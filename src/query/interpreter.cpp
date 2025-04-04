@@ -692,8 +692,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
-      case SWAP_UUID_FAILED:
-        throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
       case FAILED_TO_OPEN_LOCK:
         throw QueryRuntimeException("Couldn't set instance to main as cluster didn't accept start of action!");
       case LOCK_OPENED:
