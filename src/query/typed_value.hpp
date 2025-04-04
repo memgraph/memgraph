@@ -23,7 +23,7 @@
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
-#include "utils/pmr/map.hpp"
+#include "utils/pmr/flat_map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
@@ -107,12 +107,13 @@ class TypedValue {
   // std::map with incomplete type, but this is still murky territory. Note that
   // since C++17, std::vector is explicitly said to support incomplete types.
 
-  using TString = utils::pmr::string;
-  using TVector = utils::pmr::vector<TypedValue>;
-  using TMap = utils::pmr::map<utils::pmr::string, TypedValue>;
-
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<TypedValue>;
+  using alloc_trait = std::allocator_traits<allocator_type>;
+
+  using TString = utils::pmr::string;
+  using TVector = utils::pmr::vector<TypedValue>;
+  using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
@@ -279,8 +280,8 @@ class TypedValue {
   explicit TypedValue(const std::map<std::string, TypedValue> &value,
                       utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(memory_);
-    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
+    std::construct_at(&map_v, memory_);
+    for (const auto &kv : value) map_v.emplace(TString(kv.first, memory_), kv.second);
   }
 
   /**
@@ -298,7 +299,7 @@ class TypedValue {
 
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(value, memory_);
+    std::construct_at(&map_v, value, memory_);
   }
 
   explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -313,7 +314,8 @@ class TypedValue {
 
   explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
-    new (&path_v) Path(path, memory_);
+    auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(path);
+    std::construct_at(&path_v, path_ptr);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
@@ -392,29 +394,20 @@ class TypedValue {
    * Other will not be left empty, i.e. keys will exist but their values may
    * be Null.
    */
-  TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(memory_);
-    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
-  }
-
+  TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory);
   /**
    * Construct with the value of other.
    * utils::MemoryResource is obtained from other. After the move, other will be
    * left empty.
    */
-  explicit TypedValue(TMap &&other) noexcept
-      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
-
+  explicit TypedValue(TMap &&other);
   /**
    * Construct with the value of other and use the given MemoryResource.
    * If `other.get_allocator() != *memory`, this call will perform an
    * element-wise move and other is not guaranteed to be empty, i.e. keys may
    * exist but their values may be Null.
    */
-  TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(std::move(other), memory_);
-  }
+  TypedValue(TMap &&other, utils::MemoryResource *memory);
 
   explicit TypedValue(VertexAccessor &&vertex, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Vertex) {
@@ -431,16 +424,14 @@ class TypedValue {
    * utils::MemoryResource is obtained from path. After the move, path will be
    * left empty.
    */
-  explicit TypedValue(Path &&path) noexcept : TypedValue(std::move(path), path.GetMemoryResource()) {}
+  explicit TypedValue(Path &&path);
 
   /**
    * Construct with the value of path and use the given MemoryResource.
    * If `*path.GetMemoryResource() != *memory`, this call will perform an
    * element-wise move and path is not guaranteed to be empty.
    */
-  TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
-    new (&path_v) Path(std::move(path), memory_);
-  }
+  explicit TypedValue(Path &&path, utils::MemoryResource *memory);
 
   /**
    * Construct with the value of graph.
@@ -541,7 +532,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
@@ -591,7 +582,7 @@ class TypedValue {
     TMap map_v;
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
-    Path path_v;
+    std::unique_ptr<Path> path_v;
     utils::Date date_v;
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;

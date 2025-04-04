@@ -436,7 +436,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      properties.emplace(dba->PropertyToName(property.first), property.second);
+      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), property.second);
     }
     return TypedValue(std::move(properties));
   };
