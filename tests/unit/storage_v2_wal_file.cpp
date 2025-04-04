@@ -742,10 +742,14 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(LABEL_INDEX_STATS_SET, "hello", {}, l_stats);
   OPERATION_TX(LABEL_INDEX_STATS_CLEAR, "hello");
   OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE, "hello", {"world"});
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_CREATE, "Person", {"name", "age", "height"});
   OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP, "hello", {"world"});
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP, "Person", {"name", "age", "height"});
   auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
   OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
   OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_CLEAR, "hello");
+  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_SET, "Person", {"name", "age"}, lp_stats);
+  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_CLEAR, "Person");
   OPERATION_TX(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
   OPERATION_TX(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
   OPERATION_TX(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
