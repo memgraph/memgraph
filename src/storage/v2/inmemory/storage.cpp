@@ -2611,7 +2611,11 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
-    return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+    return CreateSnapshotError::DisabledForReplica;
+  }
+
+  if (abort_snapshot_.load(std::memory_order_acquire)) {
+    return CreateSnapshotError::AbortSnapshot;
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
@@ -2624,17 +2628,22 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
-  // TODO: Think about role check here
-  // What will happen if MAIN is being demoted at this point?
-
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
-  durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
+
+  // At the moment, the only way in which create snapshot can fail is if it got aborted
+  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
+                                  &vertices_, &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_,
+                                  &abort_snapshot_)) {
+    return CreateSnapshotError::AbortSnapshot;
+  }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
+  abort_snapshot_.store(false, std::memory_order_release);
+
   return {};
 }
 
@@ -2855,6 +2864,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
+          break;
+        case CreateSnapshotError::AbortSnapshot:
+          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
           break;
       }
     }
