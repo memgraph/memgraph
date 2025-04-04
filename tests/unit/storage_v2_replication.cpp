@@ -321,8 +321,25 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     auto unique_acc = main.db.UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
+                                                                  main.db.storage()->NameToProperty(property_extra)})
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
+    auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label),
                               std::array{main.db.storage()->NameToProperty(property)}, lp_stats);
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
+    auto unique_acc = main.db.UniqueAccess();
+    unique_acc->SetIndexStats(
+        main.db.storage()->NameToLabel(label),
+        std::array{main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)},
+        lp_stats);
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
@@ -346,9 +363,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     const auto indices = replica.db.Access()->ListAllIndices();
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica.db.storage()->NameToLabel(label)));
-    ASSERT_THAT(indices.label_properties,
-                UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
-                                                    std::vector{replica.db.storage()->NameToProperty(property)})));
+    ASSERT_THAT(
+        indices.label_properties,
+        UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
+                                            std::vector{replica.db.storage()->NameToProperty(property)}),
+                             std::make_pair(replica.db.storage()->NameToLabel(label),
+                                            std::vector{replica.db.storage()->NameToProperty(property),
+                                                        replica.db.storage()->NameToProperty(property_extra)})));
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_TRUE(l_stats_rep);
     ASSERT_EQ(l_stats_rep->count, l_stats.count);
@@ -361,6 +382,19 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(lp_stats_rep->statistic, lp_stats.statistic);
     ASSERT_EQ(lp_stats_rep->avg_group_size, lp_stats.avg_group_size);
     ASSERT_EQ(lp_stats_rep->avg_degree, lp_stats.avg_degree);
+
+    const auto &lps_stats_rep = replica.db.Access()->GetIndexStats(
+        replica.db.storage()->NameToLabel(label), std::array{
+                                                      replica.db.storage()->NameToProperty(property),
+                                                      replica.db.storage()->NameToProperty(property_extra),
+                                                  });
+    ASSERT_TRUE(lps_stats_rep);
+    ASSERT_EQ(lps_stats_rep->count, lp_stats.count);
+    ASSERT_EQ(lps_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
+    ASSERT_EQ(lps_stats_rep->statistic, lp_stats.statistic);
+    ASSERT_EQ(lps_stats_rep->avg_group_size, lp_stats.avg_group_size);
+    ASSERT_EQ(lps_stats_rep->avg_degree, lp_stats.avg_degree);
+
     const auto constraints = replica.db.Access()->ListAllConstraints();
     ASSERT_THAT(constraints.existence,
                 UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
@@ -394,6 +428,15 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
         unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
+    auto unique_acc = main.db.UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
+                                                                main.db.storage()->NameToProperty(property_extra)})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
