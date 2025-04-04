@@ -11,13 +11,16 @@
 
 #pragma once
 
+#include <atomic>
 #include <boost/container_hash/hash_fwd.hpp>
 #include <cstdint>
 #include <functional>
 #include <nlohmann/json.hpp>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -55,6 +58,15 @@ struct EdgeKeyRef {
   const VertexKey &to;
 
   EdgeKeyRef(EdgeTypeId id, const VertexKey &from, const VertexKey &to) : type{id}, from{from}, to(to) {}
+
+  bool operator==(const EdgeKeyRef &other) const {
+    // Fast check
+    if (type != other.type || from.size() != other.from.size() || to.size() != other.to.size()) return false;
+    if (from.empty() && to.empty()) return true;
+    // Slow check
+    return std::is_permutation(from.begin(), from.end(), other.from.begin(), other.from.end()) &&
+           std::is_permutation(to.begin(), to.end(), other.to.begin(), other.to.end());
+  }
 };
 
 /**
@@ -100,7 +112,7 @@ struct PropertyInfo {
   nlohmann::json ToJson(const EnumStore &enum_store, std::string_view key, uint32_t max_count) const {
     nlohmann::json::object_t property_info;
     property_info.emplace("key", key);
-    const auto num = n.load();
+    const auto num = n.load(std::memory_order_relaxed);
     property_info.emplace("count", num);
     property_info.emplace("filling_factor", (100.0 * num) / max_count);
     const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
@@ -154,7 +166,7 @@ struct PropertyInfo {
         }
       }
       type_info.emplace("type", ss.str());
-      type_info.emplace("count", type.second.load());
+      type_info.emplace("count", type.second.load(std::memory_order_relaxed));
       types_itr->second.emplace_back(std::move(type_info));
     }
     return property_info;
@@ -171,11 +183,11 @@ struct TrackingInfo {
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
     nlohmann::json::object_t tracking_info;
-    tracking_info.emplace("count", n.load());
+    const auto num = n.load(std::memory_order_relaxed);
+    tracking_info.emplace("count", num);
     const auto &[prop_itr, _] = tracking_info.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : properties) {
-      prop_itr->second.emplace_back(
-          info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(n.load(), 1)));
+      prop_itr->second.emplace_back(info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(num, 1)));
     }
     return tracking_info;
   }
@@ -192,13 +204,27 @@ struct TrackingInfo {
     }
     return *this;
   }
+
+  void Increment(auto &id, auto &type) {
+    auto &prop = properties[id];
+    ++prop.n;
+    ++prop.types[type];
+  }
+
+  void Decrement(auto &id, auto &type) {
+    auto &prop = properties[id];
+    --prop.n;
+    --prop.types[type];
+  }
 };
 
+// TODO Split into key and data and use map
 struct SchemaInfoPostProcess {
   EdgeRef edge_ref;
   EdgeTypeId edge_type;
   Vertex *from;
   Vertex *to;
+  mutable bool deleted;
 };
 
 }  // namespace memgraph::storage
@@ -216,7 +242,9 @@ struct hash<memgraph::storage::VertexKey> {
 template <>
 struct equal_to<memgraph::storage::VertexKey> {
   size_t operator()(const memgraph::storage::VertexKey &lhs, const memgraph::storage::VertexKey &rhs) const {
-    return lhs.size() == rhs.size() && std::is_permutation(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    if (lhs.size() != rhs.size()) return false;
+    if (lhs.empty()) return true;
+    return std::is_permutation(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
   }
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,14 +13,16 @@
 
 #include <mutex>
 #include <shared_mutex>
-#include <unordered_map>
+#include <tuple>
 
+#include "absl/container/node_hash_map.h"
+#include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
 
 namespace memgraph::utils {
 
 // TODO Expand template to alloc hash eq
-template <typename K, typename T>
+template <typename K, typename T, typename H = std::hash<K>, typename E = std::equal_to<K>>
 class ConcurrentUnorderedMap {
  public:
   template <typename TAnyKey>
@@ -35,15 +37,21 @@ class ConcurrentUnorderedMap {
     {
       // NOTE: Since we lock and unlock, this emplace can still fail if someone inserted in the meantime
       auto l = std::unique_lock{mtx_};
-      if constexpr (std::is_same_v<K, TAnyKey>) {
-        const auto &[itr, success] = map_.emplace(key, 0);
-        return itr->second;
-      } else {
-        static_assert(std::is_constructible_v<K, TAnyKey>);
-        const auto &[itr, success] = map_.emplace(K{key}, 0);
-        return itr->second;
-      }
+      auto [it, succ] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
+      if (succ && map_.size() * 1.25 >= map_.capacity()) map_.reserve(map_.size() * 2);
+      return it->second;
     }
+  }
+
+  auto get_lock() const { return std::unique_lock{mtx_}; }
+  template <typename TAnyKey>
+  T &bulk_get_or_insert(const TAnyKey &key) {
+    DMG_ASSERT(mtx_.is_locked());
+    auto itr = map_.find(key);
+    if (itr != map_.end()) return itr->second;
+    auto [it, succ] = map_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::make_tuple(0));
+    if (succ && map_.size() >= map_.capacity()) map_.reserve(map_.size() * 2);
+    return it->second;
   }
 
   template <typename TAnyKey>
@@ -75,6 +83,7 @@ class ConcurrentUnorderedMap {
 
   template <typename... Args>
   auto emplace(Args &&...args) {
+    // TODO Do it in 2 steps
     auto l = std::unique_lock{mtx_};
     return map_.emplace(std::forward<Args>(args)...);
   }
@@ -82,7 +91,7 @@ class ConcurrentUnorderedMap {
   template <typename F>
   auto erase_if(F &&f) {
     auto l = std::unique_lock{mtx_};
-    return std::erase_if(map_, std::forward<F>(f));
+    return absl::erase_if(map_, std::forward<F>(f));
   }
 
   template <typename F>
@@ -110,7 +119,7 @@ class ConcurrentUnorderedMap {
     using difference_type = std::ptrdiff_t;
 
     Iterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
-    Iterator(auto itr) : itr_{std::move(itr)} {}
+    explicit Iterator(auto itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> Iterator & {
       ++itr_;
@@ -124,7 +133,7 @@ class ConcurrentUnorderedMap {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.itr_ == rhs.itr_; }
 
    private:
-    std::unordered_map<K, T>::iterator itr_;
+    absl::node_hash_map<K, T, H, E>::iterator itr_;
     std::unique_lock<ReadPrioritizedRWLock> lock_;
   };
 
@@ -137,7 +146,7 @@ class ConcurrentUnorderedMap {
     using difference_type = std::ptrdiff_t;
 
     ConstIterator(auto itr, auto lock) : itr_{std::move(itr)}, lock_{std::move(lock)} {}
-    ConstIterator(auto itr) : itr_{std::move(itr)} {}
+    explicit ConstIterator(auto itr) : itr_{std::move(itr)} {}
 
     auto operator++() -> ConstIterator & {
       ++itr_;
@@ -151,7 +160,7 @@ class ConcurrentUnorderedMap {
     friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) { return lhs.itr_ == rhs.itr_; }
 
    private:
-    std::unordered_map<K, T>::const_iterator itr_;
+    absl::node_hash_map<K, T, H, E>::const_iterator itr_;
     std::shared_lock<ReadPrioritizedRWLock> lock_;
   };
 
@@ -170,7 +179,7 @@ class ConcurrentUnorderedMap {
   Iterator end() { return Iterator{map_.end()}; }
 
  private:
-  std::unordered_map<K, T> map_;
+  absl::node_hash_map<K, T, H, E> map_;
   mutable ReadPrioritizedRWLock mtx_;
 };
 

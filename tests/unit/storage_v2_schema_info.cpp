@@ -2327,6 +2327,86 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, BigCommit) {
   }
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(SchemaInfoTestWEdgeProp, BigAbort) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto l3 = in_memory->NameToLabel("L3");
+  auto p1 = in_memory->NameToProperty("p1");
+  auto p2 = in_memory->NameToProperty("p2");
+  auto p3 = in_memory->NameToProperty("p3");
+  auto e1 = in_memory->NameToEdgeType("E1");
+  auto e2 = in_memory->NameToEdgeType("E2");
+  auto e3 = in_memory->NameToEdgeType("E3");
+
+  // Empty
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    ASSERT_TRUE(json["nodes"].empty());
+    ASSERT_TRUE(json["edges"].empty());
+  }
+
+  {
+    // Setup
+    // Small graph to make sure there is some schema to check
+    // TODO
+
+    // CREATE (:L1);
+    // CREATE (:L2);
+    // MATCH (v1:L1), (v2:L2) CREATE (v1)-[:E1{p1:1}]->(v2);
+    // MATCH (v1:L1) SET v1.p2 = "";
+    // MATCH (v1:L1) SET v1.p2 = 1;
+    // MATCH (v1:L1) SET v1.p2 = NULL;
+    // MATCH (v1:L1) SET v1.p1 = 3;
+    // MATCH (v1:L1) SET v1.p3 = true;
+    // CREATE (:L1:L2)-[:E2]->(:L3:L2);
+    // MATCH (:L1:L2)-[e:E2]->(:L3:L2) SET e.p1=4;
+    // MATCH (v:L1:L2) DETACH DELETE v;
+    // MATCH (v4:L2:L3) CREATE (v4)<-[:E3{p3:0.0}]-();
+    {
+      auto acc = in_memory->Access();
+      auto v1 = acc->CreateVertex();
+      ASSERT_FALSE(v1.AddLabel(l1).HasError());
+      auto v2 = acc->CreateVertex();
+      ASSERT_FALSE(v2.AddLabel(l2).HasError());
+      auto edge1 = acc->CreateEdge(&v1, &v2, e1);
+      ASSERT_FALSE(edge1->SetProperty(p1, PropertyValue{1}).HasError());
+      ASSERT_FALSE(v1.SetProperty(p2, PropertyValue{""}).HasError());
+      ASSERT_FALSE(v1.SetProperty(p2, PropertyValue{1}).HasError());
+      ASSERT_FALSE(v1.SetProperty(p2, PropertyValue{}).HasError());
+      ASSERT_FALSE(v1.SetProperty(p1, PropertyValue{3}).HasError());
+      ASSERT_FALSE(v1.SetProperty(p1, PropertyValue{true}).HasError());
+      auto v3 = acc->CreateVertex();
+      ASSERT_FALSE(v3.AddLabel(l1).HasError());
+      ASSERT_FALSE(v3.AddLabel(l2).HasError());
+      ASSERT_FALSE(v3.AddLabel(l3).HasError());
+      ASSERT_FALSE(v3.RemoveLabel(l3).HasError());
+      auto v4 = acc->CreateVertex();
+      ASSERT_FALSE(v4.AddLabel(l3).HasError());
+      ASSERT_FALSE(v4.AddLabel(l2).HasError());
+      auto edge2 = acc->CreateEdge(&v3, &v4, e2);
+      ASSERT_FALSE(edge2->SetProperty(p1, PropertyValue{4}).HasError());
+      ASSERT_FALSE(acc->DetachDelete({&v3}, {}, true).HasError());
+      auto v5 = acc->CreateVertex();
+      auto edge3 = acc->CreateEdge(&v5, &v4, e3);
+      ASSERT_FALSE(edge3->SetProperty(p3, PropertyValue{0.0}).HasError());
+
+      // Check pre abort
+      const auto json1 = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+      ASSERT_EQ(json1["nodes"].size(), 4);
+      ASSERT_EQ(json1["edges"].size(), 2);
+
+      acc->Abort();
+      const auto json2 = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+      ASSERT_EQ(json2["nodes"].size(), 0);
+      ASSERT_EQ(json2["edges"].size(), 0);
+    }
+  }
+}
+
 // // NOLINTNEXTLINE(hicpp-special-member-functions)
 // TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
 //   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());

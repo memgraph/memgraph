@@ -25,6 +25,7 @@
 #include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -37,6 +38,8 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/schema_info_glue.hpp"
+#include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/async_timer.hpp"
 
 /// REPLICATION ///
@@ -510,7 +513,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
         if (schema_acc) {
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                         acc.CreateEdge(edge, from_vertex, to_vertex, edge_type);
                                        },
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
@@ -626,7 +629,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
         if (schema_acc) {
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                         acc.CreateEdge(edge, from_vertex, to_vertex, edge_type);
                                        },
                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
@@ -784,11 +787,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
-          if (config_.enable_schema_info) {
-            mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                         transaction_.transaction_id,
-                                                         mem_storage->config_.salient.items.properties_on_edges);
-          }
+          // if (config_.enable_schema_info) {
+          //   mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
+          //                                                transaction_.edge_prop_change_, transaction_.transaction_id,
+          //                                                mem_storage->config_.salient.items.properties_on_edges);
+          // }
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -1002,7 +1005,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // Abort will modify objects to restore state to how they were before this txn
     // The passes will find the head delta for each object and process the whole object,
     // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
-    // Hence need to first once to modify edges, so it can read vectices information intact.
+    // Hence need to first once to modify edges, so it can read vertices information intact.
+    // TODO: Don't think this is needed anymore
 
     // Edges pass
     for (const auto &delta : transaction_.deltas) {
@@ -1010,7 +1014,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       switch (prev.type) {
         case PreviousPtr::Type::EDGE: {
           auto *edge = prev.edge;
-          auto guard = std::lock_guard{edge->lock};
+          Vertex *to_vertex{nullptr};
+          EdgeTypeId edge_type{};
+          // Need to get schema acc before edge lock
+          auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+          auto guard = std::unique_lock{edge->lock};
           Delta *current = edge->delta;
           while (current != nullptr &&
                  current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -1018,12 +1026,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::SET_PROPERTY: {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
+                auto *from_vertex = current->property.out_vertex;
+
                 const auto &edge_types = index_stats.property_edge_type.p2et.find(current->property.key);
                 if (edge_types != index_stats.property_edge_type.p2et.end()) {
                   auto old_value = edge->properties.GetProperty(current->property.key);
                   if (!old_value.IsNull()) {
                     for (const auto &edge_type : edge_types->second) {
-                      auto *from_vertex = current->property.out_vertex;
                       for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
                         if (edge_type_out_edge == edge_type) {
                           edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
@@ -1034,18 +1043,58 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   }
                 }
 
+                // TODO Get old type only if schema
+                auto old_type = edge->properties.GetExtendedPropertyType(current->property.key);
                 edge->properties.SetProperty(current->property.key, *current->property.value);
 
-                break;
-              }
+                if (schema_acc) {
+                  // Modified edge means the edge can only be deleted during this tx.
+                  // Since we are doing read uncommitted, just update using the current graph state; vertex deltas
+                  // will fix any mistakes later on
+
+                  // TODO: to vertex does not exist if the edge gets deleted
+                  if (to_vertex == nullptr) {
+                    for (auto &[type, vertex, ref] : from_vertex->out_edges) {
+                      if (ref.ptr == edge) {
+                        to_vertex = vertex;
+                        edge_type = type;
+                        break;
+                      }
+                    }
+                  }
+                  DMG_ASSERT(to_vertex, "Missing to vertex");
+
+                  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+                  guard.unlock();
+                  auto v_locks =
+                      SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex, to_vertex);
+                  guard.lock();
+
+                  std::visit(
+                      utils::Overloaded{[&, property = current->property.key,
+                                         new_type = ExtendedPropertyType{*current->property.value},
+                                         old_type](SchemaInfo::VertexModifyingAccessor &acc) {
+                                          acc.SetProperty(EdgeRef{edge}, edge_type, from_vertex, to_vertex, property,
+                                                          new_type, old_type);
+                                        },
+                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                      *schema_acc);
+                }
+              } break;
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 edge->deleted = true;
                 my_deleted_edges.push_back(edge->gid);
+                // No delta
+                // TODO We could create a new one with to/from vertex and type
+                // What else could be done?
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
                 edge->deleted = false;
+                // No delta
+                // TODO We could create a new one with to/from vertex and type
+                // What else could be done?
                 break;
               }
               case Delta::Action::REMOVE_LABEL:
@@ -1081,6 +1130,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       switch (prev.type) {
         case PreviousPtr::Type::VERTEX: {
           auto *vertex = prev.vertex;
+
+          // Optimistic shared schema access (has to be gotten before lock)
+          std::optional<SchemaInfo::ModifyingAccessor> schema_acc = SchemaInfoAccessor(storage_, &transaction_);
           auto guard = std::unique_lock{vertex->lock};
           Delta *current = vertex->delta;
 
@@ -1126,6 +1178,27 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                     }
                   }
                 }
+
+                // TODO Possibly need to bulk update edges here before the check
+                // In case there are edges, we need unique lock. This requires re-locking
+                if (schema_acc && (!vertex->in_edges.empty() || !vertex->out_edges.empty())) {
+                  guard.unlock();
+                  schema_acc.reset();
+                  schema_acc = SchemaInfoUniqueAccessor(storage_, &transaction_);
+                  guard.lock();
+                }
+
+                if (schema_acc) {
+                  std::visit(utils::Overloaded([&](auto &acc) { acc.RemoveLabel(vertex, current->label.value); }),
+                             *schema_acc);
+                  // Optimistically re-take the shared access
+                  if (std::holds_alternative<SchemaInfo::AnalyticalEdgeModifyingAccessor>(*schema_acc)) {
+                    guard.unlock();
+                    schema_acc.reset();
+                    schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+                    guard.lock();
+                  }
+                }
                 break;
               }
               case Delta::Action::ADD_LABEL: {
@@ -1144,6 +1217,28 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                       vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
                           std::move(current_value), vertex);
                     }
+                  }
+                }
+
+                // TODO Possibly need to bulk update edges here before the check
+                // In case there are edges, we need unique lock. This requires re-locking
+                if (schema_acc && (!vertex->in_edges.empty() || !vertex->out_edges.empty())) {
+                  guard.unlock();
+                  schema_acc.reset();
+                  schema_acc = SchemaInfoUniqueAccessor(storage_, &transaction_);
+                  guard.lock();
+                }
+
+                if (schema_acc) {
+                  std::visit(utils::Overloaded([&](auto &acc) { acc.AddLabel(vertex, current->label.value); }),
+                             *schema_acc);
+                  // Optimistically re-take the shared access
+                  // TODO Maybe leave it?
+                  if (std::holds_alternative<SchemaInfo::AnalyticalEdgeModifyingAccessor>(*schema_acc)) {
+                    guard.unlock();
+                    schema_acc.reset();
+                    schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+                    guard.lock();
                   }
                 }
                 break;
@@ -1176,8 +1271,22 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                     }
                   }
                 }
+
+                // TODO Get old type only if schema
+                auto old_type = vertex->properties.GetExtendedPropertyType(current->property.key);
                 // Setting the correct value
                 vertex->properties.SetProperty(current->property.key, *current->property.value);
+
+                if (schema_acc) {
+                  std::visit(
+                      utils::Overloaded{[vertex, property = current->property.key,
+                                         new_type = ExtendedPropertyType{*current->property.value},
+                                         old_type](SchemaInfo::VertexModifyingAccessor &acc) {
+                                          acc.SetProperty(vertex, property, new_type, old_type);
+                                        },
+                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                      *schema_acc);
+                }
                 break;
               }
               case Delta::Action::ADD_IN_EDGE: {
@@ -1186,6 +1295,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
                            "Invalid database state!");
                 vertex->in_edges.push_back(link);
+                // Schema handled in OUT edge
                 break;
               }
               case Delta::Action::ADD_OUT_EDGE: {
@@ -1195,6 +1305,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                     std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
                     "Invalid database state!");
                 vertex->out_edges.push_back(link);
+
+                if (schema_acc) {
+                  std::visit(
+                      utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                          acc.RecoverEdge(current->vertex_edge.edge_type, current->vertex_edge.edge,
+                                                          vertex, current->vertex_edge.vertex,
+                                                          storage_->config_.salient.items.properties_on_edges);
+                                        },
+                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                      *schema_acc);
+                }
+
                 // Increment edge count. We only increment the count here because
                 // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
                 // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
@@ -1205,11 +1327,23 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::REMOVE_IN_EDGE: {
                 // EdgeRef is unique
                 remove_in_edges.insert(current->vertex_edge.edge);
+                // Schema update in OUT edge
                 break;
               }
               case Delta::Action::REMOVE_OUT_EDGE: {
                 // EdgeRef is unique
                 remove_out_edges.insert(current->vertex_edge.edge);
+
+                // TODO Deferred edge deletion could be a problem
+                if (schema_acc) {
+                  std::visit(
+                      utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                          acc.DeleteEdge(vertex, current->vertex_edge.vertex,
+                                                         current->vertex_edge.edge_type, current->vertex_edge.edge);
+                                        },
+                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                      *schema_acc);
+                }
 
                 // Decrement edge count. We only decrement the count here because
                 // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
@@ -1232,10 +1366,33 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::DELETE_OBJECT: {
                 vertex->deleted = true;
                 my_deleted_vertices.push_back(vertex->gid);
+
+                // TODO Check if this is correct
+                // Edges have to be dropped before they are deleted, so that is taken care of in OUT edge
+                // Vertices need to have no edges before they are deleted
+                // So here we just update the vertex state
+                if (schema_acc) {
+                  std::visit(
+                      utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) { acc.DeleteVertex(vertex); },
+                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                      *schema_acc);
+                }
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
                 vertex->deleted = false;
+
+                // TODO Check if this is correct
+                // Similar to the DELETE
+                // Edges will be appended later
+                // Only vertex state needs to be updated
+                if (schema_acc) {
+                  std::visit(
+                      utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) { acc.RecoverVertex(vertex); },
+                                        [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                      *schema_acc);
+                }
+
                 break;
               }
             }

@@ -11,10 +11,13 @@
 
 #pragma once
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "storage/v2/schema_info_types.hpp"
 
 #include <boost/container_hash/hash_fwd.hpp>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
@@ -66,15 +69,18 @@ struct SchemaTrackingInterface {
 template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
 struct SchemaTracking;
 
-using LocalSchemaTracking = SchemaTracking<std::unordered_map>;
+using LocalSchemaTracking = SchemaTracking<absl::node_hash_map>;
 using SharedSchemaTracking = SchemaTracking<utils::ConcurrentUnorderedMap>;
 
 template <template <class...> class TContainer>
 struct SchemaTracking final : public SchemaTrackingInterface {
   template <template <class...> class TOtherContainer>
-  void ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
-                          std::unordered_set<SchemaInfoPostProcess> &post_process, uint64_t commit_ts,
-                          bool property_on_edges);
+  void ProcessTransaction(
+      const SchemaTracking<TOtherContainer> &diff, absl::flat_hash_set<SchemaInfoPostProcess> &post_process,
+      absl::flat_hash_map<Edge *,
+                          absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+          &edge_prop_change,
+      uint64_t commit_ts, bool property_on_edges);
 
   void Clear() override;
 
@@ -127,7 +133,8 @@ struct SchemaTracking final : public SchemaTrackingInterface {
   void UpdateEdgeStats(auto &new_tracking, auto &old_tracking, EdgeRef edge_ref, bool prop_on_edges);
 
   TContainer<VertexKey, TrackingInfo<TContainer>> vertex_state_;  //!< vertex statistics
-  TContainer<EdgeKey, TrackingInfo<TContainer>> edge_state_;      //!< edge statistics
+  TContainer<EdgeKey, TrackingInfo<TContainer>, std::hash<EdgeKey>, std::equal_to<EdgeKey>>
+      edge_state_;  //!< edge statistics
 };
 
 struct SchemaInfo {
@@ -137,10 +144,14 @@ struct SchemaInfo {
     return tracking_.ToJson(name_id_mapper, enum_store);
   }
 
-  void ProcessTransaction(LocalSchemaTracking &tracking, std::unordered_set<SchemaInfoPostProcess> &post_process,
-                          uint64_t commit_ts, bool property_on_edges) {
+  void ProcessTransaction(
+      LocalSchemaTracking &tracking, absl::flat_hash_set<SchemaInfoPostProcess> &post_process,
+      absl::flat_hash_map<Edge *,
+                          absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+          &edge_prop_change,
+      uint64_t commit_ts, bool property_on_edges) {
     auto lock = std::unique_lock{operation_ordering_mutex_};
-    tracking_.ProcessTransaction(tracking, post_process, commit_ts, property_on_edges);
+    tracking_.ProcessTransaction(tracking, post_process, edge_prop_change, commit_ts, property_on_edges);
   }
 
   void Clear() {
@@ -164,17 +175,26 @@ struct SchemaInfo {
   // Advanced modification accessors
   class TransactionalEdgeModifyingAccessor {
    public:
-    TransactionalEdgeModifyingAccessor(LocalSchemaTracking &tracking,
-                                       std::unordered_set<SchemaInfoPostProcess> *post_process, bool prop_on_edges,
-                                       uint64_t commit_ts)
+    TransactionalEdgeModifyingAccessor(
+        LocalSchemaTracking &tracking, absl::flat_hash_set<SchemaInfoPostProcess> *post_process,
+        absl::flat_hash_set<Edge *> *created_edges,
+        absl::flat_hash_map<Edge *,
+                            absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+            *edge_prop_change,
+        bool prop_on_edges, uint64_t commit_ts)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           commit_ts_{commit_ts},
-          post_process_{post_process} {}
+          post_process_{post_process},
+          created_edges_{created_edges},
+          edge_prop_change_{edge_prop_change} {}
 
     void AddLabel(Vertex *vertex, LabelId label);
 
     void RemoveLabel(Vertex *vertex, LabelId label);
+
+    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                     ExtendedPropertyType now, ExtendedPropertyType before);
 
    private:
     void UpdateTransactionalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
@@ -182,7 +202,10 @@ struct SchemaInfo {
     LocalSchemaTracking *tracking_{};
     bool properties_on_edges_{};  //!< As defined by the storage configuration
     uint64_t commit_ts_{};
-    std::unordered_set<SchemaInfoPostProcess> *post_process_{};
+    absl::flat_hash_set<SchemaInfoPostProcess> *post_process_{};
+    absl::flat_hash_set<Edge *> *created_edges_{};
+    absl::flat_hash_map<Edge *, absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+        *edge_prop_change_{};
   };
 
   /**
@@ -200,6 +223,9 @@ struct SchemaInfo {
     void AddLabel(Vertex *vertex, LabelId label);
 
     void RemoveLabel(Vertex *vertex, LabelId label);
+
+    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                     ExtendedPropertyType now, ExtendedPropertyType before);
 
    private:
     void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
@@ -223,12 +249,18 @@ struct SchemaInfo {
         : tracking_{&si.tracking_}, ordering_lock_{si.operation_ordering_mutex_}, properties_on_edges_(prop_on_edges) {}
 
     // TRANSACTIONAL
-    explicit VertexModifyingAccessor(LocalSchemaTracking &tracking,
-                                     std::unordered_set<SchemaInfoPostProcess> *post_process, uint64_t commit_ts,
-                                     bool prop_on_edges)
+    explicit VertexModifyingAccessor(
+        LocalSchemaTracking &tracking, absl::flat_hash_set<SchemaInfoPostProcess> *post_process,
+        absl::flat_hash_set<Edge *> *created_edges,
+        absl::flat_hash_map<Edge *,
+                            absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+            *edge_prop_change,
+        uint64_t commit_ts, bool prop_on_edges)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           post_process_{post_process},
+          created_edges_{created_edges},
+          edge_prop_change_{edge_prop_change},
           commit_ts_{commit_ts} {}
 
     void CreateVertex(Vertex *vertex);
@@ -239,7 +271,13 @@ struct SchemaInfo {
 
     void RemoveLabel(Vertex *vertex, LabelId label);
 
-    void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type);
+    void CreateEdge(EdgeRef edge, Vertex *from, Vertex *to, EdgeTypeId edge_type);
+
+    void RecoverVertex(Vertex *vertex) { tracking_->RecoverVertex(vertex); }
+
+    void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) {
+      tracking_->RecoverEdge(edge_type, edge, from, to, prop_on_edges);
+    }
 
     // Multi-threaded deletion in ANALYTICAL is UB, so we can leave it with shared access
     void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge);
@@ -253,7 +291,10 @@ struct SchemaInfo {
     SchemaTrackingInterface *tracking_{};
     std::shared_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
-    std::unordered_set<SchemaInfoPostProcess> *post_process_{};
+    absl::flat_hash_set<SchemaInfoPostProcess> *post_process_{};
+    absl::flat_hash_set<Edge *> *created_edges_{};
+    absl::flat_hash_map<Edge *, absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+        *edge_prop_change_{};
     uint64_t commit_ts_{};
   };
 
@@ -268,14 +309,18 @@ struct SchemaInfo {
     return AnalyticalEdgeModifyingAccessor{*this, prop_on_edges};
   }
 
-  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process, uint64_t commit_ts,
+  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process, auto &created_edges,
+                                                         auto &edge_prop_change, uint64_t commit_ts,
                                                          bool prop_on_edges) {
-    return VertexModifyingAccessor{tracking, &post_process, commit_ts, prop_on_edges};
+    return VertexModifyingAccessor{tracking,          &post_process, &created_edges,
+                                   &edge_prop_change, commit_ts,     prop_on_edges};
   }
   static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking,
-                                                       std::unordered_set<SchemaInfoPostProcess> *post_process,
-                                                       bool prop_on_edges, uint64_t commit_ts) {
-    return TransactionalEdgeModifyingAccessor{tracking, post_process, prop_on_edges, commit_ts};
+                                                       absl::flat_hash_set<SchemaInfoPostProcess> *post_process,
+                                                       absl::flat_hash_set<Edge *> *created_edges,
+                                                       auto *edge_prop_change, bool prop_on_edges, uint64_t commit_ts) {
+    return TransactionalEdgeModifyingAccessor{tracking,         post_process,  created_edges,
+                                              edge_prop_change, prop_on_edges, commit_ts};
   }
 
   static std::optional<std::pair<std::shared_lock<utils::RWSpinLock>, std::shared_lock<utils::RWSpinLock>>>

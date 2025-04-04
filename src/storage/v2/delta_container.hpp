@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/static_vector.hpp"
 
-#include <forward_list>
+#include <list>
 
 namespace memgraph::metrics {
 extern const Event UnreleasedDeltaObjects;
@@ -27,12 +27,12 @@ namespace memgraph::storage {
 namespace {
 
 template <typename T>
-using PageAlignedList = std::forward_list<T, utils::PageAlignedAllocator<T>>;
+using PageAlignedList = std::list<T, utils::PageAlignedAllocator<T>>;
 
 // assumption `sizeof(void *)` if for the node pointer inside forward_list's node
 // multiple pages is also fine, unused pages will not add to RSS
 // using 4 pages (16KiB), because that is the smallest of the large size class in jemalloc
-constexpr auto kRemainingPageSpace = (4 * utils::PageAlignedAllocator<Delta>::PAGE_SIZE) - sizeof(void *);
+constexpr auto kRemainingPageSpace = (4 * utils::PageAlignedAllocator<Delta>::PAGE_SIZE) - 2 * sizeof(void *);
 using delta_slab = memgraph::utils::static_vector<Delta, kRemainingPageSpace>;
 static_assert(alignof(void *) <= alignof(delta_slab), "assumption that above calculation is without any padding");
 static_assert(292 == delta_slab::capacity(),
@@ -169,6 +169,73 @@ struct FlattenConstIterator {
   InnerIterator inner_end{};
 };
 
+template <typename OuterContainer, typename InnerContainer>
+struct FlattenReverseConstIterator {
+ private:
+  using OuterIterator = typename OuterContainer::const_reverse_iterator;
+  using InnerIterator = typename InnerContainer::const_reverse_iterator;
+  using InnerValue = typename InnerContainer::value_type const;
+
+ public:
+  using iterator_category = std::forward_iterator_tag;
+  using value_type = InnerValue;
+  using reference = value_type &;
+  using pointer = value_type *;
+  using difference_type = std::ptrdiff_t;
+
+  FlattenReverseConstIterator(OuterIterator outer_begin, OuterIterator outer_end)
+      : outer_iter{outer_begin}, outer_end{outer_end} {
+    if (outer_iter != outer_end) {
+      inner_iter = outer_iter->rbegin();
+      inner_end = outer_iter->rend();
+      // Move to the first valid inner iterator
+      while (inner_iter == inner_end && outer_iter != outer_end) {
+        next_inner();
+      }
+    } else {
+      // sentinel
+      inner_iter = InnerIterator{};
+      inner_end = InnerIterator{};
+    }
+  }
+
+  auto operator++() -> FlattenReverseConstIterator & {
+    ++inner_iter;
+    // Move to the next valid inner iterator
+    while (inner_iter == inner_end && outer_iter != outer_end) {
+      next_inner();
+    }
+    return *this;
+  }
+
+  auto operator*() -> reference { return *inner_iter; }
+
+  auto *operator->() { return &*inner_iter; }
+
+  friend bool operator==(FlattenReverseConstIterator const &lhs, FlattenReverseConstIterator const &rhs) {
+    return lhs.inner_iter == rhs.inner_iter && lhs.outer_iter == rhs.outer_iter;
+  }
+
+ private:
+  void next_inner() {
+    ++outer_iter;
+    if (outer_iter != outer_end) {
+      // setup for next inner
+      inner_iter = outer_iter->rbegin();
+      inner_end = outer_iter->rend();
+    } else {
+      // sentinel
+      inner_iter = InnerIterator{};
+      inner_end = InnerIterator{};
+    }
+  }
+
+  OuterIterator outer_iter{};
+  InnerIterator inner_iter{};
+  OuterIterator outer_end{};
+  InnerIterator inner_end{};
+};
+
 // Helpers to make the iterators
 template <typename OuterContainer, typename InnerContainer>
 class Flatten {
@@ -205,6 +272,15 @@ class ConstFlatten {
   auto end() const {
     return FlattenConstIterator<OuterContainer, InnerContainer>(outer_container.end(), outer_container.end());
   }
+
+  auto rbegin() const {
+    return FlattenReverseConstIterator<OuterContainer, InnerContainer>(outer_container.rbegin(),
+                                                                       outer_container.rend());
+  }
+
+  auto rend() const {
+    return FlattenReverseConstIterator<OuterContainer, InnerContainer>(outer_container.rend(), outer_container.rend());
+  }
 };
 
 template <typename OuterContainer>
@@ -240,12 +316,15 @@ struct delta_container {
   auto begin() const { return ConstFlatten(deltas_).begin(); }
   auto end() const { return ConstFlatten(deltas_).end(); }
 
+  auto rbegin() const { return ConstFlatten(deltas_).rbegin(); }
+  auto rend() const { return ConstFlatten(deltas_).rend(); }
+
   template <typename... Args>
   auto emplace(Args &&...args) -> Delta & {
     auto do_emplace = [&]() -> Delta & {
       if constexpr (std::is_constructible_v<Delta, Args...>) {
         // no need for memory_resource
-        auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)...);
+        auto &delta = deltas_.back().emplace_back(std::forward<Args>(args)...);
         ++size_;
         memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects);
         return delta;
@@ -254,19 +333,19 @@ struct delta_container {
         if (!memory_resource_) [[unlikely]] {
           memory_resource_ = std::make_unique<utils::PageSlabMemoryResource>();
         }
-        auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
+        auto &delta = deltas_.back().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
         memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects);
         return delta;
       }
     };
 
-    if (deltas_.empty() || deltas_.front().is_full()) [[unlikely]] {
-      deltas_.emplace_front();  // New delta_slab to insert into
+    if (deltas_.empty() || deltas_.back().is_full()) [[unlikely]] {
+      deltas_.emplace_back();  // New delta_slab to insert into
       try {
         return do_emplace();
       } catch (...) {
-        deltas_.pop_front();
+        deltas_.pop_back();
         throw;
       }
     }

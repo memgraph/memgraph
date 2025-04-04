@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 
+#include "absl/container/flat_hash_map.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
@@ -152,7 +153,11 @@ struct Transaction {
   PointIndexChangeCollector point_index_change_collector_;
   /// Tracking schema changes done during the transaction
   LocalSchemaTracking schema_diff_;
-  std::unordered_set<SchemaInfoPostProcess> post_process_;
+  absl::flat_hash_set<SchemaInfoPostProcess> post_process_;
+  absl::flat_hash_map<Edge *, absl::flat_hash_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>>>
+      edge_prop_change_;
+  absl::flat_hash_set<Edge *> created_edges_;
+  static_assert(sizeof(Edge *) == sizeof(EdgeRef));
 
   /// Query memory tracker
   std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
