@@ -1345,8 +1345,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
         verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]),
                {values.begin() + i, values.begin() + j + 1});
       } else {
-        // TODO: this no longer applies...we allow scan over multiple types
-        // verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]), {});
+        verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]), {});
       }
     }
   }

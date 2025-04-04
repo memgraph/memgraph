@@ -704,6 +704,12 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Access
         upper_bound = std::nullopt;
       }
 
+      // If both bounds are set, but are incomparable types, then this is an
+      // invalid range and will yield an empty result set.
+      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+        return {std::nullopt, std::nullopt, false};
+      }
+
       // Set missing bounds.
       if (lower_bound && !upper_bound) {
         // Here we need to supply an upper bound. The upper bound is set to an
