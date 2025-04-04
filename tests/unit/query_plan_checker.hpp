@@ -64,9 +64,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Delete);
   PRE_VISIT(ScanAll);
   PRE_VISIT(ScanAllByLabel);
-  // PRE_VISIT(ScanAllByLabelPropertyValue);
-  // PRE_VISIT(ScanAllByLabelPropertyRange);
-  // PRE_VISIT(ScanAllByLabelProperty);
   PRE_VISIT(ScanAllByLabelProperties);
   PRE_VISIT(ScanAllByEdgeType);
   PRE_VISIT(ScanAllByEdgeTypeProperty);
