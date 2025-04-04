@@ -613,7 +613,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   // @TODO add test for composite indices
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllIndices().label_property_new.size(), 0);
+    EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
@@ -626,7 +626,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
   }
   {
@@ -642,7 +642,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
   }
 
@@ -659,7 +659,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id}),
                                      std::make_pair(this->label2, std::vector{this->prop_id})));
   }
@@ -676,7 +676,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_property_new,
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
                 UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_id})));
   }
 
@@ -698,7 +698,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllIndices().label_property_new.size(), 0);
+    EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
 }
 

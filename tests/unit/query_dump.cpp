@@ -260,7 +260,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &item : info.label) {
       label_indices.insert({dba->LabelToName(item)});
     }
-    for (const auto &[label, properties] : info.label_property_new) {
+    for (const auto &[label, properties] : info.label_properties) {
       auto properties_as_strings =
           properties |
           ranges::views::transform([&](memgraph::storage::PropertyId prop) { return dba->PropertyToName(prop); }) |
