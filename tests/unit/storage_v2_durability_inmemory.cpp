@@ -440,7 +440,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property_new,
+          ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -450,7 +450,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
-          ASSERT_THAT(info.label_property_new,
+          ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id}),
                                            std::make_pair(extended_label_indexed, std::vector{property_count})));
           break;
@@ -458,7 +458,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed, extended_label_unused));
-          ASSERT_THAT(info.label_property_new,
+          ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id}),
                                            std::make_pair(extended_label_indexed, std::vector{property_count})));
           ASSERT_THAT(info.point_label_property,
@@ -469,7 +469,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property_new,
+          ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id})));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
@@ -480,7 +480,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property_new,
+          ASSERT_THAT(info.label_properties,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id})));
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
@@ -2026,7 +2026,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
-    ASSERT_EQ(indices.label_property_new.size(), 0);
+    ASSERT_EQ(indices.label_properties.size(), 0);
     auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
@@ -2142,7 +2142,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    for (const auto &[label, properties] : indices.label_property_new) {
+    for (const auto &[label, properties] : indices.label_properties) {
       auto unique_acc = db.UniqueAccess();
       ASSERT_FALSE(unique_acc->DropIndex(label, std::vector(properties)).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
@@ -2188,7 +2188,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto acc = db.Access();
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
-    ASSERT_EQ(indices.label_property_new.size(), 0);
+    ASSERT_EQ(indices.label_properties.size(), 0);
     auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);

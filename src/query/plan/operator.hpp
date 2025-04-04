@@ -27,7 +27,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/label_property_index.hpp"  // @TODO not correct, but for now that is where PropertyValueRange is
+#include "storage/v2/indices/label_property_index.hpp"
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"

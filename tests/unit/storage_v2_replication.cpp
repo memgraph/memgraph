@@ -346,7 +346,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     const auto indices = replica.db.Access()->ListAllIndices();
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica.db.storage()->NameToLabel(label)));
-    ASSERT_THAT(indices.label_property_new,
+    ASSERT_THAT(indices.label_properties,
                 UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
                                                     std::vector{replica.db.storage()->NameToProperty(property)})));
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
@@ -417,7 +417,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     const auto indices = replica.db.Access()->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
-    ASSERT_EQ(indices.label_property_new.size(), 0);
+    ASSERT_EQ(indices.label_properties.size(), 0);
 
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_FALSE(l_stats_rep);

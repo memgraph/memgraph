@@ -904,7 +904,7 @@ StorageInfo DiskStorage::GetInfo() {
     auto access = Access();
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
-    info.label_property_indices = lbl.label_property_new.size();
+    info.label_property_indices = lbl.label_properties.size();
     info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();

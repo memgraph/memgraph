@@ -2192,7 +2192,7 @@ StorageInfo InMemoryStorage::GetInfo() {
     auto access = Access();  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
-    info.label_property_indices = lbl.label_property_new.size();
+    info.label_property_indices = lbl.label_properties.size();
     info.text_indices = lbl.text_indices.size();
     info.vector_indices = lbl.vector_indices_spec.size();
     const auto &con = access->ListAllConstraints();

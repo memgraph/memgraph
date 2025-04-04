@@ -583,7 +583,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
     }
-    const auto &label_property = indices_info_->label_property_new;
+    const auto &label_property = indices_info_->label_properties;
 
     size_t local_counter = 0;
     while (global_index < label_property.size() && (!n || local_counter < *n)) {

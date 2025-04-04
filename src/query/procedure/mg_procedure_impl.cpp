@@ -2810,9 +2810,9 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
   return WrapExceptions([graph, memory, result]() {
     const auto index_res =
         std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_property_new; },
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_properties; },
                        [](memgraph::query::SubgraphDbAccessor *impl) {
-                         return impl->GetAccessor()->ListAllIndices().label_property_new;
+                         return impl->GetAccessor()->ListAllIndices().label_properties;
                        }},
                    graph->impl);
 
