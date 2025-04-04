@@ -798,7 +798,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
           if (config_.enable_schema_info) {
             mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                         transaction_.transaction_id,
+                                                         transaction_.start_timestamp, transaction_.transaction_id,
                                                          mem_storage->config_.salient.items.properties_on_edges);
           }
 

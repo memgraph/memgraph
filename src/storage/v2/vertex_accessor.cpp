@@ -190,12 +190,17 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(utils::Overloaded([&](auto &acc) { acc.AddLabel(vertex_, label); }), *schema_acc);
+    std::visit(utils::Overloaded(
+                   [&, guard = std::move(guard)](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) mutable {
+                     acc.AddLabel(vertex_, label, std::move(guard));
+                   },
+                   [&](auto &acc) mutable { acc.AddLabel(vertex_, label); }),
+               *schema_acc);
   }
   return true;
 }
 
-/// TODO: move to after update and change naming to vertex after update
+// TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
@@ -245,7 +250,12 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(utils::Overloaded([&](auto &acc) { acc.RemoveLabel(vertex_, label); }), *schema_acc);
+    std::visit(utils::Overloaded(
+                   [&, guard = std::move(guard)](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) mutable {
+                     acc.RemoveLabel(vertex_, label, std::move(guard));
+                   },
+                   [&](auto &acc) { acc.RemoveLabel(vertex_, label); }),
+               *schema_acc);
   }
   return true;
 }

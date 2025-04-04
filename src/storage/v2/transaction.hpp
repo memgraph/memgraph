@@ -152,7 +152,7 @@ struct Transaction {
   PointIndexChangeCollector point_index_change_collector_;
   /// Tracking schema changes done during the transaction
   LocalSchemaTracking schema_diff_;
-  std::unordered_set<SchemaInfoPostProcess> post_process_;
+  SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
   std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
