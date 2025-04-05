@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,9 @@
 #include "utils/event_gauge.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define APPLY_FOR_GAUGES(M) M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.")
+#define APPLY_FOR_GAUGES(M)                                       \
+  M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.") \
+  M(IsSnapshotCreationActive, CURRENT_VALUE, Snapshot, "Is snapshot creation active (1 or 0).")
 
 namespace memgraph::metrics {
 

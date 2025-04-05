@@ -50,6 +50,7 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::metrics {
+extern const Event IsSnapshotCreationActive;
 extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;

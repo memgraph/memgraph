@@ -181,6 +181,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveTCPSessions", "type": "Session", "metric type": "Counter"},
         {"name": "ActiveWebSocketSessions", "type": "Session", "metric type": "Counter"},
         {"name": "BoltMessages", "type": "Session", "metric type": "Counter"},
+        {"name": "IsSnapshotCreationActive", "type": "Snapshot", "metric type": "Gauge"},
         {"name": "SnapshotCreationLatency_us_50p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "SnapshotCreationLatency_us_90p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "SnapshotCreationLatency_us_99p", "type": "Snapshot", "metric type": "Histogram"},
