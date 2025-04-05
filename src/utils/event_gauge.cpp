@@ -14,7 +14,7 @@
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define APPLY_FOR_GAUGES(M)                                       \
   M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.") \
-  M(IsGCActive, CURRENT_VALUE, Memory, "Is the GC currently running.")
+  M(IsGCActive, CURRENT_VALUE, Memory, "Is the GC currently running (1 or 0).")
 
 namespace memgraph::metrics {
 
