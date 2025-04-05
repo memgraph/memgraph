@@ -59,6 +59,8 @@
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
+extern const Event IsGCActive;
+extern const Event GCLatency_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -1869,9 +1871,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // Diagnostic trace
+  utils::Timer timer;
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::IsGCActive, 1);
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
-  auto trace_on_exit = utils::OnScopeExit{
-      [&] { spdlog::trace("Storage GC on '{}' finished [{}]", name(), periodic ? "periodic" : "forced"); }};
+  auto trace_on_exit = utils::OnScopeExit{[&] {
+    memgraph::metrics::SetGaugeValue(memgraph::metrics::IsGCActive, 0);
+    spdlog::trace("Storage GC on '{}' finished [{}]", name(), periodic ? "periodic" : "forced");
+    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  }};
 
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
