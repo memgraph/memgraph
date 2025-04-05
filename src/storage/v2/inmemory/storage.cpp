@@ -2628,6 +2628,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
+  memgraph::metrics::SetValue(memgraph::metrics::IsSnapshotCreationActive, 1);
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
@@ -2641,6 +2642,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  memgraph::metrics::SetValue(memgraph::metrics::IsSnapshotCreationActive, 0);
 
   abort_snapshot_.store(false, std::memory_order_release);
 
