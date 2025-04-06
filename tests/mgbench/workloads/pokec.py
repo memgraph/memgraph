@@ -414,3 +414,13 @@ class Pokec(Workload):
             "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
             {"id": self._get_random_vertex()},
         )
+
+    # MAGE benchmarks
+
+    def benchmark__mage__static_pagerank_analytical(self):
+        return """
+            CALL pagerank.get(100, 0.85, 0.00001, 1)
+            YIELD node, rank
+            RETURN node, rank
+            LIMIT 1;"
+            """
