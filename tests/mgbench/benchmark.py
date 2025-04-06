@@ -467,6 +467,7 @@ def get_query_cache_count(
     cached_count = config.get_value(*config_key)
     if cached_count is None:
         vendor.start_db(CACHE)
+        print("Queries to be executed for cache count: ", queries)
         client.execute(queries=queries, num_workers=1)
         count = 1
         while True:
