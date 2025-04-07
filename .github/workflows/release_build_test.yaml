@@ -225,6 +225,13 @@ jobs:
     needs: [TestIndividual,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+        
       - name: Aggregate Test Results and Builds
         run: |
           echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
