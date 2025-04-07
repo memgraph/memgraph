@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,8 +17,24 @@
 
 namespace memgraph::storage {
 
-auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>>;;
+auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>>;
 
-auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>>;;
+auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>>;
+
+inline bool IsValueIncludedByLowerBound(const PropertyValue &value,
+                                        std::optional<utils::Bound<PropertyValue>> const &bound) {
+  if (!bound) [[unlikely]]
+    return true;
+  auto lb_cmp_res = value <=> bound->value();
+  return is_gt(lb_cmp_res) || (bound->IsInclusive() && is_eq(lb_cmp_res));
+}
+
+inline bool IsValueIncludedByUpperBound(const PropertyValue &value,
+                                        std::optional<utils::Bound<PropertyValue>> const &bound) {
+  if (!bound) [[unlikely]]
+    return true;
+  auto ub_cmp_res = value <=> bound->value();
+  return is_lt(ub_cmp_res) || (bound->IsInclusive() && is_eq(ub_cmp_res));
+}
 
 }  // namespace memgraph::storage

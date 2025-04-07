@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,7 @@
 
 namespace memgraph::storage {
 
-auto UpperBoundForType(PropertyValueType type)
-    -> std::optional<utils::Bound<PropertyValue>> {
+auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
   switch (type) {
     case PropertyValue::Type::Null:
       return utils::MakeBoundExclusive(kSmallestBool);
@@ -45,8 +44,7 @@ auto UpperBoundForType(PropertyValueType type)
   }
 }
 
-auto LowerBoundForType(PropertyValueType type)
-    -> std::optional<utils::Bound<PropertyValue>> {
+auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
   switch (type) {
     case PropertyValue::Type::Null:
       return std::nullopt;
@@ -75,4 +73,5 @@ auto LowerBoundForType(PropertyValueType type)
       return utils::MakeBoundExclusive(kSmallestPoint3d);
   }
 }
+
 }  // namespace memgraph::storage

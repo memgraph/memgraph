@@ -16,22 +16,22 @@ namespace memgraph::storage {
 // These constants represent the smallest possible value of each type that is
 // contained in a `PropertyValue`. Note that numbers (integers and doubles) are
 // treated as the same "type" in `PropertyValue`.
-static const PropertyValue kSmallestProperty = PropertyValue();
-static const PropertyValue kSmallestBool = PropertyValue(false);
+static const auto kSmallestProperty = PropertyValue();
+static const auto kSmallestBool = PropertyValue(false);
 // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
-static const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
-static const PropertyValue kSmallestString = PropertyValue("");
-static const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
-static const PropertyValue kSmallestMap = PropertyValue(PropertyValue::map_t{});
-static const PropertyValue kSmallestTemporalData =
+static const auto kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
+static const auto kSmallestString = PropertyValue("");
+static const auto kSmallestList = PropertyValue(std::vector<PropertyValue>());
+static const auto kSmallestMap = PropertyValue(PropertyValue::map_t{});
+static const auto kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
-static const PropertyValue kSmallestZonedTemporalData = PropertyValue(
+static const auto kSmallestZonedTemporalData = PropertyValue(
     ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
                       utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
-static const PropertyValue kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
-static const PropertyValue kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
-static const PropertyValue kSmallestPoint3d =
+static const auto kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
+static const auto kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
+static const auto kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
 
 // We statically verify that the ordering of the property values holds.
