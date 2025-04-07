@@ -22,10 +22,7 @@ def clear_graph(context):
     if context.exception is not None:
         context.exception = None
         database.query("MATCH (n) DETACH DELETE n", context)
-    database.query("DROP INDEX ON :Person", context)
-    context.exception = None
-    database.query("DROP INDEX ON :Node(name)", context)
-    context.exception = None
+    database.query("FREE MEMORY", context)
 
 
 @given("an empty graph")
