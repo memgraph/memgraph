@@ -871,6 +871,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
+  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
+      std::optional<utils::Bound<Expression *>> bound) {
+    if (bound) {
+      auto property_value = ConstPropertyValue(bound->value());
+      if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
+    }
+    return std::nullopt;
+  }
+
   struct CandidateIndices {
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
@@ -1060,6 +1069,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         } else {
           vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
         }
+      } else if (filter_type == PropertyFilter::Type::RANGE) {
+        auto lower_bound = BoundToPropertyValue(filter.property_filter->lower_bound_);
+        auto upper_bound = BoundToPropertyValue(filter.property_filter->upper_bound_);
+        vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property), lower_bound, upper_bound);
       } else {
         vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
       }

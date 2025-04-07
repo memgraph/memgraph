@@ -1,7 +1,7 @@
 queries_cluster: &queries_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--query-plan-cache-max-size=0"]
       log_file: "query_planning.log"
       setup_queries: []
       validation_queries: []
