@@ -108,9 +108,7 @@ jobs:
       toolchain: v6
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "memgraph/${{ github.ref_name }}"
+      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "memgraph/${{ github.ref_name }}"}'
       additional_build_args: ${{ matrix.additional_build_args }}
     secrets: inherit
 
@@ -136,9 +134,7 @@ jobs:
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "memgraph/${{ github.ref_name }}"
+      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "memgraph/${{ github.ref_name }}"}'
     secrets: inherit
 
 
@@ -185,9 +181,7 @@ jobs:
       toolchain: v6
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "daily-build"
+      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "daily-build"}'
       additional_build_args: ${{ matrix.additional_build_args }}
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
@@ -214,8 +208,27 @@ jobs:
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: deps.memgraph.io
-      s3_region: eu-west-1
-      s3_dest_dir: "daily-build"
+      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "daily-build"}'
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
+
+  AggregateBuildTests:
+    if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
+    needs: [TestIndividual,DailyPackageArtifact,DailyDockerArtifact]
+    runs-on: [self-hosted]
+    steps:
+      - name: Aggregate Test Results and Builds
+        run: |
+          echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
+      
+      - name: Trigger Daily Builds Page Update
+        env: 
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        run: |
+          echo "Payload: ${{ env.BUILD_TEST_RESULTS }}"
+          # Send the dispatch request
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/mattkjames7/test-page/dispatches \
+            -d "${{ env.BUILD_TEST_RESULTS }}"    
