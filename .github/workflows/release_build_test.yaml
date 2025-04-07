@@ -233,7 +233,10 @@ jobs:
           aws-region: eu-west-1
         
       - name: Aggregate Test Results and Builds
+        env:
+          TEST_INDIVIDUAL_RESULT: ${{ needs.TestIndividual.outputs.test_status }}
         run: |
+          echo "TEST_INDIVIDUAL_RESULT: $TEST_INDIVIDUAL_RESULT"
           echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
       
       - name: Trigger Daily Builds Page Update

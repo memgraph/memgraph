@@ -37,8 +37,8 @@ on:
         default: 'false'
     outputs:
       test_status:
-        type: string
         description: "Aggregated test status. Will be 'pass' if all tests succeed, or 'fail' otherwise."
+        value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
   TOOLCHAIN: ${{ inputs.toolchain }}
