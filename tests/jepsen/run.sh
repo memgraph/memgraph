@@ -166,15 +166,20 @@ COPY_BINARIES() {
 
        if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
            docker cp "$MEMGRAPH_MTENANCY_DATASETS" "$jepsen_node_name:/opt/memgraph"
-           INFO "Datasets copied successfully."
-           rm -rf "$MEMGRAPH_MTENANCY_DATASETS"
+           INFO "Datasets copied successfully to $jepsen_node_name."
        else
-           INFO "Datasets won't be copied."
+           INFO "Datasets won't be copied to $jepsen_node_name."
        fi
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
        INFO "Copying $binary_name to $jepsen_node_name DONE."
    done
+
+   if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
+       rm -rf "$MEMGRAPH_MTENANCY_DATASETS"
+       INFO "Datasets folder deleted..."
+   fi
+
    # Copy test files into the control node.
    docker exec jepsen-control mkdir -p /jepsen/memgraph/store
    docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
