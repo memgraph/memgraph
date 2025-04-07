@@ -5914,25 +5914,44 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw DatabaseContextRequiredException("Database required for the query.");
     }
 
+    // Temporary limitation on index drop
+    bool const unique_acc_index = std::invoke([&] {
+      if (const auto *query = utils::Downcast<IndexQuery>(parsed_query.query))
+        return query->action_ == IndexQuery::Action::DROP;
+      if (const auto *query = utils::Downcast<EdgeIndexQuery>(parsed_query.query))
+        return query->action_ == EdgeIndexQuery::Action::DROP;
+      if (const auto *query = utils::Downcast<ConstraintQuery>(parsed_query.query))
+        return query->action_type_ == ConstraintQuery::ActionType::DROP;
+      if (const auto *query = utils::Downcast<TtlQuery>(parsed_query.query))
+        return query->type_ == TtlQuery::Type::DISABLE;
+      return false;
+    });
+
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool const unique_db_transaction = utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-                                       utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
-                                       utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-                                       utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
-                                       utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
+    bool const unique_db_transaction =
+        !no_db_required &&  // Short circuit if impossible
+        (unique_acc_index || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
+         utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
+         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
+         utils::Downcast<RecoverSnapshotQuery>(parsed_query.query) ||
+         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+         utils::Downcast<VectorIndexQuery>(parsed_query.query));
 
+    // TODO constraints and index creation with enable flag and stop token
     bool const read_only_db_transaction =
-        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
-        utils::Downcast<TtlQuery>(parsed_query.query);
+        (!no_db_required && !unique_db_transaction) &&  // Short circuit if impossible
+        (utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
+         utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query));
 
     bool const read_db_transactions =
-        utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-        utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
-        utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query);
+        (!no_db_required && !unique_db_transaction && !read_only_db_transaction) &&  // Short circuit if impossible
+        (utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
+         utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+         utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
+         utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
+         utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query));
 
     bool const requires_db_transaction = read_db_transactions || read_only_db_transaction || unique_db_transaction ||
                                          utils::Downcast<CypherQuery>(parsed_query.query) ||

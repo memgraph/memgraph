@@ -341,14 +341,14 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
   index_accessor.insert({std::move(value), &vertex, 0});
 }
 
-template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
-inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
+template <typename TIndex, typename TIndexMap, typename TIndexKey, typename TFunc>
+inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TIndex &index, TIndexMap &index_map,
                                       TIndexKey key, const TFunc &func,
                                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   try {
-    auto acc = it->second.access();
+    auto acc = index.access();
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
       if (snapshot_info) {
@@ -357,14 +357,14 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index.erase(it);
+    index_map->erase(key);
     throw;
   }
 }
 
-template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
-inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
-                                         TIndex &index, TIndexKey key,
+template <typename TIndexMap, typename TIndexKey, typename TIndex, typename TFunc>
+inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TIndex &index,
+                                         TIndexMap &index_map, TIndexKey key,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
                                          const TFunc &func,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
@@ -385,15 +385,15 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
-                            &vertices, &snapshot_info]() mutable {
+      threads.emplace_back([&index, &func, &index_map, &vertex_batches, &maybe_error, &batch_counter, &key, &vertices,
+                            &snapshot_info]() mutable {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
             return;
           }
           const auto &batch = vertex_batches[batch_index];
-          auto index_accessor = index.at(key).access();
+          auto index_accessor = index.access();
           auto it = vertices.find(batch.first);
 
           try {
@@ -406,7 +406,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
           } catch (utils::OutOfMemoryException &failure) {
             utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            index.erase(skiplist_iter);
+            index_map->erase(key);
             *maybe_error.Lock() = std::move(failure);
           }
         }

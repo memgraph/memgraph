@@ -21,6 +21,7 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -71,7 +72,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   IndexStats Analysis() const {
     IndexStats res{};
-    for (const auto &[lp, _] : index_) {
+    auto locked_index = index_.ReadLock();
+    for (const auto &[lp, _] : *locked_index) {
       const auto &[label, property] = lp;
       res.l2p[label].emplace_back(property);
       res.p2l[property].emplace_back(label);
@@ -159,8 +161,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
+  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>, utils::RWSpinLock> index_;
+  utils::Synchronized<std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>>,
+                      utils::RWSpinLock>
+      indices_by_property_;
   utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyIndexStats>,
                       utils::ReadPrioritizedRWLock>
       stats_;

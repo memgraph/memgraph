@@ -11,9 +11,8 @@
 
 #pragma once
 
-#include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
 
-#include <iterator>
 #include <variant>
 
 namespace memgraph::storage {
@@ -22,8 +21,10 @@ struct ReplicationError {};
 struct PersistenceError {};  // TODO: Generalize and add to InMemory durability as well (currently durability just
                              // asserts and terminated if failed)
 
+// TODO New error regarding creating an index that already exists, but is being populated
 struct IndexDefinitionError {};
 struct IndexDefinitionConfigError {};
+struct IndexIncompleteError {};
 
 struct ConstraintsPersistenceError {};
 
@@ -33,7 +34,8 @@ inline bool operator==(const SerializationError & /*err1*/, const SerializationE
 using StorageManipulationError =
     std::variant<ConstraintViolation, ReplicationError, SerializationError, PersistenceError>;
 
-using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefinitionConfigError>;
+using StorageIndexDefinitionError =
+    std::variant<IndexDefinitionError, IndexDefinitionConfigError, IndexIncompleteError>;
 
 struct ConstraintDefinitionError {};
 

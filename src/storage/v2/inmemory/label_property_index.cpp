@@ -21,6 +21,23 @@
 
 namespace memgraph::storage {
 
+namespace {
+template <typename I>
+auto IndexOptReadLock(I &index) {
+  // We only need to read the label to index map; index itself is threadsafe
+  // NOTE: Index shouldn't be used while it's being populated
+  std::optional<typename I::MutableSharedLockPtr> locked_index = index.MutableSharedLock();
+  return std::move(locked_index);
+}
+template <typename I>
+auto IndexOptReadLock(const I &index) {
+  // We only need to read the label to index map; index itself is threadsafe
+  // NOTE: Index shouldn't be used while it's being populated
+  std::optional<typename I::ReadLockedPtr> locked_index = index.ReadLock();
+  return std::move(locked_index);
+}
+}  // namespace
+
 bool InMemoryLabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
   return std::tie(value, vertex, timestamp) < std::tie(rhs.value, rhs.vertex, rhs.timestamp);
 }
@@ -44,7 +61,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
     using IndexAccessor = decltype(it->second.access());
 
     CreateIndexOnSingleThread(
-        vertices, it, index_, std::make_pair(label, property),
+        vertices, it->second, index_, std::make_pair(label, property),
         [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
           TryInsertLabelPropertyIndex(vertex, key, index_accessor);
         },
@@ -61,7 +78,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
+            vertices, label_property_it->second, index_, std::make_pair(label, property), parallel_exec_info,
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             },
@@ -70,10 +87,13 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
         return true;
       };
 
+  // NOTE: No need to hold the lock after emplace; map has stable references and the individual index is thread safe
   auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
-
-  indices_by_property_[property].insert({label, &it->second});
+      index_->emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+  {
+    auto locked_index_by_prop = indices_by_property_.Lock();
+    (*locked_index_by_prop)[property].insert({label, &it->second});
+  }
 
   if (!emplaced) {
     // Index already exists.
@@ -89,7 +109,9 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
-  for (auto &[label_prop, storage] : index_) {
+  // TODO Another thread safe structure could allow us to loop and remove without blocking any insertions
+  auto locked_index = index_.MutableSharedLock();
+  for (auto &[label_prop, storage] : *locked_index) {
     if (label_prop.first != added_label) {
       continue;
     }
@@ -107,10 +129,13 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  auto index = indices_by_property_.find(property);
-  if (index == indices_by_property_.end()) {
+  auto locked_index = IndexOptReadLock(indices_by_property_);
+  auto index = locked_index.value()->find(property);
+  if (index == locked_index.value()->end()) {
     return;
   }
+  // Eagerly unlock; std::map has stable references
+  locked_index.reset();
 
   for (const auto &[label, storage] : index->second) {
     if (!utils::Contains(vertex->labels, label)) continue;
@@ -120,25 +145,28 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  if (indices_by_property_.contains(property)) {
-    indices_by_property_.at(property).erase(label);
+  {
+    auto locked_index_by_prop = indices_by_property_.Lock();
+    if (locked_index_by_prop->contains(property)) {
+      locked_index_by_prop->at(property).erase(label);
 
-    if (indices_by_property_.at(property).empty()) {
-      indices_by_property_.erase(property);
+      if (locked_index_by_prop->at(property).empty()) {
+        locked_index_by_prop->erase(property);
+      }
     }
   }
-
-  return index_.erase({label, property}) > 0;
+  return index_->erase({label, property}) > 0;
 }
 
 bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return index_.contains({label, property});
+  return index_->contains({label, property});
 }
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, PropertyId>> ret;
-  ret.reserve(index_.size());
-  for (auto const &key : index_ | std::views::keys) {
+  auto locked_index = index_.ReadLock();
+  ret.reserve(locked_index->size());
+  for (auto const &key : *locked_index | std::views::keys) {
     ret.push_back(key);
   }
   return ret;
@@ -147,7 +175,9 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &[label_property, index] : index_) {
+  // TODO Another thread safe structure could allow us to loop and remove without blocking any insertions
+  auto locked_index = index_.MutableSharedLock();
+  for (auto &[label_property, index] : *locked_index) {
     auto [label_id, prop_id] = label_property;
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
@@ -368,15 +398,22 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = index_.ReadLock();
+  auto it = locked_index->find({label, property});
+  MG_ASSERT(it != locked_index->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
   return it->second.size();
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                             const PropertyValue &value) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = IndexOptReadLock(index_);
+  auto it = locked_index.value()->find({label, property});
+  MG_ASSERT(it != locked_index.value()->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  // Eagerly unlock; std::map has stable references
+  locked_index.reset();
+
   auto acc = it->second.access();
   if (!value.IsNull()) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -395,8 +432,13 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, Prope
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = IndexOptReadLock(index_);
+  auto it = locked_index.value()->find({label, property});
+  MG_ASSERT(it != locked_index.value()->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  // Eagerly unlock; std::map has stable references
+  locked_index.reset();
+
   auto acc = it->second.access();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
@@ -444,7 +486,9 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  for (auto &coll : index_ | std::views::values) {
+  // TODO Another thread safe structure could allow us to loop and remove without blocking any insertions
+  auto locked_index = index_.MutableSharedLock();
+  for (auto &coll : *locked_index | std::views::values) {
     coll.run_gc();
   }
 }
@@ -457,8 +501,11 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
              "PropertyLabel index trying to access InMemory vertices from OnDisk!");
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = IndexOptReadLock(index_);
+  auto it = locked_index.value()->find({label, property});
+  MG_ASSERT(it != locked_index.value()->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  locked_index.reset();
   return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
           transaction};
 }
@@ -469,8 +516,11 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  auto locked_index = IndexOptReadLock(index_);
+  auto it = locked_index.value()->find({label, property});
+  MG_ASSERT(it != locked_index.value()->end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
+            property.AsUint());
+  locked_index.reset();
   return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
           transaction};
 }
@@ -478,8 +528,10 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
 void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
                                               std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                                               uint64_t exact_start_timestamp) {
-  auto const it = indices_by_property_.find(property);
-  if (it == indices_by_property_.end()) return;
+  auto locked_index = IndexOptReadLock(indices_by_property_);
+  auto const it = locked_index.value()->find(property);
+  if (it == locked_index.value()->end()) return;
+  locked_index.reset();
 
   auto &indices = it->second;
   for (auto const &index : indices | std::views::values) {
@@ -493,7 +545,9 @@ void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
 void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
                                               std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                                               uint64_t exact_start_timestamp) {
-  for (auto &[label_prop, storage] : index_) {
+  // TODO Another thread safe structure could allow us to loop and remove without blocking any insertions
+  auto locked_index = index_.MutableSharedLock();
+  for (auto &[label_prop, storage] : *locked_index) {
     if (label_prop.first != label) {
       continue;
     }
@@ -508,9 +562,9 @@ void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
-  index_.clear();
-  indices_by_property_.clear();
   stats_->clear();
+  indices_by_property_->clear();
+  index_->clear();
 }
 
 }  // namespace memgraph::storage

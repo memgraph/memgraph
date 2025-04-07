@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@ enum class NotificationCode : uint8_t {
   DROP_REPLICA,
   DROP_STREAM,
   DROP_TRIGGER,
+  // TODO New errors regarding creating indices that are in the process of being populated
   EXISTENT_INDEX,
   EXISTENT_CONSTRAINT,
   LOAD_CSV_TIP,

@@ -13,73 +13,101 @@
 
 #include <span>
 
-#include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
+namespace {
+template <typename I>
+auto IndexOptReadLock(I &index) {
+  // We only need to read the label to index map; index itself is threadsafe
+  // NOTE: Index shouldn't be used while it's being populated
+  std::optional<typename I::MutableSharedLockPtr> locked_index = index.MutableSharedLock();
+  return std::move(locked_index);
+}
+}  // namespace
+
 void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
-  auto it = index_.find(added_label);
-  if (it == index_.end()) return;
-  auto acc = it->second.access();
+  auto locked_index = IndexOptReadLock(index_);  // Should be READ
+  auto it = locked_index.value()->find(added_label);
+  if (it == locked_index.value()->end()) return;
+  DMG_ASSERT(it->second.state == READY, "Index should be ready when updating label");
+  // Eagerly unlock; higher level logic protects us from index drops
+  locked_index.reset();
+  auto acc = it->second.index.access();
   acc.insert(Entry{vertex_after_update, tx.start_timestamp});
 }
 
-bool InMemoryLabelIndex::CreateIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryLabelIndex::CreateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   const auto create_index_seq = [this, &snapshot_info](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
-    using IndexAccessor = decltype(it->second.access());
+                                                       std::map<LabelId, IndexElem<Entry>>::iterator it) {
+    using IndexAccessor = decltype(it->second.index.access());
 
     CreateIndexOnSingleThread(
-        vertices, it, index_, label,
+        vertices, it->second.index, index_, label,
         [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
           TryInsertLabelIndex(vertex, label, index_accessor);
         },
         snapshot_info);
-
-    return true;
   };
 
   const auto create_index_par = [this, &snapshot_info](
                                     LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                    std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
+                                    std::map<LabelId, IndexElem<Entry>>::iterator label_it,
                                     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-    using IndexAccessor = decltype(label_it->second.access());
+    using IndexAccessor = decltype(label_it->second.index.access());
 
     CreateIndexOnMultipleThreads(
-        vertices, label_it, index_, label, parallel_exec_info,
+        vertices, label_it->second.index, index_, label, parallel_exec_info,
         [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
           TryInsertLabelIndex(vertex, label, index_accessor);
         },
         snapshot_info);
-
-    return true;
   };
 
-  auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
+  // NOTE: No need to hold the lock after emplace; map has stable references and the individual index is thread safe
+  auto [it, emplaced] =
+      index_->emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
-    // Index already exists.
-    return false;
+    return it->second.state != READY ? StorageIndexDefinitionError{IndexIncompleteError{}}
+                                     : StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
   if (parallel_exec_info) {
-    return create_index_par(label, vertices, it, *parallel_exec_info);
+    create_index_par(label, vertices, it, *parallel_exec_info);
+  } else {
+    create_index_seq(label, vertices, it);
   }
-  return create_index_seq(label, vertices, it);
+
+  // Signal that the index is ready for use
+  it->second.state = READY;
+  return {};
 }
 
-bool InMemoryLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }
+bool InMemoryLabelIndex::DropIndex(LabelId label) {
+  // NOTE: Drop index is still unique access
+  return index_->erase(label) > 0;
+}
 
-bool InMemoryLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
+// NOTE: Used to figure out which index to use; hide as long as index is not ready/populated
+bool InMemoryLabelIndex::IndexExists(LabelId label) const {
+  auto locked_index = index_.ReadLock();
+  auto it = locked_index->find(label);
+  return it != locked_index->end() && it->second.state == READY;
+}
 
 std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
   std::vector<LabelId> ret;
-  ret.reserve(index_.size());
-  for (const auto &item : index_) {
+  auto locked_index = index_.ReadLock();
+  ret.reserve(locked_index->size());
+  for (const auto &item : *locked_index) {
+    if (item.second.state != READY) continue;  // TODO Give user some indication the index is there but not ready
     ret.push_back(item.first);
   }
   return ret;
@@ -88,11 +116,14 @@ std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
 void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &label_storage : index_) {
+  // TODO Another thread safe structure could allow us to loop and remove without blocking any insertions
+  auto locked_index = index_.MutableSharedLock();
+  for (auto &label_storage : *locked_index) {
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
+    if (label_storage.second.state != READY) continue;
 
-    auto vertices_acc = label_storage.second.access();
+    auto vertices_acc = label_storage.second.index.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       // Hot loop, don't check stop_requested every time
       if (maybe_stop() && token.stop_requested()) return;
@@ -117,11 +148,15 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 
 void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices,
                                       uint64_t exact_start_timestamp) {
-  auto const it = index_.find(labelId);
-  if (it == index_.end()) return;
-
+  auto locked_index = IndexOptReadLock(index_);
+  auto const it = locked_index.value()->find(labelId);
   auto &label_storage = it->second;
-  auto vertices_acc = label_storage.access();
+  if (it == locked_index.value()->end()) return;
+  DMG_ASSERT(it->second.state == READY, "Index should be ready before it's used");
+  // Eagerly unlock; std::map has stable references
+  locked_index.reset();
+
+  auto vertices_acc = label_storage.index.access();
   for (auto *vertex : vertices) {
     vertices_acc.remove(Entry{vertex, exact_start_timestamp});
   }
@@ -172,14 +207,18 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 uint64_t InMemoryLabelIndex::ApproximateVertexCount(LabelId label) const {
-  auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return it->second.size();
+  auto locked_index = index_.ReadLock();
+  auto it = locked_index->find(label);
+  MG_ASSERT(it != locked_index->end(), "Index for label {} doesn't exist", label.AsUint());
+  DMG_ASSERT(it->second.state == READY, "Index should be ready before it's used");
+  return it->second.index.size();
 }
 
 void InMemoryLabelIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
+  // TODO Another thread safe structure could allow us to loop and remove without blocking any insertions
+  auto locked_index = index_.MutableSharedLock();
+  for (auto &index_entry : *locked_index) {
+    index_entry.second.index.run_gc();
   }
 }
 
@@ -189,17 +228,23 @@ InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View vi
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
              "LabelIndex trying to access InMemory vertices from OnDisk!");
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  const auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
+  auto locked_index = IndexOptReadLock(index_);
+  const auto it = locked_index.value()->find(label);
+  MG_ASSERT(it != locked_index.value()->end(), "Index for label {} doesn't exist", label.AsUint());
+  DMG_ASSERT(it->second.state == READY, "Index should be ready before it's used");
+  locked_index.reset();
+  return {it->second.index.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(
     LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
     Storage *storage, Transaction *transaction) {
-  const auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
+  auto locked_index = IndexOptReadLock(index_);
+  const auto it = locked_index.value()->find(label);
+  MG_ASSERT(it != locked_index.value()->end(), "Index for label {} doesn't exist", label.AsUint());
+  DMG_ASSERT(it->second.state == READY, "Index should be ready before it's used");
+  locked_index.reset();
+  return {it->second.index.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
@@ -239,15 +284,18 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
 
 std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
   std::vector<LabelId> res;
-  res.reserve(index_.size());
-  for (const auto &[label, _] : index_) {
+  auto locked_index = index_.ReadLock();
+  res.reserve(locked_index->size());
+  for (const auto &[label, index] : *locked_index) {
+    if (index.state != READY) continue;
     res.emplace_back(label);
   }
   return res;
 }
 
 void InMemoryLabelIndex::DropGraphClearIndices() {
-  index_.clear();
+  // DROP GRAPH is unique access
+  index_->clear();
   stats_->clear();
 }
 

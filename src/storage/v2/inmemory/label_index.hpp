@@ -13,13 +13,15 @@
 
 #include <span>
 
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
-#include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/indices/index_elem.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -34,6 +36,7 @@ class InMemoryLabelIndex : public LabelIndex {
       return std::tie(vertex, timestamp) == std::tie(rhs.vertex, rhs.timestamp);
     }
   };
+  using enum IndexElem<Entry>::State;
 
  public:
   InMemoryLabelIndex() = default;
@@ -44,9 +47,10 @@ class InMemoryLabelIndex : public LabelIndex {
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+      LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;
@@ -119,7 +123,7 @@ class InMemoryLabelIndex : public LabelIndex {
   void DropGraphClearIndices() override;
 
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  utils::Synchronized<std::map<LabelId, IndexElem<Entry>>, utils::RWSpinLock> index_;
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

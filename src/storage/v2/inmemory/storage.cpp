@@ -1395,8 +1395,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  if (const auto maybe_err = mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt);
+      maybe_err.HasError()) {
+    return maybe_err;
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1411,6 +1412,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
+    // TODO Creation error of populating index
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
@@ -1427,6 +1429,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->CreateIndex(edge_type, in_memory->vertices_.access())) {
+    // TODO Creation error of populating index
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
@@ -1446,6 +1449,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   }
 
   if (!mem_edge_type_property_index->CreateIndex(edge_type, property, in_memory->vertices_.access())) {
+    // TODO Creation error of populating index
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
