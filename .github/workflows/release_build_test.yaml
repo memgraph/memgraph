@@ -108,7 +108,9 @@ jobs:
       toolchain: v6
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "memgraph/${{ github.ref_name }}"}'
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "memgraph/${{ github.ref_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
     secrets: inherit
 
@@ -134,7 +136,9 @@ jobs:
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "memgraph/${{ github.ref_name }}"}'
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "memgraph/${{ github.ref_name }}"
     secrets: inherit
 
 
@@ -181,7 +185,9 @@ jobs:
       toolchain: v6
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "daily-build"}'
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "daily-build"
       additional_build_args: ${{ matrix.additional_build_args }}
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
@@ -208,7 +214,9 @@ jobs:
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3: '{"s3_bucket": "deps.memgraph.io", "s3_region": "eu-west-1", "s3_dest_dir": "daily-build"}'
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "daily-build"
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
 
