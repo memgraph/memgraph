@@ -696,6 +696,16 @@ class FakeDbAccessor {
     return 0;
   }
 
+  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
+                        memgraph::storage::PropertyValue value) const {
+    for (const auto &index : label_property_index_) {
+      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+        return std::get<2>(index);
+      }
+    }
+    return 0;
+  }
+
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
     return false;
   }
