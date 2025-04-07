@@ -2021,7 +2021,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
   if (unique_access_needed) {
-    MG_ASSERT(type() == READ_ONLY, "Create index requires unique access to the storage!");
+    MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
   }
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2036,7 +2036,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
                                                                                              PropertyId property) {
-  MG_ASSERT(type() == READ_ONLY, "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
@@ -2069,7 +2069,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(type() == READ_ONLY, "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->DropIndex(label)) {
@@ -2083,7 +2083,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
                                                                                            PropertyId property) {
-  MG_ASSERT(type() == READ_ONLY, "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
@@ -2139,7 +2139,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(type() == READ_ONLY, "Create existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create existence constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -2156,7 +2156,7 @@ DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId p
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(type() == READ_ONLY, "Drop existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Drop existence constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -2168,7 +2168,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == READ_ONLY, "Create unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
@@ -2188,7 +2188,7 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
 
 UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(type() == READ_ONLY, "Drop unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Drop unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto ret = disk_unique_constraints->DropConstraint(label, properties);

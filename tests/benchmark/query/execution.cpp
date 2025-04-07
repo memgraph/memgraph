@@ -88,8 +88,8 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
     MG_ASSERT(!dba->Commit().HasError());
   }
   {
-    auto ro_acc = db->ReadOnlyAccess();
-    MG_ASSERT(!ro_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    auto unique_acc = db->UniqueAccess();
+    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
   }
 }
 
@@ -113,8 +113,8 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
     MG_ASSERT(!dba->Commit().HasError());
   }
   {
-    auto ro_acc = db->ReadOnlyAccess();
-    MG_ASSERT(!ro_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
+    auto unique_acc = db->UniqueAccess();
+    MG_ASSERT(!unique_acc->CreateIndex(db->NameToLabel(kStartLabel)).HasError());
   }
 }
 

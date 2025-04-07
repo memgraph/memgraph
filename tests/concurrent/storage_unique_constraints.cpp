@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,11 +86,11 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
-    auto ro_acc = storage->ReadOnlyAccess();
-    auto res = ro_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    auto unique_acc = storage->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -170,11 +170,11 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
 
 TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
-    auto ro_acc = storage->ReadOnlyAccess();
-    auto res = ro_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    auto unique_acc = storage->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   // In the first part of the test, each transaction tries to add the same label

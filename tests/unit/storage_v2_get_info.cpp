@@ -72,14 +72,14 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto ro_acc = this->storage->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateExistenceConstraint(lbl, prop).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = this->storage->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto ro_acc = this->storage->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->DropExistenceConstraint(lbl, prop).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = this->storage->UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     auto acc = this->storage->Access();
@@ -102,46 +102,46 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateIndex(lbl, prop).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateIndex(lbl, prop2).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->DropIndex(lbl, prop).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    ASSERT_EQ(ro_acc->DropUniqueConstraint(lbl, {prop2}),
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   StorageInfo info = this->storage->GetInfo();

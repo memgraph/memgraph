@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -172,9 +172,9 @@ TEST(StorageV2Gc, Indices) {
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
           .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
   {
-    auto ro_acc = storage->ReadOnlyAccess();
-    ASSERT_FALSE(ro_acc->CreateIndex(storage->NameToLabel("label")).HasError());
-    ASSERT_FALSE(ro_acc->Commit().HasError());
+    auto unique_acc = storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {

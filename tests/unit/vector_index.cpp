@@ -41,16 +41,16 @@ class VectorSearchTest : public testing::Test {
   void TearDown() override { storage.reset(); }
 
   void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    const auto label = ro_acc->NameToLabel(test_label.data());
-    const auto property = ro_acc->NameToProperty(test_property.data());
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto label = unique_acc->NameToLabel(test_label.data());
+    const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
     const auto spec =
         VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
 
-    EXPECT_FALSE(ro_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_NO_ERROR(ro_acc->Commit());
+    EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view property,
@@ -413,9 +413,9 @@ TYPED_TEST(VectorSearchTest, DropIndexTest) {
 
   // Drop the index
   {
-    auto ro_acc = this->storage->ReadOnlyAccess();
-    EXPECT_FALSE(ro_acc->DropVectorIndex(test_index.data()).HasError());
-    ASSERT_NO_ERROR(ro_acc->Commit());
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropVectorIndex(test_index.data()).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   // Expect the index to have been dropped

@@ -84,7 +84,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, {}, std::defer_lock),
+      storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -664,7 +664,7 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 }
 
 void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId label) {
-  MG_ASSERT(type() == READ_ONLY, "Creating a text index requires unique access to storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
   auto *mapper = storage_->name_id_mapper_.get();
   storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), mapper);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
@@ -672,7 +672,7 @@ void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId l
 }
 
 void Storage::Accessor::DropTextIndex(const std::string &index_name) {
-  MG_ASSERT(type() == READ_ONLY, "Dropping a text index requires unique access to storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);

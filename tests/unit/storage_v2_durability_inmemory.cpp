@@ -138,9 +138,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateIndex(label_unindexed).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label index statistics.
@@ -151,9 +151,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateIndex(label_indexed, property_id).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
@@ -164,37 +164,37 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create point index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreatePointIndex(label_indexed, property_point).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     {
       // Create vector index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateVectorIndex(vector_index_spec).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateVectorIndex(vector_index_spec).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     {
       // Create existence constraint.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create unique constraint.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create type constraint.
-      auto ro_acc = store->ReadOnlyAccess();
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(
-          ro_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
+          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
               .HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create vertices.
@@ -295,9 +295,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create label index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateIndex(label_unused).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label index statistics.
@@ -308,9 +308,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateIndex(label_indexed, property_count).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
@@ -323,16 +323,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create existence constraint.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     {
       // Create unique constraint.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Storage accessor.
@@ -381,9 +381,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   void CreateEdgeIndex(memgraph::storage::Storage *store, memgraph::storage::EdgeTypeId edge_type) {
     {
       // Create edge-type index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateIndex(edge_type).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(edge_type).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
   }
 
@@ -391,9 +391,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                memgraph::storage::PropertyId prop) {
     {
       // Create edge-type index.
-      auto ro_acc = store->ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->CreateIndex(edge_type, prop).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(edge_type, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
   }
 
@@ -2126,14 +2126,14 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
-      auto ro_acc = db.ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->DropIndex(index).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = db.UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &index : indices.label_property) {
-      auto ro_acc = db.ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->DropIndex(index.first, index.second).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = db.UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto constraints = [&] {
       auto acc = db.Access();
@@ -2142,15 +2142,15 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {
-      auto ro_acc = db.ReadOnlyAccess();
-      ASSERT_FALSE(ro_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      auto unique_acc = db.UniqueAccess();
+      ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &constraint : constraints.unique) {
-      auto ro_acc = db.ReadOnlyAccess();
-      ASSERT_EQ(ro_acc->DropUniqueConstraint(constraint.first, constraint.second),
+      auto unique_acc = db.UniqueAccess();
+      ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-      ASSERT_FALSE(ro_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto acc = db.Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {

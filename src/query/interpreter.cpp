@@ -5931,40 +5931,39 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool const unique_db_transaction = utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-                                       utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
-                                       utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-                                       utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
-                                       utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
-
-    bool const read_only_db_transaction =
-        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
-        utils::Downcast<TtlQuery>(parsed_query.query);
+    bool const unique_db_transaction =
+        !no_db_required &&  // Short circuit if impossible
+        (utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
+         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+         utils::Downcast<VectorIndexQuery>(parsed_query.query) ||
+         utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
+         utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
+         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
+         utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query));
 
     bool const read_db_transactions =
-        utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-        utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
-        utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query);
+        (!no_db_required && !unique_db_transaction) &&  // Short circuit if impossible
+        (utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
+         utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+         utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
+         utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
+         utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query));
 
-    bool const requires_db_transaction = read_db_transactions || read_only_db_transaction || unique_db_transaction ||
-                                         utils::Downcast<CypherQuery>(parsed_query.query) ||
-                                         utils::Downcast<ProfileQuery>(parsed_query.query) ||
-                                         utils::Downcast<TriggerQuery>(parsed_query.query);
+    bool const requires_db_transaction =
+        read_db_transactions || unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
+        utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       auto acc_type = storage::Storage::Accessor::Type::WRITE;
       if (read_db_transactions) acc_type = storage::Storage::Accessor::Type::READ;
       if (unique_db_transaction) acc_type = storage::Storage::Accessor::Type::UNIQUE;
-      if (read_only_db_transaction) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
       auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
       if (cypher_query || profile_query) {
         if (is_schema_assert_query) {
-          acc_type = storage::Storage::Accessor::Type::READ_ONLY;
+          acc_type = storage::Storage::Accessor::Type::UNIQUE;
         } else {
           acc_type = parsed_query.is_cypher_read ? storage::Storage::Accessor::Type::READ
                                                  : storage::Storage::Accessor::Type::WRITE;
