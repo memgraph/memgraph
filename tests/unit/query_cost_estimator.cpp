@@ -145,7 +145,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstant) {
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
                                      std::vector{ExpressionRange::Equal(const_val)});
-    EXPECT_COST(1 * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
   }
 }
 
@@ -156,7 +156,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
         nullptr, NextSymbol(), label, std::vector{prop_a},
         std::vector{ExpressionRange::Equal(storage_.Create<UnaryPlusOperator>(const_val))});
     // once we make expression const-folding this test case will fail
-    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelProperties);
   }
 }
 
@@ -166,7 +166,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesUpperConstant) {
     MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
                                      std::vector{ExpressionRange::Range(std::nullopt, InclusiveBound(const_val))});
     // cardinality estimation is exact for very small indexes
-    EXPECT_COST(13 * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(13 * CostParam::kScanAllByLabelProperties);
   }
 }
 
@@ -176,7 +176,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesLowerConstant) {
     MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
                                      std::vector{ExpressionRange::Range(InclusiveBound(const_val), std::nullopt)});
     // cardinality estimation is exact for very small indexes
-    EXPECT_COST(3 * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(3 * CostParam::kScanAllByLabelProperties);
   }
 }
 
@@ -189,7 +189,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertieRangeConstExpr) {
     MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
                                      std::vector{ExpressionRange::Range(bound, std::nullopt)});
 
-    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelProperties);
   }
 }
 
@@ -203,7 +203,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite) {
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(bound, bound),
                     ExpressionRange::Range(bound, bound)});
 
-    EXPECT_COST(1 * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
   }
 }
 
@@ -235,7 +235,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite_EstimateCostWhenOpC
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound),
                     ExpressionRange::Range(bound, bound)});
 
-    EXPECT_COST(15 * CostParam::MakeScanAllByLabelProperties);
+    EXPECT_COST(15 * CostParam::kScanAllByLabelProperties);
   }
 }
 

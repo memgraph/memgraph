@@ -88,9 +88,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kMinimumCost{0.001};  // everything has some runtime cost
     static constexpr double kScanAll{1.0};
     static constexpr double kScanAllByLabel{1.1};
-    static constexpr double MakeScanAllByLabelProperties{1.1};
-    static constexpr double MakeScanAllByPointDistance{1.1};
-    static constexpr double MakeScanAllByPointWithinbbox{1.1};
+    static constexpr double kScanAllByLabelProperties{1.1};
+    static constexpr double kScanAllByPointDistance{1.1};
+    static constexpr double kScanAllByPointWithinbbox{1.1};
     static constexpr double kScanAllByEdgeType{1.1};
     static constexpr double kScanAllByEdgeTypePropertyValue{1.1};
     static constexpr double kScanAllByEdgeTypePropertyRange{1.1};
@@ -188,7 +188,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::MakeScanAllByLabelProperties);
+    IncrementCost(CostParam::kScanAllByLabelProperties);
     return true;
   }
 

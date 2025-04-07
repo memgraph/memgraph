@@ -148,7 +148,7 @@ TEST(Storage, LabelPropertyIndex) {
         }
         {
           auto acc = store->Access();
-          auto vertices = acc->Vertices(label, prop, memgraph::storage::View::OLD);
+          auto vertices = acc->Vertices(label, std::array{prop}, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {

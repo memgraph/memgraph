@@ -149,10 +149,11 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     return true;
   }
 
-  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
-                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&](const Delta &delta) {
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::SET_PROPERTY,
+                         Delta::Action::RECREATE_OBJECT, Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                         Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
                              Deleted_ActionMethod(deleted),

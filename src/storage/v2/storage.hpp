@@ -217,6 +217,11 @@ class Storage {
     virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
                                       std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
 
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) {
+      return Vertices(label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()),
+                      view);
+    };
+
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
