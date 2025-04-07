@@ -1776,6 +1776,10 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Re
         return {status, 0, 0};
       }
       case ExpectedPropertyStatus::GREATER: {
+        // Restore the reader position so that the next property isn't skipped.
+        // This allows `FindSpecificPropertyAndBufferInfoMinimal` to be
+        // additional properties to be read from the same reader.
+        reader->SetPosition(property_begin);
         return {status, 0, 0};
       }
       case ExpectedPropertyStatus::EQUAL: {
@@ -2221,7 +2225,7 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyId const> ordered_prope
         auto cmp_res = CompareExpectedProperty(&prop_reader, property, cmp_val);
         return std::pair{info.status, std::optional{cmp_res}};
       } else {
-        return std::pair{info.status, std::optional<bool>{}};
+        return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};
       }
     };
     auto const apply_result = [&](std::optional<bool> extracted_result, PropertyValue const &cmp_val, size_t pos) {
