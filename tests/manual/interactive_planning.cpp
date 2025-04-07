@@ -216,6 +216,38 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
+  int64_t VerticesCount(memgraph::storage::LabelId label_id, std::span<memgraph::storage::PropertyId const> properties,
+                        std::span<memgraph::storage::PropertyValueRange const> prop_val_ranges) {
+    auto label = dba_->LabelToName(label_id);
+    auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
+    auto property_names = memgraph::utils::Join(properties | ranges::views::transform(to_name), ", ");
+
+    auto to_range_str = [&](memgraph::storage::PropertyValueRange rng) -> std::string {
+      switch (rng.type_) {
+        case memgraph::storage::PropertyRangeType::BOUNDED: {
+          std::stringstream range_string;
+          if (rng.lower_) {
+            range_string << (rng.lower_->IsInclusive() ? "[" : "(") << rng.lower_->value()
+                         << (rng.upper_ ? "," : ", inf)");
+          } else {
+            range_string << "(-inf, ";
+          }
+          if (rng.upper_) {
+            range_string << rng.upper_->value() << (rng.upper_->IsInclusive() ? "]" : ")");
+          }
+          return range_string.str();
+        }
+        case memgraph::storage::PropertyRangeType::IS_NOT_NULL:
+          return "NOT_NULL";
+        case memgraph::storage::PropertyRangeType::INVALID:
+          return "INVALID";
+      }
+    };
+    auto ranges_str = memgraph::utils::Join(prop_val_ranges | ranges::views::transform(to_range_str), ", ");
+
+    return ReadVertexCount("label '" + label + "' and property '" + property_names + "' in range(s) " + ranges_str);
+  }
+
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
     return false;
   }
@@ -336,7 +368,7 @@ class InteractiveDbAccessor {
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
-    return dba_->GetIndexStats(label, property);
+    return dba_->GetIndexStats(label, std::array{property});
   }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
