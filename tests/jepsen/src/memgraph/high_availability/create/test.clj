@@ -245,7 +245,8 @@
 
                          (catch Exception e
                            ; Even if sync replica is down, nodes will get created on the main.
-                           (cond (utils/sync-replica-down? e)
+                           (cond
+                                 (utils/sync-replica-down? e)
                                  (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
                                  (utils/main-became-replica? e)

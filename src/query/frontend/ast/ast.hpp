@@ -2443,6 +2443,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
+  bool global_{false};
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
@@ -2452,6 +2453,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
     for (auto i = 0; i < object->properties_.size(); ++i) {
       object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
     }
+    object->global_ = global_;
     return object;
   }
 

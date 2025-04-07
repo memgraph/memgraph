@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,9 @@ PRE_VISIT(ScanAllByEdgeType, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypeProperty, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypePropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypePropertyRange, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeProperty, RWType::R, true)
+PRE_VISIT(ScanAllByEdgePropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByEdgePropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)

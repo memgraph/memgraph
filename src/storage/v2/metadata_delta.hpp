@@ -37,6 +37,8 @@ struct MetadataDelta {
     EDGE_INDEX_DROP,
     EDGE_PROPERTY_INDEX_CREATE,
     EDGE_PROPERTY_INDEX_DROP,
+    GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
+    GLOBAL_EDGE_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -82,6 +84,10 @@ struct MetadataDelta {
   } edge_property_index_create;
   static constexpr struct EdgePropertyIndexDrop {
   } edge_property_index_drop;
+  static constexpr struct GlobalEdgePropertyIndexCreate {
+  } global_edge_property_index_create;
+  static constexpr struct GlobalEdgePropertyIndexDrop {
+  } global_edge_property_index_drop;
   static constexpr struct TextIndexCreate {
   } text_index_create;
   static constexpr struct TextIndexDrop {
@@ -141,6 +147,12 @@ struct MetadataDelta {
 
   MetadataDelta(EdgePropertyIndexDrop /*tag*/, EdgeTypeId edge_type, PropertyId property)
       : action(Action::EDGE_PROPERTY_INDEX_DROP), edge_type_property{edge_type, property} {}
+
+  MetadataDelta(GlobalEdgePropertyIndexCreate /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE), edge_property{property} {}
+
+  MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
 
   MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
       : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label} {}
@@ -206,6 +218,8 @@ struct MetadataDelta {
       case Action::EDGE_INDEX_DROP:
       case Action::EDGE_PROPERTY_INDEX_CREATE:
       case Action::EDGE_PROPERTY_INDEX_DROP:
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP:
       case EXISTENCE_CONSTRAINT_CREATE:
       case EXISTENCE_CONSTRAINT_DROP:
       case TYPE_CONSTRAINT_CREATE:
@@ -274,6 +288,10 @@ struct MetadataDelta {
       EdgeTypeId edge_type;
       PropertyId property;
     } edge_type_property;
+
+    struct {
+      PropertyId property;
+    } edge_property;
 
     struct {
       std::string index_name;
