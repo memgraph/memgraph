@@ -21,7 +21,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
   explicit DiskLabelPropertyIndex(const Config &config);
 
-  bool CreateIndex(LabelId label, PropertyId property /*maybe TODO*/,
+  bool CreateIndex(LabelId label, PropertyId property,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
 
   std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction() const;
