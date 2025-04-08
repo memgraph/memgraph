@@ -73,13 +73,27 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
-      - name: Run HA create test
+      - name: Run HA create test with cleaning old directories
         run: |
           cd tests/jepsen
+
+          # Make sure to change --nodes-no at two places
+          # Observe logs inside cleanup.log
+          ./clean_old_directories --nodes-no 6 > cleanup.log 2>&1 &
+          CLEANUP_PID=$!
+          echo "Started cleanup script with PID: $CLEANUP_PID"
+
+          cleanup() {
+            echo "Killing cleanup script with PID: $CLEANUP_PID"
+            kill $CLEANUP_PID
+          }
+
+          trap cleanup EXIT
+
           ./run.sh test \
           --binary ../../build/memgraph \
           --run-args "--workload hacreate --nodes-config resources/cluster.edn --time-limit 25200 --concurrency 6" \
-          --ignore-run-stdout-logs \
+          --ignore-run-stdout-logs \s
           --ignore-run-stderr-logs \
           --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
