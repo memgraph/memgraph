@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -135,7 +135,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, const_val);
-    EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
+    EXPECT_COST(1 * CostParam::kScanAllByLabelPropertyValue);
   }
 }
 
@@ -145,7 +145,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property,
                                         // once we make expression const-folding this test case will fail
                                         storage_.Create<UnaryPlusOperator>(const_val));
-    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyValue);
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelPropertyValue);
   }
 }
 
@@ -154,7 +154,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, nullopt, InclusiveBound(const_val));
     // cardinality estimation is exact for very small indexes
-    EXPECT_COST(13 * CostParam::MakeScanAllByLabelPropertyRange);
+    EXPECT_COST(13 * CostParam::kScanAllByLabelPropertyRange);
   }
 }
 
@@ -163,7 +163,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
   for (auto *const_val : {Literal(17), Parameter(17)}) {
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, InclusiveBound(const_val), nullopt);
     // cardinality estimation is exact for very small indexes
-    EXPECT_COST(3 * CostParam::MakeScanAllByLabelPropertyRange);
+    EXPECT_COST(3 * CostParam::kScanAllByLabelPropertyRange);
   }
 }
 
@@ -173,7 +173,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
     auto bound = std::make_optional(
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, bound, nullopt);
-    EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyRange);
+    EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelPropertyRange);
   }
 }
 

@@ -11,24 +11,7 @@
 
 #pragma once
 
-#include <chrono>
+#include "gflags/gflags.h"
 
-namespace memgraph::utils {
-
-// This class is threadsafe.
-class Timer {
- public:
-  Timer() : start_time_(std::chrono::steady_clock::now()) {}
-
-  template <typename TDuration = std::chrono::duration<double>>
-  TDuration Elapsed() const {
-    return std::chrono::duration_cast<TDuration>(std::chrono::steady_clock::now() - start_time_);
-  }
-
-  void ResetStartTime() { start_time_ = std::chrono::steady_clock::now(); }
-
- private:
-  std::chrono::steady_clock::time_point start_time_;
-};
-
-}  // namespace memgraph::utils
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_access_timeout_sec);

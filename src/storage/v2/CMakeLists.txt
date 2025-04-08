@@ -14,6 +14,7 @@ target_sources(mg-storage-v2
         disk/edge_import_mode_cache.cpp
         disk/edge_type_index.cpp
         disk/edge_type_property_index.cpp
+        disk/edge_property_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
@@ -32,6 +33,7 @@ target_sources(mg-storage-v2
         indices/vector_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
+        inmemory/edge_property_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/replication/recovery.cpp

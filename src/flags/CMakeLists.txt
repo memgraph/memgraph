@@ -16,6 +16,7 @@ target_sources(mg-flags
         query.hpp
         replication.hpp
         run_time_configurable.hpp
+        storage_access.hpp
         storage_mode.hpp
 
         PRIVATE
@@ -32,6 +33,7 @@ target_sources(mg-flags
         query.cpp
         replication.cpp
         run_time_configurable.cpp
+        storage_access.cpp
         storage_mode.cpp
 )
 target_include_directories(mg-flags PUBLIC include)

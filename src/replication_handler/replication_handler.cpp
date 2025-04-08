@@ -15,12 +15,15 @@
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/functional.hpp"
 #include "utils/synchronized.hpp"
 
 #include <spdlog/spdlog.h>
 
 namespace memgraph::replication {
+
+using namespace std::chrono_literals;
 
 namespace {
 #ifdef MG_ENTERPRISE
@@ -196,6 +199,37 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
                                                    const std::optional<utils::UUID> &main_uuid) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
+
+    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      storage->snapshot_runner_.Pause();
+      storage->abort_snapshot_.store(true, std::memory_order_release);
+    });
+
+    std::map<std::string, std::unique_lock<std::mutex>> snapshot_locks;
+    auto const timer = utils::Timer();
+    while (true) {
+      if (timer.Elapsed() > 10s) {
+        spdlog::error("Failed to take snapshot lock on all DBs within 10s while demoting to replica.");
+        return false;
+      }
+      if (snapshot_locks.size() == dbms_handler_.Count()) {
+        break;
+      }
+
+      dbms_handler_.ForEach([&snapshot_locks](dbms::DatabaseAccess db_acc) {
+        auto const lock_it = snapshot_locks.find(db_acc->name());
+        if (lock_it != snapshot_locks.end()) {
+          return;
+        }
+        auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+        auto db_lock = std::unique_lock{storage->snapshot_lock_, std::defer_lock};
+        if (db_lock.try_lock()) {
+          snapshot_locks.emplace(db_acc->name(), std::move(db_lock));
+        }
+      });
+    }
+
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
@@ -215,6 +249,12 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
 bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
+
+    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      storage->abort_snapshot_.store(false, std::memory_order_release);
+      storage->snapshot_runner_.Resume();
+    });
 
     if (locked_repl_state->IsMain()) {
       if (!force) return false;

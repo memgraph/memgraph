@@ -453,6 +453,8 @@ endmacro()
 mg_build_if_needed(build_mgcxx "mgcxx")
 mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libtantivy_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
 mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libmgcxx_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
+target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
+target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)

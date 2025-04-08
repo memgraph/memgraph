@@ -145,7 +145,6 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
         spdlog::trace("Stopped state check for instance {} in thread {}.", repl_instance.InstanceName(),
                       std::this_thread::get_id());
       });
-      spdlog::info("Acquiring lock in become follower callback in thread {}.", std::this_thread::get_id());
       auto lock = std::unique_lock{coord_instance_lock_};
       repl_instances_.clear();
     });
@@ -362,7 +361,8 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
         auto expected = CoordinatorStatus::LEADER_NOT_READY;
         if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_READY)) {
           if (expected == CoordinatorStatus::FOLLOWER) {
-            spdlog::trace("Reconcile cluster state finished successfully but coordinator isn't leader anymore.");
+            spdlog::trace(
+                "Reconcile cluster state finished successfully but coordinator in the meantime became follower.");
             metrics::IncrementCounter(metrics::FailedToBecomeLeader);
             return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
           }
@@ -409,7 +409,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     repl_instance.StopStateCheck();
     spdlog::trace("Stopped state check for instance {}.", repl_instance.InstanceName());
   });
-  spdlog::trace("Stopped all state checks and acquiring lock in the thread {}.", std::this_thread::get_id());
   auto lock = std::unique_lock{coord_instance_lock_};
   spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}.", std::this_thread::get_id());
   repl_instances_.clear();
@@ -428,36 +427,43 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   auto current_mains =
-      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto &&instance) {
+      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
         return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
       });
 
   auto const num_mains = std::ranges::distance(current_mains);
 
+  if (num_mains > 1) {
+    LOG_FATAL(
+        "Found more than one current main. System cannot operate under this assumption, please contact the support.");
+  }
+
+  std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
+    auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
+                                                  instance_health_check_frequency_sec_);
+    instance.StartStateCheck();
+  });
+
   if (num_mains == 1) {
     // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
-    // frequent checks and set all appropriate callbacks.
+    // frequent checks.
     auto main_instance = std::ranges::begin(current_mains);
     spdlog::trace("Found main instance {}.", main_instance->config.instance_name);
-    std::ranges::for_each(raft_state_data_instances, [this](auto &&data_instance) {
-      auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
-                                                    instance_health_check_frequency_sec_);
+    for (auto &instance : repl_instances_) {
       instance.StartStateCheck();
-    });
-  } else if (num_mains == 0) {
+    }
+    return ReconcileClusterStateStatus::SUCCESS;
+  }
+
+  if (num_mains == 0) {
     spdlog::trace(
-        "No main can be determined from the current state in logs. Trying to find most up to date instance by doing "
-        "failover.");
+        "No main can be determined from the current state in logs. Trying to find the most up to date instance.");
     switch (TryFailover()) {
       case FailoverStatus::SUCCESS: {
-        spdlog::trace("Failover successful after failing to promote main instance.");
-        std::ranges::for_each(raft_state_data_instances, [this](auto &&data_instance) {
-          auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
-                                                        instance_health_check_frequency_sec_);
+        for (auto &instance : repl_instances_) {
           instance.StartStateCheck();
-        });
-
-        spdlog::trace("Exiting ReconcileClusterState. Cluster is in healthy state.");
+        }
+        spdlog::trace("Exiting ReconcileClusterState_. Cluster is in healthy state.");
         return ReconcileClusterStateStatus::SUCCESS;
       };
       case FailoverStatus::NO_INSTANCE_ALIVE: {
@@ -469,13 +475,9 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
         return ReconcileClusterStateStatus::FAIL;
       };
     };
-  } else {
-    MG_ASSERT(
-        false,
-        "Found more than one current main. System cannot operate under this assumption, please contact the support.");
   }
-  // Shouldn't execute
-  return ReconcileClusterStateStatus::SUCCESS;
+
+  LOG_FATAL("Unreachable code reached when leadership is changed. Num of mains: {}", num_mains);
 }
 
 auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
@@ -535,11 +537,13 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main_name)
     -> SetInstanceToMainCoordinatorStatus {
-  spdlog::trace("Acquiring lock to set replication instance to main in thread {}.", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
 
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+  // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called `DEMOTE
+  // instance <instance_name>`. The cluster is without the main instance which will forbid ReconcileClusterState from
+  // succeeding.
+  if (status.load(std::memory_order_acquire) == CoordinatorStatus::FOLLOWER) {
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
@@ -547,7 +551,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
   }
 
-  auto const is_new_main = [new_main_name](auto &&instance) { return instance.InstanceName() == new_main_name; };
+  auto const is_new_main = [new_main_name](auto const &instance) { return instance.InstanceName() == new_main_name; };
   auto new_main = std::ranges::find_if(repl_instances_, is_new_main);
 
   if (new_main == repl_instances_.end()) {
@@ -557,13 +561,11 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 
   auto const new_main_uuid = utils::UUID{};
 
-  auto const failed_to_swap = [&new_main_uuid](auto &&instance) {
-    return !instance.SendSwapAndUpdateUUID(new_main_uuid);
-  };
-
-  if (std::ranges::any_of(repl_instances_ | ranges::views::filter(std::not_fn(is_new_main)), failed_to_swap)) {
-    spdlog::error("Failed to swap uuid for all currently alive instances.");
-    return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
+  for (auto const &instance : repl_instances_) {
+    if (!is_new_main(instance)) {
+      // Even if swapping doesn't succeed here, we will do it again in the callbacks.
+      instance.SendSwapAndUpdateUUID(new_main_uuid);
+    }
   }
 
   auto repl_clients_info = repl_instances_ | ranges::views::filter(std::not_fn(is_new_main)) |
@@ -715,7 +717,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  spdlog::trace("Acquiring lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 

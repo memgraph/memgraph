@@ -377,13 +377,6 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph gql-behave
 
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v4
-        with:
-          name: "GQL Behave Status-${{ env.OS }}"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
 
       - name: Run unit tests
         run: |

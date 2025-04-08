@@ -40,6 +40,11 @@
     "Number of times ScanAllByEdgeTypePropertyValueOperator operator was used.")                                       \
   M(ScanAllByEdgeTypePropertyRangeOperator, Operator,                                                                  \
     "Number of times ScanAllByEdgeTypePropertyRangeOperator operator was used.")                                       \
+  M(ScanAllByEdgePropertyOperator, Operator, "Number of times ScanAllByEdgePropertyOperator operator was used.")       \
+  M(ScanAllByEdgePropertyValueOperator, Operator,                                                                      \
+    "Number of times ScanAllByEdgePropertyValueOperator operator was used.")                                           \
+  M(ScanAllByEdgePropertyRangeOperator, Operator,                                                                      \
+    "Number of times ScanAllByEdgePropertyRangeOperator operator was used.")                                           \
   M(ScanAllByEdgeIdOperator, Operator, "Number of times ScanAllByEdgeIdOperator operator was used.")                   \
   M(ScanAllByPointDistanceOperator, Operator, "Number of times ScanAllByPointDistanceOperator operator was used.")     \
   M(ScanAllByPointWithinbboxOperator, Operator, "Number of times ScanAllByPointWithinbboxOperator operator was used.") \
