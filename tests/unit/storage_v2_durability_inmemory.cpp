@@ -9,6 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// NOTE: This test takes a long time. It would be impossible to run it on all configuration permutations.
+// Tests are mixed with various configurations, so we can check as many configurations as possible.
+
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
@@ -1168,7 +1171,9 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_on_exit = true,
+                       .allow_parallel_snapshot_creation = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}}};
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
         memgraph::storage::ReplicationStateRootPath(config)};
@@ -1264,6 +1269,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
                 .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                 .snapshot_interval = snapshot_interval,
                 .snapshot_retention_count = 10,  // We don't anticipate that we make this many
+                .allow_parallel_snapshot_creation = true,
             },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
@@ -1509,7 +1515,12 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_on_exit = true,
+                .allow_parallel_snapshot_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -1632,7 +1643,12 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_on_exit = true,
+                .allow_parallel_snapshot_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = false}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -1675,7 +1691,12 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_on_exit = true,
+                .allow_parallel_snapshot_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = true}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -2854,11 +2875,14 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   {
     memgraph::storage::Config config{
 
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode =
-                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
-                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
+                .wal_file_flush_every_n_tx = kFlushWalEvery,
+                .allow_parallel_snapshot_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -2974,7 +2998,12 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_on_exit = true,
+                .allow_parallel_snapshot_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -3208,10 +3237,13 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Create unrelated snapshot and WALs.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode =
-                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)}},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)},
+                .allow_parallel_snapshot_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -3371,12 +3403,16 @@ TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
   // Create wals.
   {
     memgraph::storage::Config config{
-        .durability = {.storage_directory = storage_directory,
-                       .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
-                       .snapshot_on_exit = false,
-                       .items_per_batch = 13,
-                       .allow_parallel_schema_creation = true},
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                .snapshot_on_exit = false,
+                .items_per_batch = 13,
+                .allow_parallel_snapshot_creation = true,
+                .allow_parallel_schema_creation = true,
+            },
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{

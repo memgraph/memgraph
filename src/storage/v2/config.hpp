@@ -124,9 +124,11 @@ struct Config {
     bool restore_replication_state_on_startup{false};  // PER INSTANCE
 
     uint64_t items_per_batch{1'000'000};  // PER DATABASE
+    uint64_t snapshot_thread_count{8};    // PER INSTANCE SYSTEM FLAG
     uint64_t recovery_thread_count{8};    // PER INSTANCE SYSTEM FLAG
 
-    bool allow_parallel_schema_creation{false};  // PER DATABASE
+    bool allow_parallel_snapshot_creation{false};  // PER DATABASE
+    bool allow_parallel_schema_creation{false};    // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -111,6 +111,16 @@ DEFINE_VALIDATED_bool(
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_parallel_schema_recovery, false,
             "Controls whether the indices and constraints creation can be done in a multithreaded fashion.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_parallel_snapshot_creation, false,
+            "If true, snapshots will be created using --storage-snapshot-thread-count number of treads.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_snapshot_thread_count,
+              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+                       memgraph::storage::Config::Durability().snapshot_thread_count),
+              "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
