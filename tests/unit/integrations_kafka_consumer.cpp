@@ -250,7 +250,6 @@ TEST_F(ConsumerTest, BatchSize) {
       // Full batch, timeout isn't hit
       EXPECT_LE(actual_diff, kBatchInterval);
     } else {
-      // Difference between two batches should be at least one batch interval
       EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
       EXPECT_GE(kBatchInterval.count() * 1.5, actual_diff.count());
     }
