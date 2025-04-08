@@ -18,7 +18,7 @@ def list_build_files(date: int) -> List[str]:
         list of package s3 keys for this date
     """
     p = subprocess.run(
-        ["aws","s3","ls",f"s3://deps.memgraph.io/daily-builds/memgraph/{date}/","--recursive"],
+        ["aws","s3","ls",f"s3://deps.memgraph.io/daily-build/memgraph/{date}/","--recursive"],
         capture_output=True,
         text=True
     )
