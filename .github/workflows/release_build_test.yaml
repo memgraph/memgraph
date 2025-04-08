@@ -203,7 +203,7 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build/${{ needs.CurrentDateJob.outputs.current_date }}"
+      s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
@@ -232,7 +232,7 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build/${{ needs.CurrentDateJob.outputs.current_date }}"
+      s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
 
