@@ -5695,7 +5695,6 @@ class CallProcedureCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
-  size_t result_signature_size_{0};
   bool stream_exhausted{true};
   bool call_initializer{false};
   std::optional<std::function<void()>> cleanup_{std::nullopt};
@@ -5728,11 +5727,13 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
+    // Holds the module lock during the pull
     auto module = std::shared_ptr<procedure::Module>{};
     mgp_proc const *proc = nullptr;
 
     while (result_row_it_ == result_.rows.end()) {
       if (!module) {
+        // TODO: Ideally we don't want to FindProcedure for every pull
         auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
         if (!maybe_found) {
           throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
@@ -5747,6 +5748,8 @@ class CallProcedureCursor : public Cursor {
                                       self_->procedure_name_, get_proc_type_str(self_->is_write_),
                                       get_proc_type_str(proc->info.is_write));
         }
+        result_.signature = &proc->results_metadata;
+        result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
       }
       if (!proc->info.is_batched) {
         stream_exhausted = true;
@@ -5775,10 +5778,6 @@ class CallProcedureCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_.signature = &proc->results_metadata;
-      result_.lock_on_module = true;
-      result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
-
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
@@ -5789,11 +5788,6 @@ class CallProcedureCursor : public Cursor {
 
       if (call_initializer) call_initializer = false;
 
-      // Reset result_.signature to nullptr, because outside of this scope we
-      // will no longer hold a lock on the `module`. If someone were to reload
-      // it, the pointer would be invalid.
-      result_signature_size_ = result_.signature->size();
-      result_.lock_on_module = false;
       if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
@@ -5806,27 +5800,18 @@ class CallProcedureCursor : public Cursor {
       stream_exhausted = result_row_it_ == result_.rows.end();
     }
 
+    // Instead of checking if procedure yielded all required values
+    // it is filled with null values on construction. This came as a
+    // direct consequence of changing from mgp_result rows from map to vector
+    // PRO: this is a lot faster
+    // CON: doesn't throw anymore if not all values are present
     auto &values = result_row_it_->values;
-    // Check that the row has all fields as required by the result signature.
-    // C API guarantees that it's impossible to set fields which are not part of
-    // the result record, but it does not gurantee that some may be missing. See
-    // `mgp_result_record_insert`.
-    // TODO Ivan: check if procedure didn't yield all results
-    if (values.size() != result_signature_size_) {
-      throw QueryRuntimeException(
-          "Procedure '{}' did not yield all fields as required by its "
-          "signature.",
-          self_->procedure_name_);
-    }
-    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
-      std::string_view field_name(self_->result_fields_[i]);
-      auto metadata_it = result_.signature->find(field_name);
-      MG_ASSERT(metadata_it != result_.signature->end());
-
-      frame[self_->result_symbols_[i]] = std::move(values[metadata_it->second.id]);
+    int iterator_index = 0;
+    for (auto &[field_name, metadata] : *result_row_it_->signature) {
+      frame[self_->result_symbols_[iterator_index]] = std::move(values[metadata.id]);
       if (context.frame_change_collector &&
-          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
-        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
+          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[iterator_index].name())) {
+        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[iterator_index].name());
       }
     }
     ++result_row_it_;

@@ -607,30 +607,13 @@ struct mgp_result_record {
 struct mgp_result {
   explicit mgp_result(const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *signature,
                       memgraph::utils::MemoryResource *mem)
-      : signature(signature), rows(mem), lock_on_module(true) {}
-
-  void SetSignature(const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *s, bool lock) {
-    signature = s;
-    lock_on_module = lock;
-    // at one point signature will get set to nullptr due to
-    // releasing the lock on the module
-    // but we still need to field_to_id map to insert results correctly
-    // if (signature) {
-    //   // mg.procedures() don't have signature, so we need to check to not crash
-    //   field_to_id.clear();
-    //   int id = 0;
-    //   for (const auto &[field, pair] : *signature) {
-    //     field_to_id.emplace(field, std::make_pair(pair.first, id++));
-    //   }
-    // }
-  }
+      : signature(signature), rows(mem) {}
 
   /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
   bool is_transactional = true;
-  bool lock_on_module = false;
 };
 
 struct mgp_func_result {
