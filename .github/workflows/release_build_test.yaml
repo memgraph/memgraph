@@ -239,6 +239,11 @@ jobs:
     needs: [CurrentDateJob,TestIndividual,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
