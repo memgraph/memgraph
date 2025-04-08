@@ -112,7 +112,7 @@ def main() -> None:
 
     # build the payload dict, print the JSON dump
     payload = {
-        "event_type": "daily-build-update",
+        "event_type": "trigger_update_index",
         "client_payload": {
             "date": date,
             "tests": tests,
