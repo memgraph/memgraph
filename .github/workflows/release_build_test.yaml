@@ -257,7 +257,7 @@ jobs:
       
       - name: Trigger Daily Builds Page Update
         env: 
-          GITHUB_TOKEN: ${{ secrets.PAT }}
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           echo "Payload: ${{ env.BUILD_TEST_RESULTS }}"
           # Send the dispatch request
