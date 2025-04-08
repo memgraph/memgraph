@@ -208,26 +208,55 @@ struct MetadataDelta {
       using enum memgraph::storage::MetadataDelta::Action;
       case LABEL_INDEX_CREATE:
       case LABEL_INDEX_DROP:
-      case LABEL_INDEX_STATS_SET:
-      case LABEL_INDEX_STATS_CLEAR:
       case LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      case Action::EDGE_INDEX_CREATE:
-      case Action::EDGE_INDEX_DROP:
-      case Action::EDGE_PROPERTY_INDEX_CREATE:
-      case Action::EDGE_PROPERTY_INDEX_DROP:
-      case Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
-      case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP:
-      case EXISTENCE_CONSTRAINT_CREATE:
-      case EXISTENCE_CONSTRAINT_DROP:
-      case TYPE_CONSTRAINT_CREATE:
-      case TYPE_CONSTRAINT_DROP:
-      case ENUM_CREATE:
-      case ENUM_ALTER_ADD:
-      case ENUM_ALTER_UPDATE:
-      case POINT_INDEX_CREATE:
-      case POINT_INDEX_DROP: {
+      case LABEL_INDEX_STATS_CLEAR: {
+        std::destroy_at(&label);
         break;
       }
+      case LABEL_INDEX_STATS_SET: {
+        std::destroy_at(&label_stats);
+        break;
+      }
+      case Action::EDGE_INDEX_CREATE:
+      case Action::EDGE_INDEX_DROP: {
+        std::destroy_at(&edge_type);
+        break;
+      }
+      case Action::EDGE_PROPERTY_INDEX_CREATE:
+      case Action::EDGE_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&edge_type_property);
+        break;
+      }
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&edge_property);
+        break;
+      }
+      case EXISTENCE_CONSTRAINT_CREATE:
+      case EXISTENCE_CONSTRAINT_DROP:
+      case POINT_INDEX_CREATE:
+      case POINT_INDEX_DROP: {
+        std::destroy_at(&label_property);
+        break;
+      }
+      case TYPE_CONSTRAINT_CREATE:
+      case TYPE_CONSTRAINT_DROP: {
+        std::destroy_at(&label_property_type);
+        break;
+      }
+      case ENUM_CREATE: {
+        std::destroy_at(&enum_create_info);
+        break;
+      }
+      case ENUM_ALTER_ADD: {
+        std::destroy_at(&enum_alter_add_info);
+        break;
+      }
+      case ENUM_ALTER_UPDATE: {
+        std::destroy_at(&enum_alter_update_info);
+        break;
+      }
+
       case LABEL_PROPERTIES_INDEX_CREATE:
       case LABEL_PROPERTIES_INDEX_DROP: {
         std::destroy_at(&label_ordered_properties);
