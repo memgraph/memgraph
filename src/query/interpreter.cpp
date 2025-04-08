@@ -4457,6 +4457,13 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       results.back().emplace_back(metadata_tv);
     }
   }
+
+  std::sort(results.begin(), results.end(), [](const auto &a, const auto &b) {
+    auto id_a = std::stoull(a[1].ValueString());
+    auto id_b = std::stoull(b[1].ValueString());
+    return id_a < id_b;
+  });
+
   return results;
 }
 
