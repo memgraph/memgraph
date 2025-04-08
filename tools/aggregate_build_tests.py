@@ -114,9 +114,13 @@ def main() -> None:
     payload = {
         "event_type": "daily-build-update",
         "client_payload": {
-            "date": date,
-            "tests": tests,
-            "packages": packages
+            "table": "memgraph",
+            "limit": 42,
+            "build_data": {
+                "date": date,
+                "tests": tests,
+                "packages": packages
+            }
         }
     }
     payload = json.dumps(payload)
