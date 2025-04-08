@@ -29,8 +29,10 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -79,6 +81,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(EDGE_INDEX_DROP);
     add_case(EDGE_PROPERTY_INDEX_CREATE);
     add_case(EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
@@ -1445,6 +1449,24 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
+    PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
+  return {};
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1495,6 +1517,24 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
+    PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  if (!mem_edge_property_index->DropIndex(property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
@@ -1706,6 +1746,30 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
       static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
   return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, lower_bound, upper_bound, view,
                                                            storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(
+      mem_edge_property_index->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(mem_edge_property_index->Edges(property, utils::MakeBoundInclusive(value),
+                                                      utils::MakeBoundInclusive(value), view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
+                                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                       View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(
+      mem_edge_property_index->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
@@ -2298,6 +2362,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
+      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_property.property);
+        });
+        break;
+      }
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
@@ -2540,7 +2611,11 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
-    return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+    return CreateSnapshotError::DisabledForReplica;
+  }
+
+  if (abort_snapshot_.load(std::memory_order_acquire)) {
+    return CreateSnapshotError::AbortSnapshot;
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
@@ -2553,17 +2628,22 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
-  // TODO: Think about role check here
-  // What will happen if MAIN is being demoted at this point?
-
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
-  durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
+
+  // At the moment, the only way in which create snapshot can fail is if it got aborted
+  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
+                                  &vertices_, &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_,
+                                  &abort_snapshot_)) {
+    return CreateSnapshotError::AbortSnapshot;
+  }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
+  abort_snapshot_.store(false, std::memory_order_release);
+
   return {};
 }
 
@@ -2785,6 +2865,9 @@ void InMemoryStorage::CreateSnapshotHandler(
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
           break;
+        case CreateSnapshotError::AbortSnapshot:
+          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
+          break;
       }
     }
   };
@@ -2915,13 +2998,19 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
   auto &vector_index = storage_->indices_.vector_index_;
 
-  return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
-          mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
-          text_index.ListIndices(),           point_index.ListIndices(),
+  return {mem_label_index->ListIndices(),
+          mem_label_property_index->ListIndices(),
+          mem_edge_type_index->ListIndices(),
+          mem_edge_type_property_index->ListIndices(),
+          mem_edge_property_index->ListIndices(),
+          text_index.ListIndices(),
+          point_index.ListIndices(),
           vector_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {

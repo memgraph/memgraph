@@ -39,6 +39,7 @@
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "flags/storage_access.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
@@ -112,10 +113,6 @@
 namespace r = ranges;
 namespace rv = ranges::views;
 
-namespace {
-constexpr std::chrono::milliseconds kAccessTimeout{1000};
-}  // namespace
-
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -140,9 +137,11 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
   auto &db_acc = *db_acc_;
   if (unique) {
-    db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+    db_transactional_accessor_ =
+        db_acc->UniqueAccess(override_isolation_level, std::chrono::seconds{FLAGS_storage_access_timeout_sec});
   } else {
-    db_transactional_accessor_ = db_acc->Access(override_isolation_level, /*allow timeout*/ kAccessTimeout);
+    db_transactional_accessor_ =
+        db_acc->Access(override_isolation_level, std::chrono::seconds{FLAGS_storage_access_timeout_sec});
   }
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
 
@@ -3159,12 +3158,18 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                                                index_query->edge_type_.name, ix_properties.front().name);
       }
 
-      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
+
+        const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
+          if (global_index) {
+            if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+            return dba->CreateGlobalEdgeIndex(properties[0]);
+          }
+          return properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
+        });
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3178,12 +3183,18 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case EdgeIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
-      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
+
+        const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
+          if (global_index) {
+            if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+            return dba->DropGlobalEdgeIndex(properties[0]);
+          }
+          return properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
+        });
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3504,6 +3515,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
           if (!ttl.Enabled()) {
             (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+            if (db_acc->config().salient.items.properties_on_edges) {
+              (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
+            }
             ttl.Enable();
             std::invoke(invalidate_plan_cache);
           }
@@ -3523,6 +3537,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
         (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
+        if (db_acc->config().salient.items.properties_on_edges) {
+          (void)dba->DropGlobalEdgeIndex(prop);  // Only way to fail is to try to drop a non-existant index
+        }
         const utils::OnScopeExit invalidator(invalidate_plan_cache);
         db_acc->ttl().Disable();
         notification.code = NotificationCode::DISABLE_TTL;
@@ -4269,6 +4286,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
             case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
               spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
               break;
+            case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
+              throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
           }
         }
         return QueryHandlerResult::COMMIT;
@@ -4547,6 +4566,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view label_property_index_mark{"label+property"};
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
+        const std::string_view edge_property_index_mark{"edge-property"};
         const std::string_view text_index_mark{"text"};
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"vector"};
@@ -4572,6 +4592,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(edge_type_property_index_mark), TypedValue(storage->EdgeTypeToName(item.first)),
                              TypedValue(storage->PropertyToName(item.second)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item.first, item.second)))});
+        }
+        for (const auto &item : info.edge_property) {
+          results.push_back({TypedValue(edge_property_index_mark), TypedValue(),
+                             TypedValue(storage->PropertyToName(item)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
         }
         for (const auto &[index_name, label] : info.text_indices) {
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),

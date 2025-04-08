@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
@@ -20,16 +20,29 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/counter.hpp"
 
+namespace {
+
+using Delta = memgraph::storage::Delta;
+using Vertex = memgraph::storage::Vertex;
+using Edge = memgraph::storage::Edge;
+using EdgeRef = memgraph::storage::EdgeRef;
+using EdgeTypeId = memgraph::storage::EdgeTypeId;
+using PropertyId = memgraph::storage::PropertyId;
+using PropertyValue = memgraph::storage::PropertyValue;
+using Transaction = memgraph::storage::Transaction;
+using View = memgraph::storage::View;
+
+}  // namespace
+
 namespace memgraph::storage {
 
-bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
+bool InMemoryEdgePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
 
-bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
+bool InMemoryEdgePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId property,
-                                                utils::SkipList<Vertex>::Accessor vertices,
-                                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto [it, emplaced] = index_.try_emplace({edge_type, property});
+bool InMemoryEdgePropertyIndex::CreateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto [it, emplaced] = index_.try_emplace(property);
   if (!emplaced) {
     return false;
   }
@@ -44,15 +57,12 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
 
       for (auto &edge : from_vertex.out_edges) {
         const auto type = std::get<kEdgeTypeIdPos>(edge);
-        if (type != edge_type) {
-          continue;
-        }
         auto *to_vertex = std::get<kVertexPos>(edge);
         if (to_vertex->deleted) {
           continue;
         }
         auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
-        edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
+        edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, type, 0});
         if (snapshot_info) {
           snapshot_info->Update(UpdateType::EDGES);
         }
@@ -67,70 +77,63 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
   return true;
 }
 
-bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property) {
-  return index_.erase({edge_type, property}) > 0;
-}
+bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property) { return index_.erase(property) > 0; }
 
-bool InMemoryEdgeTypePropertyIndex::IndexExists(EdgeTypeId edge_type, PropertyId property) const {
-  return index_.find({edge_type, property}) != index_.end();
-}
+bool InMemoryEdgePropertyIndex::IndexExists(PropertyId property) const { return index_.find(property) != index_.end(); }
 
-std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::ListIndices() const {
-  std::vector<std::pair<EdgeTypeId, PropertyId>> ret;
+std::vector<PropertyId> InMemoryEdgePropertyIndex::ListIndices() const {
+  std::vector<PropertyId> ret;
   ret.reserve(index_.size());
   for (const auto &item : index_) {
-    ret.emplace_back(item.first.first, item.first.second);
+    ret.emplace_back(item.first);
   }
   return ret;
 }
 
-void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp,
-                                                          std::stop_token token) {
+void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   EdgePropertyIndexRemoveObsoleteEntries(index_, oldest_active_start_timestamp, token);
 }
 
-void InMemoryEdgeTypePropertyIndex::AbortEntries(
-    std::pair<EdgeTypeId, PropertyId> edge_type_property,
+void InMemoryEdgePropertyIndex::AbortEntries(
+    std::pair<EdgeTypeId, PropertyId> edge_property,
     std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
     uint64_t exact_start_timestamp) {
-  auto it = index_.find(edge_type_property);
+  auto it = index_.find(edge_property.second);
   if (it == index_.end()) {
     return;
   }
 
   auto acc = it->second.access();
   for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
-    acc.remove(Entry{value, from_vertex, to_vertex, edge, exact_start_timestamp});
+    acc.remove(Entry{value, from_vertex, to_vertex, edge, edge_property.first, exact_start_timestamp});
   }
 }
 
-void InMemoryEdgeTypePropertyIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
-                                                        EdgeTypeId edge_type, PropertyId property, PropertyValue value,
-                                                        uint64_t timestamp) {
+void InMemoryEdgePropertyIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                                    EdgeTypeId edge_type, PropertyId property, PropertyValue value,
+                                                    uint64_t timestamp) {
   if (value.IsNull()) {
     return;
   }
 
-  auto it = index_.find({edge_type, property});
+  auto it = index_.find(property);
   if (it == index_.end()) return;
 
   auto acc = it->second.access();
-  acc.insert({value, from_vertex, to_vertex, edge, timestamp});
+  acc.insert({value, from_vertex, to_vertex, edge, edge_type, timestamp});
 }
 
-uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const {
-  if (auto it = index_.find({edge_type, property}); it != index_.end()) {
+uint64_t InMemoryEdgePropertyIndex::ApproximateEdgeCount(PropertyId property) const {
+  if (auto it = index_.find(property); it != index_.end()) {
     return it->second.size();
   }
 
   return 0U;
 }
 
-uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                                             const PropertyValue &value) const {
-  auto it = index_.find({edge_type, property});
-  MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
-            property.AsUint());
+uint64_t InMemoryEdgePropertyIndex::ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const {
+  auto it = index_.find(property);
+  MG_ASSERT(it != index_.end(), "Index for edge property {} doesn't exist", property.AsUint());
   auto acc = it->second.access();
   if (!value.IsNull()) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -146,43 +149,40 @@ uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_typ
       utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
 }
 
-uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+uint64_t InMemoryEdgePropertyIndex::ApproximateEdgeCount(
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = index_.find({edge_type, property});
-  MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
-            property.AsUint());
+  auto it = index_.find(property);
+  MG_ASSERT(it != index_.end(), "Index for edge property {} doesn't exist", property.AsUint());
   auto acc = it->second.access();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
-                                                             Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                             PropertyId property, const PropertyValue &value,
-                                                             const Transaction &tx) {
-  auto it = index_.find({edge_type, property});
+void InMemoryEdgePropertyIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/, Vertex *new_from,
+                                                         Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                                         PropertyId property, const PropertyValue &value,
+                                                         const Transaction &tx) {
+  auto it = index_.find(property);
   if (it == index_.end()) {
     return;
   }
 
   auto acc = it->second.access();
-  acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
+  acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, edge_type, tx.start_timestamp});
 }
 
-void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() { index_.clear(); }
+void InMemoryEdgePropertyIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                                  utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
-                                                  utils::SkipList<Edge>::ConstAccessor edge_accessor,
-                                                  EdgeTypeId edge_type, PropertyId property,
-                                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                  View view, Storage *storage, Transaction *transaction)
+InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                              utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                              utils::SkipList<Edge>::ConstAccessor edge_accessor, PropertyId property,
+                                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                                              Storage *storage, Transaction *transaction)
     : pin_accessor_edge_(std::move(edge_accessor)),
       pin_accessor_vertex_(std::move(vertex_accessor)),
       index_accessor_(std::move(index_accessor)),
-      edge_type_(edge_type),
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
@@ -218,8 +218,7 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Access
   }
 }
 
-InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
-                                                            utils::SkipList<Entry>::Iterator index_iterator)
+InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_(nullptr),
@@ -227,13 +226,13 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
   AdvanceUntilValid();
 }
 
-InMemoryEdgeTypePropertyIndex::Iterable::Iterator &InMemoryEdgeTypePropertyIndex::Iterable::Iterator::operator++() {
+InMemoryEdgePropertyIndex::Iterable::Iterator &InMemoryEdgePropertyIndex::Iterable::Iterator::operator++() {
   ++index_iterator_;
   AdvanceUntilValid();
   return *this;
 }
 
-void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
+void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
     if (index_iterator_->edge == current_edge_.ptr) {
       continue;
@@ -257,9 +256,9 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
     auto edge_ref = EdgeRef(index_iterator_->edge);
+    auto edge_type = index_iterator_->edge_type;
 
-    auto accessor =
-        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
+    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, self_->storage_, self_->transaction_};
     // TODO: Do we even need this since we performed CurrentVersionHasProperty?
     if (!accessor.IsVisible(self_->view_)) {
       continue;
@@ -271,25 +270,23 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-void InMemoryEdgeTypePropertyIndex::RunGC() {
+void InMemoryEdgePropertyIndex::RunGC() {
   for (auto &index_entry : index_) {
     index_entry.second.run_gc();
   }
 }
 
-InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(
-    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::Edges(
+    PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  auto it = index_.find({edge_type, property});
-  MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
-            property.AsUint());
+  auto it = index_.find(property);
+  MG_ASSERT(it != index_.end(), "Index for edge property {} doesn't exist", property.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
   return {it->second.access(),
           std::move(vertex_acc),
           std::move(edge_acc),
-          edge_type,
           property,
           lower_bound,
           upper_bound,

@@ -221,10 +221,6 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
-      });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
@@ -762,31 +758,6 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
   }
 }
 
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
-                                                   const std::optional<utils::UUID> &current_main_uuid,
-                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
-  storage::replication::TimestampReq req;
-  slk::Load(&req, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
-  if (!db_acc) {
-    const storage::replication::TimestampRes res{false, 0};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
-  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
-    const storage::replication::TimestampRes res{false, 0};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
-  // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
-  auto const *storage = db_acc->get()->storage();
-  const storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  rpc::SendFinalResponse(res, res_builder);
-}
-
 // The number of applied deltas also includes skipped deltas.
 std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
@@ -1161,6 +1132,20 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
                   .HasError()) {
             throw utils::BasicException("Failed to drop edge property index on :{}({}).", data.edge_type,
                                         data.property);
+          }
+        },
+        [&](WalEdgePropertyIndexCreate const &data) {
+          spdlog::trace("       Create global edge index on ({})", data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+            throw utils::BasicException("Failed to create global edge property index on ({}).", data.property);
+          }
+        },
+        [&](WalEdgePropertyIndexDrop const &data) {
+          spdlog::trace("       Drop global edge index on ({})", data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {
+            throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },
         [&](WalTextIndexCreate const &) {
