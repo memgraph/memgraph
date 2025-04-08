@@ -1241,8 +1241,6 @@ class FalkorDBDocker(BaseRunner):
                 DOCKER_NETWORK_NAME,
                 "--name",
                 self._container_name,
-                "-e",
-                "FALKOR_LOG_LEVEL=debug",
                 "-it",
                 "-v",
                 "falkordb_data:/data",
