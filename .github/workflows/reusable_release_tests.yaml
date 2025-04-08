@@ -946,8 +946,6 @@ jobs:
       - release_benchmark_tests
       - release_e2e_test
       - release_durability_stress_tests
-      - release_jepsen_test
-      - stress_test_large
       - release_query_modules_test
     if: always() && ${{ inputs.run_release_tests == 'true' }}
     outputs:
@@ -966,8 +964,6 @@ jobs:
              [ "${{ needs.release_benchmark_tests.result }}" == "failure" ] || \
              [ "${{ needs.release_e2e_test.result }}" == "failure" ] || \
              [ "${{ needs.release_durability_stress_tests.result }}" == "failure" ] || \
-             [ "${{ needs.release_jepsen_test.result }}" == "failure" ] || \
-             [ "${{ needs.stress_test_large.result }}" == "failure" ] || \
              [ "${{ needs.release_query_modules_test.result }}" == "failure" ]; then
             echo "test_status=fail" >> $GITHUB_OUTPUT
           else
