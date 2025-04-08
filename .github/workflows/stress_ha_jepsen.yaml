@@ -93,7 +93,7 @@ jobs:
           ./run.sh test \
           --binary ../../build/memgraph \
           --run-args "--workload hacreate --nodes-config resources/cluster.edn --time-limit 25200 --concurrency 6" \
-          --ignore-run-stdout-logs \s
+          --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
