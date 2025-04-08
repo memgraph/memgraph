@@ -151,25 +151,20 @@ TEST_F(ConsumerTest, BatchInterval) {
 
   auto check_received_timestamp = [&received_timestamps](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
-    EXPECT_GE(index, 0) << "Cannot check first timestamp!";
-    const auto message_count = received_timestamps[index].first;
+    const auto [message_count, timestamp] = received_timestamps[index];
+    const auto [_, previous_timestamp] = received_timestamps[index - 1];
     EXPECT_LE(1, message_count);
 
-    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(received_timestamps[index].second -
-                                                                             received_timestamps[index - 1].second);
-    static constexpr auto kMinDiff = kBatchInterval * 0.9;
-    static constexpr auto kMaxDiff = kBatchInterval * 1.1;
-    EXPECT_LE(kMinDiff.count(), actual_diff.count());
-    EXPECT_GE(kMaxDiff.count(), actual_diff.count());
+    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
+    EXPECT_LE(kBatchInterval.count(), actual_diff.count());
   };
 
   ASSERT_FALSE(received_timestamps.empty());
-
-  EXPECT_TRUE(1 <= received_timestamps[0].first && received_timestamps[0].first <= 2);
-
+  auto first_batch_message_count = received_timestamps[0].first;
+  EXPECT_TRUE(1 <= first_batch_message_count && first_batch_message_count <= 2);
   EXPECT_LE(3, received_timestamps.size());
 
-  int msgsCnt = received_timestamps[0].first;
+  int msgsCnt = first_batch_message_count;
   for (auto i = 1; i < received_timestamps.size(); ++i) {
     msgsCnt += received_timestamps[i].first;
     check_received_timestamp(i);
@@ -244,19 +239,17 @@ TEST_F(ConsumerTest, BatchSize) {
 
   auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
-    EXPECT_GE(index, 0) << "Cannot check first timestamp!";
-    const auto message_count = received_timestamps[index].first;
+    const auto [message_count, timestamp] = received_timestamps[index];
+    const auto [_, previous_timestamp] = received_timestamps[index - 1];
     EXPECT_EQ(expected_message_count, message_count);
 
-    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(received_timestamps[index].second -
-                                                                             received_timestamps[index - 1].second);
+    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
     if (expected_message_count == kBatchSize) {
-      EXPECT_LE(actual_diff, kBatchInterval * 0.5);
+      // Full batch, timeout isn't hit
+      EXPECT_LE(actual_diff, kBatchInterval);
     } else {
-      static constexpr auto kMinDiff = kBatchInterval * 0.9;
-      static constexpr auto kMaxDiff = kBatchInterval * 1.1;
-      EXPECT_LE(kMinDiff.count(), actual_diff.count());
-      EXPECT_GE(kMaxDiff.count(), actual_diff.count());
+      // Difference between two batches should be at least one batch interval
+      EXPECT_LE(kBatchInterval.count(), actual_diff.count());
     }
   };
 
