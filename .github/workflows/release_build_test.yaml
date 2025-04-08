@@ -260,16 +260,11 @@ jobs:
           echo "Package Date: $CURRENT_BUILD_DATE"
           echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
       - name: Trigger Daily Builds Page Update
         env: 
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
-          # Wrap the output into a valid JSON object.
-          payload=$(jq -n --argjson client_payload "${BUILD_TEST_RESULTS}" \
-                            '{ event_type: "daily-build-update", client_payload: $client_payload }')
+          payload="${BUILD_TEST_RESULTS}"
           echo "Payload: $payload"
           # Send the dispatch request
           curl -X POST \

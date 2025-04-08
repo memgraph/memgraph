@@ -64,7 +64,7 @@ def build_package_json(files: List[str]) -> dict:
         if "malloc" in file:
             arch = f"{arch}-malloc"
 
-        os = file.split("/")[2].replace(
+        os = file.split("/")[3].replace(
             "-malloc",""
         ).replace(
             "aarch64",""
@@ -104,7 +104,7 @@ def main() -> None:
     date = int(os.getenv("CURRENT_BUILD_DATE"))
 
     # TODO: add individual test results and URL to each one
-    tests = os.getenv("BUILD_TEST_RESULTS")
+    tests = os.getenv("TEST_INDIVIDUAL_RESULT")
 
     # collect packages part of the payload
     files = list_build_files(date)
@@ -112,7 +112,7 @@ def main() -> None:
 
     # build the payload dict, print the JSON dump
     payload = {
-        "event_type": "daily-build-update",
+        "event_type": "trigger_update_index",
         "client_payload": {
             "table": "memgraph",
             "limit": 42,
