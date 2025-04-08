@@ -210,7 +210,6 @@ struct MetadataDelta {
       case LABEL_INDEX_DROP:
       case LABEL_INDEX_STATS_SET:
       case LABEL_INDEX_STATS_CLEAR:
-      case LABEL_PROPERTY_INDEX_STATS_SET:
       case LABEL_PROPERTY_INDEX_STATS_CLEAR:
       case Action::EDGE_INDEX_CREATE:
       case Action::EDGE_INDEX_DROP:
@@ -232,6 +231,10 @@ struct MetadataDelta {
       case LABEL_PROPERTIES_INDEX_CREATE:
       case LABEL_PROPERTIES_INDEX_DROP: {
         std::destroy_at(&label_ordered_properties);
+        break;
+      }
+      case LABEL_PROPERTY_INDEX_STATS_SET: {
+        std::destroy_at(&label_property_stats);
         break;
       }
       case VECTOR_INDEX_CREATE: {
