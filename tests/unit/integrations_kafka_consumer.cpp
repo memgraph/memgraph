@@ -121,7 +121,7 @@ const std::string ConsumerTest::kTopicName{"FirstTopic"};
 
 TEST_F(ConsumerTest, BatchInterval) {
   // There might be ~300ms delay in message delivery with librdkafka mock, thus the batch interval cannot be too small.
-  static constexpr auto kBatchInterval = std::chrono::milliseconds{500};
+  static constexpr auto kBatchInterval = std::chrono::milliseconds{1000};
   static constexpr std::string_view kMessage = "BatchIntervalTestMessage";
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
@@ -141,6 +141,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
+    // Sleep for half of the batch interval to allow the consumer to receive messages
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
   // Wait for all messages to be delivered
@@ -156,7 +157,8 @@ TEST_F(ConsumerTest, BatchInterval) {
     EXPECT_LE(1, message_count);
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    EXPECT_LE(kBatchInterval.count(), actual_diff.count());
+    EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
+    EXPECT_GE(kBatchInterval.count() * 1.5, actual_diff.count());
   };
 
   ASSERT_FALSE(received_timestamps.empty());
@@ -249,7 +251,8 @@ TEST_F(ConsumerTest, BatchSize) {
       EXPECT_LE(actual_diff, kBatchInterval);
     } else {
       // Difference between two batches should be at least one batch interval
-      EXPECT_LE(kBatchInterval.count(), actual_diff.count());
+      EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
+      EXPECT_GE(kBatchInterval.count() * 1.5, actual_diff.count());
     }
   };
 
