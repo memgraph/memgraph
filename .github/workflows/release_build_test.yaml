@@ -40,6 +40,22 @@ on:
         default: false
 
 jobs:
+  # this job is used to get the current date at the time when the job is first triggered
+  # so that the daily build is sent to the right folder!
+  # (we may cross over midnight during build/test)
+  CurrentDateJob:
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true' }}
+    runs-on: [self-hosted]
+    outputs:
+      current_date: ${{ steps.set_date.outputs.current_date }}
+    steps:
+      - name: Get current date
+        id: set_date
+        run: |
+          current_date=$(date +'%Y%m%d')
+          echo "Current date is: $current_date"
+          echo "current_date=$current_date" >> $GITHUB_OUTPUT
+
   TestIndividual:
     if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
     uses: ./.github/workflows/reusable_release_tests.yaml
@@ -144,7 +160,7 @@ jobs:
 
   DailyPackageArtifact:
     if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
-    needs: [TestIndividual]
+    needs: [CurrentDateJob,TestIndividual]
     strategy:
       fail-fast: false
       matrix:
@@ -187,14 +203,14 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build"
+      s3_dest_dir: "daily-build/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
 
   DailyDockerArtifact:
     if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
-    needs: [TestIndividual]
+    needs: [CurrentDateJob,TestIndividual]
     strategy:
       fail-fast: false
       matrix:
@@ -216,13 +232,13 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "daily-build"
+      s3_dest_dir: "daily-build/${{ needs.CurrentDateJob.outputs.current_date }}"
       test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
 
   AggregateBuildTests:
     if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
-    needs: [TestIndividual,DailyPackageArtifact,DailyDockerArtifact]
+    needs: [CurrentDateJob,TestIndividual,DailyPackageArtifact,DailyDockerArtifact]
     runs-on: [self-hosted]
     steps:
       - name: Configure AWS Credentials
@@ -235,8 +251,10 @@ jobs:
       - name: Aggregate Test Results and Builds
         env:
           TEST_INDIVIDUAL_RESULT: ${{ needs.TestIndividual.outputs.test_status }}
+          CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
         run: |
           echo "TEST_INDIVIDUAL_RESULT: $TEST_INDIVIDUAL_RESULT"
+          echo "Package Date: $CURRENT_BUILD_DATE"
           echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
       
       - name: Trigger Daily Builds Page Update
@@ -248,5 +266,5 @@ jobs:
           curl -X POST \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/mattkjames7/test-page/dispatches \
+            https://api.github.com/repos/memgraph/daily-builds/dispatches \
             -d "${{ env.BUILD_TEST_RESULTS }}"    
