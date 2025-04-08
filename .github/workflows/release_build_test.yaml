@@ -259,10 +259,13 @@ jobs:
         env: 
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
-          echo "Payload: ${{ env.BUILD_TEST_RESULTS }}"
+          # Wrap the output into a valid JSON object.
+          payload=$(jq -n --argjson client_payload "${BUILD_TEST_RESULTS}" \
+                            '{ event_type: "daily-build-update", client_payload: $client_payload }')
+          echo "Payload: $payload"
           # Send the dispatch request
           curl -X POST \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
-            -d "${{ env.BUILD_TEST_RESULTS }}"    
+            -d "$payload"    

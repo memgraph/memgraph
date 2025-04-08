@@ -88,12 +88,15 @@ def main() -> None:
 
     The structure of the payload will be:
     {
-        "date": 20250405,
-        "tests": "pass",
-        "packages": {
-            "ubuntu-24.04": {
-                "arm64": "https://s3.eu-west-1.....",
-                "x86_64": "https://s3.eu-west-1....."
+        "event_type": "daily-build-update",
+        "client_payload": {    
+            "date": 20250405,
+            "tests": "pass",
+            "packages": {
+                "ubuntu-24.04": {
+                    "arm64": "https://s3.eu-west-1.....",
+                    "x86_64": "https://s3.eu-west-1....."
+                }
             }
         }
     }
@@ -109,9 +112,12 @@ def main() -> None:
 
     # build the payload dict, print the JSON dump
     payload = {
-        "date": date,
-        "tests": tests,
-        "packages": packages
+        "event_type": "daily-build-update",
+        "client_payload": {
+            "date": date,
+            "tests": tests,
+            "packages": packages
+        }
     }
     payload = json.dumps(payload)
     print(payload)
