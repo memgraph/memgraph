@@ -160,7 +160,7 @@ jobs:
 
   DailyPackageArtifact:
     if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
-    needs: [CurrentDateJob,TestIndividual]
+    needs: [CurrentDateJob]
     strategy:
       fail-fast: false
       matrix:
@@ -205,12 +205,11 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
 
   DailyDockerArtifact:
     if:  (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
-    needs: [CurrentDateJob,TestIndividual]
+    needs: [CurrentDateJob]
     strategy:
       fail-fast: false
       matrix:
@@ -233,7 +232,6 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "daily-build/memgraph/${{ needs.CurrentDateJob.outputs.current_date }}"
-      test_result: ${{ needs.TestIndividual.result }}
     secrets: inherit
 
   AggregateBuildTests:
