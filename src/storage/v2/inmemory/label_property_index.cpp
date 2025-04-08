@@ -207,9 +207,12 @@ size_t PropertyValueRange::hash() const noexcept {
   PropertyValue upper;
   if (maybe_lower) lower = maybe_lower->value();
   if (maybe_upper) upper = maybe_upper->value();
-  std::hash<PropertyValue> hash;
-  return memgraph::utils::HashCombine3<memgraph::storage::PropertyRangeType, size_t, size_t>{}(type_, hash(lower),
-                                                                                               hash(upper));
+  std::hash<PropertyValue> prop_value_hash;
+  std::size_t seed = 0;
+  boost::hash_combine(seed, static_cast<size_t>(type_));
+  boost::hash_combine(seed, prop_value_hash(lower));
+  boost::hash_combine(seed, prop_value_hash(upper));
+  return seed;
 }
 
 bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept {

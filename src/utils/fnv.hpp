@@ -77,25 +77,4 @@ struct HashCombine {
   }
 };
 
-/**
- * Like FNV hashing for a collection, just specialized for three elements to avoid
- * iteration overhead. @TODO Rather then keep adding overloads, we should just build
- * a proper variadic HashCombine taking a tuple of values and tuple of hashers.
- */
-template <typename TA, typename TB, typename TC, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>,
-          typename TCHash = std::hash<TC>>
-struct HashCombine3 {
-  size_t operator()(const TA &a, const TB &b, const TC &c) const {
-    static constexpr size_t fnv_prime = 1099511628211UL;
-    static constexpr size_t fnv_offset = 14695981039346656037UL;
-    size_t ret = fnv_offset;
-    ret ^= TAHash()(a);
-    ret *= fnv_prime;
-    ret ^= TBHash()(b);
-    ret *= fnv_prime;
-    ret ^= TCHash()(c);
-    return ret;
-  }
-};
-
 }  // namespace memgraph::utils

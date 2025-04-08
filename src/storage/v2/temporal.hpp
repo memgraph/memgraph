@@ -14,6 +14,7 @@
 #include <iosfwd>
 #include <string_view>
 
+#include <boost/functional/hash_fwd.hpp>
 #include "utils/fnv.hpp"
 #include "utils/temporal.hpp"
 
@@ -114,10 +115,11 @@ struct hash<memgraph::storage::TemporalData> {
 template <>
 struct hash<memgraph::storage::ZonedTemporalData> {
   size_t operator()(memgraph::storage::ZonedTemporalData const &temporal_data) const noexcept {
-    return memgraph::utils::HashCombine3<size_t, size_t, size_t>{}(
-        std::hash<memgraph::storage::ZonedTemporalType>{}(temporal_data.type),
-        std::hash<uint64_t>{}(temporal_data.microseconds.time_since_epoch().count()),
-        std::hash<memgraph::utils::Timezone>{}(temporal_data.timezone));
+    std::size_t seed = 0;
+    boost::hash_combine(seed, std::hash<memgraph::storage::ZonedTemporalType>{}(temporal_data.type));
+    boost::hash_combine(seed, std::hash<uint64_t>{}(temporal_data.microseconds.time_since_epoch().count()));
+    boost::hash_combine(seed, std::hash<memgraph::utils::Timezone>{}(temporal_data.timezone));
+    return seed;
   }
 };
 

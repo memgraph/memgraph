@@ -210,7 +210,11 @@ class VertexCountCache {
       auto props_hash = utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{};
       auto ranges_hash = utils::FnvCollection<std::vector<storage::PropertyValueRange>, storage::PropertyValueRange>{};
 
-      return utils::HashCombine3<size_t, size_t, size_t>{}(label_hash(label), props_hash(props), ranges_hash(ranges));
+      std::size_t seed = 0;
+      boost::hash_combine(seed, label_hash(label));
+      boost::hash_combine(seed, props_hash(props));
+      boost::hash_combine(seed, ranges_hash(ranges));
+      return seed;
     }
   };
 
