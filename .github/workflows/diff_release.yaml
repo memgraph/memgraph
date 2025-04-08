@@ -9,8 +9,8 @@ on:
         default: 'amd'
       os:
         type: string
-        description: "Target os. Default value is debian-12."
-        default: 'debian-12'
+        description: "Target os. Default value is ubuntu-24.04."
+        default: 'ubuntu-24.04'
       toolchain:
         type: string
         description: "Toolchain version (v4, v5, v6). Default value is v6."
