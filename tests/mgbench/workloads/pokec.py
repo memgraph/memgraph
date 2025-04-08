@@ -418,4 +418,4 @@ class Pokec(Workload):
     # MAGE benchmarks
 
     def benchmark__mage__static_pagerank_analytical(self):
-        return "CALL pagerank.get(100, 0.85, 0.00001, 1) YIELD node, rank RETURN node, rank LIMIT 1;"
+        return ("CALL pagerank.get(100, 0.85, 0.00001, 1) YIELD node, rank RETURN node, rank LIMIT 1;", {})
