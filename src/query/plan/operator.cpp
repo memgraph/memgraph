@@ -5813,6 +5813,7 @@ class CallProcedureCursor : public Cursor {
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[iterator_index].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[iterator_index].name());
       }
+      iterator_index++;
     }
     ++result_row_it_;
     if (!result_.is_transactional) {
