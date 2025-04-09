@@ -5868,7 +5868,7 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
                             std::optional<utils::pmr::string> &nullif) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
-  utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
+  TypedValue::TMap m{mem};
   for (auto i = 0; i < row.size(); ++i) {
     if (!nullif.has_value() || row[i] != nullif.value()) {
       m.emplace(std::move(header[i]), std::move(row[i]));
