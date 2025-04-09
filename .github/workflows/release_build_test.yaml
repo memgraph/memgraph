@@ -82,7 +82,9 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
-    if: github.ref_type == 'tag'
+    if: >
+      github.ref_type == 'tag' &&
+      !contains(github.event.head_commit.message, '[skip package]')
     needs: [TestIndividual]
     strategy:
       fail-fast: false
@@ -131,7 +133,9 @@ jobs:
     secrets: inherit
 
   DockerArtifact:
-    if: github.ref_type == 'tag'
+    if: >
+      github.ref_type == 'tag' &&
+      !contains(github.event.head_commit.message, '[skip package]')
     needs: [TestIndividual]
     strategy:
       fail-fast: false
