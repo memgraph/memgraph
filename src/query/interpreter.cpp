@@ -3579,7 +3579,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(label, std::vector{prop});  // Only way to fail is to try to create an already existant index
+            (void)dba->CreateIndex(
+                label, std::vector{prop});  // Only way to fail is to try to create an already existant index
             if (db_acc->config().salient.items.properties_on_edges) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }
@@ -4696,7 +4697,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             return label_1 < label_2;
           }
 
-          return record_1[2].ValueString() < record_2[2].ValueString();
+          // NOTE: not all "property" are strings, since composite indices it could be a list of strings
+          if (record_1[2].type() == TypedValue::Type::String && record_2[2].type() == TypedValue::Type::String) {
+            return record_1[2].UnsafeValueString() < record_2[2].UnsafeValueString();
+          } else if (record_1[2].type() == TypedValue::Type::List && record_2[2].type() == TypedValue::Type::List) {
+            auto as_string = [](TypedValue const &v) -> auto const & { return v.ValueString(); };
+            return std::ranges::lexicographical_compare(record_1[2].UnsafeValueList(), record_2[2].UnsafeValueList(),
+                                                        std::ranges::less{}, as_string, as_string);
+          } else {
+            return record_1[2].type() < record_2[2].type();
+          }
         });
 
         return std::pair{results, QueryHandlerResult::COMMIT};
