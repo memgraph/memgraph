@@ -29,16 +29,18 @@ def list_build_files(date: int) -> List[str]:
 
     return files
 
-def build_package_json(files: List[str]) -> dict:
+def build_package_json(files: List[str],return_url: bool = True) -> dict:
     """
     Extracts the OS and CPU architecture and builds the dict/json used by the
     daily-builds workflow
 
-    Input
-    =====
+    Inputs
+    ======
     files: List[str]
         list of s3 keys
-
+    return_url: bool
+        If True, the URL is returned, otherwise the s3 key
+        
     Returns
     =======
     out: dict
@@ -52,7 +54,13 @@ def build_package_json(files: List[str]) -> dict:
     """
     out = {}
     for file in files:
-        url = quote(f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{file}")
+        if return_url:
+            url = quote(
+                f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{file}",
+                safe=":/"
+            )
+        else:
+            url = file
 
         if "aarch64" in file:
             arch = "arm64"
@@ -82,6 +90,34 @@ def build_package_json(files: List[str]) -> dict:
     return out
 
 
+def list_daily_release_packages(date: int, return_url: bool = True) -> dict:
+    """
+    returns dict containing all packages for a specific date
+
+    Inputs
+    ======
+    date: int
+        Date in the format yyyymmdd
+    return_url: bool
+        If True, the URL is returned, otherwise the s3 key
+        
+    Returns
+    =======
+    out: dict
+        dictionary of the format:
+        {
+            "ubuntu-24.04: {
+                "x86_64": "https://.....",
+                "arm64": "https://....."
+            }
+        }    
+    """
+
+    files = list_build_files(date)
+    packages = build_package_json(files,return_url)
+
+    return packages
+
 def main() -> None:
     """
     Collect BUILD_TEST_RESULTS, CURRENT_BUILD_DATE, s3 keys of packages and
@@ -108,8 +144,7 @@ def main() -> None:
     tests = os.getenv("TEST_INDIVIDUAL_RESULT")
 
     # collect packages part of the payload
-    files = list_build_files(date)
-    packages = build_package_json(files)
+    packages = list_daily_release_packages(date)
 
     # build the payload dict, print the JSON dump
     payload = {
