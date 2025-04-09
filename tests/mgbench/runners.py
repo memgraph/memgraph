@@ -1225,13 +1225,13 @@ class FalkorDBDocker(BaseRunner):
         self._bolt_port = 7687
         self._container_name = "falkordb_benchmark"
         self._image_name = "falkordb/falkordb"
-        self._image_version = "latest"
+        self._image_version = "v4.8.5"
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
 
     def start_db_init(self, message):
-        log.init("Starting FalkorDB for import...")
+        log.init("Starting FalkorDB for import (init)...")
         try:
             command = [
                 "docker",
@@ -1242,8 +1242,6 @@ class FalkorDBDocker(BaseRunner):
                 "--name",
                 self._container_name,
                 "-it",
-                "-v",
-                "falkordb_data:/data",
                 "-p",
                 f"{self._falkordb_port}:{self._falkordb_port}",
                 "-p",
@@ -1271,7 +1269,7 @@ class FalkorDBDocker(BaseRunner):
         log.log("Database started.")
 
     def stop_db_init(self, message):
-        log.init("Stopping database...")
+        log.init("Stopping database (init)...")
         usage = self._get_cpu_memory_usage()
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
@@ -1344,5 +1342,5 @@ class FalkorDBDocker(BaseRunner):
 
     def _run_command(self, command):
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        time.sleep(0.2)
+        time.sleep(3)
         return ret
