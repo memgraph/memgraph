@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,8 @@
 #include "utils/math.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/spin_lock.hpp"
+
+#include "boost/container/detail/pair.hpp"
 
 namespace memgraph::utils {
 
@@ -192,6 +194,48 @@ class Allocator {
   void construct(std::pair<T1, T2> *p, std::pair<U, V> &&xy) {
     construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(xy.first)),
               std::forward_as_tuple(std::forward<V>(xy.second)));
+  }
+
+  // To ensure pair & doesn't use the generic overload, here is explicitly a non-const ref overload
+  template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1, T2> *p, std::pair<U, V> &xy) {
+    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
+  }
+
+  template <class T1, class T2, class... Args1, class... Args2>
+  void construct(boost::container::dtl::pair<T1, T2> *p, std::piecewise_construct_t, std::tuple<Args1...> x,
+                 std::tuple<Args2...> y) {
+    auto xprime = MakePairElementArguments<T1>(&x);
+    auto yprime = MakePairElementArguments<T2>(&y);
+    std::construct_at(p, std::piecewise_construct, std::move(xprime), std::move(yprime));
+  }
+
+  template <class T1, class T2>
+  void construct(boost::container::dtl::pair<T1, T2> *p) {
+    construct(p, std::piecewise_construct, std::tuple<>(), std::tuple<>());
+  }
+
+  template <class T1, class T2, class U, class V>
+  void construct(boost::container::dtl::pair<T1, T2> *p, U &&x, V &&y) {
+    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(x)),
+              std::forward_as_tuple(std::forward<V>(y)));
+  }
+
+  template <class T1, class T2, class U, class V>
+  void construct(boost::container::dtl::pair<T1, T2> *p, const boost::container::dtl::pair<U, V> &xy) {
+    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
+  }
+
+  template <class T1, class T2, class U, class V>
+  void construct(boost::container::dtl::pair<T1, T2> *p, boost::container::dtl::pair<U, V> &&xy) {
+    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(xy.first)),
+              std::forward_as_tuple(std::forward<V>(xy.second)));
+  }
+
+  // To ensure pair & doesn't use the generic overload, here is explicitly a non-const ref overload
+  template <class T1, class T2, class U, class V>
+  void construct(boost::container::dtl::pair<T1, T2> *p, boost::container::dtl::pair<U, V> &xy) {
+    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
   }
 
   template <class U>
