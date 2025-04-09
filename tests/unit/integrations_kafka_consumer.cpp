@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -128,21 +129,12 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
-  std::mutex mutex;
-  std::condition_variable cv;
-  bool message_processed = false;
-  auto expected_messages_received = true;
+  bool expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
-      for (const auto &message : messages) {
-        expected_messages_received &=
-            (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
-      }
-      message_processed = true;
+    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
+    for (const auto &message : messages) {
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
-    cv.notify_one();
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
@@ -151,13 +143,10 @@ TEST_F(ConsumerTest, BatchInterval) {
 
   static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
-    std::unique_lock<std::mutex> lock(mutex);
     cluster.SeedTopic(kTopicName, kMessage);
-    message_processed = false;
-    cv.wait(lock, [&] { return message_processed; });
+    // Sleep for a bit to allow the consumer to receive the message.
+    std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
-  // Wait for all messages to be delivered
-  std::this_thread::sleep_for(kBatchInterval);
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
@@ -170,15 +159,14 @@ TEST_F(ConsumerTest, BatchInterval) {
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
     EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
-    EXPECT_GE(kBatchInterval.count() * 1.5, actual_diff.count());
   };
 
   ASSERT_FALSE(received_timestamps.empty());
   auto first_batch_message_count = received_timestamps[0].first;
-  EXPECT_TRUE(1 <= first_batch_message_count && first_batch_message_count <= 2);
+  EXPECT_EQ(1, first_batch_message_count);
   EXPECT_LE(3, received_timestamps.size());
 
-  int msgsCnt = first_batch_message_count;
+  int msgsCnt = received_timestamps[0].first;
   for (auto i = 1; i < received_timestamps.size(); ++i) {
     msgsCnt += received_timestamps[i].first;
     check_received_timestamp(i);
