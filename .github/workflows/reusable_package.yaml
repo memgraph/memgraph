@@ -168,6 +168,53 @@ jobs:
           --src-dir ${{ env.PACKAGE_ARTIFACT_DIR }} \
           --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }}
 
+      - name: "Rename Package"
+        if: github.ref == 'refs/heads/master'
+        run: |
+          # during testing, we will keep the default naming because it uses the
+          # previous tag + number of commits since and the current commit hash
+          # if on master, then store the latest PR number and the commit
+
+          # get the latest tagged version
+          tag="$(tools/get_latest_tag.sh)"
+
+          # fetch the most recent PR number from git log
+          pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
+
+          # use the short commit hash
+          commit="$(git rev-parse --short HEAD)"
+
+          # set the artifact directory containing the file we want to rename
+          if [ "${{ env.FOR_DOCKER }}" == "true" ]; then
+            artifact_path="${{ env.DOCKER_ARTIFACT_DIR }}"
+          else
+            artifact_path="${{ env.PACKAGE_ARTIFACT_DIR }}"
+          fi
+
+          # find the existing file name
+          old_name="$(ls -1 $artifact_path/memgraph* 2>/dev/null | head -n 1)"
+
+          # determine new name
+          if [ "${{ env.FOR_DOCKER }}" == "true" ]; then
+            new_name="memgraph-${tag}_pr${pr}_${commit}"
+            if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
+              new_name="${new_name}-relwithdebinfo"
+            fi
+            new_name="${new_name}-docker.tar.gz"
+          elif [[ "${{ inputs.os }}" == *"debian"* || "${{ inputs.os }}" == *"ubuntu"* ]]; then
+            new_name="memgraph_${tag}+pr${pr}~${commit}-1_${{ inputs.arch }}64.deb"
+          elif [[ "${{ inputs.os }}" == *"centos"* || "${{ inputs.os }}" == *"fedora"* ]]; then
+            if [[ "${{ inputs.arch }}" == "amd" ]]; then
+              arch_str="x86_64"
+            else
+              arch_str="aarch64"
+            fi
+            new_name="memgraph-${tag}_0.pr${pr}.${commit}-1.${arch_str}.rpm"
+          fi
+
+          # rename it
+          mv -v $old_name "$artifact_path/$new_name"
+
       - name: "Upload to Github"
         if: ${{  inputs.push_to_github == 'true' }}
         uses: actions/upload-artifact@v4
