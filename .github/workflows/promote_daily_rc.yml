@@ -1,0 +1,183 @@
+name: Promote Daily Build to RC
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_date:
+        description: "Release date (format YYYYMMDD)"
+        required: true
+        type: string
+      release_version:
+        description: "Release version (format: X.Y.Z)"
+        required: true
+        type: string
+      rc_version:
+        description: "RC version to create (format: rcX)"
+        required: true
+        type: string
+      force_promote:
+        type: boolean
+        description: "Override existing RC"
+        default: false
+      overwrite_branch:
+        type: boolean
+        description: "Delete existing release branch, if found"
+        default: false
+
+env:
+  s3_region: eu-west-1
+  rc_bucket: deps.memgraph.io
+  rc_dir: memgraph/v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
+  release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
+  release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
+  package_rpm: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
+  package_deb_amd: memgraph_${{ github.event.inputs.release_version }}-1_amd64.deb
+  package_deb_arm: memgraph_${{ github.event.inputs.release_version }}-1_arm64.deb
+  package_docker: memgraph-${{ github.event.inputs.release_version }}-docker.tar.gz
+  package_docker_relwithdebinfo: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-docker.tar.gz
+  docker_repo_rc: memgraph/memgraph
+  docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
+
+jobs:
+  CreateReleaseBranch:
+    runs-on: [self-hosted]
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.REPO_PAT }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Determine Release Commit Hash
+        run: |
+          # command here to figure out commit hash to checkout for release
+          commit_hash="$(python3 tools/get_daily_commit_hash.py date)"
+          echo "COMMIT_HASH=$commit_hash" >> $GITHUB_ENV
+
+      - name: Checkout Release Branch and Create Tag
+        run: |
+          # delete the release branch if it already exists (I don't like this, a better way should probably be found)
+          branch_name="release/v${{ inputs.release_version }}"
+          if git ls-remote --exit-code --heads origin "$branch_name"; then
+            if [ "${{ inputs.overwrite_branch }}" == "true" ]; then
+              echo "Branch '$branch_name' exists, deleting it..."
+              git push origin --delete "$branch_name"
+            else
+              echo "Branch '$branch_name' exists, failing..."
+              exit 1
+            fi
+          else
+            echo "Branch '$branch_name' does not exist."
+          fi
+
+          # checkout the commit hash we want to create the release branch from
+          git checkout $COMMIT_HASH
+
+          # create release branch 
+          git checkout -b $branch_name
+          
+          # override memgraph version
+          sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"${{ inputs.release_version }}\")/" CMakeLists.txt
+          git add CMakeLists.txt
+          git commit -m "Update CMakeLists.txt with new memgraph override version [skip package]"
+
+          # push to github
+          git push --set-upstream origin $branch_name
+
+          # add tag
+          tag_name="v${{ inputs.release_version }}-${{ inputs.rc_version }}"
+          git tag $tag_name
+
+          # push tag to github
+          git push && git push origin $tag_name
+
+
+          
+  PromotePackage:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [centos-9, centos-10, debian-11, debian-12, docker, fedora-41, ubuntu-22.04, ubuntu-24.04]
+        arch: [amd]
+        malloc: [false]
+        relwithdebinfo: [false]
+        include:
+          - os: docker
+            arch: arm
+            malloc: false
+            relwithdebinfo: false
+          - os: ubuntu-24.04
+            arch: arm
+            malloc: false
+            relwithdebinfo: false
+          - os: ubuntu-24.04
+            arch: amd
+            malloc: true
+            relwithdebinfo: false
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Check Package Exists
+        run: |
+          read exists old_key new_key < <(python3 tools/check_s3_daily_release.py ${{ inputs.release_date }} ${{ inputs.release_version }} ${{ matrix.os }} ${{ matrix.arch }} ${{ matrix.malloc }} ${{ matrix.relwithdebinfo }})
+          echo "OLD_KEY=$old_key" >> $GITHUB_ENV
+          echo "NEW_KEY=$new_key" >> $GITHUB_ENV
+
+      - name: Copy Package
+        run: |
+          aws s3 cp s3://${rc_bucket}/${{ env.OLD_KEY }} s3://${rc_bucket}/${{ env.NEW_KEY }}
+
+
+  PromoteDocker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [docker]
+        build_type: [Release, RelWithDebInfo]
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Check Package Exists
+        run: |
+          read exists old_key new_key < <(python3 tools/check_s3_daily_release.py ${{ inputs.release_date }} ${{ inputs.release_version }} ${{ matrix.os }} ${{ matrix.arch }} ${{ matrix.malloc }} ${{ matrix.relwithdebinfo }})
+          echo "OLD_KEY=$old_key" >> $GITHUB_ENV
+          echo "NEW_KEY=$new_key" >> $GITHUB_ENV
+
+      - name: Copy Package
+        run: |
+          aws s3 cp s3://${rc_bucket}/${{ env.OLD_KEY }} s3://${rc_bucket}/${{ env.NEW_KEY }}
+
+    
+
