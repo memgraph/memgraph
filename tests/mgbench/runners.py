@@ -1271,6 +1271,8 @@ class FalkorDBDocker(BaseRunner):
     def stop_db_init(self, message):
         log.init("Stopping database (init)...")
         usage = self._get_cpu_memory_usage()
+        self._run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
         log.log("Database stopped.")
@@ -1279,6 +1281,8 @@ class FalkorDBDocker(BaseRunner):
     def stop_db(self, message):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
+        self._run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
         log.log("Database stopped.")

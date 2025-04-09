@@ -36,8 +36,11 @@ class FalkorDBClient(PythonClient):
         self._graph = self._db.select_graph(FalkorDBClient.GRAPH_NAME)
 
     def execute_query(self, query, params):
+        start = time.time()
         result = self._graph.query(query, params)
-        return result.run_time_ms
+        end = time.time()
+        _ = list(result.result_set)  # Force client to pull results
+        return (end - start) * 1000
 
 
 class Neo4jClient(PythonClient):
@@ -50,9 +53,11 @@ class Neo4jClient(PythonClient):
         self._driver.close()
 
     def execute_query(self, query, params=None):
+        start = time.time()
         result = self._session.run(query, parameters=params or {})
-        summary = result.consume()
-        return summary.result_available_after
+        _ = result.consume()
+        end = time.time()
+        return (end - start) * 1000
 
 
 def get_python_client(vendor):
