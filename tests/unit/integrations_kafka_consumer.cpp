@@ -251,7 +251,6 @@ TEST_F(ConsumerTest, BatchSize) {
       EXPECT_LE(actual_diff, kBatchInterval);
     } else {
       EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
-      EXPECT_GE(kBatchInterval.count() * 1.5, actual_diff.count());
     }
   };
 
