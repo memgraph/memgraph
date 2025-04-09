@@ -126,7 +126,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
-  bool expected_messages_received = true;
+  auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
@@ -144,6 +144,8 @@ TEST_F(ConsumerTest, BatchInterval) {
     // Sleep for a bit to allow the consumer to receive the message.
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
+  // Wait for all messages to be delivered
+  std::this_thread::sleep_for(kBatchInterval);
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
