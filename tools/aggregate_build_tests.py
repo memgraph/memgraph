@@ -2,6 +2,7 @@ import subprocess
 import json
 from typing import List
 import os
+import urllib
 
 def list_build_files(date: int) -> List[str]:
     """
@@ -51,7 +52,7 @@ def build_package_json(files: List[str]) -> dict:
     """
     out = {}
     for file in files:
-        url = f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{file}"
+        url = urllib.parse.quote(f"https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/{file}")
 
         if "aarch64" in file:
             arch = "arm64"
@@ -67,9 +68,9 @@ def build_package_json(files: List[str]) -> dict:
         os = file.split("/")[3].replace(
             "-malloc",""
         ).replace(
-            "aarch64",""
+            "-aarch64",""
         ).replace(
-            "relwithdebinfo",
+            "-relwithdebinfo",
             ""
         )
 
