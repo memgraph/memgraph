@@ -5695,6 +5695,9 @@ class CallProcedureCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
+  // Holds the lock on the module so it doesn't get reloaded
+  std::shared_ptr<procedure::Module> module_;
+  mgp_proc const *proc_{nullptr};
   bool stream_exhausted{true};
   bool call_initializer{false};
   std::optional<std::function<void()>> cleanup_{std::nullopt};
@@ -5708,6 +5711,21 @@ class CallProcedureCursor : public Cursor {
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
         result_(nullptr, mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
+    auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
+    if (!maybe_found) {
+      throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+    }
+
+    module_ = std::move(maybe_found->first);
+    proc_ = maybe_found->second;
+
+    if (proc_->info.is_write != self_->is_write_) {
+      auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+      throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                  self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                  get_proc_type_str(proc_->info.is_write));
+    }
+    result_.signature = &proc_->results_metadata;
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -5729,61 +5747,40 @@ class CallProcedureCursor : public Cursor {
     // This `while` loop will skip over empty results.
     // Holds the module lock during the pull
     auto module = std::shared_ptr<procedure::Module>{};
-    mgp_proc const *proc = nullptr;
 
     while (result_row_it_ == result_.rows.end()) {
-      if (!module) {
-        // TODO: Ideally we don't want to FindProcedure for every pull
-        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
-        if (!maybe_found) {
-          throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
-        }
-
-        module = std::move(maybe_found->first);
-        proc = maybe_found->second;
-
-        if (proc->info.is_write != self_->is_write_) {
-          auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
-          throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
-                                      self_->procedure_name_, get_proc_type_str(self_->is_write_),
-                                      get_proc_type_str(proc->info.is_write));
-        }
-        result_.signature = &proc->results_metadata;
-        result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
-      }
-      if (!proc->info.is_batched) {
+      if (!proc_->info.is_batched) {
         stream_exhausted = true;
       }
-
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
-          if (proc->cleanup) {
-            proc->cleanup.value()();
+          if (proc_->cleanup) {
+            proc_->cleanup.value()();
           }
           return false;
         }
         stream_exhausted = false;
-        if (proc->initializer) {
+        if (proc_->initializer) {
           call_initializer = true;
-          MG_ASSERT(proc->cleanup);
-          proc->cleanup.value()();
+          MG_ASSERT(proc_->cleanup);
+          proc_->cleanup.value()();
         }
       }
-      if (!cleanup_ && proc->cleanup) [[unlikely]] {
-        cleanup_.emplace(*proc->cleanup);
+      if (!cleanup_ && proc_->cleanup) [[unlikely]] {
+        cleanup_.emplace(*proc_->cleanup);
       }
       result_.rows.clear();
 
-      const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
-
+      result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
       MG_ASSERT(transaction_id.has_value());
-      CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
+      CallCustomProcedure(self_->procedure_name_, *proc_, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
@@ -5805,6 +5802,7 @@ class CallProcedureCursor : public Cursor {
     // direct consequence of changing from mgp_result rows from map to vector
     // PRO: this is a lot faster
     // CON: doesn't throw anymore if not all values are present
+    // Iterating over the signature is safe because we hold the lock on the module during cursor lifetime
     auto &values = result_row_it_->values;
     int iterator_index = 0;
     for (auto &[field_name, metadata] : *result_row_it_->signature) {
