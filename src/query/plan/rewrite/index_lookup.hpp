@@ -27,6 +27,7 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -1324,8 +1325,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::shared_ptr<LogicalOperator> prev;
         std::vector<LabelIx> labels_to_erase;
         labels_to_erase.reserve(best_group.indices.size());
+        std::vector<Expression *> removed_expressions;
+        std::optional<PropertyIx> filtered_property_ix;
+        bool all_property_filters_same = true;
         for (const auto &index : best_group.indices) {
           if (std::holds_alternative<LabelIx>(index)) {
+            all_property_filters_same = false;
             labels_to_erase.push_back(std::get<LabelIx>(index));
             auto scan = std::make_shared<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
             if (prev) {
@@ -1341,8 +1346,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             // get tricky how to determine which one can be removed
             const auto &label_property_index = std::get<LabelPropertyIndex>(index);
             labels_to_erase.push_back(label_property_index.label);
+            if (filtered_property_ix.has_value() &&
+                filtered_property_ix != label_property_index.filter.property_filter->property_) {
+              all_property_filters_same = false;
+            } else {
+              filtered_property_ix = label_property_index.filter.property_filter->property_;
+            }
             auto label_property_index_scan =
-                FindBestLabelPropertyOperator(input, label_property_index, view, node_symbol);
+                FindBestLabelPropertyOperator(input, label_property_index, view, node_symbol, &removed_expressions);
             if (prev) {
               auto union_op =
                   std::make_shared<Union>(prev, label_property_index_scan, std::vector<Symbol>{node_symbol},
@@ -1353,7 +1364,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           }
         }
-        std::vector<Expression *> removed_expressions;
+        if (!all_property_filters_same) removed_expressions.clear();
         filters_.EraseOrLabelFilter(node_symbol, labels_to_erase, &removed_expressions);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
         return prev;
