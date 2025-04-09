@@ -4017,7 +4017,7 @@ class PatternComprehension : public memgraph::query::Expression {
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       if (variable_) {
-        throw utils::NotYetImplemented("Variable in pattern comprehension.");
+        variable_->Accept(visitor);
       }
       pattern_->Accept(visitor);
       if (filter_) {
