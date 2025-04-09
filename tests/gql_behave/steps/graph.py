@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,10 +22,10 @@ def clear_graph(context):
     if context.exception is not None:
         context.exception = None
         database.query("MATCH (n) DETACH DELETE n", context)
-    database.query("DROP INDEX ON :Person", context)
-    context.exception = None
-    database.query("DROP INDEX ON :Node(name)", context)
-    context.exception = None
+    result = database.query("SHOW STORAGE INFO", context)
+    storage_mode = next(record["value"] for record in result if record["storage info"] == "storage_mode")
+    if storage_mode != "ON_DISK_TRANSACTIONAL":
+        database.query("FREE MEMORY", context)
 
 
 @given("an empty graph")
