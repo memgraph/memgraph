@@ -594,7 +594,7 @@ struct mgp_graph {
 struct ResultsMetadata {
   const memgraph::query::procedure::CypherType *type;
   bool is_deprecated;
-  int32_t id;
+  int32_t field_id;
 };
 
 struct mgp_result_record {
@@ -605,12 +605,10 @@ struct mgp_result_record {
 };
 
 struct mgp_result {
-  explicit mgp_result(const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *signature,
-                      memgraph::utils::MemoryResource *mem)
-      : signature(signature), rows(mem) {}
+  explicit mgp_result(memgraph::utils::MemoryResource *mem) : signature(mem), rows(mem) {}
 
-  /// Result record signature as defined for mgp_proc.
-  const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *signature;
+  /// Store all needed metadata so everything is searchable using one find
+  memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
   bool is_transactional = true;
@@ -748,13 +746,7 @@ struct mgp_proc {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, mgp_proc_cb cb, memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory),
-        results_metadata(memory),
-        info(info) {}
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -767,7 +759,6 @@ struct mgp_proc {
         args(memory),
         opt_args(memory),
         results(memory),
-        results_metadata(memory),
         info(info) {}
 
   /// @throw std::bad_alloc
@@ -782,32 +773,19 @@ struct mgp_proc {
         args(memory),
         opt_args(memory),
         results(memory),
-        results_metadata(memory),
         info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
            memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory),
-        results_metadata(memory),
-        info(info) {}
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const std::string_view name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
            memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory),
-        results_metadata(memory),
-        info(info) {}
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -819,7 +797,6 @@ struct mgp_proc {
         args(other.args, memory),
         opt_args(other.opt_args, memory),
         results(other.results, memory),
-        results_metadata(other.results_metadata, memory),
         info(other.info) {}
 
   mgp_proc(mgp_proc &&other, memgraph::utils::MemoryResource *memory)
@@ -830,7 +807,6 @@ struct mgp_proc {
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
         results(std::move(other.results), memory),
-        results_metadata(std::move(other.results_metadata), memory),
         info(other.info) {}
 
   mgp_proc(const mgp_proc &other) = default;
@@ -860,8 +836,6 @@ struct mgp_proc {
       opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
   memgraph::utils::pmr::map<string_t, std::pair<const memgraph::query::procedure::CypherType *, bool>> results;
-  /// Metadata for each result field passed as helper for CallCustomProcedure operator
-  memgraph::utils::pmr::map<string_t, ResultsMetadata> results_metadata;
   ProcedureInfo info;
 };
 
@@ -872,24 +846,21 @@ struct mgp_trans {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_trans(const char *name, mgp_trans_cb cb, memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), results(memory), results_metadata(memory) {}
+      : name(name, memory), cb(cb), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
             memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), results(memory), results_metadata(memory) {}
+      : name(name, memory), cb(cb), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_trans(const mgp_trans &other, memgraph::utils::MemoryResource *memory)
-      : name(other.name, memory), cb(other.cb), results(other.results), results_metadata(other.results_metadata) {}
+      : name(other.name, memory), cb(other.cb), results(other.results) {}
 
   mgp_trans(mgp_trans &&other, memgraph::utils::MemoryResource *memory)
-      : name(std::move(other.name), memory),
-        cb(std::move(other.cb)),
-        results(std::move(other.results)),
-        results_metadata(std::move(other.results_metadata)) {}
+      : name(std::move(other.name), memory), cb(std::move(other.cb)), results(std::move(other.results)) {}
 
   mgp_trans(const mgp_trans &other) = default;
   mgp_trans(mgp_trans &&other) = default;
@@ -905,8 +876,6 @@ struct mgp_trans {
   std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
   memgraph::utils::pmr::map<string_t, std::pair<const memgraph::query::procedure::CypherType *, bool>> results;
-  /// Metadata for each result field passed as helper for CallCustomProcedure operator
-  memgraph::utils::pmr::map<string_t, ResultsMetadata> results_metadata;
 };
 
 struct mgp_func {

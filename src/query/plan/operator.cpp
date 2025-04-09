@@ -3657,13 +3657,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4657,7 +4659,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -4903,9 +4905,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -5669,7 +5670,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 #endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
-    MG_ASSERT(result->signature == &proc.results_metadata);
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
@@ -5682,7 +5682,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: Add a tracking MemoryResource without limits, so that we report
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
-    MG_ASSERT(result->signature == &proc.results_metadata);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
   }
@@ -5709,13 +5708,14 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
-        result_(nullptr, mem) {
+        result_(mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
     auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
     if (!maybe_found) {
       throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
     }
 
+    // Module lock is held during the whole cursor lifetime
     module_ = std::move(maybe_found->first);
     proc_ = maybe_found->second;
 
@@ -5725,7 +5725,14 @@ class CallProcedureCursor : public Cursor {
                                   self_->procedure_name_, get_proc_type_str(self_->is_write_),
                                   get_proc_type_str(proc_->info.is_write));
     }
-    result_.signature = &proc_->results_metadata;
+
+    for (int i = 0; i < self_->result_fields_.size(); ++i) {
+      // TODO: is there a workaround to not create another string?
+      // results and result_fields have different allocator
+      auto signature_it = *proc_->results.find(memgraph::utils::pmr::string(self_->result_fields_[i], mem));
+      result_.signature.emplace(self_->result_fields_[i],
+                                ResultsMetadata(signature_it.second.first, signature_it.second.second, i));
+    }
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -5745,9 +5752,6 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    // Holds the module lock during the pull
-    auto module = std::shared_ptr<procedure::Module>{};
-
     while (result_row_it_ == result_.rows.end()) {
       if (!proc_->info.is_batched) {
         stream_exhausted = true;
@@ -5802,16 +5806,14 @@ class CallProcedureCursor : public Cursor {
     // direct consequence of changing from mgp_result rows from map to vector
     // PRO: this is a lot faster
     // CON: doesn't throw anymore if not all values are present
-    // Iterating over the signature is safe because we hold the lock on the module during cursor lifetime
+    // Values are ordered the same as result_fields
     auto &values = result_row_it_->values;
-    int iterator_index = 0;
-    for (auto &[field_name, metadata] : *result_row_it_->signature) {
-      frame[self_->result_symbols_[iterator_index]] = std::move(values[metadata.id]);
+    for (int i = 0; i < self_->result_fields_.size(); ++i) {
+      frame[self_->result_symbols_[i]] = std::move(values[i]);
       if (context.frame_change_collector &&
-          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[iterator_index].name())) {
-        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[iterator_index].name());
+          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
+        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
       }
-      iterator_index++;
     }
     ++result_row_it_;
     if (!result_.is_transactional) {
