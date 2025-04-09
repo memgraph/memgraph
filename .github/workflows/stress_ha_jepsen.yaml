@@ -79,7 +79,7 @@ jobs:
 
           # Make sure to change --nodes-no at two places
           # Observe logs inside cleanup.log
-          ./clean_old_directories --nodes-no 6 > cleanup.log 2>&1 &
+          ./clean_old_directories.sh --nodes-no 6 > cleanup.log 2>&1 &
           CLEANUP_PID=$!
           echo "Started cleanup script with PID: $CLEANUP_PID"
 
