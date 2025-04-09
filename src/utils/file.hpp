@@ -240,12 +240,12 @@ class OutputFile {
   void Close() noexcept;
 
   /// Disable flushing of the internal buffer.
-  void DisableFlushing();
+  void DisableFlushing();  // This is over the top for snapshot file...no concurrent flush protection needed
 
   /// Enable flushing of the internal buffer.
   /// Before the flushing is enabled, the internal buffer
   /// is flushed.
-  void EnableFlushing();
+  void EnableFlushing();  // This is over the top for snapshot file...no concurrent flush protection needed
 
   /// Try flushing the internal buffer.
   void TryFlushing();
@@ -271,7 +271,7 @@ class OutputFile {
   std::atomic<size_t> buffer_position_{0};
 
   // Flushing buffer should be a higher priority
-  utils::RWLock flush_lock_{RWLock::Priority::WRITE};
+  utils::RWLock flush_lock_{RWLock::Priority::WRITE}; // This is over the top for snapshot file...no concurrent flush protection needed
 };
 
 }  // namespace memgraph::utils

@@ -4496,6 +4496,8 @@ class AggregateCursor : public Cursor {
     reused_group_by_.clear();
     evaluator->ResetPropertyLookupCache();
 
+    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
+    //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
