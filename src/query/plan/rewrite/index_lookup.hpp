@@ -1342,8 +1342,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               prev = scan;
             }
           } else {
-            // TODO: A possible optimization would be to remove a property filter just as we do with labels, but it can
-            // get tricky how to determine which one can be removed
             const auto &label_property_index = std::get<LabelPropertyIndex>(index);
             labels_to_erase.push_back(label_property_index.label);
             if (filtered_property_ix.has_value() &&
