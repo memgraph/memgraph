@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -126,12 +128,21 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool message_processed = false;
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
-    for (const auto &message : messages) {
-      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
+      for (const auto &message : messages) {
+        expected_messages_received &=
+            (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+      }
+      message_processed = true;
     }
+    cv.notify_one();
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
@@ -140,9 +151,10 @@ TEST_F(ConsumerTest, BatchInterval) {
 
   static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
+    std::unique_lock<std::mutex> lock(mutex);
     cluster.SeedTopic(kTopicName, kMessage);
-    // Sleep for half of the batch interval to allow the consumer to receive messages
-    std::this_thread::sleep_for(kBatchInterval * 0.5);
+    message_processed = false;
+    cv.wait(lock, [&] { return message_processed; });
   }
   // Wait for all messages to be delivered
   std::this_thread::sleep_for(kBatchInterval);
