@@ -282,7 +282,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          
+
       - name: Build Request Payload
         env:
           CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
@@ -298,4 +298,4 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/memgraph/mage/dispatches \
-            -d "${MAGE_PAYLOAD}"  
+            -d "${MAGE_PAYLOAD}"
