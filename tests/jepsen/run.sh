@@ -120,7 +120,7 @@ PROCESS_ARGS() {
     done
 }
 
-COPY_BINARIES() {
+COPY_FILES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
    # Datasets need to be downloaded only if MT test is being run
@@ -166,15 +166,20 @@ COPY_BINARIES() {
 
        if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
            docker cp "$MEMGRAPH_MTENANCY_DATASETS" "$jepsen_node_name:/opt/memgraph"
-           INFO "Datasets copied successfully."
-           rm -rf "$MEMGRAPH_MTENANCY_DATASETS"
+           INFO "Datasets copied successfully to $jepsen_node_name."
        else
-           INFO "Datasets won't be copied."
+           INFO "Datasets won't be copied to $jepsen_node_name."
        fi
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
        INFO "Copying $binary_name to $jepsen_node_name DONE."
    done
+
+   if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
+       rm -rf "$MEMGRAPH_MTENANCY_DATASETS"
+       INFO "Datasets folder deleted..."
+   fi
+
    # Copy test files into the control node.
    docker exec jepsen-control mkdir -p /jepsen/memgraph/store
    docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
@@ -299,7 +304,7 @@ case $1 in
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
         CLUSTER_UP
-        COPY_BINARIES
+        COPY_FILES
     ;;
 
     cluster-refresh)
@@ -319,7 +324,7 @@ case $1 in
     unit-tests)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES
+        COPY_FILES
         docker exec jepsen-control bash -c "cd /jepsen/memgraph && lein test"
         _JEPSEN_RUN_EXIT_STATUS=$?
         if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
@@ -331,7 +336,7 @@ case $1 in
     test)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES "$CONTROL_LEIN_RUN_ARGS"
+        COPY_FILES "$CONTROL_LEIN_RUN_ARGS"
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
         RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"

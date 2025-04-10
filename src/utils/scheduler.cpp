@@ -146,7 +146,6 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
     // the program start we let him log first and we make sure by first
     // waiting that function f will not log before it.
     // Check for pause also.
-    auto lk = std::unique_lock{mutex_};
     const auto now = std::chrono::system_clock::now();
     time_point next{};
     {
@@ -154,17 +153,21 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       DMG_ASSERT(*find_locked, "Scheduler not setup properly");
       next = find_locked->operator()(now, true);
     }
-    if (next > now) {
-      condition_variable_.wait_until(lk, token, next, [&] { return spin_once_; });
-    }
-    if (is_paused_) {
-      condition_variable_.wait(lk, token, [&] { return !is_paused_ || spin_once_; });
-    }
 
-    if (token.stop_requested()) break;
-    if (spin_once_) {
-      spin_once_ = false;
-      continue;
+    {
+      auto lk = std::unique_lock{mutex_};
+      if (next > now) {
+        condition_variable_.wait_until(lk, token, next, [&] { return spin_once_; });
+      }
+      if (is_paused_) {
+        condition_variable_.wait(lk, token, [&] { return !is_paused_ || spin_once_; });
+      }
+
+      if (token.stop_requested()) break;
+      if (spin_once_) {
+        spin_once_ = false;
+        continue;
+      }
     }
 
     f();
