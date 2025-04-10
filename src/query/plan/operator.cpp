@@ -5730,16 +5730,16 @@ class CallProcedureCursor : public Cursor {
       // TODO: is there a workaround to not create another string?
       // results and result_fields have different allocator
       auto signature_it =
-          proc_->results.find(memgraph::utils::pmr::string(self_->result_fields_[i], proc_->results.get_allocator()));
+          proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
       result_.signature.emplace(self_->result_fields_[i],
-                                ResultsMetadata(signature_it->second.first, signature_it->second.second, i));
+                                ResultsMetadata{signature_it->second.first, signature_it->second.second, i});
     }
     if (proc_->results.size() == self_->result_fields_.size()) return;
     // Not all results were yielded but they still need to be inserted inside the signature
     int index = self_->result_fields_.size();
     for (auto const &[name, signature] : proc_->results) {
       if (result_.signature.find(name) == result_.signature.end()) {
-        result_.signature.emplace(name, ResultsMetadata(signature.first, signature.second, index++));
+        result_.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
       }
     }
   }

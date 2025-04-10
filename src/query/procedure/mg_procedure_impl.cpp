@@ -1665,10 +1665,12 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
   return WrapExceptions(
       [res] {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
-        res->rows.push_back(mgp_result_record{.signature = &res->signature,
-                                              .values = memgraph::utils::pmr::vector<memgraph::query::TypedValue>(
-                                                  res->signature.size(), memgraph::query::TypedValue(memory), memory),
-                                              .ignore_deleted_values = !res->is_transactional});
+        res->rows.push_back(
+            mgp_result_record{.signature = &res->signature,
+                              .values =
+                                  memgraph::utils::pmr::vector<memgraph::query::TypedValue>{
+                                      res->signature.size(), memgraph::query::TypedValue(memory), memory},
+                              .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
       result);
