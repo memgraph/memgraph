@@ -50,6 +50,8 @@ class DataInstanceManagementServerHandlers {
 
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config) -> bool;
+};
+
 }  // namespace memgraph::dbms
 
 #endif
