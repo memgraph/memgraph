@@ -26,6 +26,7 @@
 
 #include <gflags/gflags.h>
 
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -122,8 +123,13 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, const Parameters &parameters,
+                      IndexHints index_hints)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        parameters(parameters),
+        index_hints_(std::move(index_hints)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -335,24 +341,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST && expand.filter_lambda_.accumulated_path_symbol) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
-      return false;
+      return true;
     }
 
     std::unique_ptr<ScanAll> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
-    // With expand to existing we only get real gains with BFS, because we use a
-    // different algorithm then, so prefer expand to existing.
-    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
-      // TODO: Perhaps take average node degree into consideration, instead of
-      // unconditionally creating an indexed scan.
-      indexed_scan = GenScanByIndex(dst_scan);
-    } else {
-      indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
-    }
+    // If the destination cardinality is low enough, we can leverage the STShortestPath perhaps.
+    // Otherwise it's always best to expand from the source node
+    indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     if (indexed_scan) {
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
     }
+
     return true;
   }
 
@@ -774,6 +775,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
+  const Parameters &parameters;
   IndexHints index_hints_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
@@ -828,7 +830,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, index_hints_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, parameters, index_hints_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -858,6 +860,24 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (db_->VerticesCount(GetLabel(label)) < db_->VerticesCount(GetLabel(*best_label))) best_label = label;
     }
     return best_label;
+  }
+
+  std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
+    if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
+      return literal->value_;
+    } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
+      return parameters.AtTokenPosition(param_lookup->token_position_);
+    }
+    return std::nullopt;
+  }
+
+  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
+      std::optional<utils::Bound<Expression *>> bound) {
+    if (bound) {
+      auto property_value = ConstPropertyValue(bound->value());
+      if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
+    }
+    return std::nullopt;
   }
 
   struct CandidateIndices {
@@ -1040,7 +1060,23 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with less vertices is better.
       // the index with same number of vertices but more optimized filter is better.
 
-      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+      int64_t vertex_count = 0;
+      auto filter_type = filter.property_filter->type_;
+      if (filter_type == PropertyFilter::Type::EQUAL) {
+        auto property_value = ConstPropertyValue(filter.property_filter->value_);
+        if (property_value.has_value()) {
+          vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property), *property_value);
+        } else {
+          vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+        }
+      } else if (filter_type == PropertyFilter::Type::RANGE) {
+        auto lower_bound = BoundToPropertyValue(filter.property_filter->lower_bound_);
+        auto upper_bound = BoundToPropertyValue(filter.property_filter->upper_bound_);
+        vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property), lower_bound, upper_bound);
+      } else {
+        vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+      }
+
       std::optional<storage::LabelPropertyIndexStats> new_stats =
           db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
@@ -1214,8 +1250,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, IndexHints index_hints) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
+                                                        TDbAccessor *db, const Parameters &parameters,
+                                                        IndexHints index_hints) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, parameters, index_hints);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

@@ -1,7 +1,7 @@
 queries_cluster: &queries_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--query-plan-cache-max-size=0"]
       log_file: "query_planning.log"
       setup_queries: []
       validation_queries: []
@@ -26,4 +26,9 @@ workloads:
   - name: "Query planning optional"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_optional.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning STShortest"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_stshortest.py"]
     <<: *queries_cluster
