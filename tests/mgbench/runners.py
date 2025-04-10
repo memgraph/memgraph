@@ -1302,21 +1302,39 @@ class FalkorDBDocker(BaseRunner):
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
 
-    def _get_cpu_memory_usage(self):
+    def _get_memory_usage(self):
         command = [
             "docker",
-            "exec",
-            "-it",
+            "stats",
+            "--no-stream",
+            "--format",
+            "{{.MemUsage}}",
             self._container_name,
-            "bash",
-            "-c",
-            "grep ^VmPeak /proc/1/status",
         ]
-        usage = {"cpu": 0, "memory": 0}
         ret = self._run_command(command)
-        memory = ret.stdout.split()
-        usage["memory"] = int(memory[1]) * 1024
 
+        # Example of ret.stdout = "79.52MiB / 58.56GiB"
+        memory_usage = ret.stdout.split(" / ")
+
+        if len(memory_usage) == 2:
+            used_memory = memory_usage[0].strip()  # e.g., "79.52MiB"
+            used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
+
+            # Convert memory to bytes for consistency
+            if used_memory_unit == "KiB":
+                return int(float(used_memory_value) * 1024)  # KiB to Bytes
+            elif used_memory_unit == "MiB":
+                return int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
+            elif used_memory_unit == "GiB":
+                return int(float(used_memory_value) * 1024 * 1024 * 1024)  # GiB to Bytes
+            elif used_memory_unit == "TiB":
+                return int(float(used_memory_value) * 1024 * 1024 * 1024 * 1024)  # TiB to Bytes
+            else:
+                raise Exception(f"Unrecognized used memory: {used_memory}")
+        else:
+            raise Exception(f"Unrecognized memory usage: {memory_usage}")
+
+    def _get_cpu_usage(self):
         command = [
             "docker",
             "exec",
@@ -1340,7 +1358,12 @@ class FalkorDBDocker(BaseRunner):
         CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
 
         cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
-        usage["cpu"] = cpu_time
+        return cpu_time
+
+    def _get_cpu_memory_usage(self):
+        usage = {"cpu": 0, "memory": 0}
+        usage["memory"] = self._get_memory_usage()
+        usage["cpu"] = self._get_cpu_usage()
 
         return usage
 
