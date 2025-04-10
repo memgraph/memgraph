@@ -189,7 +189,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, prop, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
@@ -212,7 +212,33 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, prop, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) {
+  InMemoryLabelPropertyIndex label_prop_idx;
+
+  auto label = LabelId::FromUint(1);
+  auto prop_a = PropertyId::FromUint(1);
+  auto prop_b = PropertyId::FromUint(2);
+  auto prop_c = PropertyId::FromUint(3);
+  auto vertices = SkipList<Vertex>();
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 5; i++) {
+      auto [_, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  std::optional<SnapshotObserverInfo> snapshot_info;
+  snapshot_info.emplace(mocked_observer, 2);
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop_c, prop_a, prop_b}, vertices.access(), par_schema_info,
+                                         snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
@@ -237,7 +263,35 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, prop, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
+  InMemoryLabelPropertyIndex label_prop_idx;
+
+  auto label = LabelId::FromUint(1);
+  auto prop_a = PropertyId::FromUint(1);
+  auto prop_b = PropertyId::FromUint(2);
+  auto prop_c = PropertyId::FromUint(3);
+  auto vertices = SkipList<Vertex>();
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 5; i++) {
+      auto [_, inserted] = acc.insert(Vertex{Gid::FromUint(i), nullptr});
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto par_schema_info = ParallelizedSchemaCreationInfo{
+      .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 2}, {Gid::FromUint(3), 3}},
+      .thread_count = 2};
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  std::optional<SnapshotObserverInfo> snapshot_info;
+  snapshot_info.emplace(mocked_observer, 2);
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop_c, prop_a, prop_b}, vertices.access(), par_schema_info,
+                                         snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {

@@ -108,6 +108,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto label_indexed = store->NameToLabel("base_indexed");
     auto label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
+    auto property_a = store->NameToProperty("prop_a");
+    auto property_b = store->NameToProperty("prop_b");
+    auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
     auto et1 = store->NameToEdgeType("base_et1");
@@ -152,14 +155,29 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+property index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_id}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
       auto acc = store->Access();
-      acc->SetIndexStats(label_indexed, property_id, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
-      ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_id));
+      acc->SetIndexStats(label_indexed, std::array{property_id},
+                         memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{property_id}));
+      ASSERT_FALSE(acc->Commit().HasError());
+    }
+    {
+      // Create label+properties index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create label+properties index statistics.
+      auto acc = store->Access();
+      acc->SetIndexStats(label_indexed, std::array{property_b, property_a, property_c},
+                         memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{property_b, property_a, property_c}));
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
@@ -309,15 +327,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create label+property index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
+      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_count}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
       auto acc = store->Access();
-      acc->SetIndexStats(label_indexed, property_count,
+      acc->SetIndexStats(label_indexed, std::array{property_count},
                          memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
-      ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_count));
+      ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{property_count}));
       ASSERT_FALSE(acc->Commit().HasError());
     }
 
@@ -402,6 +420,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto base_label_indexed = store->NameToLabel("base_indexed");
     auto base_label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
+    auto property_a = store->NameToProperty("prop_a");
+    auto property_b = store->NameToProperty("prop_b");
+    auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
     auto et1 = store->NameToEdgeType("base_et1");
@@ -439,7 +460,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       switch (type) {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
+          ASSERT_THAT(info.label_properties,
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_indexed, std::vector{property_id}),
+                          std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
@@ -448,17 +472,19 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
-          ASSERT_THAT(info.label_property,
-                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_id),
-                                           std::make_pair(extended_label_indexed, property_count)));
+          ASSERT_THAT(info.label_properties,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id}),
+                                           std::make_pair(extended_label_indexed, std::vector{property_count})));
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed, extended_label_unused));
-          ASSERT_THAT(info.label_property,
-                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_id),
-                                           std::make_pair(extended_label_indexed, property_count)));
+          ASSERT_THAT(
+              info.label_properties,
+              UnorderedElementsAre(std::make_pair(base_label_indexed, std::vector{property_id}),
+                                   std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c}),
+                                   std::make_pair(extended_label_indexed, std::vector{property_count})));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
@@ -467,7 +493,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
+          ASSERT_THAT(info.label_properties,
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_indexed, std::vector{property_id}),
+                          std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c})));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -477,7 +506,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
-          ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
+          ASSERT_THAT(info.label_properties,
+                      UnorderedElementsAre(
+                          std::make_pair(base_label_indexed, std::vector{property_id}),
+                          std::make_pair(base_label_indexed, std::vector{property_b, property_a, property_c})));
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
@@ -497,7 +529,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 1);
           ASSERT_EQ(l_stats->avg_degree, 2);
-          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, std::array{property_id});
           ASSERT_TRUE(lp_stats);
           ASSERT_EQ(lp_stats->count, 1);
           ASSERT_EQ(lp_stats->distinct_values_count, 2);
@@ -513,7 +545,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 1);
           ASSERT_EQ(l_stats->avg_degree, 2);
-          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, std::array{property_id});
           ASSERT_TRUE(lp_stats);
           ASSERT_EQ(lp_stats->count, 1);
           ASSERT_EQ(lp_stats->distinct_values_count, 2);
@@ -529,7 +561,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 123);
           ASSERT_EQ(l_stats->avg_degree, 9.87);
-          const auto lp_stats = acc->GetIndexStats(extended_label_indexed, property_count);
+          const auto lp_stats = acc->GetIndexStats(extended_label_indexed, std::array{property_count});
           ASSERT_TRUE(lp_stats);
           ASSERT_EQ(lp_stats->count, 456798);
           ASSERT_EQ(lp_stats->distinct_values_count, 312345);
@@ -549,7 +581,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 1);
           ASSERT_EQ(l_stats->avg_degree, 2);
-          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, std::array{property_id});
           ASSERT_TRUE(lp_stats);
           ASSERT_EQ(lp_stats->count, 1);
           ASSERT_EQ(lp_stats->distinct_values_count, 2);
@@ -560,7 +592,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(l_stats_ex);
           ASSERT_EQ(l_stats_ex->count, 123);
           ASSERT_EQ(l_stats_ex->avg_degree, 9.87);
-          const auto lp_stats_ex = acc->GetIndexStats(extended_label_indexed, property_count);
+          const auto lp_stats_ex = acc->GetIndexStats(extended_label_indexed, std::array{property_count});
           ASSERT_TRUE(lp_stats_ex);
           ASSERT_EQ(lp_stats_ex->count, 456798);
           ASSERT_EQ(lp_stats_ex->distinct_values_count, 312345);
@@ -778,7 +810,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 3);
-        for (auto vertex : acc->Vertices(base_label_indexed, property_id, memgraph::storage::View::OLD)) {
+        for (auto vertex : acc->Vertices(base_label_indexed, std::array{property_id},
+                                         std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                         memgraph::storage::View::OLD)) {
           vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumBaseVertices / 3);
@@ -808,7 +842,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc->Vertices(base_label_indexed, property_id, memgraph::storage::View::OLD);
+          auto iterable = acc->Vertices(base_label_indexed, std::array{property_id},
+                                        std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                        memgraph::storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -900,7 +936,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       {
         std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 3);
-        for (auto vertex : acc->Vertices(extended_label_indexed, property_count, memgraph::storage::View::OLD)) {
+        for (auto vertex : acc->Vertices(extended_label_indexed, std::array{property_count},
+                                         std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                         memgraph::storage::View::OLD)) {
           vertices.emplace_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumExtendedVertices / 3);
@@ -930,7 +968,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         // Verify label+property index.
         {
           uint64_t count = 0;
-          auto iterable = acc->Vertices(extended_label_indexed, property_count, memgraph::storage::View::OLD);
+          auto iterable = acc->Vertices(extended_label_indexed, std::array{property_count},
+                                        std::array{memgraph::storage::PropertyValueRange::IsNotNull()},
+                                        memgraph::storage::View::OLD);
           for (auto it = iterable.begin(); it != iterable.end(); ++it) {
             ++count;
           }
@@ -2014,7 +2054,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
 
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
-    ASSERT_EQ(indices.label_property.size(), 0);
+    ASSERT_EQ(indices.label_properties.size(), 0);
     auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
@@ -2130,9 +2170,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    for (const auto &index : indices.label_property) {
+    for (const auto &[label, properties] : indices.label_properties) {
       auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(index.first, index.second).HasError());
+      ASSERT_FALSE(unique_acc->DropIndex(label, std::vector(properties)).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     auto constraints = [&] {
@@ -2176,7 +2216,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto acc = db.Access();
     auto indices = acc->ListAllIndices();
     ASSERT_EQ(indices.label.size(), 0);
-    ASSERT_EQ(indices.label_property.size(), 0);
+    ASSERT_EQ(indices.label_properties.size(), 0);
     auto constraints = acc->ListAllConstraints();
     ASSERT_EQ(constraints.existence.size(), 0);
     ASSERT_EQ(constraints.unique.size(), 0);
