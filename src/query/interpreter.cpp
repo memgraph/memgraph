@@ -836,14 +836,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2318,6 +2325,16 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
   return query_type == RWType::W || query_type == RWType::RW;
 }
 
+void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
+  const auto rw_type = plan.rw_type();
+  if (rw_type == RWType::W || rw_type == RWType::RW) {
+    if (dba.type() != storage::Storage::Accessor::Type::WRITE) {
+      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba.type()),
+                                  static_cast<int>(rw_type));
+    }
+  }
+}
+
 }  // namespace
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
@@ -2501,17 +2518,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (interpreter.IsQueryLoggingActive()) {
     is_profile_query = true;
   }
-
+  AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
-  if (rw_type == RWType::W || rw_type == RWType::RW) {
-    if (dba->type() != storage::Storage::Accessor::Type::WRITE) {
-      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba->type()),
-                                  static_cast<int>(rw_type));
-    }
-  }
-
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
-
   std::vector<std::string> header;
   header.reserve(output_symbols.size());
 
@@ -2665,14 +2674,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
     interpreter.LogQueryMessage(hint);
   }
-
+  AccessorCompliance(*cypher_query_plan, *dba);
   const auto rw_type = cypher_query_plan->rw_type();
-  if (rw_type == RWType::W || rw_type == RWType::RW) {
-    if (dba->type() != storage::Storage::Accessor::Type::WRITE) {
-      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba->type()),
-                                  static_cast<int>(rw_type));
-    }
-  }
 
   return PreparedQuery{
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},

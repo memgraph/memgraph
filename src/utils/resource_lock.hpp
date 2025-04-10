@@ -135,7 +135,7 @@ struct ResourceLock {
   void unlock_shared<true>() {
     auto lock = std::unique_lock{mtx};
     --r_count;
-    if (r_count + ro_count + w_count == 0) {
+    if (r_count == 0 && ro_count == 0 && w_count == 0) {
       state = UNLOCKED;
       lock.unlock();
       cv.notify_one();  // Should only have unique locks waiting
@@ -201,12 +201,12 @@ struct SharedResourceLockGuard {
   SharedResourceLockGuard &operator=(const SharedResourceLockGuard &) = delete;
 
   SharedResourceLockGuard(SharedResourceLockGuard &&other) noexcept
-      : ptr_{other.ptr_}, type_{other.type_}, locked_{other.locked_} {
-    other.ptr_ = nullptr;
-    other.locked_ = false;
-  }
+      : ptr_{std::exchange(other.ptr_, nullptr)}, type_{other.type_}, locked_{std::exchange(other.locked_, false)} {}
   SharedResourceLockGuard &operator=(SharedResourceLockGuard &&other) noexcept {
     if (this != &other) {
+      // First unlock if guard is protecting a resource
+      if (owns_lock()) unlock();
+      // Then move
       ptr_ = std::exchange(other.ptr_, nullptr);
       type_ = other.type_;
       locked_ = std::exchange(other.locked_, false);
