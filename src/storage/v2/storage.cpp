@@ -30,6 +30,7 @@
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -53,12 +54,16 @@ Storage::Storage(Config config, StorageMode storage_mode)
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
+                            StorageMode storage_mode, Type rw_type,
+                            const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, std::defer_lock),
+      storage_guard_(storage_->main_lock_,
+                     rw_type == Type::WRITE ? utils::SharedResourceLockGuard::Type::WRITE
+                                            : utils::SharedResourceLockGuard::Type::READ,
+                     std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -79,7 +84,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_, std::defer_lock),
+      storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
@@ -91,6 +96,27 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
   // If a timeout is allowed, try to acquire the lock for the specified time.
   if (!unique_guard_.try_lock_for(*timeout)) {
     throw UniqueAccessTimeout();
+  }
+}
+
+Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
+                            StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      // The lock must be acquired before creating the transaction object to
+      // prevent freshly created transactions from dangling in an active state
+      // during exclusive operations.
+      storage_guard_(storage_->main_lock_, utils::SharedResourceLockGuard::Type::READ_ONLY, std::defer_lock),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true),
+      creation_storage_mode_(storage_mode) {
+  if (!timeout) {
+    storage_guard_.lock();
+    return;
+  }
+  // If a timeout is allowed, try to acquire the lock for the specified time.
+  if (!storage_guard_.try_lock_for(*timeout)) {
+    throw ReadOnlyAccessTimeout();
   }
 }
 
@@ -638,7 +664,7 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 }
 
 void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating a text index requires unique access to storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
   auto *mapper = storage_->name_id_mapper_.get();
   storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), mapper);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
@@ -646,7 +672,7 @@ void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId l
 }
 
 void Storage::Accessor::DropTextIndex(const std::string &index_name) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping a text index requires unique access to storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
