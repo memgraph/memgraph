@@ -50,7 +50,7 @@ while true; do
 
     docker exec "$jepsen_node_name" bash -c "
       DATABASES_DIR=\"$DATABASES_DIR\"
-      for db_dir in \"\$DATABASES_DIR\"/*/; do
+      for db_dir in \"\$DATABASES_DIR\"/*; do
         # Skip the 'memgraph' directory
         if [[ \$(basename \"\$db_dir\") != \"memgraph\" && -d \"\$db_dir\" ]]; then
           # Correct path to snapshots directory (no double slashes)
