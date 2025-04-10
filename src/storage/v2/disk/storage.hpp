@@ -88,6 +88,13 @@ class DiskStorage final : public Storage {
                         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    EdgesIterable Edges(PropertyId property, View view) override;
+
+    EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) override;
+
+    EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
     uint64_t ApproximateVertexCount() const override;
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
@@ -121,6 +128,17 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
                                   const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
+                                  const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
+      return 10;
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId /*property*/) const override { return 10; }
+
+    uint64_t ApproximateEdgeCount(PropertyId /*property*/, const PropertyValue & /*value*/) const override {
+      return 10;
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
                                   const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
       return 10;
     }
@@ -184,6 +202,8 @@ class DiskStorage final : public Storage {
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
 
+    bool EdgePropertyIndexExists(PropertyId proeprty) const override;
+
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
@@ -215,6 +235,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       PropertyId property) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) override;
+
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
@@ -222,6 +244,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) override;

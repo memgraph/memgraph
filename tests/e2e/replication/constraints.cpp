@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
       if (auto const maybe_constraints = client->FetchAll()) {
         auto constraints = *maybe_constraints;
         if (constraints.size() != 2) {
-          LOG_FATAL("Expected 2 constraints on {}", database_endpoint);
+          LOG_FATAL("Expected 2 constraints on {}", database_endpoint.SocketAddress());
         }
 
         // sort by constraint type
@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
           const auto property_name = constraints[0][2].ValueString();
           const auto type = constraints[0][3].ValueString();
           if (constraint_type != "data_type" || label_name != "Node" || property_name != "id" || type != "INTEGER") {
-            LOG_FATAL("{} does NOT have a valid type constraint created.", database_endpoint);
+            LOG_FATAL("{} does NOT have a valid type constraint created.", database_endpoint.SocketAddress());
           }
         }
         {
@@ -73,11 +73,11 @@ int main(int argc, char **argv) {
           const auto property_name = constraints[1][2].ValueList()[0].ValueString();
           const auto type = constraints[1][3].ValueString();
           if (constraint_type != "unique" || label_name != "Node" || property_name != "id" || !type.empty()) {
-            LOG_FATAL("{} does NOT have a valid unique constraint created.", database_endpoint);
+            LOG_FATAL("{} does NOT have a valid unique constraint created.", database_endpoint.SocketAddress());
           }
         }
       } else {
-        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All constraints are in-place.");
@@ -160,10 +160,10 @@ int main(int argc, char **argv) {
       client->Execute("SHOW CONSTRAINT INFO;");
       if (const auto data = client->FetchAll()) {
         if (!(*data).empty()) {
-          LOG_FATAL("{} still has some constraints.", database_endpoint);
+          LOG_FATAL("{} still has some constraints.", database_endpoint.SocketAddress());
         }
       } else {
-        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All constraints were deleted.");

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -268,6 +268,18 @@ class InteractiveDbAccessor {
                            range_string.str());
   }
 
+  int64_t EdgesCount(memgraph::storage::PropertyId property_id) { return 0; }
+
+  int64_t EdgesCount(memgraph::storage::PropertyId property_id, const memgraph::storage::PropertyValue &value) {
+    return 0;
+  }
+
+  int64_t EdgesCount(memgraph::storage::PropertyId property_id,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> lower,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> upper) {
+    return 0;
+  }
+
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
@@ -296,6 +308,8 @@ class InteractiveDbAccessor {
     }
     return edge_type_property_index_.at(key);
   }
+
+  bool EdgePropertyIndexExists(memgraph::storage::PropertyId property_id) { return false; }
 
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);

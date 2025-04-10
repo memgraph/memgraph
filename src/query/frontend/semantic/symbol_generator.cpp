@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -487,25 +487,25 @@ bool SymbolGenerator::PostVisit(IfOperator &) {
 
 bool SymbolGenerator::PreVisit(All &all) {
   all.list_expression_->Accept(*this);
-  VisitWithIdentifiers(all.where_->expression_, {all.identifier_});
+  VisitWithIdentifiers({all.where_->expression_}, {all.identifier_});
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Single &single) {
   single.list_expression_->Accept(*this);
-  VisitWithIdentifiers(single.where_->expression_, {single.identifier_});
+  VisitWithIdentifiers({single.where_->expression_}, {single.identifier_});
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Any &any) {
   any.list_expression_->Accept(*this);
-  VisitWithIdentifiers(any.where_->expression_, {any.identifier_});
+  VisitWithIdentifiers({any.where_->expression_}, {any.identifier_});
   return false;
 }
 
 bool SymbolGenerator::PreVisit(None &none) {
   none.list_expression_->Accept(*this);
-  VisitWithIdentifiers(none.where_->expression_, {none.identifier_});
+  VisitWithIdentifiers({none.where_->expression_}, {none.identifier_});
   return false;
 }
 
@@ -514,7 +514,7 @@ bool SymbolGenerator::PreVisit(Reduce &reduce) {
   scope.in_reduce = true;
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
-  VisitWithIdentifiers(reduce.expression_, {reduce.accumulator_, reduce.identifier_});
+  VisitWithIdentifiers({reduce.expression_}, {reduce.accumulator_, reduce.identifier_});
   return false;
 }
 
@@ -526,8 +526,32 @@ bool SymbolGenerator::PostVisit(Reduce & /*reduce*/) {
 
 bool SymbolGenerator::PreVisit(Extract &extract) {
   extract.list_->Accept(*this);
-  VisitWithIdentifiers(extract.expression_, {extract.identifier_});
+  VisitWithIdentifiers({extract.expression_}, {extract.identifier_});
   return false;
+}
+
+bool SymbolGenerator::PreVisit(ListComprehension &list_comprehension) {
+  auto &scope = scopes_.back();
+  scope.in_list_comprehension = true;
+  list_comprehension.list_->Accept(*this);
+
+  std::vector<Expression *> exprs;
+  exprs.reserve(2);
+  if (list_comprehension.where_) {
+    exprs.push_back(list_comprehension.where_->expression_);
+  }
+  if (list_comprehension.expression_) {
+    exprs.push_back(list_comprehension.expression_);
+  }
+
+  VisitWithIdentifiers(exprs, {list_comprehension.identifier_});
+  return false;
+}
+
+bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
+  auto &scope = scopes_.back();
+  scope.in_list_comprehension = false;
+  return true;
 }
 
 bool SymbolGenerator::PreVisit(Exists &exists) {
@@ -765,7 +789,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_weight);
         }
       }
-      VisitWithIdentifiers(edge_atom.filter_lambda_.expression, filter_lambda_identifiers);
+      VisitWithIdentifiers({edge_atom.filter_lambda_.expression}, filter_lambda_identifiers);
     } else {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
@@ -787,7 +811,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       }
     }
     if (edge_atom.weight_lambda_.expression) {
-      VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
+      VisitWithIdentifiers({edge_atom.weight_lambda_.expression},
                            {edge_atom.weight_lambda_.inner_edge, edge_atom.weight_lambda_.inner_node});
     }
     scope.in_pattern = true;
@@ -818,6 +842,9 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   if (!scope.in_with && !scope.in_return) {
     throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
   }
+  if (scope.in_list_comprehension) {
+    throw utils::NotYetImplemented("Pattern comprehension inside list comprehension!");
+  }
 
   scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
 
@@ -831,7 +858,8 @@ bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
   return true;
 }
 
-void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<Identifier *> &identifiers) {
+void SymbolGenerator::VisitWithIdentifiers(std::vector<Expression *> exprs,
+                                           const std::vector<Identifier *> &identifiers) {
   auto &scope = scopes_.back();
   std::vector<std::pair<std::optional<Symbol>, Identifier *>> prev_symbols;
   // Collect previous symbols if they exist.
@@ -844,8 +872,10 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
     identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
-  // Visit the expression with the new symbols bound.
-  expr->Accept(*this);
+  // Visit the expressions with the new symbols bound.
+  for (auto *expr : exprs) {
+    expr->Accept(*this);
+  }
   // Restore back to previous symbols.
   for (const auto &prev : prev_symbols) {
     const auto &prev_symbol = prev.first;

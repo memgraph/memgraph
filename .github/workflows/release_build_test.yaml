@@ -22,7 +22,7 @@ on:
       os:
         type: choice
         description: "Target OS on which the release tests will be run."
-        default: debian-11
+        default: ubuntu-24.04
         options:
           - all
           - centos-9
@@ -40,7 +40,7 @@ jobs:
     if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
-      os: ${{ github.event.inputs.os || 'debian-11' }}
+      os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
       toolchain: v6
       arch: amd
       threads: 24
@@ -107,6 +107,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
+      additional_build_args: ${{ matrix.additional_build_args }}
     secrets: inherit
 
   DockerArtifact:

@@ -5,7 +5,7 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 MEMGRAPH_MODULE_SUPPORT_LIB_PATH="$MEMGRAPH_BUILD_PATH/src/query/libmemgraph_module_support.so"
-MEMGRAPH_MTENANCY_DATASETS="$script_dir/../../tests/jepsen/src/memgraph/mtenancy/datasets/"
+MEMGRAPH_MTENANCY_DATASETS="$script_dir/datasets/"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
@@ -15,6 +15,8 @@ CONTROL_LEIN_RUN_STDERR_LOGS=1
 _JEPSEN_RUN_EXIT_STATUS=0
 ENTERPRISE_LICENSE=""
 ORGANIZATION_NAME=""
+WGET_OR_CLONE_TIMEOUT=60
+
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
     echo -e "MEMGRAPH_MODULE_SUPPORT_LIB_PATH:\t\t $MEMGRAPH_MODULE_SUPPORT_LIB_PATH"
@@ -118,9 +120,11 @@ PROCESS_ARGS() {
     done
 }
 
-COPY_BINARIES() {
+COPY_FILES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
+   # Datasets need to be downloaded only if MT test is being run
+   __control_lein_run_args="${1:-}"
    binary_path="$MEMGRAPH_BINARY_PATH"
    support_lib="${MEMGRAPH_MODULE_SUPPORT_LIB_PATH}"
    if [ -L "$binary_path" ]; then
@@ -131,6 +135,23 @@ COPY_BINARIES() {
    fi
    binary_name=$(basename -- "$binary_path")
    support_lib_name=$(basename -- "$support_lib")
+
+
+   # If running MT test, we need to download pokec medium dataset from s3
+   if [[ "$__control_lein_run_args" == *"ha-mt"* ]]; then
+       mkdir -p datasets
+       cd datasets
+       INFO "Downloading pokec medium nodes.csv file..."
+       timeout $WGET_OR_CLONE_TIMEOUT wget https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/nodes.csv
+       INFO "Downloading pokec medium relationships.csv file..."
+       timeout $WGET_OR_CLONE_TIMEOUT wget https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/relationships.csv
+       INFO "Download of datasets finished"
+       cd ..
+   else
+     INFO "None of datasets will be downloaded"
+   fi
+
+
    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
        jepsen_node_name="jepsen-n$iter"
        docker_exec="docker exec $jepsen_node_name bash -c"
@@ -145,14 +166,20 @@ COPY_BINARIES() {
 
        if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
            docker cp "$MEMGRAPH_MTENANCY_DATASETS" "$jepsen_node_name:/opt/memgraph"
-           INFO "Datasets copied successfully."
+           INFO "Datasets copied successfully to $jepsen_node_name."
        else
-           INFO "Datasets won't be copied."
+           INFO "Datasets won't be copied to $jepsen_node_name."
        fi
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
        INFO "Copying $binary_name to $jepsen_node_name DONE."
    done
+
+   if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
+       rm -rf "$MEMGRAPH_MTENANCY_DATASETS"
+       INFO "Datasets folder deleted..."
+   fi
+
    # Copy test files into the control node.
    docker exec jepsen-control mkdir -p /jepsen/memgraph/store
    docker cp "$script_dir/src/." jepsen-control:/jepsen/memgraph/src/
@@ -277,7 +304,7 @@ case $1 in
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
         CLUSTER_UP
-        COPY_BINARIES
+        COPY_FILES
     ;;
 
     cluster-refresh)
@@ -297,7 +324,7 @@ case $1 in
     unit-tests)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES
+        COPY_FILES
         docker exec jepsen-control bash -c "cd /jepsen/memgraph && lein test"
         _JEPSEN_RUN_EXIT_STATUS=$?
         if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
@@ -309,7 +336,7 @@ case $1 in
     test)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES
+        COPY_FILES "$CONTROL_LEIN_RUN_ARGS"
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
         RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"

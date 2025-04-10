@@ -103,7 +103,7 @@ class VertexCountCache {
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property, const storage::PropertyValue &value) {
     auto edge_type_prop = std::make_pair(edge_type, property);
-    auto &value_edge_count = property_value_edge_count_[edge_type_prop];
+    auto &value_edge_count = type_property_value_edge_count_[edge_type_prop];
     // TODO: Why do we even need TypedValue in this whole file?
     TypedValue tv_value(value);
     if (value_edge_count.find(tv_value) == value_edge_count.end())
@@ -122,6 +122,30 @@ class VertexCountCache {
     return bounds_edge_count.at(bounds);
   }
 
+  int64_t EdgesCount(storage::PropertyId property) {
+    if (edge_property_edge_count_.find(property) == edge_property_edge_count_.end())
+      edge_property_edge_count_[property] = db_->EdgesCount(property);
+    return edge_property_edge_count_.at(property);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) {
+    auto &value_edge_count = edge_property_value_edge_count_[property];
+    // TODO: Why do we even need TypedValue in this whole file?
+    TypedValue tv_value(value);
+    if (value_edge_count.find(tv_value) == value_edge_count.end())
+      value_edge_count[tv_value] = db_->EdgesCount(property, value);
+    return value_edge_count.at(tv_value);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property, const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    auto &bounds_edge_count = global_property_bounds_edge_count_[property];
+    BoundsKey bounds = std::make_pair(lower, upper);
+    if (bounds_edge_count.find(bounds) == bounds_edge_count.end())
+      bounds_edge_count[bounds] = db_->EdgesCount(property, lower, upper);
+    return bounds_edge_count.at(bounds);
+  }
+
   bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
 
   bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId property) {
@@ -132,6 +156,10 @@ class VertexCountCache {
 
   bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) {
     return db_->EdgeTypePropertyIndexExists(edge_type, property);
+  }
+
+  bool EdgePropertyIndexExists(storage::PropertyId property) {
+    return db_->EdgePropertyIndexExists(property);
   }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
@@ -202,6 +230,7 @@ class VertexCountCache {
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
   std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
+  std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
   std::unordered_map<
       LabelPropertyKey,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
@@ -211,13 +240,18 @@ class VertexCountCache {
       EdgeTypePropertyKey,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
       EdgeTypePropertyHash>
-      property_value_edge_count_;
+      type_property_value_edge_count_;
+  std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
+                                                             query::TypedValue::BoolEqual>>
+      edge_property_value_edge_count_;
   std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,
                      LabelPropertyHash>
       property_bounds_vertex_count_;
   std::unordered_map<EdgeTypePropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,
                      EdgeTypePropertyHash>
       property_bounds_edge_count_;
+  std::unordered_map<storage::PropertyId, std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>>
+      global_property_bounds_edge_count_;
 };
 
 }  // namespace memgraph::query::plan

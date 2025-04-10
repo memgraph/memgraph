@@ -414,6 +414,28 @@ antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeInde
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateGlobalEdgeIndex(MemgraphCypher::CreateGlobalEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::CREATE;
+  index_query->global_ = true;
+  if (ctx->propertyKeyName()) {
+    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {name_key};
+  }
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropGlobalEdgeIndex(MemgraphCypher::DropGlobalEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::DROP;
+  index_query->global_ = true;
+  if (ctx->propertyKeyName()) {
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {key};
+  }
+  return index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreatePointIndex(MemgraphCypher::CreatePointIndexContext *ctx) {
   auto *index_query = storage_->Create<PointIndexQuery>();
   index_query->action_ = PointIndexQuery::Action::CREATE;
@@ -2970,6 +2992,18 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto enum_value = std::any_cast<std::string>(enum_value_access_parts[1]->accept(this));
 
     return static_cast<Expression *>(storage_->Create<EnumValueAccess>(std::move(enum_name), std::move(enum_value)));
+  } else if (ctx->listComprehension()) {
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->listComprehension()->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list = std::any_cast<Expression *>(
+        ctx->listComprehension()->filterExpression()->idInColl()->expression()->accept(this));
+    auto *where = ctx->listComprehension()->filterExpression()->where()
+                      ? std::any_cast<Where *>(ctx->listComprehension()->filterExpression()->where()->accept(this))
+                      : nullptr;
+    auto *expr = ctx->listComprehension()->expression()
+                     ? std::any_cast<Expression *>(ctx->listComprehension()->expression()->accept(this))
+                     : nullptr;
+    return static_cast<Expression *>(storage_->Create<ListComprehension>(ident, list, where, expr));
   }
 
   // NOTE: Memgraph does NOT support patterns under filtering.
