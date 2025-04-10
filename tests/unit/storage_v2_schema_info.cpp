@@ -2360,6 +2360,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto edge = acc->CreateEdge(&v1, &v2, e1);
+    ASSERT_TRUE(edge.HasValue());
     from_gid = v1.Gid();
     to_gid = v2.Gid();
     edge_gid = edge->Gid();
@@ -2373,14 +2374,16 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
     while (running) {
       ++i;
       auto acc = in_memory->Access();
+      bool can_commit = true;
       if (i % 2 == 0) {
         auto v = acc->FindVertex(from_gid, View::NEW);
+        ASSERT_TRUE(v);
         const auto labels = v->Labels(View::NEW);
         if (labels.HasError()) continue;
         if (labels->empty()) {
-          ASSERT_FALSE(v->AddLabel(l1).HasError());
+          can_commit &= v->AddLabel(l1).HasValue();
         } else {
-          ASSERT_FALSE(v->RemoveLabel(l1).HasError());
+          can_commit &= v->RemoveLabel(l1).HasValue();
         }
       }
       if (i % 3 == 0) {
@@ -2388,12 +2391,12 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         const auto labels = v->Labels(View::NEW);
         if (labels.HasError()) continue;
         if (labels->empty()) {
-          ASSERT_FALSE(v->AddLabel(l2).HasError());
+          can_commit &= v->AddLabel(l2).HasValue();
         } else {
-          ASSERT_FALSE(v->RemoveLabel(l2).HasError());
+          can_commit &= v->RemoveLabel(l2).HasValue();
         }
       }
-      ASSERT_FALSE(acc->Commit().HasError());
+      if (can_commit) ASSERT_FALSE(acc->Commit().HasError());
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   };
@@ -2405,6 +2408,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
       if (i % 5 == 0) {
         auto acc = in_memory->Access();
         auto edge = acc->FindEdge(edge_gid, View::NEW);
+        if (!edge) continue;  // Other thread could delete the edge
         const auto props = edge->Properties(View::NEW);
         if (props.HasError()) continue;
         bool can_commit = true;
@@ -2428,27 +2432,27 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
           // Modify property
           auto acc = in_memory->Access();
           auto edge = acc->FindEdge(edge_gid, View::NEW);
+          if (!edge) continue;  // Edge could be deleted
           const auto props = edge->Properties(View::NEW);
           if (props.HasError()) continue;
-          bool can_commit = true;
-          if (i % 2) {
-            can_commit = edge->SetProperty(p1, PropertyValue{123}).HasValue();
-          } else {
-            can_commit = edge->SetProperty(p1, PropertyValue{true}).HasValue();
+          bool can_commit = edge->SetProperty(p1, PropertyValue{123}).HasValue();
+          if (i % 3) {
+            can_commit &= edge->SetProperty(p1, PropertyValue{true}).HasValue();
           }
           if (can_commit) ASSERT_FALSE(acc->Commit().HasError());
         } else {
-          // Delete edge
+          // Delete/Create edge
           auto acc = in_memory->Access();
           auto edge = acc->FindEdge(edge_gid, View::NEW);
-          if (!edge) continue;
           bool can_commit = true;
-          if (i % 3) {
+          if (edge) {  // Edge exists, delete it
             can_commit = acc->DeleteEdge(&*edge).HasValue();
-          } else {
-            auto v1 = acc->CreateVertex();
-            auto v2 = acc->CreateVertex();
-            auto edge = acc->CreateEdge(&v1, &v2, e1);
+          } else {  // Edge doesn't exist, create it
+            auto v1 = acc->FindVertex(from_gid, View::NEW);
+            ASSERT_TRUE(v1);
+            auto v2 = acc->FindVertex(to_gid, View::NEW);
+            ASSERT_TRUE(v2);
+            auto edge = acc->CreateEdge(&*v1, &*v2, e1);
             if (edge.HasError()) continue;
             edge_gid = edge->Gid();
           }
