@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <latch>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -127,25 +128,27 @@ TEST_F(ConsumerTest, BatchInterval) {
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   auto expected_messages_received = true;
+  static constexpr auto kMessageCount = 7;
+  std::latch sent_messages{kMessageCount};
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
+    sent_messages.count_down(messages.size());
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
     // Sleep for a bit to allow the consumer to receive the message.
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
   // Wait for all messages to be delivered
-  std::this_thread::sleep_for(kBatchInterval);
+  sent_messages.wait();
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
