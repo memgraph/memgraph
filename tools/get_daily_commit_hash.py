@@ -4,6 +4,7 @@ import re
 import os
 import argparse
 
+
 def extract_commit_hash(filename):
     """
     Attempts to extract a commit hash from the given filename.
@@ -19,17 +20,18 @@ def extract_commit_hash(filename):
         return match.group("hash")
     return None
 
+
 def get_daily_commit_hash(date: int) -> List[str]:
     """
-    parse the daily build file names for their commit hashes and return as a list    
-    
+    parse the daily build file names for their commit hashes and return as a list
+
     """
 
     packages = list_daily_release_packages(date, return_url=False)
 
     hashes = []
-    for _,variants in packages.items():
-        for _,key in variants.items():
+    for _, variants in packages.items():
+        for _, key in variants.items():
             file = os.path.basename(key)
             hash = extract_commit_hash(file)
             hashes.append(hash)
@@ -48,5 +50,3 @@ def main():
     hashes = get_daily_commit_hash(int(args.date))
 
     print(" ".join(hashes))
-
-

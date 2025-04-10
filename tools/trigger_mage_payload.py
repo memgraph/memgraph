@@ -1,7 +1,8 @@
 import json
 import os
 
-def trigger_mage_payload(date:int) -> dict:
+
+def trigger_mage_payload(date: int) -> dict:
     """
     build the dict to be dumped as JSON and used to trigger the MAGE daily build
     """
@@ -15,10 +16,11 @@ def trigger_mage_payload(date:int) -> dict:
 
     return payload
 
+
 def main() -> None:
     """
     Build request payload and print JSON to be used by curl to trigger the MAGE
-    daily build process. 
+    daily build process.
 
     This function should probably be extended to pass on test results etc.
     """

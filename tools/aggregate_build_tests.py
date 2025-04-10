@@ -4,6 +4,7 @@ from typing import List
 import os
 from urllib.parse import quote
 
+
 def list_build_files(date: int) -> List[str]:
     """
     Lists the files in s3 for the current build date
@@ -19,7 +20,11 @@ def list_build_files(date: int) -> List[str]:
         list of package s3 keys for this date
     """
     p = subprocess.run(
-        ["aws","s3","ls",f"s3://deps.memgraph.io/daily-build/memgraph/{date}/","--recursive"],
+        [
+            "aws", "s3", "ls",
+            f"s3://deps.memgraph.io/daily-build/memgraph/{date}/",
+            "--recursive"
+        ],
         capture_output=True,
         text=True
     )
@@ -29,7 +34,8 @@ def list_build_files(date: int) -> List[str]:
 
     return files
 
-def build_package_json(files: List[str],return_url: bool = True) -> dict:
+
+def build_package_json(files: List[str], return_url: bool = True) -> dict:
     """
     Extracts the OS and CPU architecture and builds the dict/json used by the
     daily-builds workflow
@@ -40,7 +46,7 @@ def build_package_json(files: List[str],return_url: bool = True) -> dict:
         list of s3 keys
     return_url: bool
         If True, the URL is returned, otherwise the s3 key
-        
+
     Returns
     =======
     out: dict
@@ -50,7 +56,7 @@ def build_package_json(files: List[str],return_url: bool = True) -> dict:
                 "x86_64": "https://.....",
                 "arm64": "https://....."
             }
-        }    
+        }
     """
     out = {}
     for file in files:
@@ -66,25 +72,25 @@ def build_package_json(files: List[str],return_url: bool = True) -> dict:
             arch = "arm64"
         else:
             arch = "x86_64"
-        
+
         if "relwithdebinfo" in file:
             arch = f"{arch}-debug"
-        
+
         if "malloc" in file:
             arch = f"{arch}-malloc"
 
         os = file.split("/")[3].replace(
-            "-malloc",""
+            "-malloc", ""
         ).replace(
-            "-aarch64",""
+            "-aarch64", ""
         ).replace(
             "-relwithdebinfo",
             ""
         )
 
-        if not os in out:
+        if os not in out:
             out[os] = {}
-        
+
         out[os][arch] = url
 
     return out
@@ -100,7 +106,7 @@ def list_daily_release_packages(date: int, return_url: bool = True) -> dict:
         Date in the format yyyymmdd
     return_url: bool
         If True, the URL is returned, otherwise the s3 key
-        
+
     Returns
     =======
     out: dict
@@ -110,13 +116,14 @@ def list_daily_release_packages(date: int, return_url: bool = True) -> dict:
                 "x86_64": "https://.....",
                 "arm64": "https://....."
             }
-        }    
+        }
     """
 
     files = list_build_files(date)
-    packages = build_package_json(files,return_url)
+    packages = build_package_json(files, return_url)
 
     return packages
+
 
 def main() -> None:
     """
@@ -126,7 +133,7 @@ def main() -> None:
     The structure of the payload will be:
     {
         "event_type": "daily-build-update",
-        "client_payload": {    
+        "client_payload": {
             "date": 20250405,
             "tests": "pass",
             "packages": {
@@ -161,6 +168,7 @@ def main() -> None:
     }
     payload = json.dumps(payload)
     print(payload)
+
 
 if __name__ == "__main__":
     main()
