@@ -865,7 +865,7 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
   auto locked_stats = new_stats_.Lock();
 
   auto const it = locked_stats->find(label);
-  if (it != locked_stats->cend()) {
+  if (it == locked_stats->cend()) {
     return {};
   }
   for (auto const &properties : it->second | rv::keys) {
