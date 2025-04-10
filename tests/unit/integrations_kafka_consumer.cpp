@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <latch>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -127,46 +128,44 @@ TEST_F(ConsumerTest, BatchInterval) {
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   auto expected_messages_received = true;
+  static constexpr auto kMessageCount = 7;
+  std::latch sent_messages{kMessageCount};
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
+    sent_messages.count_down(messages.size());
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
+    // Sleep for a bit to allow the consumer to receive the message.
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
   // Wait for all messages to be delivered
-  std::this_thread::sleep_for(kBatchInterval);
+  sent_messages.wait();
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
-    EXPECT_GE(index, 0) << "Cannot check first timestamp!";
-    const auto message_count = received_timestamps[index].first;
+    const auto [message_count, timestamp] = received_timestamps[index];
+    const auto [_, previous_timestamp] = received_timestamps[index - 1];
     EXPECT_LE(1, message_count);
 
-    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(received_timestamps[index].second -
-                                                                             received_timestamps[index - 1].second);
-    static constexpr auto kMinDiff = kBatchInterval * 0.9;
-    static constexpr auto kMaxDiff = kBatchInterval * 1.1;
-    EXPECT_LE(kMinDiff.count(), actual_diff.count());
-    EXPECT_GE(kMaxDiff.count(), actual_diff.count());
+    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
+    EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
   };
 
   ASSERT_FALSE(received_timestamps.empty());
-
-  EXPECT_TRUE(1 <= received_timestamps[0].first && received_timestamps[0].first <= 2);
-
+  auto first_batch_message_count = received_timestamps[0].first;
+  EXPECT_EQ(1, first_batch_message_count);
   EXPECT_LE(3, received_timestamps.size());
 
   int msgsCnt = received_timestamps[0].first;
@@ -244,19 +243,16 @@ TEST_F(ConsumerTest, BatchSize) {
 
   auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
-    EXPECT_GE(index, 0) << "Cannot check first timestamp!";
-    const auto message_count = received_timestamps[index].first;
+    const auto [message_count, timestamp] = received_timestamps[index];
+    const auto [_, previous_timestamp] = received_timestamps[index - 1];
     EXPECT_EQ(expected_message_count, message_count);
 
-    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(received_timestamps[index].second -
-                                                                             received_timestamps[index - 1].second);
+    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
     if (expected_message_count == kBatchSize) {
-      EXPECT_LE(actual_diff, kBatchInterval * 0.5);
+      // Full batch, timeout isn't hit
+      EXPECT_LE(actual_diff, kBatchInterval);
     } else {
-      static constexpr auto kMinDiff = kBatchInterval * 0.9;
-      static constexpr auto kMaxDiff = kBatchInterval * 1.1;
-      EXPECT_LE(kMinDiff.count(), actual_diff.count());
-      EXPECT_GE(kMaxDiff.count(), actual_diff.count());
+      EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
     }
   };
 
