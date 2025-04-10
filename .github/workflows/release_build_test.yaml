@@ -272,3 +272,25 @@ jobs:
             -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
             -d "$payload"    
+
+  TriggerMageDailyBuild:
+    if: (github.event_name == 'schedule' || github.event.inputs.trigger_daily_packaging == 'true') && always()
+    needs: [CurrentDateJob,DailyPackageArtifact]
+    runs-on: [self-hosted]
+    steps:
+      - name: Build Request Payload
+        env:
+          CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
+        run: |
+          echo "MAGE_PAYLOAD=$(python3 tools/trigger_mage_payload.py)" >> $GITHUB_ENV
+
+      - name: Trigger Daily Builds Page Update
+        env: 
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+        run: |
+          # Send the dispatch request to trigger MAGE daily build
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/mage/dispatches \
+            -d "${MAGE_PAYLOAD}"  
