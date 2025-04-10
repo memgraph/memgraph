@@ -53,14 +53,16 @@ while true; do
       for db_dir in \"\$DATABASES_DIR\"/*/; do
         # Skip the 'memgraph' directory
         if [[ \$(basename \"\$db_dir\") != \"memgraph\" && -d \"\$db_dir\" ]]; then
-          echo \"Cleaning .old directories inside \$db_dir/snapshots...\"
-          deleted_dirs=\$(find \"\$db_dir/snapshots\" -maxdepth 1 -type d -name \".old*\" -printf \"%T@ %p\n\" | sort -nr | awk 'NR > 1 {print \$2}')
+          # Correct path to snapshots directory (no double slashes)
+          snapshots_dir=\"\$db_dir/snapshots\"
+          echo \"Cleaning .old directories inside \$snapshots_dir...\"
+          deleted_dirs=\$(find \"\$snapshots_dir\" -maxdepth 1 -type d -name \".old*\" -printf \"%T@ %p\n\" | sort -nr | awk 'NR > 1 {print \$2}')
           if [[ -n \"\$deleted_dirs\" ]]; then
             echo \"Deleting the following directories:\"
             echo \"\$deleted_dirs\"
             echo \"\$deleted_dirs\" | xargs -r rm -rf
           else
-            echo \"Nothing to delete in \$db_dir/snapshots. Only one or no .old* directory exists.\"
+            echo \"Nothing to delete in \$snapshots_dir. Only one or no .old* directory exists.\"
           fi
         fi
       done
