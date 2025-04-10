@@ -57,7 +57,7 @@ jobs:
           echo "current_date=$current_date" >> $GITHUB_OUTPUT
 
   TestIndividual:
-    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    if: ${{ (!github.event.inputs.os || github.event.inputs.os != 'all') && !contains(github.event.head_commit.message, '[skip tests]') }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'debian-11' }}
@@ -82,9 +82,7 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
-    if: >
-      github.ref_type == 'tag' &&
-      !contains(github.event.head_commit.message, '[skip package]')
+    if: github.ref_type == 'tag'
     needs: [TestIndividual]
     strategy:
       fail-fast: false
@@ -133,9 +131,7 @@ jobs:
     secrets: inherit
 
   DockerArtifact:
-    if: >
-      github.ref_type == 'tag' &&
-      !contains(github.event.head_commit.message, '[skip package]')
+    if: github.ref_type == 'tag'
     needs: [TestIndividual]
     strategy:
       fail-fast: false
