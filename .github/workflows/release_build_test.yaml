@@ -278,6 +278,11 @@ jobs:
     needs: [CurrentDateJob,DailyPackageArtifact]
     runs-on: [self-hosted]
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
       - name: Build Request Payload
         env:
           CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
