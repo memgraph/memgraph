@@ -305,10 +305,21 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
   *os << "CREATE GLOBAL EDGE INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
-void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                            storage::PropertyId property) {
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
-      << ");";
+void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+                              std::span<storage::PropertyId const> properties) {
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(";
+
+  bool needs_comma = false;
+  for (auto const &property : properties) {
+    if (needs_comma) {
+      *os << ", ";
+    } else {
+      needs_comma = true;
+    }
+    *os << EscapeName(dba->PropertyToName(property));
+  }
+
+  *os << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
@@ -370,7 +381,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all label indices
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
-                   CreateLabelPropertyIndicesPullChunk(),
+                   CreateLabelPropertiesIndicesPullChunk(),
                    // Dump all text indices
                    CreateTextIndicesPullChunk(),
                    // Dump all point indices
@@ -566,19 +577,19 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
   };
 }
 
-PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
+PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
     }
-    const auto &label_property = indices_info_->label_property;
+    const auto &label_property = indices_info_->label_properties;
 
     size_t local_counter = 0;
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      const auto &label_property_index = label_property[global_index];
-      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second);
+      const auto &[label, properties] = label_property[global_index];
+      DumpLabelPropertiesIndex(&os, dba_, label, properties);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;

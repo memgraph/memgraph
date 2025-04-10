@@ -55,6 +55,7 @@ target_sources(mg-storage-v2
         schema_info.cpp
         edge_ref.cpp
         indices/point_iterator.cpp
+        property_value_utils.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -81,6 +82,12 @@ target_sources(mg-storage-v2
         vertex_info_cache_fwd.hpp
         schema_info.hpp
         edge_ref.hpp
+        id_types.hpp
+        property_value_utils.hpp
+        property_constants.hpp
+        storage.hpp
+        inmemory/storage.hpp
+        disk/storage.hpp
 )
 
 find_package(gflags REQUIRED)
