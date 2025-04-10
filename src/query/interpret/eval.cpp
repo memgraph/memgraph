@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,14 +99,14 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Vertex: {
       for (const auto properties = *expression_result.ValueVertex().Properties(view_);
            const auto &[property_id, value] : properties) {
-        result.emplace(dba_->PropertyToName(property_id), value);
+        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), value);
       }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
       for (const auto properties = *expression_result.ValueEdge().Properties(view_);
            const auto &[property_id, value] : properties) {
-        result.emplace(dba_->PropertyToName(property_id), value);
+        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), value);
       }
       return {result, ctx_->memory};
     }
@@ -118,43 +118,46 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     }
     case TypedValue::Type::Duration: {
       const auto &dur = expression_result.ValueDuration();
-      result.emplace("day", TypedValue(dur.Days(), ctx_->memory));
-      result.emplace("hour", TypedValue(dur.SubDaysAsHours(), ctx_->memory));
-      result.emplace("minute", TypedValue(dur.SubDaysAsMinutes(), ctx_->memory));
-      result.emplace("second", TypedValue(dur.SubDaysAsSeconds(), ctx_->memory));
-      result.emplace("millisecond", TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
-      result.emplace("microseconds", TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
-      result.emplace("nanoseconds", TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("day", ctx_->memory), TypedValue(dur.Days(), ctx_->memory));
+      result.emplace(TypedValue::TString("hour", ctx_->memory), TypedValue(dur.SubDaysAsHours(), ctx_->memory));
+      result.emplace(TypedValue::TString("minute", ctx_->memory), TypedValue(dur.SubDaysAsMinutes(), ctx_->memory));
+      result.emplace(TypedValue::TString("second", ctx_->memory), TypedValue(dur.SubDaysAsSeconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("millisecond", ctx_->memory),
+                     TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("microseconds", ctx_->memory),
+                     TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("nanoseconds", ctx_->memory),
+                     TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Date: {
       const auto &date = expression_result.ValueDate();
-      result.emplace("year", TypedValue(date.year, ctx_->memory));
-      result.emplace("month", TypedValue(date.month, ctx_->memory));
-      result.emplace("day", TypedValue(date.day, ctx_->memory));
+      result.emplace(TypedValue::TString("year", ctx_->memory), TypedValue(date.year, ctx_->memory));
+      result.emplace(TypedValue::TString("month", ctx_->memory), TypedValue(date.month, ctx_->memory));
+      result.emplace(TypedValue::TString("day", ctx_->memory), TypedValue(date.day, ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::LocalTime: {
       const auto &lt = expression_result.ValueLocalTime();
-      result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
-      result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
-      result.emplace("second", TypedValue(lt.second, ctx_->memory));
-      result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
-      result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
+      result.emplace(TypedValue::TString("hour", ctx_->memory), TypedValue(lt.hour, ctx_->memory));
+      result.emplace(TypedValue::TString("minute", ctx_->memory), TypedValue(lt.minute, ctx_->memory));
+      result.emplace(TypedValue::TString("second", ctx_->memory), TypedValue(lt.second, ctx_->memory));
+      result.emplace(TypedValue::TString("millisecond", ctx_->memory), TypedValue(lt.millisecond, ctx_->memory));
+      result.emplace(TypedValue::TString("microsecond", ctx_->memory), TypedValue(lt.microsecond, ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::LocalDateTime: {
       const auto &ldt = expression_result.ValueLocalDateTime();
       const auto &date = ldt.date();
       const auto &lt = ldt.local_time();
-      result.emplace("year", TypedValue(date.year, ctx_->memory));
-      result.emplace("month", TypedValue(date.month, ctx_->memory));
-      result.emplace("day", TypedValue(date.day, ctx_->memory));
-      result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
-      result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
-      result.emplace("second", TypedValue(lt.second, ctx_->memory));
-      result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
-      result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
+      result.emplace(TypedValue::TString("year", ctx_->memory), TypedValue(date.year, ctx_->memory));
+      result.emplace(TypedValue::TString("month", ctx_->memory), TypedValue(date.month, ctx_->memory));
+      result.emplace(TypedValue::TString("day", ctx_->memory), TypedValue(date.day, ctx_->memory));
+      result.emplace(TypedValue::TString("hour", ctx_->memory), TypedValue(lt.hour, ctx_->memory));
+      result.emplace(TypedValue::TString("minute", ctx_->memory), TypedValue(lt.minute, ctx_->memory));
+      result.emplace(TypedValue::TString("second", ctx_->memory), TypedValue(lt.second, ctx_->memory));
+      result.emplace(TypedValue::TString("millisecond", ctx_->memory), TypedValue(lt.millisecond, ctx_->memory));
+      result.emplace(TypedValue::TString("microsecond", ctx_->memory), TypedValue(lt.microsecond, ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::ZonedDateTime: {
@@ -162,38 +165,40 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     }
     case TypedValue::Type::Point2d: {
       auto const &point_2d = expression_result.ValuePoint2d();
-      result.emplace("x", TypedValue(point_2d.x(), ctx_->memory));
-      result.emplace("y", TypedValue(point_2d.y(), ctx_->memory));
-      result.emplace("srid", TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
+      result.emplace(TypedValue::TString("x", ctx_->memory), TypedValue(point_2d.x(), ctx_->memory));
+      result.emplace(TypedValue::TString("y", ctx_->memory), TypedValue(point_2d.y(), ctx_->memory));
+      result.emplace(TypedValue::TString("srid", ctx_->memory),
+                     TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Point3d: {
       auto const &point_3d = expression_result.ValuePoint3d();
-      result.emplace("x", TypedValue(point_3d.x(), ctx_->memory));
-      result.emplace("y", TypedValue(point_3d.y(), ctx_->memory));
-      result.emplace("z", TypedValue(point_3d.z(), ctx_->memory));
-      result.emplace("srid", TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
+      result.emplace(TypedValue::TString("x", ctx_->memory), TypedValue(point_3d.x(), ctx_->memory));
+      result.emplace(TypedValue::TString("y", ctx_->memory), TypedValue(point_3d.y(), ctx_->memory));
+      result.emplace(TypedValue::TString("z", ctx_->memory), TypedValue(point_3d.z(), ctx_->memory));
+      result.emplace(TypedValue::TString("srid", ctx_->memory),
+                     TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Graph: {
       const auto &graph = expression_result.ValueGraph();
-
       utils::pmr::vector<TypedValue> vertices(ctx_->memory);
       vertices.reserve(graph.vertices().size());
       for (const auto &v : graph.vertices()) {
         vertices.emplace_back(v);
       }
-      result.emplace("nodes", TypedValue(std::move(vertices), ctx_->memory));
+      result.emplace(TypedValue::TString("nodes", ctx_->memory), TypedValue(std::move(vertices), ctx_->memory));
 
       utils::pmr::vector<TypedValue> edges(ctx_->memory);
       edges.reserve(graph.edges().size());
       for (const auto &e : graph.edges()) {
         edges.emplace_back(e);
       }
-      result.emplace("edges", TypedValue(std::move(edges), ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), TypedValue(std::move(edges), ctx_->memory));
 
       return {result, ctx_->memory};
     }
+
     default:
       throw QueryRuntimeException(
           "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");

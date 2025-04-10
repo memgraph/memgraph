@@ -557,7 +557,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(MapLiteral &literal) override {
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) {
-      result.emplace(pair.first.name, pair.second->Accept(*this));
+      result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
     }
 
     return TypedValue(result, ctx_->memory);
@@ -586,7 +586,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         continue;
       }
 
-      result.emplace(property_key.name, property_value->Accept(*this));
+      result.emplace(TypedValue::TString(property_key.name, ctx_->memory), property_value->Accept(*this));
     }
 
     if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
