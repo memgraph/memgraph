@@ -1,4 +1,4 @@
-name: "Jepsen HA MT stress test with SYNC replicas"
+name: "Jepsen HA MT stress test with mixed replicas"
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   core:
-    name: "Jepsen HA MT stress tests with SYNC replicas"
+    name: "Jepsen HA MT stress tests with mixed replicas"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
     timeout-minutes: 720
     steps:
