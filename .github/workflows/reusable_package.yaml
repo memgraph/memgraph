@@ -182,7 +182,7 @@ jobs:
           pr="$(git log --pretty=%B | grep -oP '(?<=\(#)\d+(?=\))' | head -n 1)"
 
           # use the short commit hash
-          commit="$(git rev-parse --short HEAD)"
+          commit="$(git rev-parse HEAD | cut -c1-12)"
 
           # set the artifact directory containing the file we want to rename
           if [ "${{ env.FOR_DOCKER }}" == "true" ]; then
