@@ -363,6 +363,7 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.ReadLock()->GetRole();
 }
 
+#ifdef MG_ENTERPRISE
 auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo {
   replication_coordination_glue::InstanceInfo results;
   results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
@@ -374,6 +375,7 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
 
   return results;
 }
+#endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }
 
