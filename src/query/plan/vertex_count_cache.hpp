@@ -80,14 +80,6 @@ class VertexCountCache {
     return it->second;
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
-    auto label_prop = std::make_pair(label, property);
-    auto &value_vertex_count = property_value_vertex_count_[label_prop];
-    if (value_vertex_count.find(value) == value_vertex_count.end())
-      value_vertex_count[value] = db_->VerticesCount(label, std::array{property}, std::array{value});
-    return value_vertex_count.at(value);
-  }
-
   int64_t EdgesCount(storage::EdgeTypeId edge_type) {
     if (edge_type_edge_count_.find(edge_type) == edge_type_edge_count_.end())
       edge_type_edge_count_[edge_type] = db_->EdgesCount(edge_type);
@@ -162,9 +154,7 @@ class VertexCountCache {
     return db_->EdgeTypePropertyIndexExists(edge_type, property);
   }
 
-  bool EdgePropertyIndexExists(storage::PropertyId property) {
-    return db_->EdgePropertyIndexExists(property);
-  }
+  bool EdgePropertyIndexExists(storage::PropertyId property) { return db_->EdgePropertyIndexExists(property); }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return db_->PointIndexExists(label, prop);
@@ -202,9 +192,7 @@ class VertexCountCache {
 
   struct LabelPropertiesRangesHash {
     size_t operator()(LabelPropertiesRangesKey const &key) const noexcept {
-      auto const &label{std::get<0>(key)};
-      auto const &props{std::get<1>(key)};
-      auto const &ranges{std::get<2>(key)};
+      auto const &[label, props, ranges] = key;
 
       auto label_hash = std::hash<storage::LabelId>{};
       auto props_hash = utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{};
@@ -270,8 +258,6 @@ class VertexCountCache {
   std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
-  std::unordered_map<LabelPropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, LabelPropertyHash>
-      property_value_vertex_count_;
   std::unordered_map<EdgeTypePropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, EdgeTypePropertyHash>
       property_value_edge_count_;
   std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
