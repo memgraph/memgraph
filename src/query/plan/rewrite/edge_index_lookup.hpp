@@ -891,7 +891,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
             std::nullopt, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IN) {
-        // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+        // TODO(buda): ScanAllByLabelProperties + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
         auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
@@ -960,7 +960,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           GetProperty(prop_filter.property_), std::make_optional(lower_bound), std::nullopt, view);
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
-      // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+      // TODO(buda): ScanAllByLabelProperties + Filter should be considered
       // here once the operator and the right cardinality estimation exist.
       auto const &symbol = symbol_table_->CreateAnonymousSymbol();
       auto *expression = ast_storage_->Create<Identifier>(symbol.name_);

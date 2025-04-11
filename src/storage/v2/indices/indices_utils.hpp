@@ -206,19 +206,6 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &i
   index_accessor.insert({&vertex, 0});
 }
 
-template <typename TIndexAccessor>
-inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::tuple<LabelId, PropertyId> label_property,
-                                        TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, std::get<LabelId>(label_property))) {
-    return;
-  }
-  auto value = vertex.properties.GetProperty(std::get<PropertyId>(label_property));
-  if (value.IsNull()) {
-    return;
-  }
-  index_accessor.insert({std::move(value), &vertex, 0});
-}
-
 template <typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
                                            TSkipListAccessorFactory &&accessor_factory, const TFunc &func,

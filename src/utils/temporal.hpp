@@ -20,6 +20,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::utils {
 
@@ -593,20 +594,17 @@ struct hash<memgraph::utils::Timezone> {
   size_t operator()(memgraph::utils::Timezone const &tz) const noexcept {
     auto const &offset{tz.GetOffset()};
 
-    if (std::holds_alternative<std::chrono::minutes>(offset)) {
-      return memgraph::utils::HashCombine<size_t, size_t>{}(
-          std::hash<size_t>{}(offset.index()), std::hash<uint64_t>{}(std::get<std::chrono::minutes>(offset).count()));
-    } else if (std::holds_alternative<std::chrono::time_zone const *>(offset)) {
-      return memgraph::utils::HashCombine<size_t, size_t>{}(
-          std::hash<size_t>{}(offset.index()),
-          std::hash<std::string_view>{}(std::get<std::chrono::time_zone const *>(offset)->name()));
-    } else {
-      DMG_ASSERT("No hash algorithm defined for Timezone alternative");
-      return 0;
-    }
-
-    // std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }}
-    return 0;
+    return std::visit(memgraph::utils::Overloaded{
+                          [&](std::chrono::minutes const &minutes) {
+                            return memgraph::utils::HashCombine<size_t, size_t>{}(
+                                std::hash<size_t>{}(offset.index()), std::hash<uint64_t>{}(minutes.count()));
+                          },
+                          [&](std::chrono::time_zone const *time_zone) {
+                            return memgraph::utils::HashCombine<size_t, size_t>{}(
+                                std::hash<size_t>{}(offset.index()), std::hash<std::string_view>{}(time_zone->name()));
+                          },
+                      },
+                      offset);
   }
 };
 

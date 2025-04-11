@@ -58,8 +58,8 @@ struct ExpressionRange {
   static auto In(Expression *value) -> ExpressionRange;
   static auto IsNotNull() -> ExpressionRange;
 
-  auto evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
-  auto plantime_resolve(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
+  auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
+  auto ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
 
   ExpressionRange(ExpressionRange const &other, AstStorage &storage);
 
@@ -554,8 +554,6 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
 /// with a constructor argument.
 ///
 /// @sa ScanAllByLabel
-/// @sa ScanAllByLabelPropertyRange
-/// @sa ScanAllByLabelPropertyValue
 /// @sa ScanAllByLabelProperties
 class ScanAll : public memgraph::query::plan::LogicalOperator {
  public:
@@ -597,8 +595,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
 /// given label.
 ///
 /// @sa ScanAll
-/// @sa ScanAllByLabelPropertyRange
-/// @sa ScanAllByLabelPropertyValue
+/// @sa ScanAllByLabelProperties
 class ScanAllByLabel : public memgraph::query::plan::ScanAll {
  public:
   static const utils::TypeInfo kType;
@@ -912,8 +909,6 @@ class ScanAllByEdgePropertyRange : public memgraph::query::plan::ScanAllByEdge {
 ///
 /// @sa ScanAll
 /// @sa ScanAllByLabel
-/// @sa ScanAllByLabelPropertyRange
-/// @sa ScanAllByLabelPropertyValue
 class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
  public:
   static const utils::TypeInfo kType;

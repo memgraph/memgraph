@@ -312,7 +312,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         auto property_ixs =
             index_hint_ctx->propertyKeyName() | std::ranges::views::transform(to_property_ix) | ranges::to_vector;
 
-        pre_query_directives.index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+        pre_query_directives.index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
                                                                  .label_ix_ = label,
                                                                  .property_ixs_ = std::move(property_ixs)});
       }
@@ -380,16 +380,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     index_query->properties_.emplace_back(std::move(prop_key));
   }
 
-  auto const properties_are_unique = [seen = std::unordered_set<PropertyIx>{}](PropertyIx prop) mutable {
-    if (seen.count(prop)) {
-      return false;
-    } else {
-      seen.insert(prop);
-      return true;
-    }
-  };
-
-  if (!ranges::all_of(index_query->properties_, properties_are_unique)) {
+  auto const properties_are_unique{
+      std::unordered_set<PropertyIx>{index_query->properties_.begin(), index_query->properties_.end()}.size() ==
+      index_query->properties_.size()};
+  if (!properties_are_unique) {
     throw SyntaxException("Properties cannot be repeated in a composite index.");
   }
 

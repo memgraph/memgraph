@@ -34,20 +34,6 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 
-// helper to hash vector
-namespace std {
-template <typename T>
-struct hash<std::vector<T>> {
-  size_t operator()(const std::vector<T> &vec) const {
-    size_t seed = vec.size();
-    for (const auto &elem : vec) {
-      seed ^= std::hash<T>{}(elem) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-    return seed;
-  }
-};
-}  // namespace std
-
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
@@ -92,7 +78,7 @@ struct IndexHints {
           continue;
         }
         label_index_hints_.emplace_back(index_hint);
-      } else if (index_type == IndexHint::IndexType::LABEL_PROPERTY) {
+      } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
         auto properties = *index_hint.property_ixs_ |
                           ranges::views::transform([&](PropertyIx const &p) { return db->NameToProperty(p.name); }) |
                           ranges::to_vector;
@@ -149,7 +135,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint.value()[0].name /*TODO*/);
+      auto property_id = db->NameToProperty(property_hint.value()[0].name);
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -1176,9 +1162,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with less vertices is better.
       // the index with same number of vertices but more optimized filter is better.
 
-      // We can do approximate...but for composite there are gaps in skip list which should be discounted
-      // vertex_count would be an over estimate??? HOW TO SOLVE ???
-
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
 
@@ -1304,11 +1287,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
-      // Copy the property filter and then erase it from filters.
-      //      std::vector<PropertyFilter> prop_filter =
-      //          *found_index->filters | ranges::views::transform([](FilterInfo const &fi) { return
-      //          *fi.property_filter; }) | ranges::to_vector;
-
       // Filter cleanup, track which expressions to remove
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;
@@ -1327,7 +1305,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       // For any IN filters, we need to unwind
-      // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+      // TODO(buda): ScanAllByLabelProperties + Filter should be considered
       // here once the operator and the right cardinality estimation exist.
       // TODO: Currently IN uses unwind, this means multiple scans, this could be better
       //  performance if we use single scan
