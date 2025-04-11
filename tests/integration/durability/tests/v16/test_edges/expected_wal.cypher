@@ -1,4 +1,3 @@
-CREATE INDEX ON :__mg_vertex__(__mg_id__);
 CREATE (:__mg_vertex__ {__mg_id__: 0});
 CREATE (:__mg_vertex__ {__mg_id__: 1});
 CREATE (:__mg_vertex__ {__mg_id__: 2});
@@ -15,6 +14,7 @@ CREATE (:__mg_vertex__ {__mg_id__: 12});
 CREATE (:__mg_vertex__ {__mg_id__: 13});
 CREATE (:__mg_vertex__:`label` {__mg_id__: 14});
 CREATE (:__mg_vertex__:`label` {__mg_id__: 15});
+CREATE INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE (u)-[:`edge`]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 2 AND v.__mg_id__ = 3 CREATE (u)-[:`edge` {`prop`: 11}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 4 AND v.__mg_id__ = 5 CREATE (u)-[:`edge` {`prop`: true}]->(v);
