@@ -485,17 +485,18 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     {
       auto props_size = snapshot.ReadUint();
       if (!props_size) throw RecoveryFailure("Couldn't read size of vertex properties!");
-      auto &props = it->properties;
-      read_properties.clear();
-      read_properties.reserve(*props_size);
-      for (uint64_t j = 0; j < *props_size; ++j) {
-        auto key = snapshot.ReadUint();
-        if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-        auto value = snapshot.ReadPropertyValue();
-        if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
-        read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
+      if (*props_size != 0) {
+        read_properties.clear();
+        read_properties.reserve(*props_size);
+        for (uint64_t j = 0; j < *props_size; ++j) {
+          auto key = snapshot.ReadUint();
+          if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
+          auto value = snapshot.ReadPropertyValue();
+          if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
+          read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
+        }
+        it->properties.InitProperties(std::move(read_properties));
       }
-      props.InitProperties(std::move(read_properties));
     }
 
     // Update schema info
