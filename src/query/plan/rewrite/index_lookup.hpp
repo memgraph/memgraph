@@ -1230,11 +1230,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return found;
   }
 
-  /// Find the best index group for the given symbol. Firstly, we prioritize the group with most index hints.
-  /// After that the best index group is determined by the number of vertices in
-  /// the whole group combined. The group is constructed by trying to find the best LabelPropertyIndex and if not
-  /// possible then LabelIndex. If there is no LabelIndex, the group is empty.
-  /// TODO: Find a better way to determine best index then just number of vertices
+  // Find the best index group for the given symbol. Firstly, we prioritize the group with most index hints.
+  // After that the best index group is determined by the number of vertices in
+  // the whole group combined. The group is constructed by trying to find the best LabelPropertyIndex and if not
+  // possible then LabelIndex. If there is no LabelIndex, the group is empty.
+  // TODO: Find a better way to determine best index than just number of vertices
   IndexGroup FindBestIndexGroup(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
                                 const std::vector<std::vector<LabelIx>> &or_labels) {
     IndexGroup best_group = {
@@ -1258,7 +1258,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       for (const auto &label : group) {
         auto label_id = GetLabel(label);
         int64_t best_vertex_count = std::numeric_limits<std::int64_t>::max();
-        LabelPropertiesIndexCandidate best_label_property_index;
+        std::optional<LabelPropertiesIndexCandidate> best_label_property_index;
         bool best_has_hint = false;
         auto indices = indices_with_label(label);
 
@@ -1284,7 +1284,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           best_vertex_count = db_->VerticesCount(label_id);
           current_group.num_of_index_hints++;
           current_group.indices.push_back(label);
-        } else if (best_vertex_count < std::numeric_limits<std::int64_t>::max() && best_vertex_count > 0) {
+        } else if (best_label_property_index) {
           // LabelPropertyIndex is available
           current_group.indices.emplace_back(
               LabelPropertyIndex{.label = label,
@@ -1500,8 +1500,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<LabelIx> labels_to_erase;
         labels_to_erase.reserve(best_group.indices.size());
         std::vector<Expression *> removed_expressions;
-        std::optional<std::vector<storage::PropertyId>> filtered_property_ids;
-        bool all_property_filters_same = true;
+        std::optional<std::vector<storage::PropertyId>>
+            filtered_property_ids;  // Used to check if all indices uses the same filter
+        bool all_property_filters_same =
+            true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter
         for (const auto &index : best_group.indices) {
           if (std::holds_alternative<LabelIx>(index)) {
             all_property_filters_same = false;
