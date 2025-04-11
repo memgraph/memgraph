@@ -5727,10 +5727,7 @@ class CallProcedureCursor : public Cursor {
     }
 
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
-      // TODO: is there a workaround to not create another string?
-      // results and result_fields have different allocator
-      auto signature_it =
-          proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
+      auto signature_it = proc_->results.find(self_->result_fields_[i]);
       result_.signature.emplace(self_->result_fields_[i],
                                 ResultsMetadata{signature_it->second.first, signature_it->second.second, i});
     }
