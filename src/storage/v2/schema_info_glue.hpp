@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,8 @@ inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoAccessor(Storage *
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, transaction->post_process_,
-                                                     transaction->transaction_id, prop_on_edges);
+                                                     transaction->start_timestamp, transaction->transaction_id,
+                                                     prop_on_edges);
   }
   return storage->schema_info_.CreateVertexModifyingAccessor(prop_on_edges);
 }
@@ -32,7 +33,8 @@ inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoUniqueAccessor(Sto
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
-                                                   prop_on_edges, transaction->transaction_id);
+                                                   transaction->start_timestamp, transaction->transaction_id,
+                                                   prop_on_edges);
   }
   return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
 }
