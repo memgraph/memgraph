@@ -1,5 +1,0 @@
-{"n1" {:management-port 10000 :replication-port 20000}
- "n2" {:management-port 10000 :replication-port 20000}
- "n3" {:management-port 10000 :coordinator-port 12000 :coordinator-id 1}
- "n4" {:management-port 10000 :coordinator-port 12000 :coordinator-id 2}
- "n5" {:management-port 10000 :coordinator-port 12000 :coordinator-id 3}}
