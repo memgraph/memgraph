@@ -170,7 +170,7 @@ patternElement : ( nodePattern ( patternElementChain )* )
                | ( '(' patternElement ')' )
                ;
 
-nodePattern : '(' ( variable )? ( nodeLabels )? ( properties )? ')' ;
+nodePattern : '(' ( variable )? ( nodeLabels | labelExpression )? ( properties )? ')' ;
 
 patternElementChain : relationshipPattern nodePattern ;
 
@@ -201,6 +201,8 @@ relationshipTypes : ':' relTypeName ( '|' ':'? relTypeName )* ;
 nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
+
+labelExpression: ':' symbolicName ( '|' symbolicName )+ ;
 
 labelName : symbolicName
           | parameter

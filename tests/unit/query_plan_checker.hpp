@@ -192,7 +192,6 @@ using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
-using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
 using ExpectScanAllByEdgeId = OpChecker<ScanAllByEdgeId>;
 using ExpectScanAllById = OpChecker<ScanAllById>;
@@ -295,7 +294,7 @@ class ExpectUnion : public OpChecker<Union> {
   void ExpectOp(Union &union_op, const SymbolTable &symbol_table) override {
     PlanChecker check_left_op(left_, symbol_table);
     union_op.left_op_->Accept(check_left_op);
-    PlanChecker check_right_op(left_, symbol_table);
+    PlanChecker check_right_op(right_, symbol_table);
     union_op.right_op_->Accept(check_right_op);
   }
 
@@ -405,6 +404,20 @@ class ExpectOptional : public OpChecker<Optional> {
  private:
   std::vector<Symbol> optional_symbols_;
   const std::list<BaseOpChecker *> &optional_;
+};
+
+class ExpectScanAllByLabel : public OpChecker<ScanAllByLabel> {
+ public:
+  explicit ExpectScanAllByLabel(std::optional<memgraph::storage::LabelId> label = std::nullopt) : label_(label) {}
+
+  void ExpectOp(ScanAllByLabel &scan_all, const SymbolTable &) override {
+    if (label_) {
+      EXPECT_EQ(*label_, scan_all.label_);
+    }
+  }
+
+ private:
+  std::optional<memgraph::storage::LabelId> label_;
 };
 
 class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties> {
@@ -642,10 +655,11 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
 }
 
 template <class TPlanner, class TDbAccessor>
-TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
+TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query,
+                     const std::vector<IndexHint> &index_hints = {}) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
-  return TPlanner(query_parts, planning_context);
+  return TPlanner(query_parts, planning_context, index_hints);
 }
 
 class FakeDbAccessor {
