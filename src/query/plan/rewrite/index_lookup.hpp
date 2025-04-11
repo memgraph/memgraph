@@ -35,20 +35,6 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 
-// helper to hash vector
-namespace std {
-template <typename T>
-struct hash<std::vector<T>> {
-  size_t operator()(const std::vector<T> &vec) const {
-    size_t seed = vec.size();
-    for (const auto &elem : vec) {
-      seed ^= std::hash<T>{}(elem) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-    return seed;
-  }
-};
-}  // namespace std
-
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
