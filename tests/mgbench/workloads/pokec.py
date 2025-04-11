@@ -180,18 +180,10 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
-        falkordb = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) "
-            "WITH n, m, shortestPath((n)-[*..15]->(m)) AS p "
-            "RETURN [n in nodes(p) | n.id] AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor == "neo4j":
+        elif self._vendor in ["neo4j", "falkordb"]:
             return neo4j
-        elif self._vendor == "falkordb":
-            return falkordb
         raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__arango__shortest_path_with_filter(self):
@@ -212,9 +204,7 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor == "neo4j":
-            return neo4j
-        elif self._vendor == "falkordb":
+        elif self._vendor in ["neo4j", "falkordb"]:
             return neo4j
         raise Exception(f"Unknown vendor type {self._vendor}")
 
@@ -234,9 +224,7 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor == "neo4j":
-            return neo4j
-        elif self._vendor == "falkordb":
+        elif self._vendor in ["neo4j", "falkordb"]:
             return neo4j
         raise Exception(f"Unknown vendor type {self._vendor}")
 
@@ -428,5 +416,39 @@ class Pokec(Workload):
     def benchmark__basic__pattern_short_analytical(self):
         return (
             "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__basic__shortest_path_with_filter(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+        memgraph = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
+            "RETURN extract(n in nodes(p) | n.id) AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+
+        neo4j = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p=shortestPath((n)-[*..15]->(m)) "
+            "WHERE all(node in nodes(p) WHERE node.age >= 18) "
+            "RETURN [n in nodes(p) | n.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+        if self._vendor == "memgraph":
+            return memgraph
+        elif self._vendor in ["neo4j", "falkordb"]:
+            return neo4j
+        raise Exception(f"Unknown vendor type {self._vendor}")
+
+    def benchmark__basic__neighbours_3_with_data_and_filter_analytical(self):
+        return (
+            "MATCH (s:User {id: $id})-[*1..3]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__basic__neighbours_4_with_data_and_filter_analytical(self):
+        return (
+            "MATCH (s:User {id: $id})-[*1..4]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
             {"id": self._get_random_vertex()},
         )
