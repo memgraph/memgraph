@@ -104,7 +104,7 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabel) {
         })");
 }
 
-TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyRange) {
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelProperties>(
@@ -171,7 +171,7 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   }
 }
 
-TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyValue) {
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_ForSpecificValue) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
       nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
