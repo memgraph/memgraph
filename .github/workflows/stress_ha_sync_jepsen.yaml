@@ -1,9 +1,10 @@
-name: "Jepsen HA MT stress test"
+name: "Jepsen HA stress test with SYNC replicas"
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * *"
+    # Run every other day
+    - cron: "0 0 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31 * *"
 
 env:
   ARCH: 'amd'
@@ -12,11 +13,11 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: 'debian-12'
   TOOLCHAIN: 'v6'
-  NODES_NO: 5
+  NODES_NO: 6
 
 jobs:
   core:
-    name: "Jepsen HA MT stress tests"
+    name: "Jepsen HA stress test with SYNC replicas"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
     timeout-minutes: 720
     steps:
@@ -93,7 +94,7 @@ jobs:
 
           ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--workload ha-mt --nodes-config resources/ha-mt.edn --time-limit 18000 --concurrency 5 --num-tenants 5 --recovery-time 600 --nemesis-start-sleep 480" \
+          --run-args "--workload hacreate --nodes-config resources/sync_cluster.edn --time-limit 25200 --concurrency $NODES_NO" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no $NODES_NO \

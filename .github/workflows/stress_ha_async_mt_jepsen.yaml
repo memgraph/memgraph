@@ -1,9 +1,10 @@
-name: "Jepsen HA stress test"
+name: "Jepsen HA MT stress test with SYNC replicas"
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * *"
+    # Run every other day
+    - cron: "0 0 2,4,6,8,10,12,14,16,18,20,22,24,26,28,30 * *"
 
 env:
   ARCH: 'amd'
@@ -16,7 +17,7 @@ env:
 
 jobs:
   core:
-    name: "Jepsen HA stress tests"
+    name: "Jepsen HA MT stress tests with SYNC replicas"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
     timeout-minutes: 720
     steps:
@@ -93,7 +94,7 @@ jobs:
 
           ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--workload hacreate --nodes-config resources/cluster.edn --time-limit 25200 --concurrency 6" \
+          --run-args "--workload ha-mt --nodes-config resources/async_cluster.edn --time-limit 18000 --concurrency $NODES_NO --num-tenants 5 --recovery-time 600 --nemesis-start-sleep 480" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no $NODES_NO \
