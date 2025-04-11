@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -416,3 +416,31 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
   test();
 }
 #endif
+
+TEST(Scheduler, SkipSlowExecutions) {
+  std::atomic<int> x{0};
+  std::atomic_bool executed{false};
+  std::function<void()> func{[&x, &executed]() {
+    bool first = ++x == 1;
+    if (first) std::this_thread::sleep_for(std::chrono::seconds(5));
+    executed.store(true);
+    executed.notify_one();
+  }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval(std::chrono::seconds(1));
+  scheduler.Run("Test", func);
+
+  // Wait for first execution to start
+  while (x < 1) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Wait for first execution to end
+  executed.wait(false);
+
+  // Loop for a while and check that 5 missing execution are not run
+  const auto test_end = std::chrono::system_clock::now() + std::chrono::seconds(1);
+  while (std::chrono::system_clock::now() < test_end) {
+    ASSERT_LE(x.load(), 3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  scheduler.Stop();
+}
