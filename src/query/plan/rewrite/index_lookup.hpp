@@ -150,7 +150,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint.value()[0].name /*TODO*/);
+      auto property_id = db->NameToProperty(property_hint.value()[0].name);
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -1190,9 +1190,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with less vertices is better.
       // the index with same number of vertices but more optimized filter is better.
 
-      // We can do approximate...but for composite there are gaps in skip list which should be discounted
-      // vertex_count would be an over estimate??? HOW TO SOLVE ???
-
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
       std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
 
@@ -1448,11 +1445,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count) && or_labels.empty()) {
-      // Copy the property filter and then erase it from filters.
-      //      std::vector<PropertyFilter> prop_filter =
-      //          *found_index->filters | ranges::views::transform([](FilterInfo const &fi) { return
-      //          *fi.property_filter; }) | ranges::to_vector;
-
       // Filter cleanup, track which expressions to remove
       for (auto const &filter_info : found_index->filters) {
         const PropertyFilter prop_filter = *filter_info.property_filter;
