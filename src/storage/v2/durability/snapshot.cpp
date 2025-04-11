@@ -1307,29 +1307,6 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -1352,6 +1329,29 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -1594,29 +1594,6 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -1639,6 +1616,29 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -1935,29 +1935,6 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -1980,6 +1957,29 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -2359,29 +2359,6 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -2404,6 +2381,29 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -2800,29 +2800,6 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -2845,6 +2822,29 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -3293,29 +3293,6 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -3339,6 +3316,29 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -3829,31 +3829,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
-            },
-            edge_batches);
-      }
-      spdlog::info("Edges are recovered.");
-    }
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.");
     uint64_t last_vertex_gid{0};
@@ -3880,6 +3855,31 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
     spdlog::info("Vertices are recovered.");
 
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      {
+        RecoverOnMultipleThreads(
+            config.durability.recovery_thread_count,
+            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
+                const size_t /*batch_index*/, const BatchInfo &batch) {
+              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
+            },
+            edge_batches);
+      }
+    }
+    spdlog::info("Edges are recovered.");
+
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
     recovery_info.vertex_batches.reserve(vertex_batches.size());
@@ -3905,9 +3905,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
           },
           vertex_batches);
-
-      spdlog::info("Connectivity is recovered.");
     }
+    spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
