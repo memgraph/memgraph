@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,14 +75,29 @@ class PropertyStore {
   bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
 
   /// Extracts property values for all property ids in the set `properties`. The time
-  /// complexity of this function is O(n^2).
+  /// complexity of this function is O(n).
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
+
+  /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
+  /// represented by Null. The time complexity of this function is O(n).
+  /// @param ordered_properties: a pre-sorted collection of `PropertyId`
+  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyId const> ordered_properties) const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
   /// performing the equality check. The time complexity of this function is
   /// O(n).
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
+
+  /// Checks whether the properties `ordered_properties` are equal to the specified values
+  /// `values`. This function doesn't perform any memory allocations while
+  /// performing the equality check. The time complexity of this function is
+  /// O(n). `position_lookup` is an ordering mapping of values to match given property from `ordered_properties`,
+  /// hence value for `ordered_properties[0]` is `values[position_lookup[0]]`
+  /// Like AreAllPropertiesEqual but returns a bool for each property
+  /// The returned results in std::vector<bool> correspond to `ordered_properties`
+  auto ArePropertiesEqual(std::span<PropertyId const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup) const -> std::vector<bool>;
 
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
@@ -96,6 +111,10 @@ class PropertyStore {
   /// Returns types of properties currently stored.
   /// @throw std::bad_alloc
   std::map<PropertyId, ExtendedPropertyType> ExtendedPropertyTypes() const;
+
+  /// Returns property ids currently stored.
+  /// @throw std::bad_alloc
+  std::vector<PropertyId> ExtractPropertyIds() const;
 
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is

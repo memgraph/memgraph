@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-using Bound = ScanAllByLabelPropertyRange::Bound;
+using Bound = ScanAllByEdgeTypePropertyRange::Bound;
 
 ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
                              memgraph::query::DbAccessor *dba) {
@@ -146,8 +146,9 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &s
   auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
+  auto expression_ranges = std::vector{ExpressionRange::Range(lower_bound, upper_bound)};
   auto logical_op =
-      std::make_shared<ScanAllByLabelPropertyRange>(input, symbol, label, property, lower_bound, upper_bound, view);
+      std::make_shared<ScanAllByLabelProperties>(input, symbol, label, std::vector{property}, expression_ranges, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -164,7 +165,10 @@ ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &s
   auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op = std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, value, view);
+
+  auto expression_ranges = std::vector{ExpressionRange::Equal(value)};
+  auto logical_op =
+      std::make_shared<ScanAllByLabelProperties>(input, symbol, label, std::vector{property}, expression_ranges, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 

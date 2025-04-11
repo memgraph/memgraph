@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,14 +81,13 @@ TYPED_TEST(ReadWriteTypeCheckTest, Filter) {
 }
 
 TYPED_TEST(ReadWriteTypeCheckTest, ScanAllBy) {
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"),
-      memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
-      memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
-  last_op =
-      std::make_shared<ScanAllByLabelPropertyValue>(last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-                                                    this->dba.NameToProperty("prop"), ADD(LITERAL(21), LITERAL(21)));
-
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+      std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+                                         memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+      std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   this->CheckPlanType(last_op.get(), RWType::R);
 }
 

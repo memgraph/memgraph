@@ -16,7 +16,7 @@ on:
       os:
         type: choice
         description: "Target OS on which the release tests will be run. Select 'all' if you want to package for every listed OS."
-        default: 'debian-11'
+        default: 'ubuntu-24.04'
         options:
           - all
           - amzn-2
@@ -48,7 +48,7 @@ jobs:
     if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
-      os: ${{ github.event.inputs.os || 'debian-11' }}
+      os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
       toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
       arch: "amd"
       threads: 24

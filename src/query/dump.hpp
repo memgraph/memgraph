@@ -55,7 +55,7 @@ struct PullPlanDump {
 
   PullChunk CreateEnumsPullChunk();
   PullChunk CreateLabelIndicesPullChunk();
-  PullChunk CreateLabelPropertyIndicesPullChunk();
+  PullChunk CreateLabelPropertiesIndicesPullChunk();
   PullChunk CreateTextIndicesPullChunk();
   PullChunk CreatePointIndicesPullChunk();
   PullChunk CreateVectorIndicesPullChunk();

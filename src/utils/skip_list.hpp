@@ -23,6 +23,7 @@
 
 #include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
+#include "utils/counter.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -84,7 +85,7 @@ struct SkipListNode_base {
   // the special case of 0 is handled correctly. When 0 is passed to `ffs` it
   // returns 0 which is an invalid height. To make the distribution binomial
   // this value is then mapped to `kSkipListMaxSize`.
-  static uint32_t gen_height() {
+  static uint8_t gen_height() {
     static_assert(kSkipListMaxHeight <= 32,
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
@@ -94,7 +95,7 @@ struct SkipListNode_base {
     value >>= (32 - kSkipListMaxHeight);
     // ffs = find first set
     //       ^    ^     ^
-    return __builtin_ffs(value);
+    return static_cast<uint8_t>(__builtin_ffs(value));
   }
 };
 }  // namespace detail
@@ -168,18 +169,18 @@ size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
 /// For N small enough (arbitrarily chosen to be 500), we will just use the
 /// lowest layer to get the exact numbers. Mostly because this makes writing
 /// tests easier.
-constexpr uint64_t SkipListLayerForCountEstimation(const uint64_t N) {
+constexpr uint8_t SkipListLayerForCountEstimation(const uint64_t N) {
   if (N <= 500) return 1;
-  return std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight);
+  return static_cast<uint8_t>(std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight));
 }
 
 /// This function is written with the same intent as the function above except
 /// that it uses slightly higher layers for estimation because the
 /// `average_number_of_equals` estimate has a larger time complexity than the
 /// `*count` estimates.
-constexpr uint64_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
+constexpr uint8_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
   if (N <= 500) return 1;
-  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1), utils::kSkipListMaxHeight);
+  return static_cast<uint8_t>(std::min(1 + ((utils::Log2(N) * 2) / 3 + 1), utils::kSkipListMaxHeight));
 }
 
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
@@ -599,7 +600,7 @@ class SkipList final : detail::SkipListNode_base {
     friend class SkipList;
     friend class ConstIterator;
 
-    Iterator(TNode *node) : node_(node) {}
+    explicit Iterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj;
@@ -620,7 +621,7 @@ class SkipList final : detail::SkipListNode_base {
     Iterator &operator++() {
       while (true) {
         node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) {
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
           return *this;
@@ -642,7 +643,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    ConstIterator(TNode *node) : node_(node) {}
+    explicit ConstIterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj const;
@@ -665,7 +666,7 @@ class SkipList final : detail::SkipListNode_base {
     ConstIterator &operator++() {
       while (true) {
         node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) {
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
           return *this;
@@ -680,7 +681,61 @@ class SkipList final : detail::SkipListNode_base {
     }
 
    private:
-    TNode *node_;
+    TNode *node_{};
+  };
+
+  class SamplingIterator final {
+   private:
+    friend class SkipList;
+
+    explicit SamplingIterator(TNode *node, uint32_t level) : node_{node}, level_{level} {}
+
+   public:
+    using value_type = TObj const;
+    using difference_type = std::ptrdiff_t;
+
+    SamplingIterator() = default;
+    SamplingIterator(SamplingIterator const &) = default;
+    SamplingIterator(SamplingIterator &&) = default;
+    SamplingIterator &operator=(SamplingIterator const &) = default;
+    SamplingIterator &operator=(SamplingIterator &&) = default;
+
+    value_type &operator*() const { return node_->obj; }
+
+    value_type *operator->() const { return &node_->obj; }
+
+    friend bool operator==(SamplingIterator const &lhs, SamplingIterator const &rhs) { return lhs.node_ == rhs.node_; }
+
+    SamplingIterator &operator++() {
+      while (true) {
+        node_ = node_->nexts[level_].load(std::memory_order_acquire);
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
+          continue;
+        } else {
+          return *this;
+        }
+      }
+    }
+
+    SamplingIterator operator++(int) {
+      SamplingIterator old = *this;
+      ++(*this);
+      return old;
+    }
+
+   private:
+    TNode *node_{};
+    uint32_t level_{};
+  };
+
+  struct SamplingRange {
+    SamplingRange(SamplingIterator begin, SamplingIterator end) : begin_(begin), end_(end) {}
+    auto begin() const -> SamplingIterator { return begin_; }
+    auto end() const -> SamplingIterator { return end_; }
+
+   private:
+    SamplingIterator begin_;
+    SamplingIterator end_;
   };
 
   class Accessor final {
@@ -697,8 +752,8 @@ class SkipList final : detail::SkipListNode_base {
     ~Accessor() {
       if (skiplist_ != nullptr) {
         skiplist_->gc_.ReleaseId(id_);
-        auto d = std::bernoulli_distribution(1.0 / 1024.0);
-        if (d(detail::thread_local_mt19937())) {
+        thread_local auto gc_run_interval = utils::ResettableCounter<1024>();
+        if (gc_run_interval()) {
           skiplist_->run_gc();
         }
       }
@@ -728,6 +783,13 @@ class SkipList final : detail::SkipListNode_base {
     Iterator end() { return Iterator{nullptr}; }
     ConstIterator end() const { return ConstIterator{nullptr}; }
     ConstIterator cend() const { return ConstIterator{nullptr}; }
+
+    auto sampling_range() const {
+      auto const level = static_cast<uint8_t>(SkipListLayerForCountEstimation(size()) - 1);
+      auto const b = SamplingIterator{skiplist_->head_->nexts[level].load(std::memory_order_acquire), level};
+      auto const e = SamplingIterator{};
+      return SamplingRange{b, e};
+    };
 
     std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
 
@@ -882,6 +944,13 @@ class SkipList final : detail::SkipListNode_base {
     ConstIterator end() const { return ConstIterator{nullptr}; }
     ConstIterator cend() const { return ConstIterator{nullptr}; }
 
+    auto sampling_range() const {
+      auto const level = static_cast<uint8_t>(SkipListLayerForCountEstimation(size()) - 1);
+      auto const b = SamplingIterator{skiplist_->head_->nexts[level].load(std::memory_order_acquire), level};
+      auto const e = SamplingIterator{};
+      return SamplingRange{b, e};
+    };
+
     template <typename TKey>
     bool contains(const TKey &key) const {
       return skiplist_->contains(key);
@@ -922,7 +991,9 @@ class SkipList final : detail::SkipListNode_base {
     uint64_t id_{0};
   };
 
-  explicit SkipList(MemoryResource *memory = NewDeleteResource()) : gc_(memory) {
+  SkipList() : SkipList(NewDeleteResource()) {}
+
+  explicit SkipList(MemoryResource *memory) : gc_(memory) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
     void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.
@@ -1015,13 +1086,32 @@ class SkipList final : detail::SkipListNode_base {
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
       TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       // Existence test is missing in the paper.
-      while (curr != nullptr && curr->obj < key) {
-        pred = curr;
-        curr = pred->nexts[layer].load(std::memory_order_acquire);
-      }
-      // Existence test is missing in the paper.
-      if (layer_found == -1 && curr && curr->obj == key) {
-        layer_found = layer;
+
+      if constexpr (std::three_way_comparable_with<TObj, TKey>) {
+        while (curr != nullptr) {
+          auto cmp_res = curr->obj <=> key;
+          if (cmp_res == std::weak_ordering::less) {
+            pred = curr;
+            curr = pred->nexts[layer].load(std::memory_order_acquire);
+          } else if (cmp_res == std::weak_ordering::equivalent) {
+            // Existence test is missing in the paper.
+            if (layer_found == -1) {
+              layer_found = layer;
+            }
+            break;
+          } else if (cmp_res == std::weak_ordering::greater) {
+            break;
+          }
+        }
+      } else {
+        while (curr != nullptr && curr->obj < key) {
+          pred = curr;
+          curr = pred->nexts[layer].load(std::memory_order_acquire);
+        }
+        // Existence test is missing in the paper.
+        if (layer_found == -1 && curr && curr->obj == key) {
+          layer_found = layer;
+        }
       }
       preds[layer] = pred;
       succs[layer] = curr;
@@ -1132,12 +1222,12 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   Iterator find(const TKey &key) {
-    return {find_(key)};
+    return Iterator{find_(key)};
   }
 
   template <typename TKey>
   ConstIterator find(const TKey &key) const {
-    return {find_(key)};
+    return ConstIterator{find_(key)};
   }
 
   template <typename TKey>
@@ -1160,12 +1250,12 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   Iterator find_equal_or_greater(const TKey &key) {
-    return {find_equal_or_greater_(key)};
+    return Iterator{find_equal_or_greater_(key)};
   }
 
   template <typename TKey>
   ConstIterator find_equal_or_greater(const TKey &key) const {
-    return {find_equal_or_greater_(key)};
+    return ConstIterator{find_equal_or_greater_(key)};
   }
 
   template <typename TKey>

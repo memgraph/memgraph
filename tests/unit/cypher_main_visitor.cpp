@@ -52,6 +52,7 @@ using namespace memgraph::query;
 using namespace memgraph::query::frontend;
 using memgraph::query::TypedValue;
 using testing::ElementsAre;
+using testing::NotNull;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
@@ -1821,6 +1822,18 @@ TEST_P(CypherMainVisitorTest, CreateIndex) {
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
+TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, email)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                              ast_generator.Prop("email")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
+}
+
 TEST_P(CypherMainVisitorTest, DropIndex) {
   auto &ast_generator = *GetParam();
   auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko)"));
@@ -1831,6 +1844,11 @@ TEST_P(CypherMainVisitorTest, DropIndex) {
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
+TEST_P(CypherMainVisitorTest, CannotCreateCompositeIndexWithRepeatedProperty) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, name, email)"), SyntaxException);
+}
+
 TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko()"), SyntaxException);
@@ -1838,7 +1856,14 @@ TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
 
 TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"), SyntaxException);
+  auto *index_query =
+      dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("DROP INDEX ON :Person(name, birthDate, email)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                              ast_generator.Prop("email")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnAll) {
@@ -5301,4 +5326,20 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     ASSERT_EQ(lc->where_, nullptr);
     ASSERT_EQ(lc->expression_, nullptr);
   }
+}
+
+TEST_P(CypherMainVisitorTest, UseHintCompositeIndices) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING INDEX :Person(name, country) MATCH (p:Person) WHERE "
+                                                           "p.name = 'Alice Smith' AND p.country = 'UK' RETURN *"));
+  ASSERT_THAT(query, NotNull());
+  auto const &hints{query->pre_query_directives_.index_hints_};
+  ASSERT_EQ(hints.size(), 1);
+  EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTY);
+  EXPECT_EQ(hints[0].label_ix_.name, "Person");
+  ASSERT_TRUE(hints[0].property_ixs_);
+  ASSERT_EQ(hints[0].property_ixs_->size(), 2);
+  EXPECT_EQ((*hints[0].property_ixs_)[0].name, "name");
+  EXPECT_EQ((*hints[0].property_ixs_)[1].name, "country");
 }
