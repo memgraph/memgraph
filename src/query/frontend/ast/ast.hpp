@@ -2260,7 +2260,7 @@ struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
+  enum class IndexType { LABEL, LABEL_PROPERTIES, POINT };
 
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;

@@ -312,7 +312,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         auto property_ixs =
             index_hint_ctx->propertyKeyName() | std::ranges::views::transform(to_property_ix) | ranges::to_vector;
 
-        pre_query_directives.index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+        pre_query_directives.index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
                                                                  .label_ix_ = label,
                                                                  .property_ixs_ = std::move(property_ixs)});
       }

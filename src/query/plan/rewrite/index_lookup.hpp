@@ -79,7 +79,7 @@ struct IndexHints {
           continue;
         }
         label_index_hints_.emplace_back(index_hint);
-      } else if (index_type == IndexHint::IndexType::LABEL_PROPERTY) {
+      } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
         auto properties = *index_hint.property_ixs_ |
                           ranges::views::transform([&](PropertyIx const &p) { return db->NameToProperty(p.name); }) |
                           ranges::to_vector;
