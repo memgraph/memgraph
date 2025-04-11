@@ -13,12 +13,16 @@
 
 import argparse
 import atexit
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
+
+from memgraph_server_context import memgraph_server
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
@@ -32,17 +36,13 @@ DUMP_WAL_FILE_NAME = "expected_wal.cypher"
 
 SIGNAL_SIGTERM = 15
 
-
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 
-def sorted_content(file_path):
+def read_content(file_path):
     with open(file_path, "r") as fin:
-        return sorted(list(map(lambda x: x.strip(), fin.readlines())))
+        return fin.readlines()
 
 
 def list_to_string(data):
@@ -53,7 +53,7 @@ def list_to_string(data):
     return ret
 
 
-def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_expected):
+def execute_test(memgraph_binary: Path, dump_binary, test_directory, test_type, write_expected):
     assert test_type in ["SNAPSHOT", "WAL"], "Test type should be either 'SNAPSHOT' or 'WAL'."
     print("\033[1;36m~~ Executing test {} ({}) ~~\033[0m".format(os.path.relpath(test_directory, TESTS_DIR), test_type))
 
@@ -67,49 +67,17 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
         os.makedirs(wal_dir)
         shutil.copy(os.path.join(test_directory, WAL_FILE_NAME), wal_dir)
 
-    memgraph_args = [
-        memgraph_binary,
-        "--data-recovery-on-startup",
-        "--storage-properties-on-edges",
-        "--data-directory",
-        working_data_directory.name,
-    ]
-
-    # Start the memgraph binary
-    memgraph = subprocess.Popen(memgraph_args)
-    time.sleep(0.1)
-    assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
-
-    # Register cleanup function
-    @atexit.register
-    def cleanup():
-        if memgraph.poll() is None:
-            pid = memgraph.pid
-            try:
-                os.kill(pid, SIGNAL_SIGTERM)
-            except os.OSError:
-                assert False
-            time.sleep(1)
-
-    # Execute `database dump`
-    dump_output_file = tempfile.NamedTemporaryFile()
-    dump_args = [dump_binary, "--use-ssl=false"]
-    subprocess.run(dump_args, stdout=dump_output_file, check=True)
-
-    # Shutdown the memgraph binary
-    pid = memgraph.pid
-    try:
-        os.kill(pid, SIGNAL_SIGTERM)
-    except os.OSError:
-        assert False
-    time.sleep(1)
+    extra_args = ["--data-recovery-on-startup"]
+    with memgraph_server(memgraph_binary, Path(working_data_directory.name), 7687, logger, extra_args):
+        # Execute `database dump`
+        dump_output_file = tempfile.NamedTemporaryFile()
+        dump_args = [dump_binary, "--use-ssl=false"]
+        subprocess.run(dump_args, stdout=dump_output_file, check=True)
 
     dump_file_name = DUMP_SNAPSHOT_FILE_NAME if test_type == "SNAPSHOT" else DUMP_WAL_FILE_NAME
 
     if write_expected:
-        with open(dump_output_file.name, "r") as dump:
-            queries_got = dump.readlines()
+        queries_got = read_content(dump_output_file.name)
         # Write dump files
         expected_dump_file = os.path.join(test_directory, dump_file_name)
         with open(expected_dump_file, "w") as expected:
@@ -118,8 +86,8 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
         # Compare dump files
         expected_dump_file = os.path.join(test_directory, dump_file_name)
         assert os.path.exists(expected_dump_file), "Could not find expected dump path {}".format(expected_dump_file)
-        queries_got = sorted_content(dump_output_file.name)
-        queries_expected = sorted_content(expected_dump_file)
+        queries_got = read_content(dump_output_file.name)
+        queries_expected = read_content(expected_dump_file)
         assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" "{}".format(
             list_to_string(queries_got), list_to_string(queries_expected)
         )
@@ -127,7 +95,7 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
     print("\033[1;32m~~ Test successful ~~\033[0m\n")
 
 
-def find_test_directories(directory):
+def find_test_directories(directory, write_expected):
     """
     Finds all test directories. Test directory is a directory two levels below
     the given directory which contains files 'snapshot.bin', 'wal.bin' and
@@ -146,12 +114,11 @@ def find_test_directories(directory):
             wal_file = os.path.join(test_dir_path, WAL_FILE_NAME)
             dump_snapshot_file = os.path.join(test_dir_path, DUMP_SNAPSHOT_FILE_NAME)
             dump_wal_file = os.path.join(test_dir_path, DUMP_WAL_FILE_NAME)
-            if (
-                os.path.isfile(snapshot_file)
-                and os.path.isfile(dump_snapshot_file)
-                and os.path.isfile(wal_file)
-                and os.path.isfile(dump_wal_file)
-            ):
+            # if write_expected then we are not missing those files
+            missing_dump_files = not write_expected and (
+                not os.path.isfile(dump_snapshot_file) or not os.path.isfile(dump_wal_file)
+            )
+            if os.path.isfile(snapshot_file) and os.path.isfile(wal_file) and not missing_dump_files:
                 test_dirs.append(test_dir_path)
             else:
                 raise Exception("Missing data in test directory '{}'".format(test_dir_path))
@@ -170,11 +137,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    test_directories = find_test_directories(TESTS_DIR)
+    test_directories = find_test_directories(TESTS_DIR, args.write_expected)
     assert len(test_directories) > 0, "No tests have been found!"
 
+    # To reduce confusion, test in version order
+    test_directories.sort()
+
     for test_directory in test_directories:
-        execute_test(args.memgraph, args.dump, test_directory, "SNAPSHOT", args.write_expected)
-        execute_test(args.memgraph, args.dump, test_directory, "WAL", args.write_expected)
+        execute_test(Path(args.memgraph), args.dump, test_directory, "SNAPSHOT", args.write_expected)
+        execute_test(Path(args.memgraph), args.dump, test_directory, "WAL", args.write_expected)
 
     sys.exit(0)
