@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,6 +44,7 @@ class BaseEncoder {
 /// Encoder that is used to generate a snapshot/WAL.
 class Encoder final : public BaseEncoder {
  public:
+  void Initialize(const std::filesystem::path &path);
   void Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 
   void OpenExisting(const std::filesystem::path &path);
@@ -81,6 +82,9 @@ class Encoder final : public BaseEncoder {
 
   // Get the total size of the current file.
   size_t GetSize();
+  auto GetPath() const { return file_.path(); }
+
+  auto native_handle() const { return file_.fd(); }
 
  private:
   utils::OutputFile file_;
