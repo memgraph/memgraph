@@ -16,8 +16,8 @@ from workloads.base import Workload
 from workloads.importers.importer_pokec import ImporterPokec
 
 
-class Pokec(Workload):
-    NAME = "pokec"
+class PokecTraversals(Workload):
+    NAME = "pokec_traversals"
     VARIANTS = ["small", "medium", "large"]
     DEFAULT_VARIANT = "small"
     FILE = None
@@ -67,7 +67,7 @@ class Pokec(Workload):
             vertex_to = self._get_random_vertex()
         return (vertex_from, vertex_to)
 
-    def benchmark__basic__shortest_path_with_filter(self):
+    def benchmark__basic__shortest_path_with_filter_analytical(self):
         vertex_from, vertex_to = self._get_random_from_to()
         memgraph = (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -83,10 +83,21 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
+
+        falkordb = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m, "
+            "p=shortestPath((n)-[*..15]->(m)) "
+            "WHERE all(node in nodes(p) WHERE node.age >= 18) "
+            "RETURN [n in nodes(p) | n.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor in ["neo4j", "falkordb"]:
+        elif self._vendor == "neo4j":
             return neo4j
+        elif self._vendor == "falkordb":
+            return falkordb
         raise Exception(f"Unknown vendor type {self._vendor}")
 
     def benchmark__basic__neighbours_3_with_data_and_filter_analytical(self):
@@ -104,7 +115,7 @@ class Pokec(Workload):
     def benchmark__basic__neighbours_4_with_data_and_inline_filter_analytical(self):
         return (
             "MATCH (p:User {id: $id})-->(q:User )-->(r:User)-->(s:User) "
-            "WHERE p.age >= 18 AND q.age >= 18 AND r.age >= 18 AND s.age >= 18"
-            "RETURN DISTINCT n.id, n",
+            "WHERE p.age >= 18 AND q.age >= 18 AND r.age >= 18 AND s.age >= 18 "
+            "RETURN DISTINCT s.id, s",
             {"id": self._get_random_vertex()},
         )
