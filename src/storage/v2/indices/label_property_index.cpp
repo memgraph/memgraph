@@ -25,4 +25,4 @@ size_t PropertyValueRange::hash() const noexcept {
   return seed;
 }
 
-} // namespace memgraph::storage
+}  // namespace memgraph::storage
