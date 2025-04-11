@@ -71,9 +71,9 @@ struct DatabaseState {
     std::string label;
   };
 
-  struct LabelPropertyItem {
+  struct OrderedLabelPropertiesItem {
     std::string label;
-    std::string property;
+    std::vector<std::string> properties;
   };
 
   struct TextItem {
@@ -84,6 +84,11 @@ struct DatabaseState {
   struct LabelPropertiesItem {
     std::string label;
     std::set<std::string, std::less<>> properties;
+  };
+
+  struct LabelPropertyItem {
+    std::string label;
+    std::string property;
   };
 
   struct PointItem {
@@ -100,7 +105,7 @@ struct DatabaseState {
   std::set<Vertex> vertices;
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
-  std::set<LabelPropertyItem> label_property_indices;
+  std::set<OrderedLabelPropertiesItem> label_property_indices;
   std::set<TextItem> text_indices;
   std::set<PointItem> point_indices;
   std::set<LabelPropertyItem> existence_constraints;
@@ -123,6 +128,12 @@ bool operator<(const DatabaseState::Edge &first, const DatabaseState::Edge &seco
 
 bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
   return first.label < second.label;
+}
+
+bool operator<(const DatabaseState::OrderedLabelPropertiesItem &first,
+               const DatabaseState::OrderedLabelPropertiesItem &second) {
+  if (first.label != second.label) return first.label < second.label;
+  return first.properties < second.properties;
 }
 
 bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
@@ -160,6 +171,11 @@ bool operator==(const DatabaseState::Edge &first, const DatabaseState::Edge &sec
 
 bool operator==(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
   return first.label == second.label;
+}
+
+bool operator==(const DatabaseState::OrderedLabelPropertiesItem &first,
+                const DatabaseState::OrderedLabelPropertiesItem &second) {
+  return first.label == second.label && first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
@@ -234,16 +250,22 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
 
   // Capture all indices
   std::set<DatabaseState::LabelItem> label_indices;
-  std::set<DatabaseState::LabelPropertyItem> label_property_indices;
+  std::set<DatabaseState::OrderedLabelPropertiesItem> label_properties_indices;
   std::set<DatabaseState::TextItem> text_indices;
   std::set<DatabaseState::PointItem> point_indices;
+  // TODO: where are the edge types indicies?
+
   {
     auto info = dba->ListAllIndices();
     for (const auto &item : info.label) {
       label_indices.insert({dba->LabelToName(item)});
     }
-    for (const auto &item : info.label_property) {
-      label_property_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
+    for (const auto &[label, properties] : info.label_properties) {
+      auto properties_as_strings =
+          properties |
+          ranges::views::transform([&](memgraph::storage::PropertyId prop) { return dba->PropertyToName(prop); }) |
+          ranges::to_vector;
+      label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
     for (const auto &item : info.text_indices) {
       text_indices.insert({item.first, dba->LabelToName(item.second)});
@@ -274,7 +296,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices,        edges,         label_indices,         label_property_indices,
+  return {vertices,        edges,         label_indices,         label_properties_indices,
           text_indices,    point_indices, existence_constraints, unique_constraints,
           type_constraints};
 }
@@ -681,7 +703,8 @@ TYPED_TEST(DumpTest, IndicesKeys) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label1"), {this->db->storage()->NameToProperty("prop")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -689,7 +712,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
         unique_acc
-            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
+            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), {this->db->storage()->NameToProperty("prop `")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -705,6 +728,42 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);", "CREATE INDEX ON :`Label 2`(`prop ```);",
                   kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, CompositeIndicesKeys) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite indices not implemented for disk storage";
+  }
+
+  {
+    auto dba = this->db->Access();
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                          {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
+                           this->db->storage()->NameToProperty("prop_c")})
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`, `prop_b`, `prop_c`);", kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});", kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -1074,7 +1133,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1082,7 +1141,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                   this->db->storage()->NameToProperty("unexisting_property"))
+                                   {this->db->storage()->NameToProperty("unexisting_property")})
                      .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1263,16 +1322,16 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
       auto unique_acc = this->db->UniqueAccess();
       ASSERT_FALSE(
           unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), {this->db->storage()->NameToProperty("name")})
               .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
-              .HasError());
+      ASSERT_FALSE(unique_acc
+                       ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
+                                     {this->db->storage()->NameToProperty("surname")})
+                       .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 

@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -33,10 +34,50 @@
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
+
+// helper to hash vector
+namespace std {
+template <typename T>
+struct hash<std::vector<T>> {
+  size_t operator()(const std::vector<T> &vec) const {
+    size_t seed = vec.size();
+    for (const auto &elem : vec) {
+      seed ^= std::hash<T>{}(elem) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+    return seed;
+  }
+};
+}  // namespace std
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
+
+namespace {
+
+// TODO: move to somewhere generic/utils
+template <typename T, typename CB>
+void cartesian_product_impl(std::vector<std::vector<T>> const &vecs, size_t depth, std::vector<T> &temp, CB const &cb) {
+  if (depth == vecs.size()) {
+    std::invoke(cb, temp);
+    return;
+  }
+
+  for (auto const &val : vecs[depth]) {
+    temp[depth] = val;
+    cartesian_product_impl(vecs, depth + 1, temp, cb);
+  }
+}
+
+template <typename T, typename CB>
+void cartesian_product(const std::vector<std::vector<T>> &vecs, CB const &cb) {
+  if (vecs.empty()) return;
+
+  std::vector<T> temp(vecs.size());
+  cartesian_product_impl<T>(vecs, 0, temp, cb);
+}
+}  // namespace
 
 /// Holds a given query's index hints after sorting them by type
 struct IndexHints {
@@ -46,7 +87,7 @@ struct IndexHints {
   IndexHints(std::vector<IndexHint> index_hints, TDbAccessor *db) {
     for (const auto &index_hint : index_hints) {
       const auto index_type = index_hint.index_type_;
-      const auto label_name = index_hint.label_.name;
+      const auto label_name = index_hint.label_ix_.name;
       if (index_type == IndexHint::IndexType::LABEL) {
         if (!db->LabelIndexExists(db->NameToLabel(label_name))) {
           spdlog::debug("Index for label {} doesn't exist", label_name);
@@ -54,14 +95,21 @@ struct IndexHints {
         }
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTY) {
-        auto property_name = index_hint.property_->name;
-        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
-          spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_name);
+        auto properties = *index_hint.property_ixs_ |
+                          ranges::views::transform([&](PropertyIx const &p) { return db->NameToProperty(p.name); }) |
+                          ranges::to_vector;
+
+        // Fetching the corresponding index to the hint
+        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
+          auto property_names = *index_hint.property_ixs_ |
+                                ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; }) |
+                                ranges::views::join(", ") | ranges::to<std::string>;
+          spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_names);
           continue;
         }
         label_property_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::POINT) {
-        auto property_name = index_hint.property_->name;
+        auto property_name = index_hint.property_ixs_.value()[0].name;
         if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
           spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
           continue;
@@ -83,11 +131,15 @@ struct IndexHints {
   }
 
   template <class TDbAccessor>
-  bool HasLabelPropertyIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
-    for (const auto &[index_type, label_hint, property_hint] : label_property_index_hints_) {
+  bool HasLabelPropertiesIndex(TDbAccessor *db, storage::LabelId label,
+                               std::span<storage::PropertyId const> properties) const {
+    for (const auto &[index_type, label_hint, properties_prefix] : label_property_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint->name);
-      if (label_id == label && property_id == property) {
+      auto property_ids = *properties_prefix | ranges::views::transform([&](PropertyIx prop_ix) {
+        return db->NameToProperty(prop_ix.name);
+      }) | ranges::to_vector;
+      if (label_id == label &&
+          std::ranges::equal(property_ids, properties | ranges::views::take(property_ids.size()))) {
         return true;
       }
     }
@@ -99,7 +151,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint->name);
+      auto property_id = db->NameToProperty(property_hint.value()[0].name /*TODO*/);
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -488,29 +540,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllByLabelPropertyRange &op) override {
+  bool PreVisit(ScanAllByLabelProperties &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
-  bool PostVisit(ScanAllByLabelPropertyRange &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByLabelPropertyValue &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelPropertyValue &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByLabelProperty &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelProperty &) override {
+  bool PostVisit(ScanAllByLabelProperties &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -783,8 +817,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertyIndex {
     LabelIx label;
-    // FilterInfo with PropertyFilter.
-    FilterInfo filter;
+    std::vector<storage::PropertyId> properties;  // need props ids to associate
+                                                  // this with the actual index
+    // FilterInfos, each with a PropertyFilter.
+    std::vector<FilterInfo> filters;
     int64_t vertex_count;
     std::optional<storage::LabelPropertyIndexStats> index_stats;
   };
@@ -868,12 +904,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  struct CandidateIndices {
-    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
-    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
+  struct PointIndexInfo {
+    storage::LabelId label_{};
+    storage::PropertyId property_{};
   };
 
-  CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+  struct PointIndexCandidate {
+    FilterInfo filter_;    // filter that can be replaced/augmented by a scan over a given index
+    PointIndexInfo info_;  // exact label+property used to lookup relevant index
+  };
+
+  using CandidatePointIndices = std::unordered_map<std::pair<LabelIx, PropertyIx>, PointIndexCandidate, HashPair>;
+
+  auto GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> CandidatePointIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -883,8 +927,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
-    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices{};
-    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
+    auto candidate_point_indices = CandidatePointIndices{};
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PointFilters(symbol)) {
         if (!are_bound(filter.used_symbols)) {
@@ -897,57 +940,71 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
 
         const auto &property = filter.point_filter->property_;
-        if (!db_->PointIndexExists(GetLabel(label), GetProperty(property))) {
+        auto storage_label = GetLabel(label);
+        auto storage_property = GetProperty(property);
+        if (!db_->PointIndexExists(storage_label, storage_property)) {
           continue;
         }
-        candidate_indices.emplace_back(
-            IndexHint{.index_type_ = IndexHint::IndexType::POINT, .label_ = label, .property_ = property}, filter);
-        candidate_index_lookup.insert({std::make_pair(label, property), filter});
+        candidate_point_indices.insert(
+            {std::pair{label, property}, {filter, {.label_ = storage_label, .property_ = storage_property}}});
       }
     }
 
-    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+    return candidate_point_indices;
   }
 
-  std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
-      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
-    auto [candidate_indices, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
+  auto FindBestPointLabelPropertyIndex(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> std::optional<PointLabelPropertyIndex> {
+    auto candidate_point_indices = GetCandidatePointIndices(symbol, bound_symbols);
 
     // TODO: Can point_index_hints_ be populated?
     //  indexHints: INDEX indexHint ( ',' indexHint )* ;
     //  indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
     // First match with the provided hints
-    for (const auto &[index_type, label, maybe_property] : index_hints_.point_index_hints_) {
-      auto property = *maybe_property;
-      auto filter_it = candidate_index_lookup.find(std::make_pair(label, property));
-      if (filter_it != candidate_index_lookup.cend()) {
+    for (const auto &[index_type, label, maybe_properties] : index_hints_.point_index_hints_) {
+      auto filter_it = candidate_point_indices.find(std::make_pair(label, (*maybe_properties)[0]));
+      if (filter_it != candidate_point_indices.cend()) {
         // TODO: isn't .vertex_count as max value wrong?
-        return PointLabelPropertyIndex{
-            .label = label, .filter = filter_it->second, .vertex_count = std::numeric_limits<std::int64_t>::max()};
+        return PointLabelPropertyIndex{.label = label,
+                                       .filter = filter_it->second.filter_,
+                                       .vertex_count = std::numeric_limits<std::int64_t>::max()};
       }
     }
 
     // Second find a good candidate
     std::optional<PointLabelPropertyIndex> found;
-    for (const auto &[candidate, filter] : candidate_indices) {
-      const auto &[_, label, maybe_property] = candidate;
-      auto labelId = GetLabel(label);
-      auto propertyId = GetProperty(*maybe_property);
+    for (const auto &[key, info] : candidate_point_indices) {
+      const auto &[label, _] = key;
 
       // TODO: ATM we are looking at index size, are there other situations to select a candidate index over another?
-      auto vertex_count = db_->VerticesPointCount(labelId, propertyId);
+      auto vertex_count = db_->VerticesPointCount(info.info_.label_, info.info_.property_);
       if (!vertex_count) continue;
 
       if (!found || vertex_count < found->vertex_count) {
-        found.emplace(label, filter, *vertex_count);
+        // TODO: can we introduce stats for point indices?
+        found.emplace(label, info.filter_, *vertex_count);
         continue;
       }
     }
     return found;
   }
 
-  CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+  struct LabelPropertiesIndexInfo {
+    storage::LabelId label_{};
+    std::vector<storage::PropertyId> properties_{};
+  };
+
+  struct LabelPropertiesIndexCandidate {
+    std::vector<FilterInfo> filters_;  // filters that can be replaced/augmented by a scan over a given index
+    LabelPropertiesIndexInfo info_;    // exact label+properties used to lookup relevant index
+  };
+
+  using CandidateLabelPropertiesIndices =
+      std::multimap<std::pair<LabelIx, std::vector<PropertyIx>>, LabelPropertiesIndexCandidate, std::less<>>;
+
+  auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> CandidateLabelPropertiesIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -957,30 +1014,80 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     };
 
-    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices{};
-    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
-    for (const auto &label : filters_.FilteredLabels(symbol)) {
-      for (const auto &filter : filters_.PropertyFilters(symbol)) {
-        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
-          // Skip filter expressions which use the symbol whose property we are
-          // looking up or aren't bound. We cannot scan by such expressions. For
-          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
-          // cannot scan `n` by property index.
-          continue;
-        }
+    auto candidate_label_properties_indices = CandidateLabelPropertiesIndices{};
 
-        const auto &property = filter.property_filter->property_;
-        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
-          continue;
-        }
-        candidate_indices.emplace_back(
-            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label, .property_ = property},
-            filter);
-        candidate_index_lookup.insert({std::make_pair(label, property), filter});
+    namespace r = ranges;
+    namespace rv = r::views;
+
+    auto as_storage_label = [&](auto const &label) { return GetLabel(label); };
+    auto valid_filter = [&](auto const &filter) {
+      // Skip filter expressions which use the symbol whose property we are
+      // looking up or aren't bound. We cannot scan by such expressions. For
+      // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+      // cannot scan `n` by property index.
+
+      // TODO: technically we could filter for existance of n.a or n.b, BUT ATM when we replace
+      //       scan+filter with index based scanby we remove the associated filter
+      //       `n.a = 2 + n.b` would an example of a filter that could be enhanced by an index but does not
+      //       remove the need for the filter
+      return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
+    };
+    auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_; };
+    auto as_storage_property = [&](auto const &filter) { return GetProperty(as_propertyIX(filter)); };
+
+    auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
+    auto property_filters1 = filters_.PropertyFilters(symbol);
+    auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
+    auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
+    ranges::stable_sort(property_filters, {}, as_storage_property);
+    auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
+
+    // TODO: extact as a common util
+    auto filters_grouped_by_property = std::map<storage::PropertyId, std::vector<FilterInfo>>{};
+    auto grouped = ranges::views::zip(properties, property_filters) |
+                   ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
+    for (auto &&group : grouped) {
+      auto prop = group.front().first;
+      auto &group_for_prop = filters_grouped_by_property[prop];
+      for (auto const &[_, filter] : group) {
+        group_for_prop.emplace_back(filter);
       }
     }
 
-    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+    properties = filters_grouped_by_property | rv::keys | r::to_vector;
+
+    // TODO: what about if multiple filters valid on on property?
+    //  eg. 10 < n.a, n.a < 60 <- both match `a`
+    //  eg. "a" <= n.a, n.a ~= "hat.*?" <- RANGE + REGEX not compatible
+    for (auto const &[label_pos, properties_poses, index_label, index_properties] :
+         db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
+      // properties_poses: [5,3,-1,4]
+      constexpr long MISSING = -1;
+      auto first_missing = std::ranges::find(properties_poses, MISSING);
+      auto prop_positions_prefix = std::ranges::subrange{properties_poses.begin(), first_missing};
+      // properties_prefix: [5,3]
+      if (prop_positions_prefix.empty()) continue;
+
+      auto to_filters = [&](auto &&property_position) {
+        return filters_grouped_by_property[properties[property_position]];
+      };
+      auto filters = prop_positions_prefix | rv::transform(to_filters) | r::to_vector;
+
+      auto const &label = labelIXs[label_pos];
+      cartesian_product(filters, [&](std::vector<FilterInfo> const &filters) {
+        // filters [n.E < 42, 10 < n.C]
+
+        auto prop_ixs = filters | rv::transform(as_propertyIX) | r::to_vector;
+        // prop_ixs [E, C]
+
+        candidate_label_properties_indices.insert(
+            {std::make_pair(label, prop_ixs),
+             LabelPropertiesIndexCandidate{.filters_ = filters,
+                                           .info_ = {.label_ = index_label, .properties_ = index_properties}}});
+      });
+    }
+
+    return candidate_label_properties_indices;
   }
 
   // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
@@ -988,8 +1095,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
   // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
   // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
-  std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
-                                                               const std::unordered_set<Symbol> &bound_symbols) {
+  auto FindBestLabelPropertiesIndex(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
+      -> std::optional<LabelPropertyIndex> {
     /*
      * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be
      * better. If it is <= 10x in number of vertices, check average group size of property values. The index with
@@ -1006,7 +1113,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return 0;
       }
 
-      if (vertex_count / 10.0 > found->vertex_count) {
+      if (found->vertex_count < vertex_count / 10.0) {
         return 1;
       }
       int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
@@ -1014,32 +1121,61 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
     };
 
-    auto [candidate_indices, candidate_index_lookup] = GetCandidateIndices(symbol, bound_symbols);
+    auto const candidate_label_properties_indices = GetCandidateLabelPropertiesIndices(symbol, bound_symbols);
 
-    for (const auto &[index_type, label, maybe_property] : index_hints_.label_property_index_hints_) {
-      auto property = *maybe_property;
-      if (candidate_index_lookup.contains(std::make_pair(label, property))) {
-        return LabelPropertyIndex{.label = label,
-                                  .filter = candidate_index_lookup.at(std::make_pair(label, property)),
-                                  .vertex_count = std::numeric_limits<std::int64_t>::max()};
-      }
+    // try and match requested hint with candidate index
+    for (const auto &[index_type, label, maybe_properties] : index_hints_.label_property_index_hints_) {
+      auto it = candidate_label_properties_indices.find(std::make_pair(label, *maybe_properties));
+      if (it == candidate_label_properties_indices.end()) continue;
+      // Hints may only ask for exact matches on the candidate index
+      if (it->second.info_.properties_.size() != maybe_properties->size()) continue;
+
+      return LabelPropertyIndex{.label = label,
+                                .properties = it->second.info_.properties_,
+                                .filters = it->second.filters_,
+                                .vertex_count = std::numeric_limits<std::int64_t>::max()};
     }
 
     std::optional<LabelPropertyIndex> found;
-    // for (const auto &[label_and_property, filter] : candidate_indices) {
-    //   const auto &[label, property] = label_and_property;
-    for (const auto &[candidate, filter] : candidate_indices) {
-      const auto &[_, label, maybe_property] = candidate;
-      auto property = *maybe_property;
 
-      auto is_better_type = [&found](PropertyFilter::Type type) {
-        // Order the types by the most preferred index lookup type.
-        static const PropertyFilter::Type kFilterTypeOrder[] = {
-            PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
-        auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
-        auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
-        return type_sort_ix < found_sort_ix;
+    namespace r = ranges;
+    namespace rv = r::views;
+
+    auto is_better_type = [](std::span<FilterInfo const> candidate_filters, LabelPropertyIndex const &found) {
+      auto to_score = [](auto const &filters) {
+        auto filter_type_score = [](FilterInfo const &fi) -> double {
+          // Given cardinality is the same which would be prefered as the cost of a per element cost
+          switch (fi.property_filter->type_) {
+            using enum PropertyFilter::Type;
+            case IS_NOT_NULL:
+              return 20.0;  // cheapest, just a raw scan of the index skip list
+            case EQUAL:
+              return 10.0;
+            case RANGE: {
+              if (fi.property_filter->lower_bound_ && fi.property_filter->upper_bound_) {
+                return 7.0;
+              } else {
+                return 6.0;
+              }
+            }
+            case REGEX_MATCH:
+              return 5.0;  // REGEX compare is more expensive
+            case IN:
+              return 1.0;  // ATM multiple scans...not a good prederence
+          }
+        };
+
+        return r::fold_left(filters | rv::transform(filter_type_score), 1.0, std::multiplies<>{});
       };
+
+      return to_score(found.filters) < to_score(candidate_filters);
+    };
+
+    for (const auto &[key, candidate] : candidate_label_properties_indices) {
+      const auto &[label_ix, prop_ixs] = key;
+
+      auto const &storage_label = candidate.info_.label_;
+      auto const &storage_properties = candidate.info_.properties_;
 
       // Conditions, from more to less important:
       // the index with 10x less vertices is better.
@@ -1048,20 +1184,39 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with less vertices is better.
       // the index with same number of vertices but more optimized filter is better.
 
-      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-      std::optional<storage::LabelPropertyIndexStats> new_stats =
-          db_->GetIndexStats(GetLabel(label), GetProperty(property));
+      // We can do approximate...but for composite there are gaps in skip list which should be discounted
+      // vertex_count would be an over estimate??? HOW TO SOLVE ???
 
-      if (!found || vertex_count * 10 < found->vertex_count) {
-        found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
+      int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
+      std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
+
+      auto const make_label_property_index = [&]() -> LabelPropertyIndex {
+        return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
+      };
+
+      if (!found) {
+        // this sets LabelPropertyIndex which communitcates which fiters are to be replaced by a LabelPropertyIndex
+        found = make_label_property_index();
+        continue;
+      }
+
+      // Obvious order of magnitude better?
+      if (vertex_count * 10 < found->vertex_count) {
+        found = make_label_property_index();
+        continue;
+      }
+
+      // If the index is less composite then it is prefered
+      if (candidate.info_.properties_.size() < found->properties.size()) {
+        found = make_label_property_index();
         continue;
       }
 
       if (int cmp_res = compare_indices(found, new_stats, vertex_count);
           cmp_res == -1 ||
-          cmp_res == 0 && (found->vertex_count > vertex_count ||
-                           found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
-        found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
+          cmp_res == 0 && (vertex_count < found->vertex_count ||
+                           vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))) {
+        found = make_label_property_index();
       }
     }
     return found;
@@ -1294,81 +1449,89 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
       }
     }
-    auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
+    std::optional<LabelPropertyIndex> found_index = FindBestLabelPropertiesIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
-      std::vector<Expression *> removed_expressions;
-      auto label_property_index_scan =
-          FindBestLabelPropertyOperator(input, found_index.value(), view, node_symbol, &removed_expressions);
-      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-      return label_property_index_scan;
-    }
-    if (!labels.empty()) {
-      auto maybe_label = FindBestLabelIndex(labels);
-      if (maybe_label) {
-        const auto &label = *maybe_label;
-        if (!max_vertex_count || db_->VerticesCount(GetLabel(label)) <= *max_vertex_count) {
-          std::vector<Expression *> removed_expressions;
-          filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
-          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-          return std::make_shared<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
-        }
-      }
-    }
+      // Copy the property filter and then erase it from filters.
+      //      std::vector<PropertyFilter> prop_filter =
+      //          *found_index->filters | ranges::views::transform([](FilterInfo const &fi) { return
+      //          *fi.property_filter; }) | ranges::to_vector;
 
-    if (!or_labels.empty()) {
-      auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
-      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain it
-      // in unions
-      if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
-        std::shared_ptr<LogicalOperator> prev;
-        std::vector<LabelIx> labels_to_erase;
-        labels_to_erase.reserve(best_group.indices.size());
+      // Filter cleanup, track which expressions to remove
+      for (auto const &filter_info : found_index->filters) {
+        const PropertyFilter prop_filter = *filter_info.property_filter;
+
+        if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
+          // Remove the original expression from Filter operation only if it's not
+          // a regex match. In such a case we need to perform the matching even
+          // after we've scanned the index.
+          filter_exprs_for_removal_.insert(filter_info.expression);
+        }
+        // TODO: multiple filters to remove
+        filters_.EraseFilter(filter_info);
         std::vector<Expression *> removed_expressions;
-        std::optional<PropertyIx> filtered_property_ix;
-        bool all_property_filters_same = true;
-        for (const auto &index : best_group.indices) {
-          if (std::holds_alternative<LabelIx>(index)) {
-            all_property_filters_same = false;
-            labels_to_erase.push_back(std::get<LabelIx>(index));
-            auto scan = std::make_shared<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
-            if (prev) {
-              auto union_op =
-                  std::make_shared<Union>(prev, scan, std::vector<Symbol>{node_symbol},
-                                          std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
-              prev = std::make_shared<Distinct>(union_op, std::vector<Symbol>{node_symbol});
-            } else {
-              prev = scan;
-            }
-          } else {
-            const auto &label_property_index = std::get<LabelPropertyIndex>(index);
-            labels_to_erase.push_back(label_property_index.label);
-            if (filtered_property_ix.has_value() &&
-                filtered_property_ix != label_property_index.filter.property_filter->property_) {
-              all_property_filters_same = false;
-            } else {
-              filtered_property_ix = label_property_index.filter.property_filter->property_;
-            }
-            auto label_property_index_scan =
-                FindBestLabelPropertyOperator(input, label_property_index, view, node_symbol, &removed_expressions);
-            if (prev) {
-              auto union_op =
-                  std::make_shared<Union>(prev, label_property_index_scan, std::vector<Symbol>{node_symbol},
-                                          std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
-              prev = std::make_shared<Distinct>(union_op, std::vector<Symbol>{node_symbol});
-            } else {
-              prev = label_property_index_scan;
-            }
+        filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+      }
+
+      // For any IN filters, we need to unwind
+      // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+      // here once the operator and the right cardinality estimation exist.
+      // TODO: Currently IN uses unwind, this means multiple scans, this could be better
+      //  performance if we use single scan
+      // NOTE: make_unwinds has side-effectm changes input to include new unwind stage
+      auto make_unwinds = [&](FilterInfo const &filter_info) -> Expression * {
+        auto prop_filter = *filter_info.property_filter;
+        if (prop_filter.type_ == PropertyFilter::Type::IN) {
+          auto const &symbol = symbol_table_->CreateAnonymousSymbol();
+          auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+          expression->MapTo(symbol);
+          input = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
+          return expression;
+        }
+        return prop_filter.value_;
+      };
+      auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
+
+      auto const to_expression_range = [&](auto &&filter) -> ExpressionRange {
+        DMG_ASSERT(filter.property_filter);
+        switch (filter.property_filter->type_) {
+          case PropertyFilter::Type::EQUAL:
+          case PropertyFilter::Type::IN: {
+            return ExpressionRange::Equal(filter.property_filter->value_);
+          }
+          case PropertyFilter::Type::REGEX_MATCH: {
+            return ExpressionRange::RegexMatch();
+          }
+          case PropertyFilter::Type::RANGE: {
+            return ExpressionRange::Range(filter.property_filter->lower_bound_, filter.property_filter->upper_bound_);
+          }
+          case PropertyFilter::Type::IS_NOT_NULL: {
+            return ExpressionRange::IsNotNull();
           }
         }
-        if (!all_property_filters_same) removed_expressions.clear();
-        filters_.EraseOrLabelFilter(node_symbol, labels_to_erase, &removed_expressions);
-        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-        return prev;
-      }
+      };
+
+      auto expr_ranges = found_index->filters | ranges::views::transform(to_expression_range) | ranges::to_vector;
+
+      return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
+                                                        std::move(found_index->properties), std::move(expr_ranges),
+                                                        view);
     }
-    return nullptr;
+
+    auto maybe_label = FindBestLabelIndex(labels);
+    if (!maybe_label) return nullptr;
+    const auto &label = *maybe_label;
+    if (max_vertex_count && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
+      // Don't create an indexed lookup, since we have more labeled vertices
+      // than the allowed count.
+      return nullptr;
+    }
+    std::vector<Expression *> removed_expressions;
+    filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
+    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };
 

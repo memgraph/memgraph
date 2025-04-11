@@ -388,7 +388,7 @@ class PropertyFilter {
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
-  enum class Type { EQUAL, REGEX_MATCH, RANGE, IN, IS_NOT_NULL };
+  enum class Type : uint8_t { EQUAL = 0, REGEX_MATCH = 1, RANGE = 2, IN = 3, IS_NOT_NULL = 4 };
 
   /// Construct with Expression being the equality or regex match check.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *, Type);

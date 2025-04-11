@@ -12,6 +12,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: 'debian-12'
   TOOLCHAIN: 'v6'
+  NODES_NO: 6
 
 jobs:
   core:
@@ -33,7 +34,7 @@ jobs:
       - name: Refresh Jepsen Cluster
         run: |
           cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no 6
+          ./run.sh cluster-refresh --nodes-no $NODES_NO
 
       - name: Spin up mgbuild container
         run: |
@@ -73,15 +74,29 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
-      - name: Run HA create test
+      - name: Run HA create test with cleaning old directories
         run: |
           cd tests/jepsen
+
+          # Make sure to change --nodes-no at two places
+          # Observe logs inside cleanup.log
+          ./clean_old_directories.sh --nodes-no $NODES_NO > cleanup.log 2>&1 &
+          CLEANUP_PID=$!
+          echo "Started cleanup script with PID: $CLEANUP_PID"
+
+          cleanup() {
+            echo "Killing cleanup script with PID: $CLEANUP_PID"
+            kill $CLEANUP_PID
+          }
+
+          trap cleanup EXIT
+
           ./run.sh test \
           --binary ../../build/memgraph \
           --run-args "--workload hacreate --nodes-config resources/cluster.edn --time-limit 25200 --concurrency 6" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 6 \
+          --nodes-no $NODES_NO \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
 

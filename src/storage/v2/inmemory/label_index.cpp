@@ -30,46 +30,21 @@ bool InMemoryLabelIndex::CreateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  const auto create_index_seq = [this, &snapshot_info](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
-    using IndexAccessor = decltype(it->second.access());
-
-    CreateIndexOnSingleThread(
-        vertices, it, index_, label,
-        [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-          TryInsertLabelIndex(vertex, label, index_accessor);
-        },
-        snapshot_info);
-
-    return true;
-  };
-
-  const auto create_index_par = [this, &snapshot_info](
-                                    LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                    std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-    using IndexAccessor = decltype(label_it->second.access());
-
-    CreateIndexOnMultipleThreads(
-        vertices, label_it, index_, label, parallel_exec_info,
-        [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-          TryInsertLabelIndex(vertex, label, index_accessor);
-        },
-        snapshot_info);
-
-    return true;
-  };
-
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
     // Index already exists.
     return false;
   }
 
+  auto const func = [&](Vertex &vertex, auto &index_accessor) { TryInsertLabelIndex(vertex, label, index_accessor); };
+
   if (parallel_exec_info) {
-    return create_index_par(label, vertices, it, *parallel_exec_info);
+    CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func, snapshot_info);
+  } else {
+    CreateIndexOnSingleThread(vertices, it, index_, func, snapshot_info);
   }
-  return create_index_seq(label, vertices, it);
+
+  return true;
 }
 
 bool InMemoryLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }
@@ -115,15 +90,14 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
   }
 }
 
-void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices,
-                                      uint64_t exact_start_timestamp) {
-  auto const it = index_.find(labelId);
-  if (it == index_.end()) return;
-
-  auto &label_storage = it->second;
-  auto vertices_acc = label_storage.access();
-  for (auto *vertex : vertices) {
-    vertices_acc.remove(Entry{vertex, exact_start_timestamp});
+void InMemoryLabelIndex::AbortEntries(LabelIndex::AbortableInfo const &info, uint64_t exact_start_timestamp) {
+  for (auto const &[label, to_remove] : info) {
+    auto it = index_.find(label);
+    DMG_ASSERT(it != index_.end());
+    auto acc = it->second.access();
+    for (auto vertex : to_remove) {
+      acc.remove(Entry{vertex, exact_start_timestamp});
+    }
   }
 }
 
@@ -237,13 +211,13 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   return false;
 }
 
-std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
+LabelIndex::AbortProcessor InMemoryLabelIndex::GetAbortProcessor() const {
   std::vector<LabelId> res;
   res.reserve(index_.size());
   for (const auto &[label, _] : index_) {
     res.emplace_back(label);
   }
-  return res;
+  return LabelIndex::AbortProcessor{res};
 }
 
 void InMemoryLabelIndex::DropGraphClearIndices() {

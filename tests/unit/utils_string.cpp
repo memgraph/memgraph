@@ -54,10 +54,11 @@ TEST(String, ToUpperCase) {
 }
 
 TEST(String, Join) {
-  EXPECT_EQ(Join({}, " "), "");
-  EXPECT_EQ(Join({"mem", "gra", "ph"}, ""), "memgraph");
-  EXPECT_EQ(Join({"mirko", "slavko", "pero"}, ", "), "mirko, slavko, pero");
-  EXPECT_EQ(Join({"", "abc", "", "def", ""}, " "), " abc  def ");
+  using namespace std::string_literals;
+  EXPECT_EQ(Join(std::array<std::string, 0>{}, " "), "");
+  EXPECT_EQ(Join(std::array{"mem"s, "gra"s, "ph"s}, ""), "memgraph");
+  EXPECT_EQ(Join(std::array{"mirko"s, "slavko"s, "pero"s}, ", "), "mirko, slavko, pero");
+  EXPECT_EQ(Join(std::array{""s, "abc"s, ""s, "def"s, ""s}, " "), " abc  def ");
 }
 
 TEST(String, Replace) {

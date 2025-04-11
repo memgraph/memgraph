@@ -57,10 +57,10 @@ class InMemoryLabelIndex : public LabelIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  /// Surgical removal of entries that was inserted this transaction
-  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp);
+  auto GetAbortProcessor() const -> AbortProcessor;
 
-  std::vector<LabelId> Analysis() const;
+  /// Surgical removal of entries that was inserted this transaction
+  void AbortEntries(std::map<LabelId, std::vector<Vertex *>> const &info, uint64_t start_timestamp) override;
 
   class Iterable {
    public:

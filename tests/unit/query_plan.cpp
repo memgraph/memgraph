@@ -50,7 +50,7 @@ using memgraph::query::Symbol;
 using memgraph::query::SymbolTable;
 using Type = memgraph::query::EdgeAtom::Type;
 using Direction = memgraph::query::EdgeAtom::Direction;
-using Bound = ScanAllByLabelPropertyRange::Bound;
+using Bound = ScanAllByEdgeTypePropertyRange::Bound;
 
 namespace {
 
@@ -361,8 +361,9 @@ TYPED_TEST(TestPlanner, MatchMultiPatternWithIndexJoin) {
 
   auto c_prop = PROPERTY_LOOKUP(dba, "c", property);
   std::list<BaseOpChecker *> left_indexed_join_ops{new ExpectScanAllByLabel(), new ExpectExpand()};
-  std::list<BaseOpChecker *> right_indexed_join_ops{new ExpectScanAllByLabelPropertyValue(label, property, c_prop),
-                                                    new ExpectExpand()};
+  std::list<BaseOpChecker *> right_indexed_join_ops{
+      new ExpectScanAllByLabelProperties(label, std::vector{property.second}, {ExpressionRange::Equal(c_prop)}),
+      new ExpectExpand()};
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
@@ -732,7 +733,8 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   auto m_prop = PROPERTY_LOOKUP(dba, "m", property);
-  std::list<BaseOpChecker *> optional{new ExpectScanAllByLabelPropertyValue(label, property, m_prop)};
+  std::list<BaseOpChecker *> optional{new ExpectScanAllByLabelProperties(label, std::vector{property.second},
+                                                                         std::vector{ExpressionRange::Equal(m_prop)})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectOptional(optional), ExpectProduce());
   DeleteListContent(&optional);
@@ -1246,8 +1248,11 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
                                      WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "n", prop)))), RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    // We expect ScanAllByLabelProperty to come instead of ScanAll > Filter.
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectExpand(), ExpectProduce());
+    // We expect ExpectScanAllByLabelProperties to come instead of ScanAll > Filter.
+    CheckPlan(
+        planner.plan(), symbol_table,
+        ExpectScanAllByLabelProperties(label, std::vector{prop.second}, std::vector{ExpressionRange::IsNotNull()}),
+        ExpectExpand(), ExpectProduce());
   }
 
   {
@@ -1273,8 +1278,10 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     // We expect ScanAllByLabelProperty > Filter
     // to come instead of ScanAll > Filter.
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectFilter(), ExpectExpand(),
-              ExpectProduce());
+    CheckPlan(
+        planner.plan(), symbol_table,
+        ExpectScanAllByLabelProperties(label, std::vector{prop.second}, std::vector{ExpressionRange::IsNotNull()}),
+        ExpectFilter(), ExpectExpand(), ExpectProduce());
   }
 }
 
@@ -1396,7 +1403,8 @@ TYPED_TEST(TestPlanner, UnwindMergeNodePropertyWithIndex) {
   auto node_n = NODE("n", label_name);
   std::get<0>(node_n->properties_)[this->storage.GetPropertyIx(property.first)] = IDENT("i");
   auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
-  std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabelPropertyValue(label, property, IDENT("i"))};
+  std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabelProperties(
+      label, std::vector{property.second}, std::vector{ExpressionRange::Equal(IDENT("i"))})};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
@@ -1568,8 +1576,10 @@ TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
@@ -1590,8 +1600,10 @@ TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
       RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
@@ -1605,7 +1617,10 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
                                    WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property), lit_42)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BestPropertyIndexed) {
@@ -1625,8 +1640,10 @@ TYPED_TEST(TestPlanner, BestPropertyIndexed) {
       RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, better, lit_42), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{better.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
@@ -1648,8 +1665,10 @@ TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1)};
-  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2)};
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAllByLabelProperties(
+      label1, std::vector{prop1.second}, std::vector{ExpressionRange::Equal(lit_1)})};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAllByLabelProperties(
+      label2, std::vector{prop2.second}, std::vector{ExpressionRange::Equal(lit_2)})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectProduce());
 
@@ -1674,7 +1693,9 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table,
-              ExpectScanAllByLabelPropertyRange(label, property, lower_bound, upper_bound), ExpectProduce());
+              ExpectScanAllByLabelProperties(label, std::vector{property},
+                                             std::vector{ExpressionRange::Range(lower_bound, upper_bound)}),
+              ExpectProduce());
   };
   {
     // Test relation operators which form an upper bound for range.
@@ -1713,8 +1734,10 @@ TYPED_TEST(TestPlanner, WherePreferEqualityIndexOverRange) {
                                    RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
@@ -1750,7 +1773,8 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
 
   // Note: We are scanning for m, therefore property should equal n_prop.
   std::list<BaseOpChecker *> left_index_join_ops{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> right_index_join_ops{new ExpectScanAllByLabelPropertyValue(label, property, n_prop)};
+  std::list<BaseOpChecker *> right_index_join_ops{new ExpectScanAllByLabelProperties(
+      label, std::vector{property.second}, std::vector{ExpressionRange::Equal(n_prop)})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectIndexedJoin(left_index_join_ops, right_index_join_ops),
             ExpectProduce());
@@ -1947,13 +1971,10 @@ TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
   auto *regex_match =
       this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP(dba, "n", prop), LITERAL("regex"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(regex_match), RETURN("n")));
-  // We expect that we use index by property range where lower bound is an empty
-  // string. Filter must still remain in place, because we don't have regex
-  // based index.
-  Bound lower_bound(LITERAL(""), Bound::Type::INCLUSIVE);
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelProperties(label, std::vector{prop}, std::vector{ExpressionRange::RegexMatch()}),
             ExpectFilter(), ExpectProduce());
 }
 
@@ -1973,8 +1994,10 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
   // much better than property range for regex matching.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prop, lit_42), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{prop.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex2) {
@@ -1996,8 +2019,10 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex2) {
   // much better than property range.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prop, lit_42), ExpectFilter(),
-            ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(label, std::vector{prop.second}, std::vector{ExpressionRange::Equal(lit_42)}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
@@ -2018,7 +2043,9 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
   Bound lower_bound(lit_42, Bound::Type::EXCLUSIVE);
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelProperties(label, std::vector{prop},
+                                           std::vector{ExpressionRange::Range(lower_bound, std::nullopt)}),
             ExpectFilter(), ExpectProduce());
 }
 
@@ -2136,7 +2163,9 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectUnwind(),
-              ExpectScanAllByLabelPropertyValue(label, property, lit_list_a), ExpectProduce());
+              ExpectScanAllByLabelProperties(label, std::vector{property.second},
+                                             std::vector{ExpressionRange::Equal(lit_list_a)}),
+              ExpectProduce());
   }
 }
 
@@ -2535,9 +2564,10 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex1) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, property.second,
-                                              Bound{LITERAL(1), memgraph::utils::BoundType::EXCLUSIVE},
-                                              Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectScanAllByLabelProperties(
+                label, std::vector{property.second},
+                std::vector{ExpressionRange::Range(Bound{LITERAL(1), memgraph::utils::BoundType::EXCLUSIVE},
+                                                   Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE})}),
             ExpectProduce());
 }
 
@@ -2574,9 +2604,10 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex2) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, property.second,
-                                              Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
-                                              Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectScanAllByLabelProperties(
+                label, std::vector{property.second},
+                std::vector{ExpressionRange::Range(Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
+                                                   Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE})}),
             ExpectProduce());
 }
 
@@ -2617,9 +2648,10 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex3) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, property.second,
-                                              Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
-                                              Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectScanAllByLabelProperties(
+                label, std::vector{property.second},
+                std::vector{ExpressionRange::Range(Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
+                                                   Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE})}),
             ExpectFilter(), ExpectProduce());
 }
 
@@ -2659,10 +2691,12 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex4) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, property.second, std::nullopt,
-                                              Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
-            ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table,
+      ExpectScanAllByLabelProperties(
+          label, std::vector{property.second},
+          std::vector{ExpressionRange::Range(std::nullopt, Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE})}),
+      ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterNoIndex5) {
@@ -2702,9 +2736,10 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex5) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table,
-            ExpectScanAllByLabelPropertyRange(label, property.second,
-                                              Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
-                                              Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectScanAllByLabelProperties(
+                label, std::vector{property.second},
+                std::vector{ExpressionRange::Range(Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
+                                                   Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE})}),
             ExpectFilter(), ExpectProduce());
 }
 
