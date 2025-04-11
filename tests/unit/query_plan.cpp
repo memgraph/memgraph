@@ -1276,7 +1276,7 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
         RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    // We expect ScanAllByLabelProperty > Filter
+    // We expect ScanAllByLabelProperties > Filter
     // to come instead of ScanAll > Filter.
     CheckPlan(
         planner.plan(), symbol_table,

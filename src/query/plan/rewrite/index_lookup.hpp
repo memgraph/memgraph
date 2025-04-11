@@ -1319,7 +1319,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       // For any IN filters, we need to unwind
-      // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+      // TODO(buda): ScanAllByLabelProperties + Filter should be considered
       // here once the operator and the right cardinality estimation exist.
       // TODO: Currently IN uses unwind, this means multiple scans, this could be better
       //  performance if we use single scan
