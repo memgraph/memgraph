@@ -8,13 +8,13 @@ import argparse
 def extract_commit_hash(filename):
     """
     Attempts to extract a commit hash from the given filename.
-    The regex looks for a delimiter, then 8 to 10 hexadecimal characters,
+    The regex looks for a delimiter, then 8 to 12 hexadecimal characters,
     followed by another delimiter.
     """
     # This regex looks for one of the delimiters (. _ + ~ -)
-    # then captures a group of 8-10 hex digits,
+    # then captures a group of 8-12 hex digits,
     # and ensures it is followed by a delimiter like - or _ or .
-    pattern = re.compile(r"[._+~-](?P<hash>[0-9a-f]{8,10})(?=[-_\.])")
+    pattern = re.compile(r"[._+~-](?P<hash>[0-9a-f]{8,12})(?=[-_\.])")
     match = pattern.search(filename)
     if match:
         return match.group("hash")
