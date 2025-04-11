@@ -406,6 +406,20 @@ class ExpectOptional : public OpChecker<Optional> {
   const std::list<BaseOpChecker *> &optional_;
 };
 
+class ExpectScanAllByLabel : public OpChecker<ScanAllByLabel> {
+ public:
+  explicit ExpectScanAllByLabel(std::optional<memgraph::storage::LabelId> label = std::nullopt) : label_(label) {}
+
+  void ExpectOp(ScanAllByLabel &scan_all, const SymbolTable &) override {
+    if (label_) {
+      EXPECT_EQ(*label_, scan_all.label_);
+    }
+  }
+
+ private:
+  std::optional<memgraph::storage::LabelId> label_;
+};
+
 class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties> {
  public:
   ExpectScanAllByLabelProperties(memgraph::storage::LabelId label,

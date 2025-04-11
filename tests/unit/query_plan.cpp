@@ -3199,7 +3199,8 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingIndexCombination) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelPropertyValue(label1_id, property, lit_1)};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperties(
+      label1_id, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_1)})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());
@@ -3226,8 +3227,10 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingOnlyPropertyIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelPropertyValue(label2_id, property, lit_1)};
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelPropertyValue(label1_id, property, lit_1)};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperties(
+      label2_id, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_1)})};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperties(
+      label1_id, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_1)})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectProduce());
@@ -3278,8 +3281,10 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMultipleMatchStatementsPropertyIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelPropertyValue(label3_id, property, lit_1)};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelPropertyValue(label4_id, property, lit_1)};
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperties(
+      label3_id, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_1)})};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperties(
+      label4_id, std::vector{property.second}, std::vector{ExpressionRange::Equal(lit_1)})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());
@@ -3304,8 +3309,8 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
   // Plan should use label index on Label1 and do a union with the Label2 property index because of the index hint
 
   auto index_hint = memgraph::query::IndexHint{.index_type_ = memgraph::query::IndexHint::IndexType::LABEL,
-                                               .label_ = this->storage.GetLabelIx("Label1"),
-                                               .property_ = std::nullopt};
+                                               .label_ix_ = this->storage.GetLabelIx("Label1"),
+                                               .property_ixs_ = std::nullopt};
   auto node_identifier = IDENT("n");
   auto lit_2 = LITERAL(2);
   Bound upper_bound(lit_2, Bound::Type::EXCLUSIVE);
@@ -3316,8 +3321,9 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query, {index_hint});
 
   std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
-  std::list<BaseOpChecker *> right_subquery_part{
-      new ExpectScanAllByLabelPropertyRange(label2_id, property.second, std::nullopt, upper_bound)};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperties(
+      label2_id, std::vector{property.second},
+      std::vector{ExpressionRange::Range(std::nullopt, Bound{lit_2, memgraph::utils::BoundType::EXCLUSIVE})})};
 
   CheckPlan(planner.plan(), symbol_table, ExpectUnion(left_subquery_part, right_subquery_part), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());
