@@ -100,13 +100,13 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
 }
 
 auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
-    -> std::optional<replication_coordination_glue::DatabaseHistories> {
+    -> std::optional<replication_coordination_glue::InstanceInfo> {
   try {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.AwaitResponse();
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
-    return res.database_histories;
+    return res.instance_info;
 
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
