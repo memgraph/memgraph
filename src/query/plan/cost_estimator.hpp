@@ -164,7 +164,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     auto maybe_propertyvalue_ranges =
         logical_op.expression_ranges_ |
-        ranges::views::transform([&](ExpressionRange const &er) { return er.plantime_resolve(parameters); }) |
+        ranges::views::transform([&](ExpressionRange const &er) { return er.ResolveAtPlantime(parameters); }) |
         ranges::to_vector;
 
     auto factor = std::invoke([&]() -> double {
