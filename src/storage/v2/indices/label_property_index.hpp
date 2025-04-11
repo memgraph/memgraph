@@ -63,9 +63,10 @@ struct PropertyValueRange {
 
   size_t hash() const noexcept;
 
-  friend bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept;
+  friend bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept {
+    return std::tie(lhs.type_, lhs.lower_, lhs.upper_) == std::tie(rhs.type_, rhs.lower_, rhs.upper_);
+  }
 
-  // TODO: make private?
   Type type_;
   std::optional<utils::Bound<PropertyValue>> lower_;
   std::optional<utils::Bound<PropertyValue>> upper_;

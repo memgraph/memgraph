@@ -200,37 +200,6 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 
 }  // namespace
 
-size_t PropertyValueRange::hash() const noexcept {
-  const auto &maybe_lower = lower_;
-  const auto &maybe_upper = upper_;
-  PropertyValue lower;
-  PropertyValue upper;
-  if (maybe_lower) lower = maybe_lower->value();
-  if (maybe_upper) upper = maybe_upper->value();
-  std::hash<PropertyValue> prop_value_hash;
-  std::size_t seed = 0;
-  boost::hash_combine(seed, static_cast<size_t>(type_));
-  boost::hash_combine(seed, prop_value_hash(lower));
-  boost::hash_combine(seed, prop_value_hash(upper));
-  return seed;
-}
-
-bool operator==(PropertyValueRange const &lhs, PropertyValueRange const &rhs) noexcept {
-  if (lhs.type_ != rhs.type_) return false;
-  if (!lhs.lower_ && !rhs.lower_ && !lhs.upper_ && !rhs.upper_) return true;
-  if (static_cast<bool>(lhs.lower_) != static_cast<bool>(rhs.lower_)) return false;
-  if (static_cast<bool>(lhs.upper_) != static_cast<bool>(rhs.upper_)) return false;
-  if (lhs.lower_) {
-    if (lhs.lower_->type() != rhs.lower_->type()) return false;
-    if (lhs.lower_->value() != rhs.lower_->value()) return false;
-  }
-  if (lhs.upper_) {
-    if (lhs.upper_->type() != rhs.upper_->type()) return false;
-    if (lhs.upper_->value() != rhs.upper_->value()) return false;
-  }
-  return true;
-}
-
 bool InMemoryLabelPropertyIndex::NewEntry::operator<(std::vector<PropertyValue> const &rhs) const {
   return std::ranges::lexicographical_compare(
       std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
