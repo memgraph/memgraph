@@ -168,14 +168,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
   using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, Compare>;
-  std::map<LabelId, PropertiesIndices, std::less<>> new_index_;
+  std::map<LabelId, PropertiesIndices, std::less<>> index_;
 
   using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;
   using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
-  std::unordered_map<PropertyId, PropToIndexLookup> new_indices_by_property_;
+  std::unordered_map<PropertyId, PropToIndexLookup> indices_by_property_;
 
   using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
-  utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> new_stats_;
+  utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
 }  // namespace memgraph::storage
