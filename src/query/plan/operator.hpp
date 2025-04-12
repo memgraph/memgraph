@@ -581,6 +581,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// command. With @c storage::View::NEW, all vertices will be produced the current
   /// transaction sees along with their modifications.
   storage::View view_;
+  bool is_parallel_{true};
 
   std::string ToString() const override;
 
@@ -589,6 +590,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
+    object->is_parallel_ = is_parallel_;
     return object;
   }
 };

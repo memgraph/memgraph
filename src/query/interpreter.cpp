@@ -2233,23 +2233,67 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   // Get the execution time of all possible result pulls and streams.
   utils::Timer timer;
+  int num_workers = 4;
+  std::vector<std::thread> workers;
+  std::atomic<bool> done = false;
+  utils::RWSpinLock stream_lock;
+
+  auto worker_fn = [&](int worker_id) {
+    while (true) {
+      memgraph::query::Frame local_frame(frame_);
+      bool pulled = false;
+      pulled = cursor_->Pull(local_frame, ctx_);
+
+      if (!pulled) break;
+
+      // Prepare values from the local frame
+      std::vector<TypedValue> values(output_symbols.size());
+      for (size_t j = 0; j < output_symbols.size(); ++j) {
+        values[j] = local_frame[output_symbols[j]];
+      }
+
+      {
+        auto guard = std::unique_lock{stream_lock};
+        stream->Result(values);
+      }
+    }
+  };
+
+  // Handle unsent results from before
+  if (has_unsent_results_ && !output_symbols.empty()) {
+    auto values = std::vector<TypedValue>(output_symbols.size());
+    for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
+      values[i] = frame_[output_symbols[i]];
+    }
+    stream->Result(values);
+  }
+
+  // Launch threads
+  for (int i = 0; i < num_workers; ++i) {
+    workers.emplace_back(worker_fn, i);
+  }
+
+  // Join threads
+  for (auto &w : workers) {
+    w.join();
+  }
 
   int i = 0;
-  if (has_unsent_results_ && !output_symbols.empty()) {
-    // stream unsent results from previous pull
-    stream_values();
-    ++i;
-  }
+  // if (has_unsent_results_ && !output_symbols.empty()) {
+  //   // stream unsent results from previous pull
+  //   stream_values();
+  //   ++i;
+  // }
 
-  for (; !n || i < n; ++i) {
-    if (!pull_result()) {
-      break;
-    }
+  // for (; !n || i < n; ++i) {
+  //   if (!pull_result()) {
+  //     break;
+  //   }
 
-    if (!output_symbols.empty()) {
-      stream_values();
-    }
-  }
+  //   if (!output_symbols.empty()) {
+  //     stream_values();
+  //   }
+  // }
 
   // If we finished because we streamed the requested n results,
   // we try to pull the next result to see if there is more.

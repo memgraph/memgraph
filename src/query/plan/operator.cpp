@@ -707,11 +707,11 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    auto guard = std::unique_lock{lock_};
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     AbortCheck(context);
-
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       // We need a getter function, because in case of exhausting a lazy
@@ -765,6 +765,7 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
+  utils::RWSpinLock lock_;
 };
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
