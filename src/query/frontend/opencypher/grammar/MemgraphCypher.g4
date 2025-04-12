@@ -124,6 +124,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ON
                       | ON_DISK_TRANSACTIONAL
                       | ON_DISK_TRANSACTIONAL
+                      | PARALLEL
                       | PASSWORD
                       | PERIODIC
                       | POINT
@@ -145,6 +146,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | ROWS
+                      | RUNTIME
                       | SCHEMA
                       | SERVER
                       | SERVICE_URL
@@ -325,7 +327,7 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit | parallelRuntime ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -334,6 +336,8 @@ indexHints: INDEX indexHint ( ',' indexHint )* ;
 indexHint: ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )*  ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+parallelRuntime : PARALLEL RUNTIME numberOfThreads=literal ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
@@ -664,7 +668,7 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex; 
+edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
 
 indexName : symbolicName ;
 

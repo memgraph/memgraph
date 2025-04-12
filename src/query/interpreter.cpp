@@ -2123,7 +2123,7 @@ struct PullPlan {
                     std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {});
+                    std::optional<int64_t> hops_limit = {}, std::optional<int64_t> parallel_runtime_thread_number = {});
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -2137,6 +2137,7 @@ struct PullPlan {
   std::optional<size_t> memory_limit_;
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::optional<QueryLogger> &query_logger_;
+  std::optional<size_t> parallel_runtime_thread_number_;
 
   // As it's possible to query execution using multiple pulls
   // we need the keep track of the total execution time across
@@ -2158,12 +2159,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
                    std::optional<QueryLogger> &query_logger, TriggerContextCollector *trigger_context_collector,
                    const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit)
+                   const std::optional<int64_t> hops_limit, const std::optional<int64_t> parallel_runtime_thread_number)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
-      query_logger_(query_logger) {
+      query_logger_(query_logger),
+      parallel_runtime_thread_number_(parallel_runtime_thread_number) {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -2193,6 +2195,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
   ctx_.db_acc = std::move(db_acc);
+  if (parallel_runtime_thread_number_.has_value()) {
+    ctx_.number_of_threads = parallel_runtime_thread_number_.value();
+  }
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2220,86 +2225,91 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
   }};
 
-  // Returns true if a result was pulled.
-  const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
-
-  auto values = std::vector<TypedValue>(output_symbols.size());
-  const auto stream_values = [&] {
-    for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
-      values[i] = frame_[output_symbols[i]];
-    }
-    stream->Result(values);
-  };
-
   // Get the execution time of all possible result pulls and streams.
   utils::Timer timer;
-  int num_workers = 4;
-  std::vector<std::thread> workers;
-  std::atomic<bool> done = false;
-  utils::RWSpinLock stream_lock;
+  if (parallel_runtime_thread_number_.has_value()) {
+    int num_workers = parallel_runtime_thread_number_.value();
+    std::vector<std::thread> workers;
+    utils::RWSpinLock stream_lock;
 
-  auto worker_fn = [&](int worker_id) {
-    while (true) {
+    auto worker_fn = [&](int worker_id) {
+      auto local_cursor = plan_->plan().MakeCursor(ctx_.evaluation_context.memory);
       memgraph::query::Frame local_frame(frame_);
-      bool pulled = false;
-      pulled = cursor_->Pull(local_frame, ctx_);
+      auto local_ctx = DuplicateExecutionContext(ctx_);
+      local_ctx.thread_id = worker_id;
+      while (true) {
+        bool pulled = false;
+        pulled = local_cursor->Pull(local_frame, local_ctx);
 
-      if (!pulled) break;
+        if (!pulled) break;
 
-      // Prepare values from the local frame
-      std::vector<TypedValue> values(output_symbols.size());
-      for (size_t j = 0; j < output_symbols.size(); ++j) {
-        values[j] = local_frame[output_symbols[j]];
+        // Prepare values from the local frame
+        std::vector<TypedValue> values(output_symbols.size());
+        for (size_t j = 0; j < output_symbols.size(); ++j) {
+          values[j] = local_frame[output_symbols[j]];
+        }
+
+        {
+          auto guard = std::unique_lock{stream_lock};
+          spdlog::debug("Streaming!");
+          stream->Result(values);
+        }
       }
+    };
 
-      {
-        auto guard = std::unique_lock{stream_lock};
-        stream->Result(values);
+    // Handle unsent results from before
+    if (has_unsent_results_ && !output_symbols.empty()) {
+      auto values = std::vector<TypedValue>(output_symbols.size());
+      for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
+        values[i] = frame_[output_symbols[i]];
       }
+      stream->Result(values);
     }
-  };
 
-  // Handle unsent results from before
-  if (has_unsent_results_ && !output_symbols.empty()) {
+    // Launch threads
+    for (int i = 0; i < num_workers; ++i) {
+      workers.emplace_back(worker_fn, i);
+    }
+
+    // Join threads
+    for (auto &w : workers) {
+      w.join();
+    }
+  } else {
+    // Returns true if a result was pulled.
+    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+
     auto values = std::vector<TypedValue>(output_symbols.size());
-    for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
-      values[i] = frame_[output_symbols[i]];
+    const auto stream_values = [&] {
+      for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
+        values[i] = frame_[output_symbols[i]];
+      }
+      stream->Result(values);
+    };
+
+    int i = 0;
+    if (has_unsent_results_ && !output_symbols.empty()) {
+      // stream unsent results from previous pull
+      stream_values();
+      ++i;
     }
-    stream->Result(values);
+
+    for (; !n || i < n; ++i) {
+      if (!pull_result()) {
+        break;
+      }
+
+      if (!output_symbols.empty()) {
+        stream_values();
+      }
+    }
+
+    // If we finished because we streamed the requested n results,
+    // we try to pull the next result to see if there is more.
+    // If there is additional result, we leave the pulled result in the frame
+    // and set the flag to true.
+    has_unsent_results_ = i == n && pull_result();
   }
-
-  // Launch threads
-  for (int i = 0; i < num_workers; ++i) {
-    workers.emplace_back(worker_fn, i);
-  }
-
-  // Join threads
-  for (auto &w : workers) {
-    w.join();
-  }
-
-  int i = 0;
-  // if (has_unsent_results_ && !output_symbols.empty()) {
-  //   // stream unsent results from previous pull
-  //   stream_values();
-  //   ++i;
-  // }
-
-  // for (; !n || i < n; ++i) {
-  //   if (!pull_result()) {
-  //     break;
-  //   }
-
-  //   if (!output_symbols.empty()) {
-  //     stream_values();
-  //   }
-  // }
-
-  // If we finished because we streamed the requested n results,
-  // we try to pull the next result to see if there is more.
-  // If there is additional result, we leave the pulled result in the frame
-  // and set the flag to true.
-  has_unsent_results_ = i == n && pull_result();
 
   execution_time_ += timer.Elapsed();
 
@@ -2497,6 +2507,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
   }
 
+  const auto parallel_runtime_thread_number =
+      EvaluateParallelRuntime(evaluator, cypher_query->pre_query_directives_.parallel_runtime_thread_number_);
+  if (parallel_runtime_thread_number) {
+    spdlog::debug("Running query with parallel runtime thread number of {}", *parallel_runtime_thread_number);
+  }
+
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -2556,11 +2572,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // TODO: pass current DB into plan, in future current can change during pull
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
-  auto pull_plan = std::make_shared<PullPlan>(
-      plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
-      std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, interpreter.query_logger_,
-      trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, is_profile_query, dba, interpreter_context,
+                                 execution_memory, std::move(user_or_role), transaction_status, std::move(tx_timer),
+                                 current_db.db_acc_, interpreter.query_logger_, trigger_context_collector, memory_limit,
+                                 frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr,
+                                 hops_limit, parallel_runtime_thread_number);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {

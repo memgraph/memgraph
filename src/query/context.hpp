@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -85,10 +85,46 @@ struct ExecutionContext {
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   DatabaseAccessProtector db_acc;
+  int64_t number_of_threads{1};
+  int64_t thread_id{1};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
+
+inline ExecutionContext DuplicateExecutionContext(const ExecutionContext &original) {
+  ExecutionContext copy;
+
+  copy.db_accessor = original.db_accessor;    // Shallow copy (shared pointer)
+  copy.symbol_table = original.symbol_table;  // Deep copy if SymbolTable supports it
+  copy.evaluation_context = original.evaluation_context;
+  copy.is_shutting_down = original.is_shutting_down;  // Shared atomic
+  copy.transaction_status = original.transaction_status;
+  copy.is_profile_query = original.is_profile_query;
+  copy.profile_execution_time = original.profile_execution_time;
+  copy.stats = original.stats;
+  copy.stats_root = original.stats_root;
+  copy.execution_stats = original.execution_stats;
+  copy.trigger_context_collector = original.trigger_context_collector;
+  copy.frame_change_collector = original.frame_change_collector;
+  copy.timer = original.timer;                // Shared pointer – shared ownership
+  copy.user_or_role = original.user_or_role;  // Shared pointer – shared ownership
+  copy.number_of_hops = original.number_of_hops;
+  copy.hops_limit = original.hops_limit;
+  copy.periodic_commit_frequency = original.periodic_commit_frequency;
+
+  // #ifdef MG_ENTERPRISE
+  //   if (original.auth_checker) {
+  //     copy.auth_checker = std::make_unique<FineGrainedAuthChecker>(*original.auth_checker);
+  //   }
+  // #endif
+
+  copy.db_acc = original.db_acc;  // Copy constructable
+  copy.number_of_threads = original.number_of_threads;
+  copy.thread_id = original.thread_id;
+
+  return copy;
+}
 
 inline auto MustAbort(const ExecutionContext &context) noexcept -> AbortReason {
   if (context.transaction_status != nullptr &&

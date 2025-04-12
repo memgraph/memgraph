@@ -707,7 +707,6 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    auto guard = std::unique_lock{lock_};
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -727,10 +726,18 @@ class ScanAllCursor : public Cursor {
       return false;
     }
 #endif
+    while (vertices_it_.value() != vertices_end_it_.value()) {
+      if (context.number_of_threads == 1 ||
+          (*vertices_it_.value()).Gid().AsUint() % context.number_of_threads == context.thread_id) {
+        frame[output_symbol_] = *vertices_it_.value();
+        ++vertices_it_.value();
+        return true;
+      } else {
+        ++vertices_it_.value();
+      }
+    }
 
-    frame[output_symbol_] = *vertices_it_.value();
-    ++vertices_it_.value();
-    return true;
+    return false;
   }
 
 #ifdef MG_ENTERPRISE
@@ -765,7 +772,6 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
-  utils::RWSpinLock lock_;
 };
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
@@ -3372,6 +3378,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
       named_expr->Accept(evaluator);
     }
+    spdlog::debug(fmt::format("Producing! {} {}", context.number_of_threads, context.thread_id));
     return true;
   }
   return false;
