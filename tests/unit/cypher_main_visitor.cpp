@@ -5519,8 +5519,7 @@ TEST_P(CypherMainVisitorTest, UseHintCompositeIndices) {
   ASSERT_EQ(hints.size(), 1);
   EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTIES);
   EXPECT_EQ(hints[0].label_ix_.name, "Person");
-  ASSERT_TRUE(hints[0].property_ixs_);
-  ASSERT_EQ(hints[0].property_ixs_->size(), 2);
-  EXPECT_EQ((*hints[0].property_ixs_)[0].name, "name");
-  EXPECT_EQ((*hints[0].property_ixs_)[1].name, "country");
+  ASSERT_EQ(hints[0].property_ixs_.size(), 2);
+  EXPECT_EQ((hints[0].property_ixs_)[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[1].name, "country");
 }
