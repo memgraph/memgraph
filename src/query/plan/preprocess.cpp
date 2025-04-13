@@ -1130,6 +1130,8 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
 }
 
+// TODO: Think about converting all filtering expression into CNF to improve
+// the granularity of filters which can be stand alone.
 std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressionMode mode) {
   std::vector<Expression *> expressions;
   std::stack<Expression *> pending_expressions;
