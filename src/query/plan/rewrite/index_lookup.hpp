@@ -1288,8 +1288,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // LabelPropertyIndex is available
           current_group.indices.emplace_back(
               LabelPropertyIndex{.label = label,
-                                 .properties = std::move(best_label_property_index.info_.properties_),
-                                 .filters = std::move(best_label_property_index.filters_),
+                                 .properties = std::move(best_label_property_index->info_.properties_),
+                                 .filters = std::move(best_label_property_index->filters_),
                                  .vertex_count = best_vertex_count,
                                  .index_stats = {}});
         } else {  // Try LabelIndex as a fallback
