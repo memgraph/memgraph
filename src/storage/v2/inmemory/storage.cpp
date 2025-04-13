@@ -74,9 +74,9 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_DROP);
     add_case(LABEL_PROPERTIES_INDEX_CREATE);
-    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(LABEL_PROPERTIES_INDEX_DROP);
-    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_CLEAR);
     add_case(EDGE_INDEX_CREATE);
     add_case(EDGE_INDEX_DROP);
     add_case(EDGE_PROPERTY_INDEX_CREATE);
@@ -2297,13 +2297,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         break;
       }
       case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
         });
         break;
       }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
                                    md_delta.label_property_stats.properties, md_delta.label_property_stats.stats);
