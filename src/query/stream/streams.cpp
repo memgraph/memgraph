@@ -104,9 +104,15 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     result.rows.clear();
     result.error_msg.reset();
 
-    result.signature.emplace(query_param_name, result.signature.at(query_param_name));
-    result.signature.emplace(params_param_name, result.signature.at(params_param_name));
-    MG_ASSERT(result.signature.size() == kExpectedTransformationResultSize);
+    auto signature_query_it = trans.results.find(query_param_name);
+    MG_ASSERT(signature_query_it != trans.results.end());
+    result.signature.emplace(query_param_name,
+                             ResultsMetadata{signature_query_it->second.first, signature_query_it->second.second, 0});
+
+    auto signature_params_it = trans.results.find(params_param_name);
+    MG_ASSERT(signature_params_it != trans.results.end());
+    result.signature.emplace(params_param_name,
+                             ResultsMetadata{signature_params_it->second.first, signature_params_it->second.second, 1});
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
     trans.cb(&mgp_messages, &graph, &result, &memory);

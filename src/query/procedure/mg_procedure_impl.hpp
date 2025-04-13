@@ -594,7 +594,7 @@ struct mgp_graph {
 struct ResultsMetadata {
   const memgraph::query::procedure::CypherType *type;
   bool is_deprecated;
-  int32_t field_id;
+  uint32_t field_id;
 };
 
 struct mgp_result_record {
