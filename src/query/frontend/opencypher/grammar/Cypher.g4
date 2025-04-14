@@ -357,7 +357,7 @@ integerLiteral : DecimalLiteral
                | HexadecimalLiteral
                ;
 
-createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )? ;
+createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ( propertyLookup)* ( ',' propertyKeyName ( propertyLookup )* )* ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )? ;
 
