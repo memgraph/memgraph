@@ -191,10 +191,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
-      timestamp_ = std::max(timestamp_, info->next_timestamp);
-      if (info->last_durable_timestamp) {
+      timestamp_ = kTimestampInitialId;
+      if (info->last_durable_timestamp.has_value()) {
         repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
-        spdlog::trace("Recovering last durable timestamp {}.", *info->last_durable_timestamp);
+        timestamp_ = *info->last_durable_timestamp + 1;
+        spdlog::trace("Last durable timestamp recovered with the value of {}. Timestamp recovered to {}.",
+                      *info->last_durable_timestamp, timestamp_);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -2619,16 +2621,16 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
 utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
     std::filesystem::path path, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-  using memgraph::replication_coordination_glue::ReplicationRole;
+  using replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
-    return InMemoryStorage::RecoverSnapshotError::DisabledForReplica;
+    return RecoverSnapshotError::DisabledForReplica;
   }
   if (!repl_storage_state_.replication_storage_clients_->empty()) {
     // MAIN would need to reset its storage handler and force update the replicas to this snapshot. ATM not supported!
-    return InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas;
+    return RecoverSnapshotError::DisabledForMainWithReplicas;
   }
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
-    return InMemoryStorage::RecoverSnapshotError::MissingFile;
+    return RecoverSnapshotError::MissingFile;
   }
 
   // Copy to local snapshot dir
@@ -2638,7 +2640,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     std::filesystem::copy_file(path, local_path, ec);
     if (ec) {
       spdlog::warn("Failed to copy snapshot into local snapshots directory.");
-      return InMemoryStorage::RecoverSnapshotError::CopyFailure;
+      return RecoverSnapshotError::CopyFailure;
     }
   }
 
@@ -2653,9 +2655,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+    if (repl_storage_state_.last_durable_timestamp_ != kTimestampInitialId) {
       handler_error();
-      return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
+      return RecoverSnapshotError::NonEmptyStorage;
     }
   }
 
@@ -2677,7 +2679,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     const auto &recovery_info = recovered_snapshot.recovery_info;
     vertex_id_ = recovery_info.next_vertex_id;
     edge_id_ = recovery_info.next_edge_id;
-    timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    timestamp_ = std::max(timestamp_, recovered_snapshot.snapshot_info.durable_timestamp + 1);
     repl_storage_state_.last_durable_timestamp_ = recovered_snapshot.snapshot_info.durable_timestamp;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");

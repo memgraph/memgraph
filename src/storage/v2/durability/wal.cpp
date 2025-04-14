@@ -736,13 +736,13 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
 }
 
-RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
-                     const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
+std::optional<RecoveryInfo> LoadWal(
+    const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
+    const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   spdlog::info("Trying to load WAL file {}.", path);
-  RecoveryInfo ret;
 
   Decoder wal;
   auto version = wal.Initialize(path, kWalMagic);
@@ -751,13 +751,15 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
   // Read wal info.
   auto info = ReadWalInfo(path);
-  ret.last_durable_timestamp = info.to_timestamp;
 
   // Check timestamp.
-  if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp) {
-    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp, *last_loaded_timestamp);
-    return ret;
+  if (last_applied_delta_timestamp && info.to_timestamp <= *last_applied_delta_timestamp) {
+    spdlog::info("Skip loading WAL file because it is too old. {} <= {}", info.to_timestamp,
+                 *last_applied_delta_timestamp);
+    return std::nullopt;
   }
+
+  RecoveryInfo ret{.last_durable_timestamp = info.to_timestamp};
 
   // Recover deltas.
   wal.SetPosition(info.offset_deltas);
@@ -1136,12 +1138,12 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
     // Read WAL delta header to find out the delta timestamp.
     auto timestamp = ReadWalDeltaHeader(&wal);
 
-    if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
+    if (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
       std::visit(delta_apply, delta.data_);
-      ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
       ++deltas_applied;
+      ret.last_applied_delta_timestamp = std::max(ret.last_applied_delta_timestamp, timestamp);
     } else {
       // This delta should be skipped.
       SkipWalDeltaData(&wal, *version);
