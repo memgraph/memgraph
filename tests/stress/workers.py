@@ -1,6 +1,7 @@
 import random
 import time
 from abc import ABC
+
 from gqlalchemy import Memgraph
 
 
@@ -14,6 +15,7 @@ class Worker(ABC):
     def run(self):
         pass
 
+
 class BasicWorker(Worker):
     """Executes a fixed query multiple times."""
 
@@ -22,11 +24,12 @@ class BasicWorker(Worker):
         self._query = worker["query"]
         self._repetitions = worker["num_repetitions"]
         self._sleep_millis = worker.get("sleep_millis", 0)
+        self._metrics = worker.get("metrics", [])
 
     def run(self):
         """Executes the assigned query in a loop."""
         print(f"Starting worker '{self._name}'...")
-        
+        start = time.time()
         memgraph = Memgraph(self._query_host, self._query_port)
         for i in range(self._repetitions):
             print(f"Worker '{self._name}' executing query: {self._query}")
@@ -35,7 +38,19 @@ class BasicWorker(Worker):
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
 
+        end = time.time()
         print(f"Worker '{self._name}' finished.")
+
+        for metric in self._metrics:
+            if metric == "throughput":
+                throughput = self._repetitions / (end - start)
+                print(f"Throughput: {throughput} QPS")
+                continue
+            if metric == "duration":
+                duration = end - start
+                print(f"Worker finished in {duration} seconds")
+                continue
+            raise Exception(f"Unknown worker metric {metric}")
 
 
 class LabSimulator(Worker):
