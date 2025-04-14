@@ -47,6 +47,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -101,9 +102,7 @@ extern const Event CreateNodeOperator;
 extern const Event CreateExpandOperator;
 extern const Event ScanAllOperator;
 extern const Event ScanAllByLabelOperator;
-extern const Event ScanAllByLabelPropertyRangeOperator;
-extern const Event ScanAllByLabelPropertyValueOperator;
-extern const Event ScanAllByLabelPropertyOperator;
+extern const Event ScanAllByLabelPropertiesOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeOperator;
 extern const Event ScanAllByEdgeTypeOperator;
@@ -154,6 +153,149 @@ extern const Event PeriodicSubqueryOperator;
 namespace memgraph::query::plan {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
+
+ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &storage)
+    : type_{other.type_},
+      lower_{other.lower_
+                 ? std::make_optional(utils::Bound(other.lower_->value()->Clone(&storage), other.lower_->type()))
+                 : std::nullopt},
+      upper_{other.upper_
+                 ? std::make_optional(utils::Bound(other.upper_->value()->Clone(&storage), other.upper_->type()))
+                 : std::nullopt} {}
+
+auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
+  return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATCH, std::nullopt, std::nullopt}; }
+
+auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
+                            std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
+  return {Type::RANGE, std::move(lower), std::move(upper)};
+}
+
+auto ExpressionRange::In(Expression *value) -> ExpressionRange {
+  return {Type::IN, utils::MakeBoundInclusive(value), std::nullopt};
+}
+
+auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
+
+auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
+  auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
+    if (value == std::nullopt) {
+      return std::nullopt;
+    } else {
+      auto const typed_value = value->value()->Accept(evaluator);
+      if (!typed_value.IsPropertyValue()) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
+      }
+      return utils::Bound{storage::PropertyValue(typed_value), value->type()};
+    }
+  };
+
+  switch (type_) {
+    case Type::EQUAL:
+    case Type::IN: {
+      auto bounded_property_value = to_bounded_property_value(lower_);
+      return storage::PropertyValueRange::Bounded(bounded_property_value, bounded_property_value);
+    }
+
+    case Type::REGEX_MATCH: {
+      auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
+      auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::RANGE: {
+      auto lower_bound = to_bounded_property_value(lower_);
+      auto upper_bound = to_bounded_property_value(upper_);
+
+      // When scanning a range, the bounds must be the same type
+      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+        return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
+      }
+
+      // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
+      // bound will be limitted to the same type as the other bound
+      return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
+    }
+
+    case Type::IS_NOT_NULL: {
+      return storage::PropertyValueRange::IsNotNull();
+    }
+  }
+}
+
+std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression, Parameters const &parameters) {
+  if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
+    return literal->value_;
+  } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
+    return parameters.AtTokenPosition(param_lookup->token_position_);
+  }
+  return std::nullopt;
+}
+
+auto ExpressionRange::plantime_resolve(Parameters const &params) const -> std::optional<storage::PropertyValueRange> {
+  struct UnknownAtPlanTime {};
+
+  using obpv = std::optional<utils::Bound<storage::PropertyValue>>;
+
+  auto const to_bounded_property_value = [&](auto &value) -> std::variant<UnknownAtPlanTime, obpv> {
+    if (value == std::nullopt) {
+      return std::nullopt;
+    } else {
+      auto property_value = ConstPropertyValue(value->value(), params);
+      if (property_value) {
+        return utils::Bound{std::move(*property_value), value->type()};
+      } else {
+        return UnknownAtPlanTime{};
+      }
+    }
+  };
+
+  switch (type_) {
+    case Type::EQUAL:
+    case Type::IN: {
+      auto bounded_property_value = to_bounded_property_value(lower_);
+      if (std::holds_alternative<UnknownAtPlanTime>(bounded_property_value)) return std::nullopt;
+      return storage::PropertyValueRange::Bounded(std::get<obpv>(bounded_property_value),
+                                                  std::get<obpv>(bounded_property_value));
+    }
+
+    case Type::REGEX_MATCH: {
+      auto empty_string = utils::MakeBoundInclusive(storage::PropertyValue(""));
+      auto upper_bound = storage::UpperBoundForType(storage::PropertyValueType::String);
+      return storage::PropertyValueRange::Bounded(std::move(empty_string), std::move(upper_bound));
+    }
+
+    case Type::RANGE: {
+      auto maybe_lower_bound = to_bounded_property_value(lower_);
+      if (std::holds_alternative<UnknownAtPlanTime>(maybe_lower_bound)) return std::nullopt;
+      auto maybe_upper_bound = to_bounded_property_value(upper_);
+      if (std::holds_alternative<UnknownAtPlanTime>(maybe_upper_bound)) return std::nullopt;
+
+      auto lower_bound = std::move(std::get<obpv>(maybe_lower_bound));
+      auto upper_bound = std::move(std::get<obpv>(maybe_upper_bound));
+
+      // When scanning a range, the bounds must be the same type
+      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+        return storage::PropertyValueRange::Invalid(*lower_bound, *upper_bound);
+      }
+
+      // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
+      // bound will be limitted to the same type as the other bound
+      return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
+    }
+
+    case Type::IS_NOT_NULL: {
+      return storage::PropertyValueRange::IsNotNull();
+    }
+  }
+}
+
+ExpressionRange::ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
+                                 std::optional<utils::Bound<Expression *>> upper)
+    : type_{type}, lower_{std::move(lower)}, upper_{std::move(upper)} {}
 
 namespace {
 template <typename>
@@ -1066,103 +1208,67 @@ std::string ScanAllByEdgePropertyRange::ToString() const {
                      common_.node2_symbol.name());
 }
 
-// TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
-// vertices that have the label and some value for the given property.
-
-ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
-                                                         Symbol output_symbol, storage::LabelId label,
-                                                         storage::PropertyId property, std::optional<Bound> lower_bound,
-                                                         std::optional<Bound> upper_bound, storage::View view)
+ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                   storage::LabelId label, std::vector<storage::PropertyId> properties,
+                                                   std::vector<ExpressionRange> expression_ranges, storage::View view)
     : ScanAll(input, output_symbol, view),
       label_(label),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {
-  MG_ASSERT(lower_bound_ || upper_bound_, "Only one bound can be left out");
+      properties_(std::move(properties)),
+      expression_ranges_(std::move(expression_ranges)) {
+  DMG_ASSERT(!properties_.empty(), "Properties are not optional.");
+  DMG_ASSERT(!expression_ranges_.empty(), "Expressions are not optional.");
 }
 
-ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
+ACCEPT_WITH_INPUT(ScanAllByLabelProperties)
 
-UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyRangeOperator);
+UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertiesOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
+      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, properties_,
+                                                              std::span<storage::PropertyValueRange>{}))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
 
-    auto maybe_lower = TryConvertToBound(lower_bound_, evaluator);
-    auto maybe_upper = TryConvertToBound(upper_bound_, evaluator);
+    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.evaluate(evaluator); };
+    auto prop_value_ranges = expression_ranges_ | ranges::views::transform(to_property_value_range) | ranges::to_vector;
 
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+    auto const bound_is_null = [](auto &&range) {
+      return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
+    };
 
-    return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelPropertyRange");
-}
-
-std::string ScanAllByLabelPropertyRange::ToString() const {
-  return fmt::format("ScanAllByLabelPropertyRange ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                     dba_->PropertyToName(property_));
-}
-
-ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                                                         Symbol output_symbol, storage::LabelId label,
-                                                         storage::PropertyId property, Expression *expression,
-                                                         storage::View view)
-    : ScanAll(input, output_symbol, view), label_(label), property_(property), expression_(expression) {
-  DMG_ASSERT(expression, "Expression is not optional.");
-}
-
-ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
-
-UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyValueOperator);
-
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, storage::PropertyValue()))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    // If either upper or lower bounds are `null`, then nothing can satisy the
+    // filter.
+    if (ranges::any_of(prop_value_ranges, bound_is_null)) {
+      return std::nullopt;
     }
-    return std::make_optional(db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(vertices), "ScanAllByLabelPropertyValue");
-}
 
-std::string ScanAllByLabelPropertyValue::ToString() const {
-  return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                     dba_->PropertyToName(property_));
-}
-
-ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                               storage::LabelId label, storage::PropertyId property, storage::View view)
-    : ScanAll(input, output_symbol, view), label_(label), property_(property) {}
-
-ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
-
-UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyOperator);
-
-  auto vertices = [this](Frame &frame, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_, property_));
+    return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                view_, std::move(vertices), "ScanAllByLabelProperty");
+                                                                view_, std::move(vertices), "ScanAllByLabelProperties");
 }
 
-std::string ScanAllByLabelProperty::ToString() const {
-  return fmt::format("ScanAllByLabelProperty ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                     dba_->PropertyToName(property_));
+std::string ScanAllByLabelProperties::ToString() const {
+  // TODO: better diagnostics...info about expression_ranges_?
+  auto const property_names =
+      properties_ | ranges::views::transform([&](storage::PropertyId prop) { return dba_->PropertyToName(prop); });
+  auto const properties_stringified = utils::Join(property_names, ", ");
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
+                     properties_stringified);
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByLabelProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->label_ = label_;
+  object->properties_ = properties_;
+  object->expression_ranges_ = expression_ranges_ |
+                               ranges::views::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               ranges::to_vector;
+  return object;
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
@@ -3551,13 +3657,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4551,7 +4659,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -4797,9 +4905,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -5563,7 +5670,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 #endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
-    MG_ASSERT(result->signature == &proc.results);
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
@@ -5576,7 +5682,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: Add a tracking MemoryResource without limits, so that we report
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
-    MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
   }
@@ -5589,7 +5694,9 @@ class CallProcedureCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
-  size_t result_signature_size_{0};
+  // Holds the lock on the module so it doesn't get reloaded
+  std::shared_ptr<procedure::Module> module_;
+  mgp_proc const *proc_{nullptr};
   bool stream_exhausted{true};
   bool call_initializer{false};
   std::optional<std::function<void()>> cleanup_{std::nullopt};
@@ -5601,8 +5708,39 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
-        result_(nullptr, mem) {
+        result_(mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
+    auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
+    if (!maybe_found) {
+      throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+    }
+
+    // Module lock is held during the whole cursor lifetime
+    module_ = std::move(maybe_found->first);
+    proc_ = maybe_found->second;
+
+    if (proc_->info.is_write != self_->is_write_) {
+      auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+      throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                  self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                  get_proc_type_str(proc_->info.is_write));
+    }
+
+    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
+      auto signature_it =
+          proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
+      result_.signature.emplace(
+          self_->result_fields_[i],
+          ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
+    }
+    if (proc_->results.size() == self_->result_fields_.size()) return;
+    // Not all results were yielded but they still need to be inserted inside the signature
+    uint32_t index = self_->result_fields_.size();
+    for (auto const &[name, signature] : proc_->results) {
+      if (result_.signature.find(name) == result_.signature.end()) {
+        result_.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
+      }
+    }
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -5622,71 +5760,43 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    auto module = std::shared_ptr<procedure::Module>{};
-    mgp_proc const *proc = nullptr;
-
     while (result_row_it_ == result_.rows.end()) {
-      if (!module) {
-        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
-        if (!maybe_found) {
-          throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
-        }
-
-        module = std::move(maybe_found->first);
-        proc = maybe_found->second;
-
-        if (proc->info.is_write != self_->is_write_) {
-          auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
-          throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
-                                      self_->procedure_name_, get_proc_type_str(self_->is_write_),
-                                      get_proc_type_str(proc->info.is_write));
-        }
-      }
-      if (!proc->info.is_batched) {
+      if (!proc_->info.is_batched) {
         stream_exhausted = true;
       }
-
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
-          if (proc->cleanup) {
-            proc->cleanup.value()();
+          if (proc_->cleanup) {
+            proc_->cleanup.value()();
           }
           return false;
         }
         stream_exhausted = false;
-        if (proc->initializer) {
+        if (proc_->initializer) {
           call_initializer = true;
-          MG_ASSERT(proc->cleanup);
-          proc->cleanup.value()();
+          MG_ASSERT(proc_->cleanup);
+          proc_->cleanup.value()();
         }
       }
-      if (!cleanup_ && proc->cleanup) [[unlikely]] {
-        cleanup_.emplace(*proc->cleanup);
+      if (!cleanup_ && proc_->cleanup) [[unlikely]] {
+        cleanup_.emplace(*proc_->cleanup);
       }
       result_.rows.clear();
 
-      const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
-
-      result_.signature = &proc->results;
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
-
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
       MG_ASSERT(transaction_id.has_value());
-      CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
+      CallCustomProcedure(self_->procedure_name_, *proc_, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
 
-      // Reset result_.signature to nullptr, because outside of this scope we
-      // will no longer hold a lock on the `module`. If someone were to reload
-      // it, the pointer would be invalid.
-      result_signature_size_ = result_.signature->size();
-      result_.signature = nullptr;
       if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
@@ -5699,25 +5809,15 @@ class CallProcedureCursor : public Cursor {
       stream_exhausted = result_row_it_ == result_.rows.end();
     }
 
+    // Instead of checking if procedure yielded all required values
+    // it is filled with null values on construction. This came as a
+    // direct consequence of changing from mgp_result rows from map to vector
+    // PRO: this is a lot faster
+    // CON: doesn't throw anymore if not all values are present
+    // Values are ordered the same as result_fields
     auto &values = result_row_it_->values;
-    // Check that the row has all fields as required by the result signature.
-    // C API guarantees that it's impossible to set fields which are not part of
-    // the result record, but it does not gurantee that some may be missing. See
-    // `mgp_result_record_insert`.
-    if (values.size() != result_signature_size_) {
-      throw QueryRuntimeException(
-          "Procedure '{}' did not yield all fields as required by its "
-          "signature.",
-          self_->procedure_name_);
-    }
-    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
-      std::string_view field_name(self_->result_fields_[i]);
-      auto result_it = values.find(field_name);
-      if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
-                                    field_name);
-      }
-      frame[self_->result_symbols_[i]] = std::move(result_it->second);
+    for (int i = 0; i < self_->result_fields_.size(); ++i) {
+      frame[self_->result_symbols_[i]] = std::move(values[i]);
       if (context.frame_change_collector &&
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());

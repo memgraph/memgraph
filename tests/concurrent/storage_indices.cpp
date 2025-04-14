@@ -119,7 +119,7 @@ TEST(Storage, LabelPropertyIndex) {
   auto prop = store->NameToProperty("prop");
   {
     auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label, prop).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(label, {prop}).HasError());
   }
 
   std::vector<std::thread> verifiers;
@@ -148,7 +148,7 @@ TEST(Storage, LabelPropertyIndex) {
         }
         {
           auto acc = store->Access();
-          auto vertices = acc->Vertices(label, prop, memgraph::storage::View::OLD);
+          auto vertices = acc->Vertices(label, std::array{prop}, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
