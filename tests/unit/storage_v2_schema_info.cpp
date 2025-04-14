@@ -2440,7 +2440,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
             can_commit &= edge->SetProperty(p1, PropertyValue{true}).HasValue();
           }
           if (can_commit) ASSERT_FALSE(acc->Commit().HasError());
-        } else {
+        } else if (in_memory->storage_mode_ ==
+                   memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {  // Analytical doesn't support mt
+                                                                               // deletion/modification
           // Delete/Create edge
           auto acc = in_memory->Access();
           auto edge = acc->FindEdge(edge_gid, View::NEW);
