@@ -1221,8 +1221,8 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
@@ -1304,8 +1304,8 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
@@ -1413,18 +1413,12 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     ++offset_index;
   };
 
-  check_next("CREATE INDEX ON :`PERSON`(`name`);");
-  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
-  check_next(kCreateInternalIndex);
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 0, `name`: "Person1", `surname`: "Unique1"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 1, `name`: "Person2", `surname`: "Unique2"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
+  check_next(kCreateInternalIndex);
 
   pullPlan.Pull(&query_stream, 4);
   const auto edge_results = stream.GetResults();
@@ -1443,6 +1437,12 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
+  check_next("CREATE INDEX ON :`PERSON`(`name`);");
+  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {

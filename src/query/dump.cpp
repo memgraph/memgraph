@@ -376,8 +376,30 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
     : dba_(dba),
       db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
-      pull_chunks_{// Dump all enums
+      pull_chunks_{/*
+                    * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
+                    * this is so that we have a stable order
+                    */
+
+                   /// User defined Datatype Info
+                   // Dump all enums
                    CreateEnumsPullChunk(),
+
+                   /// Vertices
+                   // Dump all vertices
+                   CreateVertexPullChunk(),
+
+                   /// Edges
+                   // Create internal index for faster edge creation
+                   CreateInternalIndexPullChunk(),
+                   // Dump all edges
+                   CreateEdgePullChunk(),
+                   // Drop the internal index
+                   CreateDropInternalIndexPullChunk(),
+                   // Internal index cleanup
+                   CreateInternalIndexCleanupPullChunk(),
+
+                   /// Indices and constraints (Vertex)
                    // Dump all label indices
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
@@ -394,24 +416,17 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateUniqueConstraintsPullChunk(),
                    // Dump all type constraints
                    CreateTypeConstraintsPullChunk(),
-                   // Create internal index for faster edge creation
-                   CreateInternalIndexPullChunk(),
-                   // Dump all vertices
-                   CreateVertexPullChunk(),
-                   // Dump all edges
-                   CreateEdgePullChunk(),
-                   // Drop the internal index
-                   CreateDropInternalIndexPullChunk(),
-                   // Internal index cleanup
-                   CreateInternalIndexCleanupPullChunk(),
-                   // Dump all triggers
-                   CreateTriggersPullChunk(),
+
+                   /// Indices and constraints (Edge)
                    // Dump all edge-type indices
                    CreateEdgeTypeIndicesPullChunk(),
                    // Dump all edge-type property indices
                    CreateEdgeTypePropertyIndicesPullChunk(),
                    // Dump all global edge property indices
-                   CreateEdgePropertyIndicesPullChunk()} {}
+                   CreateEdgePropertyIndicesPullChunk(),
+
+                   // Dump all triggers
+                   CreateTriggersPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
