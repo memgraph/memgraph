@@ -361,7 +361,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     auto indexed_scan = GenScanByIndex(scan);
     if (indexed_scan) {
-      SetOnParent(indexed_scan);
+      SetOnParent(std::move(indexed_scan));
     }
     return true;
   }
@@ -393,7 +393,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return false;
     }
 
-    std::shared_ptr<LogicalOperator> indexed_scan;
+    std::unique_ptr<LogicalOperator> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a
     // different algorithm then, so prefer expand to existing.
@@ -405,7 +405,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
     }
     if (indexed_scan) {
-      expand.set_input(indexed_scan);
+      expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
     }
     return true;
@@ -1327,7 +1327,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // In case of a "or" expression on labels the Distinct operator will be returned with the
   // Union operator as input. Union will have as input the ScanAll operator.
   // TODO: Add new operator instead of Distinct + Union
-  std::shared_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
+  std::unique_ptr<LogicalOperator> GenScanByIndex(const ScanAll &scan,
                                                   const std::optional<int64_t> &max_vertex_count = std::nullopt) {
     auto input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
@@ -1391,7 +1391,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *value = filter.id_filter->value_;
         filter_exprs_for_removal_.insert(filter.expression);
         filters_.EraseFilter(filter);
-        return std::make_shared<ScanAllById>(input, node_symbol, value, view);
+        return std::make_unique<ScanAllById>(input, node_symbol, value, view);
       }
     }
     // Now try to see if we can use label+property index. If not, try to use
@@ -1421,7 +1421,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         switch (point_filter.function_) {
           using enum PointFilter::Function;
           case DISTANCE: {
-            return std::make_shared<ScanAllByPointDistance>(
+            return std::make_unique<ScanAllByPointDistance>(
                 input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
                 point_filter.distance_.cmp_value_,  // uses the CRS from here
                 point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
@@ -1439,7 +1439,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
               // else use provided evaluation time expression
               return point_filter.withinbbox_.boundary_value_;
             });
-            return std::make_shared<ScanAllByPointWithinbbox>(
+            return std::make_unique<ScanAllByPointWithinbbox>(
                 input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
                 point_filter.withinbbox_.bottom_left_, point_filter.withinbbox_.top_right_, expr);
           }
@@ -1487,7 +1487,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           std::vector<Expression *> removed_expressions;
           filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
           filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-          return std::make_shared<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+          return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
         }
       }
     }
@@ -1496,7 +1496,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain it
       // in unions
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
-        std::shared_ptr<LogicalOperator> prev;
+        std::unique_ptr<LogicalOperator> prev;
         std::vector<LabelIx> labels_to_erase;
         labels_to_erase.reserve(best_group.indices.size());
         std::vector<Expression *> removed_expressions;
@@ -1508,14 +1508,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (std::holds_alternative<LabelIx>(index)) {
             all_property_filters_same = false;
             labels_to_erase.push_back(std::get<LabelIx>(index));
-            auto scan = std::make_shared<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
+            auto scan = std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view);
             if (prev) {
               auto union_op =
-                  std::make_shared<Union>(prev, scan, std::vector<Symbol>{node_symbol},
+                  std::make_unique<Union>(std::move(prev), std::move(scan), std::vector<Symbol>{node_symbol},
                                           std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
-              prev = std::make_shared<Distinct>(union_op, std::vector<Symbol>{node_symbol});
+              prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
             } else {
-              prev = scan;
+              prev = std::move(scan);
             }
           } else {
             auto &label_property_index = std::get<LabelPropertyIndex>(index);
@@ -1538,16 +1538,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
             auto expr_ranges =
                 label_property_index.filters | ranges::views::transform(to_expression_range) | ranges::to_vector;
-            auto label_property_index_scan = std::make_shared<ScanAllByLabelProperties>(
+            auto label_property_index_scan = std::make_unique<ScanAllByLabelProperties>(
                 input, node_symbol, GetLabel(label_property_index.label), std::move(label_property_index.properties),
                 std::move(expr_ranges), view);
             if (prev) {
-              auto union_op =
-                  std::make_shared<Union>(prev, label_property_index_scan, std::vector<Symbol>{node_symbol},
-                                          std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
-              prev = std::make_shared<Distinct>(union_op, std::vector<Symbol>{node_symbol});
+              auto union_op = std::make_unique<Union>(
+                  std::move(prev), std::move(label_property_index_scan), std::vector<Symbol>{node_symbol},
+                  std::vector<Symbol>{node_symbol}, std::vector<Symbol>{node_symbol});
+              prev = std::make_unique<Distinct>(std::move(union_op), std::vector<Symbol>{node_symbol});
             } else {
-              prev = label_property_index_scan;
+              prev = std::move(label_property_index_scan);
             }
           }
         }
