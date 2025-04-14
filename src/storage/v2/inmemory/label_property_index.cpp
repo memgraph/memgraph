@@ -32,7 +32,7 @@ auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermuta
                                      IndexOrderedPropertyValues const &values) {
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
-    auto const res = helper.matches_value(delta.property.key, *delta.property.value, values);
+    auto const res = helper.MatchesValue(delta.property.key, *delta.property.value, values);
     if (res) {
       auto [pos, matches] = *res;
       match[pos] = matches;
@@ -65,7 +65,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
     if (!delta && deleted) return false;
     has_label = utils::Contains(vertex.labels, label);
     if (!delta && !has_label) return false;
-    current_values_equal_to_value = helper.matches_values(vertex.properties, values);
+    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -81,7 +81,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       if (resLabel && *resLabel) {
         bool all_matched = true;
         bool all_exist = true;
-        for (auto [_, property, value] : helper.with_property_id(values)) {
+        for (auto [_, property, value] : helper.WithPropertyId(values)) {
           auto resProp = cache.GetProperty(view, &vertex, property);
           if (resProp) {
             if (resProp->get() != value.get()) {
@@ -113,7 +113,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       cache.StoreExists(view, &vertex, exists);
       cache.StoreDeleted(view, &vertex, deleted);
       cache.StoreHasLabel(view, &vertex, label, has_label);
-      for (auto [pos, property, value] : helper.with_property_id(values)) {
+      for (auto [pos, property, value] : helper.WithPropertyId(values)) {
         if (current_values_equal_to_value[pos]) {
           cache.StoreProperty(view, &vertex, property, value.get());
         }
@@ -142,7 +142,7 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
     if (delta == nullptr && deleted) return false;
     has_label = utils::Contains(vertex.labels, label);
     if (delta == nullptr && !has_label) return false;
-    current_values_equal_to_value = helper.matches_values(vertex.properties, values);
+    current_values_equal_to_value = helper.MatchesValues(vertex.properties, values);
   }
 
   if (exists && !deleted && has_label && std::ranges::all_of(current_values_equal_to_value, std::identity{})) {
@@ -166,38 +166,6 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   });
 }
 
-auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
-    -> PropertiesPermutationHelper::permutation_cycles {
-  auto const n = permutation_index.size();
-
-  auto visited = std::vector(n, false);
-  auto cycle = std::vector<std::size_t>{};
-  auto cycles = PropertiesPermutationHelper::permutation_cycles{};
-
-  for (auto i = std::size_t{}; i != n; ++i) {
-    if (visited[i]) [[unlikely]] {
-      // already part of a cycle
-      continue;
-    }
-
-    // build a cycle
-    cycle.clear();
-    auto current = i;
-    do {
-      visited[current] = true;
-      cycle.push_back(current);
-      current = permutation_index[current];
-    } while (current != i);
-
-    if (cycle.size() == 1) {
-      // Ignore self-mapped elements
-      continue;
-    }
-    cycles.emplace_back(std::move(cycle));
-  }
-  return cycles;
-}
-
 }  // namespace
 
 bool InMemoryLabelPropertyIndex::NewEntry::operator<(std::vector<PropertyValue> const &rhs) const {
@@ -209,30 +177,20 @@ bool InMemoryLabelPropertyIndex::NewEntry::operator==(std::vector<PropertyValue>
   return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
-PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyId const> properties)
-    : sorted_properties_(properties.begin(), properties.end()) {
-  auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
-  r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
-          [](auto const &value) -> decltype(auto) { return (std::get<1>(value)); });
-  position_lookup_ = std::move(inverse_permutation);
-  cycles_ = build_permutation_cycles(position_lookup_);
-}
-
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
 
-  auto values = props.extract(vertex.properties);
+  auto values = props.Extract(vertex.properties);
   if (r::all_of(values, [](auto const &each) { return each.IsNull(); })) {
     return;
   }
-  props.apply_permutation(values);
 
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x.
-  index_accessor.insert({std::move(values), &vertex, 0});
+  index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(
@@ -292,11 +250,11 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
 
   for (auto &indices : it->second | rv::filter(relevant_index)) {
     auto &[props, index] = indices;
-    auto values = index.permutations_helper.extract(vertex_after_update->properties);
-    index.permutations_helper.apply_permutation(values);
+    auto values = index.permutations_helper.Extract(vertex_after_update->properties);
     DMG_ASSERT(r::any_of(values, [](auto &&val) { return !val.IsNull(); }), "At least one value should be non-null");
     auto acc = index.skiplist.access();
-    acc.insert({std::move(values), vertex_after_update, tx.start_timestamp});
+    acc.insert(
+        {index.permutations_helper.ApplyPermutation(std::move(values)), vertex_after_update, tx.start_timestamp});
   }
 }
 
@@ -317,11 +275,9 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   for (auto &lookup : it->second | rv::filter(relevant_index)) {
     auto &[property_ids, index] = lookup.second;
 
-    auto values = index->permutations_helper.extract(vertex->properties);
-    index->permutations_helper.apply_permutation(values);
-
+    auto values = index->permutations_helper.Extract(vertex->properties);
     auto acc = index->skiplist.access();
-    acc.insert({std::move(values), vertex, tx.start_timestamp});
+    acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
   }
 }
 
@@ -956,36 +912,6 @@ void InMemoryLabelPropertyIndex::AbortEntries(AbortableInfo const &info, uint64_
       }
     }
   }
-}
-
-auto PropertiesPermutationHelper::extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
-  return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
-}
-
-// TODO: take in values return IndexOrderedPropertyValues
-void PropertiesPermutationHelper::apply_permutation(std::span<PropertyValue> values) const {
-  for (const auto &cycle : cycles_) {
-    auto tmp = std::move(values[cycle.front()]);
-    for (auto pos : std::span{cycle}.subspan<1>()) {
-      tmp = std::exchange(values[pos], tmp);
-    }
-    values[cycle.front()] = std::move(tmp);
-  }
-}
-
-auto PropertiesPermutationHelper::matches_value(PropertyId property_id, PropertyValue const &value,
-                                                IndexOrderedPropertyValues const &values) const
-    -> std::optional<std::pair<std::ptrdiff_t, bool>> {
-  auto it = std::ranges::find(sorted_properties_, property_id);
-  if (it == sorted_properties_.end()) return std::nullopt;
-
-  auto pos = std::distance(sorted_properties_.begin(), it);
-  return std::pair{pos, values.values_[position_lookup_[pos]] == value};
-}
-
-auto PropertiesPermutationHelper::matches_values(PropertyStore const &properties,
-                                                 IndexOrderedPropertyValues const &values) const -> std::vector<bool> {
-  return properties.ArePropertiesEqual(sorted_properties_, values.values_, position_lookup_);
 }
 
 }  // namespace memgraph::storage
