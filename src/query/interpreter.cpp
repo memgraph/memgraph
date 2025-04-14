@@ -3572,21 +3572,26 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           else if (db_acc->ttl().Config())
             info += db_acc->ttl().Config().ToString();
         }
+
+        bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
+                            db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+
         handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
-                   invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+                   invalidate_plan_cache = std::move(invalidate_plan_cache),
+                   run_edge_ttl](Notification &notification) mutable {
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
             (void)dba->CreateIndex(
                 label, std::vector{prop});  // Only way to fail is to try to create an already existant index
-            if (db_acc->config().salient.items.properties_on_edges) {
+            if (run_edge_ttl) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }
             ttl.Enable();
             std::invoke(invalidate_plan_cache);
           }
           if (ttl_info) ttl.Configure(ttl_info);
-          ttl.Setup(std::move(db_acc), interpreter_context);
+          ttl.Setup(std::move(db_acc), interpreter_context, run_edge_ttl);
 
           notification.code = NotificationCode::ENABLE_TTL;
           notification.title = info;
