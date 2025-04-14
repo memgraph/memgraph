@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -29,7 +28,6 @@
 
 #include <gflags/gflags.h>
 
-#include "frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
