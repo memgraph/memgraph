@@ -1044,4 +1044,6 @@ std::optional<int64_t> EvaluateDeleteBufferSize(ExpressionVisitor<TypedValue> &e
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
+std::optional<int64_t> EvaluateParallelRuntime(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+
 }  // namespace memgraph::query

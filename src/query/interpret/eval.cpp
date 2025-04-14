@@ -66,6 +66,10 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, E
   return limit * memory_scale;
 }
 
+std::optional<int64_t> EvaluateParallelRuntime(ExpressionVisitor<TypedValue> &eval, Expression *expr) {
+  return EvaluateUint(eval, expr, "Parallel runtime thread number");
+}
+
 TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
   auto target_string_value = regex_match.string_expr_->Accept(*this);
   auto regex_value = regex_match.regex_->Accept(*this);
