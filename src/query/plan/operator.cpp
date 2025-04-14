@@ -6001,6 +6001,7 @@ class LoadCsvCursor : public Cursor {
   bool did_pull_;
   std::optional<csv::Reader> reader_{};
   std::optional<utils::pmr::string> nullif_;
+  uint64_t line_count_{0};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -6033,20 +6034,25 @@ class LoadCsvCursor : public Cursor {
       reader_->Reset();
     }
 
-    auto row = reader_->GetNextRow(context.evaluation_context.memory);
-    if (!row) {
-      return false;
+    while (true) {
+      auto row = reader_->GetNextRow(context.evaluation_context.memory);
+      if (!row) {
+        return false;
+      }
+      line_count_++;
+      if (context.number_of_threads == 1 || line_count_ % context.number_of_threads == context.thread_id) {
+        if (!reader_->HasHeader()) {
+          frame[self_->row_var_] = CsvRowToTypedList(*row, nullif_);
+        } else {
+          frame[self_->row_var_] = CsvRowToTypedMap(
+              *row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
+        }
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
+          context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
+        }
+        return true;
+      }
     }
-    if (!reader_->HasHeader()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row, nullif_);
-    } else {
-      frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
-    }
-    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
-      context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
-    }
-    return true;
   }
 
   void Reset() override { input_cursor_->Reset(); }
