@@ -360,23 +360,28 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
 
-  // Given index_ of:
-  // :L1 a, b, c
-  // :L1 b, c, d
-
-  // When:
-  // labels = :L1 (0)
-  // properties = b c e
-
-  // Expect:
-  // [-1, 0, 1]
-  // [0, 1, -1]
-
-  // When:
-  // properties = c b
-  // Expect:
-  // [-1, 1, 0]
-  // [1, 0, -1]
+  // For each index with a matching label, this computes the position of the
+  // index's composite property keys within the given properties, where
+  // -1 is used as a sentinel to indicate that the property isn't found in the
+  // given properties vector.
+  //
+  // For example, having the following two indices:
+  //   - :L1(a, b, c) and :L1(b, c, d)
+  //
+  // Scenario 1:
+  //   Input:
+  //     - labels = [:L1] (at position 0)
+  //     - properties = [b, c, e]
+  //   Expected output (property position vectors):
+  //     - For properties (a, b, c): [-1, 0, 1]   // a not found, b at pos 0, c at pos 1
+  //     - For properties (b, c, d): [0, 1, -1]   // b at pos 0, c at pos 1, d not found
+  //
+  // Scenario 2:
+  //   Input:
+  //     - properties = [c, b]
+  //   Expected output (property position vectors):
+  //     - For properties (a, b, c): [-1, 1, 0]   // a not found, b at pos 1, c at pos 0
+  //     - For properties (b, c, d): [1, 0, -1]   // b at pos 1, c at pos 0, d not found
 
   r::sort(rv::zip(properties_vec, ppos_indices), std::less{},
           [](auto const &val) -> PropertyId const & { return std::get<0>(val); });
@@ -386,20 +391,20 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
     if (it == index_.end()) continue;
 
     for (auto const &props : it->second | std::ranges::views::keys) {
-      bool is_meaningful = false;
+      bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
       for (auto prop : props) {
         auto it = r::lower_bound(properties_vec, prop);
         if (it != properties_vec.end() && *it == prop) {
           auto distance = std::distance(properties_vec.begin(), it);
           positions.emplace_back(static_cast<int64_t>(ppos_indices[distance]));
-          is_meaningful = true;
+          has_matching_property = true;
         } else {
           positions.emplace_back(-1);
         }
       }
 
-      if (is_meaningful) {
+      if (has_matching_property) {
         res.emplace_back(l_pos, std::move(positions), label, props);
       }
     }
