@@ -197,10 +197,10 @@ void WaitAndCombine(task_results_t &partial_results, Encoder &snapshot_encoder, 
     promise.get_future().wait();  // Wait for incoming result
 
     spdlog::trace("Handling snapshot part {}, size {}, count {}...", res.snapshot_path, res.snapshot_size, res.count);
-    utils::OnScopeExit cleanup{[&] {
+    utils::OnScopeExit cleanup{[path = res.snapshot_path] {
       std::error_code ec;
-      std::filesystem::remove(res.snapshot_path, ec);
-      if (ec) spdlog::warn("Couldn't remove temporary snapshot part {}: {}", res.snapshot_path, ec.message());
+      std::filesystem::remove(path, ec);
+      if (ec) spdlog::warn("Couldn't remove temporary snapshot part {}: {}", path, ec.message());
     }};
 
     if (snapshot_aborted()) {
@@ -223,7 +223,7 @@ void WaitAndCombine(task_results_t &partial_results, Encoder &snapshot_encoder, 
       if (part_fd == -1) {
         throw RecoveryFailure("Couldn't open snapshot part {}!", res.snapshot_path);
       }
-      utils::OnScopeExit cleanup{[&] { close(part_fd); }};
+      utils::OnScopeExit cleanup{[part_fd] { close(part_fd); }};
       // Use sendfile for efficient copying (zero-copy)
       off_t offset = 0;
       const auto size = res.snapshot_size - offset;
@@ -277,13 +277,12 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
     edge_batch_gid = Batch(edges->access(), items_per_batch);
     edge_res = task_results_t{edge_batch_gid.size() - 1};  // last element is an end marker
     for (int id = 0; id < edge_res.size(); ++id) {
-      tasks.AddTask([&, id] {
-        const auto start_gid = edge_batch_gid[id];
-        const auto end_gid = edge_batch_gid[id + 1];
+      tasks.AddTask([&edge_res, &partial_edge_handler, id, start_gid = edge_batch_gid[id],
+                     end_gid = edge_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
         // Create workers temporary file
-        const auto snapshot_path = fmt::format("{}_edge_part_{}", snapshot_encoder.GetPath().string(), id);
         {
           Encoder edges_snapshot;
+          const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
           edges_snapshot.Initialize(snapshot_path);
           // Fill snapshot with edges
           edge_res[id].first = partial_edge_handler(start_gid, end_gid, edges_snapshot);
@@ -298,14 +297,13 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
   // Generate vertex tasks
   auto vertex_batch_gid = Batch(vertices->access(), items_per_batch);
   task_results_t vertex_res(vertex_batch_gid.size() - 1);  // last element is an end marker
-  for (int i = 0; i < vertex_res.size(); ++i) {
-    tasks.AddTask([&, id = i] {
-      const auto start_gid = vertex_batch_gid[id];
-      const auto end_gid = vertex_batch_gid[id + 1];
+  for (int id = 0; id < vertex_res.size(); ++id) {
+    tasks.AddTask([&vertex_res, &partial_vertex_handler, id, start_gid = vertex_batch_gid[id],
+                   end_gid = vertex_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
       // Create workers temporary file
-      const auto snapshot_path = fmt::format("{}_vertex_part_{}", snapshot_encoder.GetPath().string(), id);
       {
         Encoder vertex_snapshot;
+        const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
         vertex_snapshot.Initialize(snapshot_path);
         // Fill snapshot with edges
         vertex_res[id].first = partial_vertex_handler(start_gid, end_gid, vertex_snapshot);
@@ -4708,8 +4706,9 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteUint(mapping.AsUint());
   };
 
-  // Store all edges.
-  auto partial_edge_handler = [&](int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
+  // Store edges.
+  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to](
+                                  int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     SnapshotPartialRes res{};
@@ -4801,8 +4800,9 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     return res;
   };
 
-  // Store all vertices.
-  auto partial_vertex_handler = [&](int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
+  // Store vertices.
+  auto partial_vertex_handler = [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to](
+                                    int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     SnapshotPartialRes res;
