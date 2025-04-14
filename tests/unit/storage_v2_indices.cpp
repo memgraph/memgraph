@@ -1669,7 +1669,8 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   auto const test = [&](std::span<memgraph::storage::PropertyId const> props,
                         std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
                         auto &&props_validator) {
-    CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, expected_num_vertices, props_validator);
+    EXPECT_EQ(CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, props_validator),
+              expected_num_vertices);
   };
 
   // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
