@@ -187,11 +187,9 @@
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
     (let [bolt-conn (utils/open-bolt node)
-          bolt-routing-conn (utils/open-bolt-routing node)
           node-config (get nodes-config node)]
       (assoc this
              :bolt-conn bolt-conn
-             :bolt-routing-conn bolt-routing-conn
              :node-config node-config
              :node node)))
 
@@ -206,7 +204,6 @@
 
   (invoke! [this _test op]
     (let [bolt-conn (:bolt-conn this)
-          bolt-routing-conn (:bolt-routing-conn this)
           node (:node this)]
       (case (:f op)
         :get-nodes (if (hautils/data-instance? node)
@@ -220,7 +217,9 @@
                      (assoc op :type :info :value "Not data instance."))
 
         :add-nodes (if (hautils/coord-instance? node)
-                     (let [max-idx (atom nil)]
+                     (let [max-idx (atom nil)
+                           bolt-routing-conn (utils/open-bolt-routing node)
+                     ]
                        (try
                          (utils/with-session bolt-routing-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
@@ -249,7 +248,10 @@
                                  (assoc op :type :info :value (str e))
 
                                  :else
-                                 (assoc op :type :fail :value (str e))))))
+                                 (assoc op :type :fail :value (str e)))))
+
+                         (dbclient/disconnect bolt-routing-conn)
+                     )
 
                      (assoc op :type :info :value "Not main data instance."))
 
