@@ -39,31 +39,6 @@ DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
 
-namespace {
-
-// TODO: move to somewhere generic/utils
-template <typename T, typename CB>
-void cartesian_product_impl(std::vector<std::vector<T>> const &vecs, size_t depth, std::vector<T> &temp, CB const &cb) {
-  if (depth == vecs.size()) {
-    std::invoke(cb, temp);
-    return;
-  }
-
-  for (auto const &val : vecs[depth]) {
-    temp[depth] = val;
-    cartesian_product_impl(vecs, depth + 1, temp, cb);
-  }
-}
-
-template <typename T, typename CB>
-void cartesian_product(const std::vector<std::vector<T>> &vecs, CB const &cb) {
-  if (vecs.empty()) return;
-
-  std::vector<T> temp(vecs.size());
-  cartesian_product_impl<T>(vecs, 0, temp, cb);
-}
-}  // namespace
-
 /// Holds a given query's index hints after sorting them by type
 struct IndexHints {
   IndexHints() = default;
@@ -1067,7 +1042,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto filters = prop_positions_prefix | rv::transform(to_filters) | r::to_vector;
 
       auto const &label = labelIXs[label_pos];
-      cartesian_product(filters, [&](std::vector<FilterInfo> const &filters) {
+      utils::cartesian_product(filters, [&](std::vector<FilterInfo> const &filters) {
         // filters [n.E < 42, 10 < n.C]
 
         auto prop_ixs = filters | rv::transform(as_propertyIX) | r::to_vector;
