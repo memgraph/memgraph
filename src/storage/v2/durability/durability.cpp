@@ -487,10 +487,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
-    // TODO: (andi) Do we need to change this?
-    recovery_info.last_durable_timestamp = snapshot_timestamp;
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
+    recovery_info.last_durable_timestamp = snapshot_timestamp;
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
@@ -577,7 +576,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::info("Trying to load WAL files.");
 
     if (last_loaded_timestamp) {
-      // TODO: (andi) Is this a bug?
       epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
     }
 
@@ -590,31 +588,24 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items, enum_store, schema_info, find_edge);
-
         if (info.has_value()) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
-          // TODO: (andi) Do we need both last_applied_delta_timestamp and last_durable_timestamp
-          recovery_info.last_applied_delta_timestamp =
-              std::max(recovery_info.last_applied_delta_timestamp, info->last_applied_delta_timestamp);
+          recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
-          spdlog::trace(
-              "Wal file {} wasn't skipped. Vertex id: {}. Edge id: {}. Last applied delta ts: {}. Last durable ts: {}",
-              wal_file.path, recovery_info.next_vertex_id, recovery_info.next_edge_id,
-              recovery_info.last_applied_delta_timestamp, recovery_info.last_durable_timestamp);
+          if (info->last_durable_timestamp) {
+            last_loaded_timestamp.emplace(info->last_durable_timestamp.value_or(0));
+          }
         }
 
-        auto last_loaded_timestamp_value = last_loaded_timestamp.value_or(0);
         if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
           // no history or new epoch, add it
-          // TODO: (andi) Why do we add epoch with the last_loaded_timestamp_value? This doesn't take into account WAL
-          // files
-          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
+          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
           repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
           spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
-        } else if (epoch_history->back().second < last_loaded_timestamp_value) {
+        } else if (epoch_history->back().second < *last_loaded_timestamp) {
           // existing epoch, update with newer timestamp
-          epoch_history->back().second = last_loaded_timestamp_value;
+          epoch_history->back().second = *last_loaded_timestamp;
         }
 
       } catch (const RecoveryFailure &e) {

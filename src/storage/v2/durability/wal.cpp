@@ -1143,7 +1143,7 @@ std::optional<RecoveryInfo> LoadWal(
       auto delta = ReadWalDeltaData(&wal, *version);
       std::visit(delta_apply, delta.data_);
       ++deltas_applied;
-      ret.last_applied_delta_timestamp = std::max(ret.last_applied_delta_timestamp, timestamp);
+      ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
     } else {
       // This delta should be skipped.
       SkipWalDeltaData(&wal, *version);
