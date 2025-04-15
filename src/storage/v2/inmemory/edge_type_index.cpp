@@ -71,7 +71,7 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ListIndices() const {
 }
 
 void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter(2048);
 
   for (auto &[_, et_index] : index_) {
     if (token.stop_requested()) return;
