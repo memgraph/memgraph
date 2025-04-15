@@ -619,11 +619,13 @@ class SkipList final : detail::SkipListNode_base {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
+      auto current = node_;
       while (true) {
-        node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
+        current = current->nexts[0].load(std::memory_order_acquire);
+        if (current != nullptr && current->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
+          node_ = current;
           return *this;
         }
       }
