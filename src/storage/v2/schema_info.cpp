@@ -42,59 +42,6 @@ inline auto erase_if(std::unordered_map<Key, Tp> &cont, Predicate &&pred) {
   return std::erase_if(cont, std::forward<Predicate>(pred));
 }
 
-/// This function iterates through the undo buffers from an object (starting
-/// from the supplied delta) and determines what deltas should be applied to get
-/// the version of the object just before delta_fin. The function applies the delta
-/// via the callback function passed as a parameter to the callback. It is up to the
-/// caller to apply the deltas.
-template <typename TCallback>
-inline void ApplyDeltasForRead(const Delta *delta, uint64_t current_commit_timestamp, const TCallback &callback) {
-  while (delta) {
-    const auto ts = delta->timestamp->load(std::memory_order_acquire);
-    // We need to stop if:
-    //  there are no other deltas
-    //  the timestamp is a commited timestamp
-    //  the timestamp is the current commit timestamp
-    if (ts == current_commit_timestamp || ts < kTransactionInitialId) break;
-    // This delta must be applied, call the callback.
-    callback(*delta);
-    // Move to the next delta in this transaction.
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-}
-
-template <typename TCallback>
-inline void ApplyUncommittedDeltasForRead(const Delta *delta, const TCallback &callback) {
-  while (delta) {
-    // Break when delta is not part of a transaction (it's timestamp is not equal to a transaction id)
-    if (delta->timestamp->load(std::memory_order_acquire) < kTransactionInitialId) break;
-    // This delta must be applied, call the callback.
-    callback(*delta);
-    // Move to the next delta in this transaction.
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-}
-
-auto PropertyDiff_ActionMethod(
-    std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> &diff) {
-  // clang-format off
-  using enum Delta::Action;
-  return ActionMethod<SET_PROPERTY>([&diff](Delta const &delta) {
-    const auto key = delta.property.key;
-    const auto old_type = ExtendedPropertyType{*delta.property.value};
-    auto itr = diff.find(key);
-    if (itr == diff.end()) {
-      // NOTE: For vertices we pre-fill the diff
-      // If diff is pre-filled, missing property means it got deleted; new value should always be Null
-      diff.emplace(key, std::make_pair(ExtendedPropertyType{}, old_type));
-    } else {
-      // We are going from newest to oldest; overwrite so we remain with the value pre tx
-      itr->second.second = ExtendedPropertyType{old_type};
-    }
-  });
-  // clang-format on
-}
-
 inline auto PropertyTypes_ActionMethod(std::map<PropertyId, ExtendedPropertyType> &properties) {
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
@@ -111,71 +58,6 @@ inline auto PropertyTypes_ActionMethod(std::map<PropertyId, ExtendedPropertyType
       properties.emplace(delta.property.key, delta.property.value->type());
     }
   });
-}
-
-inline utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp) {
-  auto labels = vertex.labels;
-  if (vertex.delta) {
-    ApplyDeltasForRead(vertex.delta, commit_timestamp, [&labels](const Delta &delta) {
-      // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Labels_ActionMethod(labels)
-        });
-      // clang-format on
-    });
-  }
-  return labels;
-}
-
-inline utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex) {
-  utils::small_vector<LabelId> labels = vertex.labels;
-  if (vertex.delta) {
-    ApplyUncommittedDeltasForRead(vertex.delta, [&labels](const Delta &delta) {
-      // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Labels_ActionMethod(labels)
-        });
-      // clang-format on
-    });
-  }
-  return labels;
-}
-
-std::map<PropertyId, ExtendedPropertyType> GetCommittedProperty(const Edge &edge) {
-  auto lock = std::shared_lock{edge.lock};
-  auto props = edge.properties.ExtendedPropertyTypes();
-  if (edge.delta) {
-    ApplyUncommittedDeltasForRead(edge.delta, [&props](const Delta &delta) {
-      // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          PropertyTypes_ActionMethod(props)
-        });
-      // clang-format on
-    });
-  }
-  return props;
-}
-
-std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> GetPropertyDiff(
-    Edge *edge, uint64_t commit_ts) {
-  std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> diff;
-  auto lock = std::shared_lock{edge->lock};
-  // Check if edge was modified by this transaction
-  if (!edge->delta || edge->delta->timestamp->load(std::memory_order::acquire) != commit_ts) return diff;
-  // Prefill diff with current properties (as if no change has been made)
-  for (const auto &[key, type] : edge->properties.ExtendedPropertyTypes()) {
-    diff.emplace(key, std::pair{edge->deleted ? ExtendedPropertyType{} : type, type});
-  }
-
-  ApplyUncommittedDeltasForRead(edge->delta, [&diff](const Delta &delta) {
-    // clang-format off
-    DeltaDispatch(delta, utils::ChainedOverloaded{
-                             PropertyDiff_ActionMethod(diff),
-                         });
-    // clang-format on
-  });
-
-  return diff;
 }
 
 // Apply deltas from other transactions
@@ -394,6 +276,8 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     if (property_on_edges) {
       edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, start_ts);
     }
+
+    // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
 
     // Revert local changes
     auto &tracking_11 = edge_lookup(EdgeKeyRef{edge_type, *from_l_diff.pre, *to_l_diff.pre});
