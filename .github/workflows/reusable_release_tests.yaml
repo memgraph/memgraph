@@ -764,7 +764,7 @@ jobs:
 
   release_jepsen_test:
     continue-on-error: true
-    if: ${{ inputs.run_release_tests == 'true' && inputs.os == 'debian-12' }}
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
@@ -785,7 +785,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os $OS \
+          --os debian-12 \
           --arch $ARCH \
           run
 
@@ -793,7 +793,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os $OS \
+          --os debian-12 \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
@@ -803,7 +803,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os $OS \
+          --os debian-12 \
           --arch $ARCH \
           copy --binary
 
@@ -829,7 +829,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os $OS \
+          --os debian-12 \
           --arch $ARCH \
           stop --remove
 
