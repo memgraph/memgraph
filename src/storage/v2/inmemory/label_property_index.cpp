@@ -259,7 +259,48 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                                     const Transaction &tx) {
+                                                     const Transaction &tx, NameIdMapper *name_id_mapper) {
+  std::map<PropertyId, PropertyValue> map_properties;
+  std::function<void(PropertyValue, const std::string &)> decode_map_property;
+  decode_map_property = [&](PropertyValue map_property, const std::string &parent_string) {
+    for (const auto &[key, value] : map_property.ValueMap()) {
+      auto property_name = parent_string + "." + key;
+      map_properties.emplace(PropertyId::FromUint(name_id_mapper->NameToId(property_name)), value);
+      if (value.IsMap()) {
+        decode_map_property(value, property_name);
+      }
+    }
+  };
+
+  if (value.IsMap()) {
+    auto property_name = name_id_mapper->IdToName(property.AsUint());
+    decode_map_property(value, property_name);
+  }
+
+  for (const auto &[key, value] : map_properties) {
+    const auto it = new_indices_by_property_.find(key);
+    if (it == new_indices_by_property_.end()) continue;
+
+    auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
+    // auto const has_property = [&](auto &&each) {
+    //   auto &ids = *std::get<PropertiesIds const *>(each.second);
+    //   return r::find(ids, property) != ids.cend();
+    // };
+    // Why is has_property check needed?
+    // auto const relevant_index = [&](auto &&each) { return has_label(each) && has_property(each); };
+    auto const relevant_index = [&](auto &&each) { return has_label(each); };
+
+    for (auto &lookup : it->second | rv::filter(relevant_index)) {
+      auto &[property_ids, index] = lookup.second;
+
+      auto values = index->permutations_helper.extract(vertex->properties);
+      index->permutations_helper.apply_permutation(values);
+
+      auto acc = index->skiplist.access();
+      acc.insert({std::move(values), vertex, tx.start_timestamp});
+    }
+  }
+
   auto const it = indices_by_property_.find(property);
   if (it == indices_by_property_.end()) {
     return;
