@@ -466,22 +466,22 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
-  CollectFilterExpression(where.expression_, symbol_table);
+void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table, AstStorage *storage) {
+  CollectFilterExpression(where.expression_, symbol_table, storage);
 }
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
   auto filters = SplitExpression(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table);
+    AnalyzeAndStoreFilter(filter, symbol_table, storage);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -495,6 +495,34 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
+        expr && utils::Downcast<PropertyLookup>(expr->expression_) && storage) {
+      std::vector<std::string> prop_names;
+      auto *prev_expr = expr;
+      while (expr) {
+        prop_names.push_back(expr->property_.name);
+        prev_expr = expr;
+        expr = utils::Downcast<PropertyLookup>(expr->expression_);
+      }
+      auto identifer = utils::Downcast<Identifier>(prev_expr->expression_);
+      if (!identifer) {
+        return false;
+      }
+
+      std::string property_name;
+      if (!prop_names.empty()) {
+        property_name =
+            std::accumulate(std::next(prop_names.rbegin()), prop_names.rend(), prop_names.back(),
+                            [](const std::string &acc, const std::string &part) { return acc + "." + part; });
+        auto property_ix = storage->GetPropertyIx(property_name);
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*identifer), property_ix, val_expr,
+                                                PropertyFilter::Type::EQUAL);
+        all_filters_.emplace_back(filter);
+        return true;
+      }
+    }
+
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
@@ -982,7 +1010,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     }
   }
   if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table);
+    matching.filters.CollectWhereFilter(*where, symbol_table, &storage);
   }
 }
 
