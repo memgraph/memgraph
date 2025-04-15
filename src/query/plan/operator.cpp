@@ -394,9 +394,16 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+#define SCOPED_PROFILE_OP(name)                                                                    \
+  std::optional<ScopedProfile> profile =                                                           \
+      context.is_profile_query                                                                     \
+          ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), name, &context) \
+          : std::nullopt;
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SCOPED_PROFILE_OP_BY_REF(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
+#define SCOPED_PROFILE_OP_BY_REF(ref)                                                                                  \
+  std::optional<ScopedProfile> profile =                                                                               \
+      context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
+                               : std::nullopt;
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
