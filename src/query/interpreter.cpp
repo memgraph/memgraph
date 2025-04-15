@@ -6101,6 +6101,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                               &query_execution->notifications, current_db_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       /// TODO: make replication DB agnostic
+      if (!current_db_.db_acc_ ||
+          current_db_.db_acc_->get()->GetStorageMode() != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        throw QueryRuntimeException("Replication query requires IN_MEMORY_TRANSACTIONAL mode.");
+      }
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   *interpreter_context_->replication_handler_, current_db_, interpreter_context_->config
