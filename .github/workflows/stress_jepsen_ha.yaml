@@ -47,3 +47,4 @@ jobs:
       name: "${{ needs.determine-sync.outputs.name_start }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
       sync: ${{ needs.determine-sync.outputs.sync == 'true' }}
+    secrets: inherit
