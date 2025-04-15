@@ -5,8 +5,8 @@ on:
     inputs:
       os:
         type: string
-        description: "Target os. Default value is debian-12."
-        default: 'debian-12'
+        description: "Target os. Default value is ubuntu-24.04."
+        default: 'ubuntu-24.04'
       arch:
         type: string
         description: "Target architecture. Default value is amd."
@@ -35,7 +35,10 @@ on:
         type: string
         description: "Run large stress test. Default value is false."
         default: 'false'
-
+    outputs:
+      test_status:
+        description: "Aggregated test status. Will be 'pass' if all tests succeed, or 'fail' otherwise."
+        value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
   TOOLCHAIN: ${{ inputs.toolchain }}
@@ -47,6 +50,7 @@ env:
 
 jobs:
   community_build:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Community build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -103,6 +107,7 @@ jobs:
           stop --remove
 
   coverage_build:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Coverage build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -176,6 +181,7 @@ jobs:
           stop --remove
 
   debug_build:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -273,6 +279,7 @@ jobs:
           stop --remove
 
   debug_integration_test:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug integration tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -332,6 +339,7 @@ jobs:
 
 
   malloc_build:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Malloc build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -421,6 +429,7 @@ jobs:
           stop --remove
 
   release_build:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -517,6 +526,7 @@ jobs:
           stop --remove
 
   release_benchmark_tests:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -592,6 +602,7 @@ jobs:
           stop --remove
 
   release_e2e_test:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release End-to-end Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -666,6 +677,7 @@ jobs:
           stop --remove
 
   release_durability_stress_tests:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release durability and stress tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -751,6 +763,7 @@ jobs:
           stop --remove
 
   release_jepsen_test:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' && inputs.os == 'debian-12' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -821,6 +834,7 @@ jobs:
           stop --remove
 
   stress_test_large:
+    continue-on-error: true
     if: ${{ inputs.run_stress_large == 'true' }}
     name: "Stress test large"
     runs-on: [self-hosted, DockerMgBuild, BigMemory, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -876,6 +890,7 @@ jobs:
           stop --remove
 
   release_query_modules_test:
+    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Query Modules Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -929,3 +944,40 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+  aggregate_results:
+    name: "Aggregate Test Results"
+    runs-on: [self-hosted]
+    needs:
+      - community_build
+      - coverage_build
+      - debug_build
+      - debug_integration_test
+      - malloc_build
+      - release_build
+      - release_benchmark_tests
+      - release_e2e_test
+      - release_durability_stress_tests
+      - release_query_modules_test
+    if: always() && ${{ inputs.run_release_tests == 'true' }}
+    outputs:
+      test_status: ${{ steps.aggregate.outputs.test_status }}
+    steps:
+      - name: Aggregate test results
+        id: aggregate
+        run: |
+          # Check if any of the dependent jobs failed.
+          if [ "${{ needs.community_build.result }}" == "failure" ] || \
+             [ "${{ needs.coverage_build.result }}" == "failure" ] || \
+             [ "${{ needs.debug_build.result }}" == "failure" ] || \
+             [ "${{ needs.debug_integration_test.result }}" == "failure" ] || \
+             [ "${{ needs.malloc_build.result }}" == "failure" ] || \
+             [ "${{ needs.release_build.result }}" == "failure" ] || \
+             [ "${{ needs.release_benchmark_tests.result }}" == "failure" ] || \
+             [ "${{ needs.release_e2e_test.result }}" == "failure" ] || \
+             [ "${{ needs.release_durability_stress_tests.result }}" == "failure" ] || \
+             [ "${{ needs.release_query_modules_test.result }}" == "failure" ]; then
+            echo "test_status=fail" >> $GITHUB_OUTPUT
+          else
+            echo "test_status=pass" >> $GITHUB_OUTPUT
+          fi

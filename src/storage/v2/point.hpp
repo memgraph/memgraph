@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/durability/version.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -96,6 +97,10 @@ inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
       return Cartesian_2d;
     case kSrid_Cartesian_3D:
       return Cartesian_3d;
+    case 9757:
+      // This hack can be removed when we no longer support loading durability versions that old
+      static_assert(durability::kOldestSupportedVersion < durability::kSridCartesian3DCorrected);
+      return Cartesian_3d;
   }
   return std::nullopt;
 }
@@ -136,12 +141,8 @@ struct Point2d {
   friend bool operator==(Point2d const &, Point2d const &) = default;
 
   friend auto operator<=>(Point2d const &lhs, Point2d const &rhs) -> std::partial_ordering {
-    if (lhs.crs_ != rhs.crs_) return std::partial_ordering::unordered;
-
-    const auto cmp_x = lhs.x_longitude_ <=> rhs.x_longitude_;
-    const auto cmp_y = lhs.y_latitude_ <=> rhs.y_latitude_;
-
-    return (cmp_x == cmp_y) ? cmp_x : std::partial_ordering::unordered;
+    return std::tie(lhs.crs_, lhs.x_longitude_, lhs.y_latitude_) <=>
+           std::tie(rhs.crs_, rhs.x_longitude_, rhs.y_latitude_);
   }
 
  private:
@@ -169,13 +170,8 @@ struct Point3d {
   friend bool operator==(Point3d const &A, Point3d const &B) = default;
 
   friend auto operator<=>(Point3d const &lhs, Point3d const &rhs) -> std::partial_ordering {
-    if (lhs.crs_ != rhs.crs_) return std::partial_ordering::unordered;
-
-    const auto cmp_x = lhs.x_longitude_ <=> rhs.x_longitude_;
-    const auto cmp_y = lhs.y_latitude_ <=> rhs.y_latitude_;
-    const auto cmp_z = lhs.z_height_ <=> rhs.z_height_;
-
-    return (cmp_x == cmp_y && cmp_x == cmp_z) ? cmp_x : std::partial_ordering::unordered;
+    return std::tie(lhs.crs_, lhs.x_longitude_, lhs.y_latitude_, lhs.z_height_) <=>
+           std::tie(rhs.crs_, rhs.x_longitude_, rhs.y_latitude_, rhs.z_height_);
   }
 
  private:

@@ -210,6 +210,8 @@ std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints
   for (const auto &[label_props, type] : constraints_) {
     constraints.emplace_back(label_props.first, label_props.second, type);
   }
+  // NOTE: sort is needed here to ensure DUMP DATABASE; and snapshot has a stable ordering
+  std::ranges::sort(constraints);
   return constraints;
 }
 
