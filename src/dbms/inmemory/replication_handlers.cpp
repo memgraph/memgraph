@@ -767,21 +767,32 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
-  constexpr bool kUniqueAccess = true;
-  constexpr bool kSharedAccess = false;
+  constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
+  constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
   auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
                                             uint64_t commit_timestamp,
-                                            bool const unique =
+                                            storage::Storage::Accessor::Type acc_type =
                                                 kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
-      if (unique) {
-        acc = storage->UniqueAccess();
-      } else {
-        acc = storage->Access();
+      switch (acc_type) {
+        case storage::Storage::Accessor::Type::READ:
+          [[fallthrough]];
+        case storage::Storage::Accessor::Type::WRITE:
+          acc = storage->Access(acc_type);
+          break;
+        case storage::Storage::Accessor::Type::UNIQUE:
+          acc = storage->UniqueAccess();
+          break;
+        case storage::Storage::Accessor::Type::READ_ONLY:
+          acc = storage->ReadOnlyAccess();
+          break;
+        default:
+          throw utils::BasicException("Replica failed to gain storage access! Unknown accessor type.");
       }
+
       auto const inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));

@@ -1191,7 +1191,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
 
   MapProjectionLiteral *Clone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
-    object->map_variable_ = map_variable_;
+    object->map_variable_ = map_variable_->Clone(storage);
 
     for (const auto &entry : elements_) {
       auto key = storage->GetPropertyIx(entry.first.name);
@@ -4006,7 +4006,7 @@ class PatternComprehension : public memgraph::query::Expression {
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       if (variable_) {
-        throw utils::NotYetImplemented("Variable in pattern comprehension.");
+        variable_->Accept(visitor);
       }
       pattern_->Accept(visitor);
       if (filter_) {

@@ -265,6 +265,8 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
+  auto type() const { return accessor_->type(); }
+
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
@@ -602,17 +604,13 @@ class DbAccessor final {
     return accessor_->ApproximateEdgeCount(edge_type, property, lower, upper);
   }
 
-  int64_t EdgesCount(storage::PropertyId property) const {
-    return accessor_->ApproximateEdgeCount(property);
-  }
+  int64_t EdgesCount(storage::PropertyId property) const { return accessor_->ApproximateEdgeCount(property); }
 
-  int64_t EdgesCount(storage::PropertyId property,
-                     const storage::PropertyValue &value) const {
+  int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) const {
     return accessor_->ApproximateEdgeCount(property, value);
   }
 
-  int64_t EdgesCount(storage::PropertyId property,
-                     const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+  int64_t EdgesCount(storage::PropertyId property, const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
     return accessor_->ApproximateEdgeCount(property, lower, upper);
   }
