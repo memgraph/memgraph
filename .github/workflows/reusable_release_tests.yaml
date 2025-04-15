@@ -764,7 +764,7 @@ jobs:
 
   release_jepsen_test:
     continue-on-error: true
-    if: ${{ inputs.run_release_tests == 'true' && inputs.os == 'debian-12' }}
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
@@ -780,6 +780,9 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set Jepsen OS
+        run: echo "OS=debian-12" >> $GITHUB_ENV
 
       - name: Spin up mgbuild container
         run: |
@@ -958,7 +961,9 @@ jobs:
       - release_benchmark_tests
       - release_e2e_test
       - release_durability_stress_tests
+      - release_jepsen_test
       - release_query_modules_test
+      - stress_test_large
     if: always() && ${{ inputs.run_release_tests == 'true' }}
     outputs:
       test_status: ${{ steps.aggregate.outputs.test_status }}
@@ -976,6 +981,8 @@ jobs:
              [ "${{ needs.release_benchmark_tests.result }}" == "failure" ] || \
              [ "${{ needs.release_e2e_test.result }}" == "failure" ] || \
              [ "${{ needs.release_durability_stress_tests.result }}" == "failure" ] || \
+             [ "${{ needs.release_jepsen_test.result }}" == "failure" ] || \
+             [ "${{ needs.stress_test_large.result }}" == "failure" ] || \
              [ "${{ needs.release_query_modules_test.result }}" == "failure" ]; then
             echo "test_status=fail" >> $GITHUB_OUTPUT
           else

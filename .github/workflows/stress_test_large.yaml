@@ -40,12 +40,10 @@ on:
     tags:
       - "v*.*.*-rc*"
       - "v*.*-rc*"
-  schedule:
-    - cron: "0 22 * * *"
 
 jobs:
   StressTestLargeIndividual:
-    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all'  && !contains(github.event.head_commit.message, '[skip tests]') }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
