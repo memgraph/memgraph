@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -591,25 +591,24 @@ struct mgp_graph {
   }
 };
 
+struct ResultsMetadata {
+  const memgraph::query::procedure::CypherType *type;
+  bool is_deprecated;
+  uint32_t field_id;
+};
+
 struct mgp_result_record {
-  /// Result record signature as defined for mgp_proc.
-  const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                  std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *signature;
+  memgraph::utils::pmr::vector<memgraph::query::TypedValue> values;
   bool ignore_deleted_values = false;
   bool has_deleted_values = false;
 };
 
 struct mgp_result {
-  explicit mgp_result(
-      const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                      std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature,
-      memgraph::utils::MemoryResource *mem)
-      : signature(signature), rows(mem) {}
+  explicit mgp_result(memgraph::utils::MemoryResource *mem) : signature(mem), rows(mem) {}
 
-  /// Result record signature as defined for mgp_proc.
-  const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                  std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
+  /// Store all needed metadata so everything is searchable using one find
+  memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
   bool is_transactional = true;
@@ -742,6 +741,7 @@ struct ProcedureInfo {
 
 struct mgp_proc {
   using allocator_type = memgraph::utils::Allocator<mgp_proc>;
+  using string_t = memgraph::utils::pmr::string;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -829,21 +829,19 @@ struct mgp_proc {
   std::optional<std::function<void()>> cleanup;
 
   /// Required, positional arguments as a (name, type) pair.
-  memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *>>
-      args;
+  memgraph::utils::pmr::vector<std::pair<string_t, const memgraph::query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
-  memgraph::utils::pmr::vector<std::tuple<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *,
-                                          memgraph::query::TypedValue>>
+  memgraph::utils::pmr::vector<
+      std::tuple<string_t, const memgraph::query::procedure::CypherType *, memgraph::query::TypedValue>>
       opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                            std::pair<const memgraph::query::procedure::CypherType *, bool>>
-      results;
+  memgraph::utils::pmr::map<string_t, std::pair<const memgraph::query::procedure::CypherType *, bool>> results;
   ProcedureInfo info;
 };
 
 struct mgp_trans {
   using allocator_type = memgraph::utils::Allocator<mgp_trans>;
+  using string_t = memgraph::utils::pmr::string;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -877,9 +875,7 @@ struct mgp_trans {
   /// Entry-point for the transformation.
   std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                            std::pair<const memgraph::query::procedure::CypherType *, bool>>
-      results;
+  memgraph::utils::pmr::map<string_t, std::pair<const memgraph::query::procedure::CypherType *, bool>> results;
 };
 
 struct mgp_func {

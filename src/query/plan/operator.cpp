@@ -3657,13 +3657,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4657,7 +4659,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -4903,9 +4905,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -5669,7 +5670,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 #endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
-    MG_ASSERT(result->signature == &proc.results);
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
@@ -5682,7 +5682,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: Add a tracking MemoryResource without limits, so that we report
     // memory leaks in procedure.
     mgp_memory proc_memory{memory};
-    MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
   }
@@ -5695,7 +5694,9 @@ class CallProcedureCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
-  size_t result_signature_size_{0};
+  // Holds the lock on the module so it doesn't get reloaded
+  std::shared_ptr<procedure::Module> module_;
+  mgp_proc const *proc_{nullptr};
   bool stream_exhausted{true};
   bool call_initializer{false};
   std::optional<std::function<void()>> cleanup_{std::nullopt};
@@ -5707,8 +5708,39 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
-        result_(nullptr, mem) {
+        result_(mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
+    auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
+    if (!maybe_found) {
+      throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+    }
+
+    // Module lock is held during the whole cursor lifetime
+    module_ = std::move(maybe_found->first);
+    proc_ = maybe_found->second;
+
+    if (proc_->info.is_write != self_->is_write_) {
+      auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+      throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                  self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                  get_proc_type_str(proc_->info.is_write));
+    }
+
+    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
+      auto signature_it =
+          proc_->results.find(memgraph::utils::pmr::string{self_->result_fields_[i], proc_->results.get_allocator()});
+      result_.signature.emplace(
+          self_->result_fields_[i],
+          ResultsMetadata{signature_it->second.first, signature_it->second.second, static_cast<uint32_t>(i)});
+    }
+    if (proc_->results.size() == self_->result_fields_.size()) return;
+    // Not all results were yielded but they still need to be inserted inside the signature
+    uint32_t index = self_->result_fields_.size();
+    for (auto const &[name, signature] : proc_->results) {
+      if (result_.signature.find(name) == result_.signature.end()) {
+        result_.signature.emplace(name, ResultsMetadata{signature.first, signature.second, index++});
+      }
+    }
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -5728,71 +5760,43 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    auto module = std::shared_ptr<procedure::Module>{};
-    mgp_proc const *proc = nullptr;
-
     while (result_row_it_ == result_.rows.end()) {
-      if (!module) {
-        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
-        if (!maybe_found) {
-          throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
-        }
-
-        module = std::move(maybe_found->first);
-        proc = maybe_found->second;
-
-        if (proc->info.is_write != self_->is_write_) {
-          auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
-          throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
-                                      self_->procedure_name_, get_proc_type_str(self_->is_write_),
-                                      get_proc_type_str(proc->info.is_write));
-        }
-      }
-      if (!proc->info.is_batched) {
+      if (!proc_->info.is_batched) {
         stream_exhausted = true;
       }
-
       if (stream_exhausted) {
         if (!input_cursor_->Pull(frame, context)) {
-          if (proc->cleanup) {
-            proc->cleanup.value()();
+          if (proc_->cleanup) {
+            proc_->cleanup.value()();
           }
           return false;
         }
         stream_exhausted = false;
-        if (proc->initializer) {
+        if (proc_->initializer) {
           call_initializer = true;
-          MG_ASSERT(proc->cleanup);
-          proc->cleanup.value()();
+          MG_ASSERT(proc_->cleanup);
+          proc_->cleanup.value()();
         }
       }
-      if (!cleanup_ && proc->cleanup) [[unlikely]] {
-        cleanup_.emplace(*proc->cleanup);
+      if (!cleanup_ && proc_->cleanup) [[unlikely]] {
+        cleanup_.emplace(*proc_->cleanup);
       }
       result_.rows.clear();
 
-      const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc_->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
-
-      result_.signature = &proc->results;
       result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
-
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
       MG_ASSERT(transaction_id.has_value());
-      CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
+      CallCustomProcedure(self_->procedure_name_, *proc_, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
 
-      // Reset result_.signature to nullptr, because outside of this scope we
-      // will no longer hold a lock on the `module`. If someone were to reload
-      // it, the pointer would be invalid.
-      result_signature_size_ = result_.signature->size();
-      result_.signature = nullptr;
       if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
@@ -5805,25 +5809,15 @@ class CallProcedureCursor : public Cursor {
       stream_exhausted = result_row_it_ == result_.rows.end();
     }
 
+    // Instead of checking if procedure yielded all required values
+    // it is filled with null values on construction. This came as a
+    // direct consequence of changing from mgp_result rows from map to vector
+    // PRO: this is a lot faster
+    // CON: doesn't throw anymore if not all values are present
+    // Values are ordered the same as result_fields
     auto &values = result_row_it_->values;
-    // Check that the row has all fields as required by the result signature.
-    // C API guarantees that it's impossible to set fields which are not part of
-    // the result record, but it does not gurantee that some may be missing. See
-    // `mgp_result_record_insert`.
-    if (values.size() != result_signature_size_) {
-      throw QueryRuntimeException(
-          "Procedure '{}' did not yield all fields as required by its "
-          "signature.",
-          self_->procedure_name_);
-    }
-    for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
-      std::string_view field_name(self_->result_fields_[i]);
-      auto result_it = values.find(field_name);
-      if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
-                                    field_name);
-      }
-      frame[self_->result_symbols_[i]] = std::move(result_it->second);
+    for (int i = 0; i < self_->result_fields_.size(); ++i) {
+      frame[self_->result_symbols_[i]] = std::move(values[i]);
       if (context.frame_change_collector &&
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());

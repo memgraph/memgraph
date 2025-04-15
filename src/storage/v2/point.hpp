@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/durability/version.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -95,6 +96,10 @@ inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
     case kSrid_Cartesian_2D:
       return Cartesian_2d;
     case kSrid_Cartesian_3D:
+      return Cartesian_3d;
+    case 9757:
+      // This hack can be removed when we no longer support loading durability versions that old
+      static_assert(durability::kOldestSupportedVersion < durability::kSridCartesian3DCorrected);
       return Cartesian_3d;
   }
   return std::nullopt;

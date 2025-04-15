@@ -70,7 +70,14 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
   // Function to calculate next
   *find_next_.Lock() = [=](const auto &now, bool incr) mutable {
     if (next_execution > now) return next_execution;
-    if (incr) next_execution += pause;
+    if (incr) {
+      next_execution += pause;
+      // If multiple periods are missed, execute as soon as possible once
+      if (now > next_execution) {
+        next_execution = now;
+      }
+      return next_execution;
+    }
     return std::max(now, next_execution);
   };
 }

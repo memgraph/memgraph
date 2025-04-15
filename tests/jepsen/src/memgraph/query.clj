@@ -109,9 +109,11 @@
   [name node-config]
   (info "name" name "node-config" node-config)
   (dbclient/create-query
-   (let [query
+   (let [async-suffix (if (= "async" (:replica-type node-config)) " AS ASYNC" "")
+         query
          (str "REGISTER INSTANCE "
               name
+              async-suffix
               " WITH CONFIG {'bolt_server': '"
               name
               ":7687', "

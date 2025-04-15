@@ -1221,8 +1221,8 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
@@ -1304,8 +1304,8 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
@@ -1413,18 +1413,12 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     ++offset_index;
   };
 
-  check_next("CREATE INDEX ON :`PERSON`(`name`);");
-  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
-  check_next(kCreateInternalIndex);
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 0, `name`: "Person1", `surname`: "Unique1"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 1, `name`: "Person2", `surname`: "Unique2"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
+  check_next(kCreateInternalIndex);
 
   pullPlan.Pull(&query_stream, 4);
   const auto edge_results = stream.GetResults();
@@ -1443,22 +1437,91 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
+  check_next("CREATE INDEX ON :`PERSON`(`name`);");
+  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
   auto acc = this->db->storage()->Access();
   memgraph::query::DbAccessor dba(acc.get());
+  memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
+  memgraph::query::AllowEverythingAuthChecker auth_checker;
+  memgraph::query::InterpreterConfig::Query query_config;
+  memgraph::storage::PropertyValue::map_t props;
+
   {
     auto trigger_store = this->db.get()->trigger_store();
-    const std::string trigger_name = "test_trigger";
+    const std::string trigger_name = "trigger_on_vcreate";
     const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
-    memgraph::query::AllowEverythingAuthChecker auth_checker;
-    memgraph::query::InterpreterConfig::Query query_config;
-    memgraph::query::DbAccessor dba(acc.get());
-    const memgraph::storage::PropertyValue::map_t props;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_vupdate";
+    const std::string trigger_statement = "CREATE (:DummyUpdate)";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_UPDATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_vdelete";
+    const std::string trigger_statement = "CREATE (:DummyDelete)";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_DELETE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_ecreate";
+    const std::string trigger_statement = "CREATE ()-[:DummyCreate]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_CREATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_eupdate";
+    const std::string trigger_statement = "CREATE ()-[:DummyUpdate]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_UPDATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_edelete";
+    const std::string trigger_statement = "CREATE ()-[:DummyDelete]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_DELETE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_any";
+    const std::string trigger_statement = "CREATE ()-[:Any]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_any_after";
+    const std::string trigger_statement = "CREATE ()-[:Any]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
@@ -1466,9 +1529,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     { memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db); }
-    VerifyQueries(stream.GetResults(),
-                  "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
-                  "SET newNodes.created = timestamp();");
+    VerifyQueries(
+        stream.GetResults(),
+        "CREATE TRIGGER trigger_on_vcreate ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
+        "SET newNodes.created = timestamp();",
+        "CREATE TRIGGER trigger_on_vupdate ON () UPDATE BEFORE COMMIT EXECUTE CREATE (:DummyUpdate);",
+        "CREATE TRIGGER trigger_on_vdelete ON () DELETE AFTER COMMIT EXECUTE CREATE (:DummyDelete);",
+        "CREATE TRIGGER trigger_on_ecreate ON --> CREATE BEFORE COMMIT EXECUTE CREATE ()-[:DummyCreate]->();",
+        "CREATE TRIGGER trigger_on_eupdate ON --> UPDATE BEFORE COMMIT EXECUTE CREATE ()-[:DummyUpdate]->();",
+        "CREATE TRIGGER trigger_on_edelete ON --> DELETE AFTER COMMIT EXECUTE CREATE ()-[:DummyDelete]->();",
+        "CREATE TRIGGER trigger_on_any BEFORE COMMIT EXECUTE CREATE ()-[:Any]->();",
+        "CREATE TRIGGER trigger_on_any_after AFTER COMMIT EXECUTE CREATE ()-[:Any]->();");
   }
 }
 
