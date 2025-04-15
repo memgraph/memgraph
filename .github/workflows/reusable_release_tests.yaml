@@ -781,11 +781,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Set Jepsen OS
+        run: echo "OS=debian-12" >> $GITHUB_ENV
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os debian-12 \
+          --os $OS \
           --arch $ARCH \
           run
 
@@ -793,7 +796,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os debian-12 \
+          --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
@@ -803,7 +806,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os debian-12 \
+          --os $OS \
           --arch $ARCH \
           copy --binary
 
@@ -829,7 +832,7 @@ jobs:
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
-          --os debian-12 \
+          --os $OS \
           --arch $ARCH \
           stop --remove
 
