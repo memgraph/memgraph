@@ -15,113 +15,40 @@ env:
   NODES_NO: 6
 
 jobs:
-  ha-test:
-    name: "Run Jepsen HA Tests"
-    strategy:
-      matrix:
-        variant:
-          - { name: "mixed", mt: "false", cluster: "async_cluster.edn", day: "even" }
-          - { name: "mixed-mt", mt: "true", cluster: "async_cluster.edn", day: "even" }
-          - { name: "sync", mt: "false", cluster: "sync_cluster.edn", day: "odd" }
-          - { name: "sync-mt", mt: "true", cluster: "sync_cluster.edn", day: "odd" }
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
-    timeout-minutes: 720
+  determine-sync:
+    name: "Determine Sync Mode"
+    runs-on: ubuntu-latest
+    outputs:
+      sync: ${{ steps.set_sync.outputs.sync }}
+      name_start: ${{ steps.set_sync.outputs.name_start }}
     steps:
-      - name: Check if should run based on day
-        id: daycheck
+      - name: Determine if test should run in sync mode based on day
+        id: set_sync
         run: |
+          # Get the current day of the month (leading zeros are stripped)
           DAY=$(date +%d)
           MOD=$((10#$DAY % 2))
-          if [[ "${{ matrix.variant.day }}" == "even" && $MOD -ne 0 ]]; then
-            echo "Not an even day, skipping..."
-            echo "skip=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ matrix.variant.day }}" == "odd" && $MOD -eq 0 ]]; then
-            echo "Not an odd day, skipping..."
-            echo "skip=true" >> $GITHUB_OUTPUT
+          # If the day is odd, set sync to true, otherwise false.
+          if [ $MOD -eq 1 ]; then
+            echo "sync=true" >> $GITHUB_OUTPUT
+            echo "name_start=sync" >> $GITHUB_OUTPUT
           else
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "sync=false" >> $GITHUB_OUTPUT
+            echo "name_start=mixed" >> $GITHUB_OUTPUT
           fi
 
-      - name: Exit early if skipping
-        if: steps.daycheck.outputs.skip == 'true'
-        run: exit 0
-
-      - name: Set up repository
-        uses: actions/checkout@v4
+  run-jepsen-tests:
+    name: "Run Jepsen Stress Tests"
+    needs: determine-sync
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
+    timeout-minutes: 720
+    strategy:
+      matrix:
+        mt: [true, false]
+    steps:
+      - name: Call reusable Jepsen Stress Tests workflow
+        uses: ./.github/workflows/reusable_stress_jepsen.yaml
         with:
-          fetch-depth: 0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Refresh Jepsen Cluster
-        run: |
-          cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no $NODES_NO
-
-      - name: Spin up mgbuild container
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH run
-
-      - name: Build release binary
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH --build-type $BUILD_TYPE build-memgraph
-
-      - name: Copy memgraph binary
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --dest-dir build
-
-      - name: Copy libmemgraph_module_support.so
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --libs --dest-dir build/src/query
-
-      - name: Run unit tests for Jepsen code
-        run: |
-          cd tests/jepsen
-          ./run.sh unit-tests --binary ../../build/memgraph
-
-      - name: Run Jepsen workload
-        run: |
-          cd tests/jepsen
-
-          ./clean_old_directories.sh --nodes-no $NODES_NO > cleanup.log 2>&1 &
-          CLEANUP_PID=$!
-          trap "kill $CLEANUP_PID" EXIT
-
-          if [[ "${{ matrix.variant.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ matrix.variant.cluster }} --time-limit 18000 --concurrency $NODES_NO --num-tenants 5 --recovery-time 600 --nemesis-start-sleep 480"
-          else
-            ARGS="--workload hacreate --nodes-config resources/${{ matrix.variant.cluster }} --time-limit 25200 --concurrency $NODES_NO"
-          fi
-
-          ./run.sh test \
-            --binary ../../build/memgraph \
-            --run-args "$ARGS" \
-            --ignore-run-stdout-logs \
-            --ignore-run-stderr-logs \
-            --nodes-no $NODES_NO \
-            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-            --organization-name $MEMGRAPH_ORGANIZATION_NAME
-
-      - name: Process Jepsen results
-        if: always()
-        continue-on-error: true
-        run: |
-          cd tests/jepsen
-          ./run.sh process-results
-
-      - name: Save Jepsen report
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: "Jepsen Report-${{ matrix.variant.name }}"
-          path: tests/jepsen/Jepsen.tar.gz
-
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH stop --remove
+          name: "${{ needs.determine-sync.outputs.name_start }}${{ matrix.mt && '-mt' || '' }}"
+          mt: ${{ matrix.mt }}
+          sync: ${{ needs.determine-sync.outputs.sync == 'true' }}
