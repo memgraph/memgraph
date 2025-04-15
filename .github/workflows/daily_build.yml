@@ -45,6 +45,8 @@ jobs:
       arch: amd
       threads: 24
       build_type: 'Release'
+      run_release_tests: 'true'
+      run_stress_large: 'true'
     secrets: inherit
 
 
