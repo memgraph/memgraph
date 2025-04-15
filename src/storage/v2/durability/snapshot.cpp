@@ -5186,7 +5186,10 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_mapper = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_MAPPER);
     snapshot.WriteUint(used_ids.size());
-    for (auto item : used_ids) {
+    // Sort ids so they match expectations
+    std::vector<uint64_t> sorted_ids(used_ids.begin(), used_ids.end());
+    std::sort(sorted_ids.begin(), sorted_ids.end());
+    for (auto item : sorted_ids) {
       snapshot.WriteUint(item);
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
     }
