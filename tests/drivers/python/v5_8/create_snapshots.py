@@ -16,8 +16,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from neo4j import Config, GraphDatabase
-from neo4j.exceptions import ClientError, TransientError
+from neo4j import GraphDatabase
 
 # Neo4j connection details
 URI = "bolt://localhost:7687"
