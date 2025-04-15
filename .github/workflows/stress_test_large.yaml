@@ -40,8 +40,6 @@ on:
     tags:
       - "v*.*.*-rc*"
       - "v*.*-rc*"
-  schedule:
-    - cron: "0 22 * * *"
 
 jobs:
   StressTestLargeIndividual:
