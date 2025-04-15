@@ -42,7 +42,7 @@ int GetPart(auto &current) {
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
-void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
+void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context, const bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
@@ -67,8 +67,7 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
                                                         // register new interpreter into interpreter_context
   interpreter_context->interpreters->insert(interpreter.get());
 
-  auto TTL = [interpreter = std::move(interpreter),
-              should_run_edge_ttl = db_acc->config().salient.items.properties_on_edges]() {
+  auto TTL = [interpreter = std::move(interpreter), should_run_edge_ttl]() {
     memgraph::query::DiscardValueResultStream result_stream;
     bool finished_vertex = false;
     bool finished_edge = !should_run_edge_ttl;
@@ -214,7 +213,9 @@ bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
         return fail("running");
       }
       if (*run == "true") {
-        Setup_(db, interpreter_context);
+        const bool run_edge_ttl = db->config().salient.items.properties_on_edges &&
+                                  db->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+        Setup_(db, interpreter_context, run_edge_ttl);
       }
     }
   } catch (TtlException &e) {
@@ -313,7 +314,8 @@ std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st
 }
 
 template bool TTL::Restore<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
-template void TTL::Setup_<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
+template void TTL::Setup_<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
+                                                bool should_run_edge_ttl);
 
 }  // namespace memgraph::query::ttl
 
