@@ -294,10 +294,10 @@ OutputFile::~OutputFile() {
 OutputFile::OutputFile(OutputFile &&other) noexcept
     : fd_(other.fd_), written_since_last_sync_(other.written_since_last_sync_), path_(std::move(other.path_)) {
   memcpy(buffer_, other.buffer_, kFileBufferSize);
-  buffer_position_.store(other.buffer_position_.load());
+  buffer_position_.store(other.buffer_position_.load(std::memory_order_acquire), std::memory_order_release);
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
-  other.buffer_position_ = 0;
+  other.buffer_position_.store(0, std::memory_order_release);
 }
 
 OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
@@ -348,24 +348,28 @@ bool OutputFile::IsOpen() const { return fd_ != -1; }
 const std::filesystem::path &OutputFile::path() const { return path_; }
 
 void OutputFile::Write(const uint8_t *data, size_t size) {
+  std::unique_lock flush_guard(flush_lock_);
+  auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
+
+  auto write_ptr = buffer_ + buffer_start;
+  auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
-    FlushBuffer(false);
-    {
-      // Reading thread can call EnableFlushing which triggers
-      // TryFlushing.
-      // We can't use a single shared lock for the entire Write
-      // because FlushBuffer acquires the unique_lock.
-      std::shared_lock flush_guard(flush_lock_);
-      const size_t buffer_position = buffer_position_.load();
-      auto buffer_left = kFileBufferSize - buffer_position;
-      auto to_write = size < buffer_left ? size : buffer_left;
-      memcpy(buffer_ + buffer_position, data, to_write);
-      size -= to_write;
-      data += to_write;
-      buffer_position_.fetch_add(to_write);
-      written_since_last_sync_ += to_write;
+    if (buffer_remaining == 0) {
+      MG_ASSERT(IsOpen(), "Flushing an unopend file.");
+      FlushBufferInternal();
+      buffer_remaining = kFileBufferSize;
+      write_ptr = buffer_;
     }
+
+    auto const amount_to_write = std::min(size, buffer_remaining);
+    memcpy(write_ptr, data, amount_to_write);
+    size -= amount_to_write;
+    data += amount_to_write;
+    write_ptr += amount_to_write;
+    buffer_remaining -= amount_to_write;
+    written_since_last_sync_ += amount_to_write;  // TODO: can we not do this?
   }
+  buffer_position_.store(write_ptr - buffer_, std::memory_order_release);
 }
 
 void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
@@ -398,7 +402,7 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
 size_t OutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURRENT, 0); }
 
 size_t OutputFile::SetPosition(Position position, ssize_t offset) {
-  FlushBuffer(true);
+  FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -425,7 +429,7 @@ bool OutputFile::AcquireLock() {
 }
 
 void OutputFile::Sync() {
-  FlushBuffer(true);
+  FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -473,7 +477,7 @@ void OutputFile::Sync() {
 }
 
 void OutputFile::Close() noexcept {
-  FlushBuffer(true);
+  FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -498,25 +502,23 @@ void OutputFile::Close() noexcept {
   path_ = "";
 }
 
-void OutputFile::FlushBuffer(bool force_flush) {
+void OutputFile::FlushBuffer() {
   MG_ASSERT(IsOpen(), "Flushing an unopend file.");
-
-  if (!force_flush && buffer_position_ < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
   FlushBufferInternal();
 }
 
 void OutputFile::FlushBufferInternal() {
-  MG_ASSERT(buffer_position_ <= kFileBufferSize,
+  MG_ASSERT(buffer_position_.load(std::memory_order_acquire) <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
 
   auto *buffer = buffer_;
-  auto buffer_position = buffer_position_.load();
-  while (buffer_position > 0) {
-    auto written = write(fd_, buffer, buffer_position);
+  auto to_write = buffer_position_.load(std::memory_order_acquire);
+  while (to_write > 0) {
+    auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
       continue;
     }
@@ -527,11 +529,11 @@ void OutputFile::FlushBufferInternal() {
               "possibly {} bytes were lost from previous calls.",
               path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
 
-    buffer_position -= written;
+    to_write -= written;
     buffer += written;
   }
 
-  buffer_position_.store(buffer_position);
+  buffer_position_.store(0, std::memory_order_release);
 }
 
 void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
@@ -541,7 +543,9 @@ void OutputFile::EnableFlushing() {
   TryFlushing();
 }
 
-std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const { return {buffer_, buffer_position_.load()}; }
+std::pair<const uint8_t *, size_t> OutputFile::CurrentBuffer() const {
+  return {buffer_, buffer_position_.load(std::memory_order_acquire)};
+}
 
 size_t OutputFile::GetSize() {
   // There's an alternative way of fetching the files size using fstat.
@@ -551,7 +555,7 @@ size_t OutputFile::GetSize() {
   // support for multi-threading. While lseek uses locks, fstat is lockfree.
   // For now, lseek should be good enough. If at any point this proves to
   // be a bottleneck, fstat should be considered.
-  return SeekFile(Position::RELATIVE_TO_END, 0) + buffer_position_.load();
+  return SeekFile(Position::RELATIVE_TO_END, 0) + buffer_position_.load(std::memory_order_acquire);
 }
 
 void OutputFile::TryFlushing() {
