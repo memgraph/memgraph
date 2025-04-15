@@ -1342,7 +1342,10 @@ class LabelsTest : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<memgraph::query::LabelIx> labels_;  // TODO: Maybe we should unify this with or_labels_
+  std::vector<std::vector<memgraph::query::LabelIx>>
+      or_labels_;  // Because we need to support OR in labels -> node has to have at least one of the labels in "inner"
+                   // vector
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1351,11 +1354,25 @@ class LabelsTest : public memgraph::query::Expression {
     for (auto i = 0; i < object->labels_.size(); ++i) {
       object->labels_[i] = storage->GetLabelIx(labels_[i].name);
     }
+    object->or_labels_.resize(or_labels_.size());
+    for (auto i = 0; i < object->or_labels_.size(); ++i) {
+      object->or_labels_[i].resize(or_labels_[i].size());
+      for (auto j = 0; j < object->or_labels_[i].size(); ++j) {
+        object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
+      }
+    }
     return object;
   }
 
  protected:
-  LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
+      : expression_(expression) {
+    if (!label_expression) {
+      labels_ = std::move(labels);
+    } else {
+      or_labels_.push_back(std::move(labels));
+    }
+  }
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
     labels_.reserve(labels.size());
     for (const auto &label : labels) {
@@ -1927,6 +1944,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
+  bool label_expression_{false};
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
@@ -1948,6 +1966,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
+    object->label_expression_ = label_expression_;
     return object;
   }
 
