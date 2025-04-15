@@ -4664,8 +4664,9 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   utils::Timer timer;
 
   auto const snapshot_aborted = [abort_snapshot, &timer]() -> bool {
+    if (abort_snapshot == nullptr) return false;
     if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
-      const bool abort = abort_snapshot != nullptr && abort_snapshot->load(std::memory_order_acquire);
+      const bool abort = abort_snapshot->load(std::memory_order_acquire);
       if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also retrun true
       return abort;
     }
@@ -4740,8 +4741,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                                   int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
-    SnapshotPartialRes res{};
-    res.snapshot_path = edges_snapshot.GetPath();
+    auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    auto res = SnapshotPartialRes{.snapshot_path = edges_snapshot.GetPath()};
     auto items_in_current_batch{0UL};
     auto batch_start_offset = edges_snapshot.GetPosition();
 
@@ -4753,7 +4754,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
-      if (snapshot_aborted()) [[unlikely]] {
+      // This is a hot loop, use counter to reduce the frequency that we check for abort
+      if (counter() && snapshot_aborted()) [[unlikely]] {
         break;
       }
 
@@ -4842,8 +4844,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                                     int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
-    SnapshotPartialRes res;
-    res.snapshot_path = vertex_snapshot.GetPath();
+    auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    auto res = SnapshotPartialRes{.snapshot_path = vertex_snapshot.GetPath()};
     auto items_in_current_batch = 0UL;
     auto batch_start_offset = vertex_snapshot.GetPosition();
 
@@ -4856,7 +4858,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
-      if (snapshot_aborted()) [[unlikely]] {
+      // This is a hot loop, use counter to reduce the frequency that we check for abort
+      if (counter() && snapshot_aborted()) [[unlikely]] {
         break;
       }
 

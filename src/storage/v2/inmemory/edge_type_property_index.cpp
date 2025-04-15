@@ -87,7 +87,7 @@ std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::Li
 
 void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp,
                                                           std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter(2048);
 
   for (auto &[key, index] : index_) {
     if (token.stop_requested()) return;

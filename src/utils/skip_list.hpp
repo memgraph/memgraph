@@ -754,7 +754,7 @@ class SkipList final : detail::SkipListNode_base {
     ~Accessor() {
       if (skiplist_ != nullptr) {
         skiplist_->gc_.ReleaseId(id_);
-        thread_local auto gc_run_interval = utils::ResettableCounter<1024>();
+        thread_local auto gc_run_interval = utils::ResettableCounter(1024);
         if (gc_run_interval()) {
           skiplist_->run_gc();
         }
