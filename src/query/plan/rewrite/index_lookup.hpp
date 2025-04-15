@@ -1024,9 +1024,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     properties = filters_grouped_by_property | rv::keys | r::to_vector;
 
-    // TODO: what about if multiple filters valid on on property?
-    //  eg. 10 < n.a, n.a < 60 <- both match `a`
-    //  eg. "a" <= n.a, n.a ~= "hat.*?" <- RANGE + REGEX not compatible
     for (auto const &[label_pos, properties_poses, index_label, index_properties] :
          db_->RelevantLabelPropertiesIndicesInfo(labels, properties)) {
       // properties_poses: [5,3,-1,4]
@@ -1417,7 +1414,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // after we've scanned the index.
           filter_exprs_for_removal_.insert(filter_info.expression);
         }
-        // TODO: multiple filters to remove
+
         filters_.EraseFilter(filter_info);
         std::vector<Expression *> removed_expressions;
         filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
