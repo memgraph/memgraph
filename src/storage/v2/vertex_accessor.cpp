@@ -436,44 +436,44 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
-  utils::AtomicMemoryBlock(
-      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
-        if (!vertex->properties.InitProperties(properties)) {
-          result = false;
-          return;
+  utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
+                            &schema_acc, this]() {
+    if (!vertex->properties.InitProperties(properties)) {
+      result = false;
+      return;
+    }
+    for (const auto &[property, new_value] : properties) {
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      // TODO: defer until once all properties have been set, to make fewer entries ?
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage_->name_id_mapper_.get());
+      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
+      if (transaction->constraint_verification_info) {
+        if (!new_value.IsNull()) {
+          transaction->constraint_verification_info->AddedProperty(vertex);
+        } else {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
         }
-        for (const auto &[property, new_value] : properties) {
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-          // TODO: defer until once all properties have been set, to make fewer entries ?
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-          transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
-          if (transaction->constraint_verification_info) {
-            if (!new_value.IsNull()) {
-              transaction->constraint_verification_info->AddedProperty(vertex);
-            } else {
-              transaction->constraint_verification_info->RemovedProperty(vertex);
-            }
-          }
-          if (schema_acc) {
-            std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
-                                             SchemaInfo::VertexModifyingAccessor &acc) {
-                                           acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
-                                         },
-                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                       *schema_acc);
-          }
+      }
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
+                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
+    }
+    // TODO If not performant enough there is also InitProperty()
+    if (storage->constraints_.HasTypeConstraints()) {
+      for (auto const &[property_id, property_value] : properties) {
+        if (auto maybe_violation =
+                storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
+          HandleTypeConstraintViolation(storage, *maybe_violation);
         }
-        // TODO If not performant enough there is also InitProperty()
-        if (storage->constraints_.HasTypeConstraints()) {
-          for (auto const &[property_id, property_value] : properties) {
-            if (auto maybe_violation =
-                    storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
-              HandleTypeConstraintViolation(storage, *maybe_violation);
-            }
-          }
-        }
-        result = true;
-      });
+      }
+    }
+    result = true;
+  });
 
   return result;
 }

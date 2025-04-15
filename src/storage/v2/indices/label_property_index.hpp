@@ -13,6 +13,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -231,7 +232,7 @@ class LabelPropertyIndex {
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                   const Transaction &tx) = 0;
+                                   const Transaction &tx, NameIdMapper *name_id_mapper = nullptr) = 0;
 
   virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 

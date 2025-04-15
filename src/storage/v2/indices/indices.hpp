@@ -23,6 +23,7 @@
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
@@ -85,8 +86,8 @@ struct Indices {
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx,
+                           NameIdMapper *name_id_mapper = nullptr) const;
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

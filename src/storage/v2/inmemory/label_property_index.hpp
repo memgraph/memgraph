@@ -19,6 +19,7 @@
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -53,8 +54,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
 
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx,
+                           NameIdMapper *name_id_mapper = nullptr) override;
 
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
