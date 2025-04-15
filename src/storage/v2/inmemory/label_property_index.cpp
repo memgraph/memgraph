@@ -168,12 +168,12 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
 
 }  // namespace
 
-bool InMemoryLabelPropertyIndex::NewEntry::operator<(std::vector<PropertyValue> const &rhs) const {
+bool InMemoryLabelPropertyIndex::Entry::operator<(std::vector<PropertyValue> const &rhs) const {
   return std::ranges::lexicographical_compare(
       std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
-bool InMemoryLabelPropertyIndex::NewEntry::operator==(std::vector<PropertyValue> const &rhs) const {
+bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> const &rhs) const {
   return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
@@ -465,7 +465,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
-                                                         utils::SkipList<NewEntry>::Iterator index_iterator)
+                                                         utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -604,7 +604,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
+InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                                                PropertiesIds const *properties,
                                                PropertiesPermutationHelper const *permutation_helper,
@@ -758,7 +758,7 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::
 
   auto acc = it2->second.skiplist.access();
 
-  auto in_bounds_for_all_prefix = [&](NewEntry const &entry) {
+  auto in_bounds_for_all_prefix = [&](Entry const &entry) {
     constexpr auto within_bounds = [](PropertyValue const &value, PropertyValueRange const &bounds) -> bool {
       return bounds.IsValueInRange(value);
     };
@@ -913,7 +913,7 @@ void InMemoryLabelPropertyIndex::AbortEntries(AbortableInfo const &info, uint64_
       DMG_ASSERT(it2 != it->second.end());
       auto acc = it2->second.skiplist.access();
       for (auto &[values, vertex] : to_remove) {
-        acc.remove(NewEntry{std::move(values), vertex, start_timestamp});
+        acc.remove(Entry{std::move(values), vertex, start_timestamp});
       }
     }
   }

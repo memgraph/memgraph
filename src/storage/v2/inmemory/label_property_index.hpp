@@ -27,13 +27,13 @@ namespace memgraph::storage {
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
-  struct NewEntry {
+  struct Entry {
     IndexOrderedPropertyValues values;
     Vertex *vertex;
     uint64_t timestamp;
 
-    friend auto operator<=>(NewEntry const &, NewEntry const &) = default;
-    friend bool operator==(NewEntry const &, NewEntry const &) = default;
+    friend auto operator<=>(Entry const &, Entry const &) = default;
+    friend bool operator==(Entry const &, Entry const &) = default;
 
     bool operator<(std::vector<PropertyValue> const &rhs) const;
     bool operator==(std::vector<PropertyValue> const &rhs) const;
@@ -73,14 +73,13 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<NewEntry>::Accessor index_accessor,
-             utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label, PropertiesIds const *properties,
-             PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges,
-             View view, Storage *storage, Transaction *transaction);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+             LabelId label, PropertiesIds const *properties, PropertiesPermutationHelper const *permutation_helper,
+             std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<NewEntry>::Iterator index_iterator);
+      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
@@ -93,7 +92,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<NewEntry>::Iterator index_iterator_;
+      utils::SkipList<Entry>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
       bool skip_lower_bound_check_{false};
@@ -104,7 +103,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
-    utils::SkipList<NewEntry>::Accessor index_accessor_;
+    utils::SkipList<Entry>::Accessor index_accessor_;
 
     // These describe the composite index
     LabelId label_;
@@ -154,7 +153,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   struct IndividualIndex {
     PropertiesPermutationHelper permutations_helper;
-    utils::SkipList<NewEntry> skiplist;
+    utils::SkipList<Entry> skiplist;
   };
 
  private:
