@@ -5,15 +5,6 @@ on:
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
 
-env:
-  ARCH: 'amd'
-  BUILD_TYPE: 'RelWithDebInfo'
-  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  OS: 'debian-12'
-  TOOLCHAIN: 'v6'
-  NODES_NO: 6
-
 jobs:
   determine-sync:
     name: "Determine Sync Mode"
