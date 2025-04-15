@@ -24,7 +24,7 @@
 #include <string_view>
 #include <vector>
 
-#include "utils/rw_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
 
@@ -259,19 +259,22 @@ class OutputFile {
   auto fd() const { return fd_; }
 
  private:
-  void FlushBuffer(bool force_flush);
+  void FlushBuffer();
   void FlushBufferInternal();
 
   size_t SeekFile(Position position, ssize_t offset);
 
-  int fd_{-1};
-  size_t written_since_last_sync_{0};
-  std::filesystem::path path_;
-  uint8_t buffer_[kFileBufferSize];
-  std::atomic<size_t> buffer_position_{0};
+  // put flush lock on its own cacheline
+  alignas(64) utils::RWSpinLock flush_lock_{}; // This is over the top for snapshot file...no concurrent flush protection needed
 
-  // Flushing buffer should be a higher priority
-  utils::RWLock flush_lock_{RWLock::Priority::WRITE}; // This is over the top for snapshot file...no concurrent flush protection needed
+  // ensure the rest start on a new cacheline
+  alignas(64) int fd_{-1};
+  std::atomic<size_t> buffer_position_{0};
+  size_t written_since_last_sync_{0};
+  uint8_t buffer_[kFileBufferSize];
+
+  // Path should be cold data
+  std::filesystem::path path_;
 };
 
 }  // namespace memgraph::utils
