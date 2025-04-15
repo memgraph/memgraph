@@ -31,6 +31,7 @@ jobs:
   run-jepsen-tests:
     needs: determine-sync
     strategy:
+      fail-fast: false
       matrix:
         mt: [true, false]
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
