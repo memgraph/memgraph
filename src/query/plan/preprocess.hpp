@@ -164,6 +164,9 @@ struct Expansion {
   bool expand_from_edge{false};
 };
 
+/// @brief Determine if the given expression is splitted on AND or OR operators.
+enum class SplitExpressionMode { AND, OR };
+
 struct PatternComprehensionMatching;
 struct FilterMatching;
 
@@ -351,18 +354,18 @@ class PatternVisitor : public ExpressionVisitor<void> {
       op.expression_->Accept(*this);
     }
   }
-  void Visit(Identifier &op) override {};
-  void Visit(PrimitiveLiteral &op) override {};
-  void Visit(PropertyLookup &op) override {};
-  void Visit(AllPropertiesLookup &op) override {};
-  void Visit(ParameterLookup &op) override {};
+  void Visit(Identifier &op) override{};
+  void Visit(PrimitiveLiteral &op) override{};
+  void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
+  void Visit(ParameterLookup &op) override{};
   void Visit(RegexMatch &op) override {
     op.string_expr_->Accept(*this);
     op.regex_->Accept(*this);
   }
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override {};
+  void Visit(EnumValueAccess &op) override{};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
@@ -436,7 +439,9 @@ struct PointFilter {
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
-        withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value} {}
+        withinbbox_{
+            .bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value, .condition_ = {}} {
+  }
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
@@ -500,6 +505,8 @@ struct FilterInfo {
   std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
   std::vector<LabelIx> labels{};
+  /// Labels for Type::Label OR filtering.
+  std::vector<std::vector<LabelIx>> or_labels{};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.
@@ -535,6 +542,7 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
+  auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
   auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
   /// Remove a filter; may invalidate iterators.
@@ -547,6 +555,12 @@ class Filters final {
   /// `Expression *` which are now completely removed.
   void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
                         std::vector<Expression *> *removed_filters = nullptr);
+
+  /// Remove a label filter for OR expression for symbol; may invalidate iterators.
+  /// If removed_filters is not nullptr, fills the vector with original
+  /// `Expression *` which are now completely removed.
+  void EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx> &labels,
+                          std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
@@ -643,6 +657,16 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
     }
   }
   return labels;
+}
+
+inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
+  std::vector<std::vector<LabelIx>> or_labels;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+      or_labels.insert(or_labels.end(), filter.or_labels.begin(), filter.or_labels.end());
+    }
+  }
+  return or_labels;
 }
 
 inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
@@ -782,7 +806,7 @@ QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *, bool is
  * @param expression
  * @return std::vector<Expression *>
  */
-std::vector<Expression *> SplitExpressionOnAnd(Expression *expression);
+std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressionMode mode = SplitExpressionMode::AND);
 
 /**
  * @brief Substitute an expression with a new one.
