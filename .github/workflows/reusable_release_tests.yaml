@@ -964,7 +964,7 @@ jobs:
       - release_jepsen_test
       - release_query_modules_test
       - stress_test_large
-    if: always() && ${{ inputs.run_release_tests == 'true' }}
+    if: ${{ always() && inputs.run_release_tests == 'true' }}
     outputs:
       test_status: ${{ steps.aggregate.outputs.test_status }}
     steps:
