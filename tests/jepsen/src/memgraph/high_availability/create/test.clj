@@ -224,14 +224,21 @@
                          (utils/with-session bolt-routing-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                           (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size}) (map :id) (reduce conj []) first)]
-                             (reset! max-idx local-idx)
-                             (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
+                           (let [res (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
+                                         (map :id)
+                                         (reduce conj [])
+                                         first)]
+                                      (reset! max-idx local-idx)
+                                      (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx}))]
+                            (dbclient/disconnect bolt-routing-conn)
+                            res))
 
                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                           (dbclient/disconnect bolt-routing-conn)
                            (utils/process-service-unavailable-exc op node))
 
                          (catch Exception e
+                           (dbclient/disconnect bolt-routing-conn)
                            ; Even if sync replica is down, nodes will get created on the main.
                            (cond
                                  (utils/sync-replica-down? e)
@@ -250,7 +257,6 @@
                                  :else
                                  (assoc op :type :fail :value (str e)))))
 
-                         (dbclient/disconnect bolt-routing-conn)
                      )
 
                      (assoc op :type :info :value "Not main data instance."))
