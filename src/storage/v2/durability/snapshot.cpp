@@ -11,6 +11,18 @@
 
 #include "storage/v2/durability/snapshot.hpp"
 
+#include <fmt/core.h>
+#include <openssl/x509v3.h>
+#include <sys/sendfile.h>
+#include <sys/stat.h>
+#include <atomic>
+#include <cstdint>
+#include <filesystem>
+#include <future>
+#include <limits>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
 #include <usearch/index_plugins.hpp>
 
@@ -42,6 +54,7 @@
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -130,6 +143,196 @@ namespace memgraph::storage::durability {
 struct BatchInfo {
   uint64_t offset;
   uint64_t count;
+};
+
+constexpr auto kEnd = std::numeric_limits<int64_t>::max();
+
+// Result of a partial snapshot creation
+struct SnapshotPartialRes {
+  std::vector<BatchInfo> batch_info{};      // Batch information in the current part
+  std::unordered_set<uint64_t> used_ids{};  // Used ids in the current part
+  uint64_t count{0};                        // Number of handled elements
+  std::filesystem::path snapshot_path{};    // File location
+  size_t snapshot_size{0};                  // Size of the file
+};
+
+class SafeTaskQueue {
+ public:
+  using task_t = std::function<void()>;
+  SafeTaskQueue() = default;
+
+  // Add a task to the queue.
+  void AddTask(task_t task) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    tasks_.push(std::move(task));
+  }
+
+  std::optional<task_t> PopTask() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (tasks_.empty()) {
+      return std::nullopt;
+    }
+    auto task = std::move(tasks_.front());
+    tasks_.pop();
+    return std::move(task);
+  }
+
+  auto size() const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return tasks_.size();
+  }
+
+ private:
+  mutable std::mutex mtx_;
+  std::queue<task_t> tasks_;
+};
+
+using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bool>>>;
+
+void WaitAndCombine(task_results_t &partial_results, Encoder &snapshot_encoder, uint64_t &element_count,
+                    std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
+                    auto &&snapshot_aborted) {
+  // NOTE: They have to be combined in order
+  for (auto &[res, promise] : partial_results) {
+    promise.get_future().wait();  // Wait for incoming result
+
+    spdlog::trace("Handling snapshot part {}, size {}, count {}...", res.snapshot_path, res.snapshot_size, res.count);
+    utils::OnScopeExit cleanup{[path = res.snapshot_path] {
+      std::error_code ec;
+      std::filesystem::remove(path, ec);
+      if (ec) spdlog::warn("Couldn't remove temporary snapshot part {}: {}", path, ec.message());
+    }};
+
+    if (snapshot_aborted()) {
+      continue;  // Run through and clean up
+    }
+
+    if (res.snapshot_size > 0) {
+      element_count += res.count;
+      used_ids.merge(std::move(res.used_ids));
+      const auto current_offset = snapshot_encoder.GetPosition();
+      // Update batch positions
+      for (auto &[offset, _] : res.batch_info) {
+        offset += current_offset;
+      }
+      // TODO Regenerate batches (currently could be less then optimal)
+      batch_infos.insert(batch_infos.end(), std::make_move_iterator(res.batch_info.begin()),
+                         std::make_move_iterator(res.batch_info.end()));
+      // Append the edge part to the snapshot
+      int part_fd = open(res.snapshot_path.string().c_str(), O_RDONLY);
+      if (part_fd == -1) {
+        throw RecoveryFailure("Couldn't open snapshot part {}!", res.snapshot_path);
+      }
+      utils::OnScopeExit cleanup{[part_fd] { close(part_fd); }};
+      // Use sendfile for efficient copying (zero-copy)
+      off_t offset = 0;
+      const auto size = res.snapshot_size - offset;
+      ssize_t bytes_sent = sendfile(snapshot_encoder.native_handle(), part_fd, &offset, size);
+      if (bytes_sent == -1 || bytes_sent != size) {
+        throw RecoveryFailure("Couldn't copy edge part to snapshot!");
+      }
+      snapshot_encoder.SetPosition(current_offset + size);
+    }
+  }
+}
+
+// Return at least one batch (at least 2 elements: start and end gid)
+auto Batch(auto &&acc, const uint64_t items_per_batch) {
+  // Skiplist sizes can change, last thread will pick up any new elements. In the end, these will be skiped (MVCC)
+  const auto n_batches = (items_per_batch < 1) ? 1 : (acc.size() + items_per_batch - 1) / items_per_batch;
+
+  if (n_batches < 2) {
+    // Single batch, scan whole skiplist
+    return std::vector<int64_t>{0, kEnd};
+  }
+
+  // TODO Use sampling iterator (after composite index)
+  std::vector<int64_t> batches(n_batches + 1, kEnd);  // start and end gids
+  batches[0] = 0;                                     // Always start from the lowest possible
+  int i = 0;
+  int batch_id = 1;
+  for (const auto &elem : acc) {
+    if (items_per_batch == i++) {
+      batches[batch_id++] = elem.gid.AsInt();  // This batch's start ID and previous batch's end ID
+      i = 1;                                   // 1 on purpose, as the first element is already in the batch
+      // Check if we have enough batches
+      if (batch_id == n_batches) break;
+    }
+  }
+  return batches;
+}
+
+void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
+                           auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
+                           uint64_t &offset_vertices, Encoder &snapshot_encoder, uint64_t &edges_count,
+                           uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
+                           std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
+                           uint64_t thread_count, auto &&snapshot_aborted) {
+  SafeTaskQueue tasks;
+
+  // Generate edge tasks
+  std::vector<int64_t> edge_batch_gid{};
+  task_results_t edge_res{};
+  if (edges != nullptr) {  // No edges skiplist <=> no properties on edges
+    edge_batch_gid = Batch(edges->access(), items_per_batch);
+    edge_res = task_results_t{edge_batch_gid.size() - 1};  // last element is an end marker
+    for (int id = 0; id < edge_res.size(); ++id) {
+      tasks.AddTask([&edge_res, &partial_edge_handler, id, start_gid = edge_batch_gid[id],
+                     end_gid = edge_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
+        // Create workers temporary file
+        {
+          Encoder edges_snapshot;
+          const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
+          edges_snapshot.Initialize(snapshot_path);
+          // Fill snapshot with edges
+          edge_res[id].first = partial_edge_handler(start_gid, end_gid, edges_snapshot);
+          edges_snapshot.Finalize();
+        }
+        // Signal that the snapshot is done
+        edge_res[id].second.set_value(true);
+      });
+    }
+  }
+
+  // Generate vertex tasks
+  auto vertex_batch_gid = Batch(vertices->access(), items_per_batch);
+  task_results_t vertex_res(vertex_batch_gid.size() - 1);  // last element is an end marker
+  for (int id = 0; id < vertex_res.size(); ++id) {
+    tasks.AddTask([&vertex_res, &partial_vertex_handler, id, start_gid = vertex_batch_gid[id],
+                   end_gid = vertex_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
+      // Create workers temporary file
+      {
+        Encoder vertex_snapshot;
+        const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
+        vertex_snapshot.Initialize(snapshot_path);
+        // Fill snapshot with edges
+        vertex_res[id].first = partial_vertex_handler(start_gid, end_gid, vertex_snapshot);
+        vertex_snapshot.Finalize();
+      }
+      // Signal that the snapshot is done
+      vertex_res[id].second.set_value(true);
+    });
+  }
+
+  const auto n_workers = std::min(thread_count, tasks.size());
+  std::vector<std::jthread> workers;
+  workers.reserve(n_workers);
+  for (int i = 0; i < n_workers; ++i) {
+    workers.emplace_back([&, i] {
+      utils::ThreadSetName("snapshot" + std::to_string(i));
+      while (true) {
+        auto task = tasks.PopTask();
+        if (!task) break;  // No more tasks; if aborted, run through all tasks to mark them as done
+        (*task)();         // Execute the task
+      }
+    });
+  }
+
+  // Wait for tasks to finish and combine results as they come in
+  if (!edge_res.empty()) offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
+  WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+  offset_vertices = snapshot_encoder.GetPosition();
+  WaitAndCombine(vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted);
 };
 
 // Function used to read information about the snapshot file.
@@ -699,7 +902,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-            if (edge == edge_acc.end()) throw RecoveryFailure(":ouldn't find edge in the loaded edges!");
+            if (edge == edge_acc.end()) throw RecoveryFailure("Couldn't find edge in the loaded edges!");
             edge_ref = EdgeRef(&*edge);
           } else {
             auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
@@ -4452,8 +4655,9 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
   auto const snapshot_aborted = [abort_snapshot, &timer]() -> bool {
     if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
-      timer.ResetStartTime();
-      return abort_snapshot != nullptr && abort_snapshot->load(std::memory_order_acquire);
+      const bool abort = abort_snapshot != nullptr && abort_snapshot->load(std::memory_order_acquire);
+      if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also retrun true
+      return abort;
     }
     return false;
   };
@@ -4514,21 +4718,33 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteUint(mapping.AsUint());
   };
 
-  std::vector<BatchInfo> edge_batch_infos;
-  auto items_in_current_batch{0UL};
-  auto batch_start_offset{0UL};
+  // Specify destination for the mapper data (used in multi-threaded)
+  auto write_mapping_to = [](auto &snapshot, auto &used_ids, auto mapping) {
+    used_ids.insert(mapping.AsUint());
+    snapshot.WriteUint(mapping.AsUint());
+  };
 
-  // Store all edges.
-  if (storage->config_.salient.items.properties_on_edges) {
-    offset_edges = snapshot.GetPosition();
-    batch_start_offset = offset_edges;
+  // Store edges.
+  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to](
+                                  int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
+    if (start_gid >= end_gid) return {};
+
+    SnapshotPartialRes res{};
+    res.snapshot_path = edges_snapshot.GetPath();
+    auto items_in_current_batch{0UL};
+    auto batch_start_offset = edges_snapshot.GetPosition();
+
     auto acc = edges->access();
 
-    for (auto &edge : acc) {
+    // Comparison start <= elem.gid < end with GID is important here because we need to
+    // ensure that we are not reading elemets that are not in the batch.
+    auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
+    for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
       if (snapshot_aborted()) {
-        return false;
+        break;
       }
 
+      auto &edge = *it;
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
       bool is_visible = true;
@@ -4574,42 +4790,55 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
       // Store the edge.
       {
-        snapshot.WriteMarker(Marker::SECTION_EDGE);
-        snapshot.WriteUint(edge.gid.AsUint());
+        edges_snapshot.WriteMarker(Marker::SECTION_EDGE);
+        edges_snapshot.WriteUint(edge.gid.AsUint());
         const auto &props = maybe_props.GetValue();
-        snapshot.WriteUint(props.size());
+        edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
-          write_mapping(item.first);
-          snapshot.WritePropertyValue(item.second);
+          write_mapping_to(edges_snapshot, res.used_ids, item.first);
+          edges_snapshot.WritePropertyValue(item.second);
         }
       }
 
-      ++edges_count;
+      ++res.count;
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
-        edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
-        batch_start_offset = snapshot.GetPosition();
+        res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+        batch_start_offset = edges_snapshot.GetPosition();
         items_in_current_batch = 0;
       }
     }
-  }
+    res.snapshot_size = edges_snapshot.GetSize();
 
-  if (items_in_current_batch > 0) {
-    edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
-  }
+    if (items_in_current_batch > 0) {
+      // Needs updating before appending to the snapshot
+      res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+    }
 
-  std::vector<BatchInfo> vertex_batch_infos;
-  // Store all vertices.
-  {
-    items_in_current_batch = 0;
-    offset_vertices = snapshot.GetPosition();
-    batch_start_offset = offset_vertices;
+    return res;
+  };
+
+  // Store vertices.
+  auto partial_vertex_handler = [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to](
+                                    int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
+    if (start_gid >= end_gid) return {};
+
+    SnapshotPartialRes res;
+    res.snapshot_path = vertex_snapshot.GetPath();
+    auto items_in_current_batch = 0UL;
+    auto batch_start_offset = vertex_snapshot.GetPosition();
+
     auto acc = vertices->access();
-    for (auto &vertex : acc) {
+
+    // Comparison start <= elem.gid < end with GID is important here because we need to
+    // ensure that we are not reading elemets that are not in the batch.
+    auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
+    for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
       if (snapshot_aborted()) {
-        return false;
+        break;
       }
 
+      auto &vertex = *it;
       // The visibility check is implemented for vertices so we use it here.
       auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
       if (!va) continue;
@@ -4628,62 +4857,100 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
       // Store the vertex.
       {
-        snapshot.WriteMarker(Marker::SECTION_VERTEX);
-        snapshot.WriteUint(vertex.gid.AsUint());
+        vertex_snapshot.WriteMarker(Marker::SECTION_VERTEX);
+        vertex_snapshot.WriteUint(vertex.gid.AsUint());
         const auto &labels = maybe_labels.GetValue();
-        snapshot.WriteUint(labels.size());
+        vertex_snapshot.WriteUint(labels.size());
         for (const auto &item : labels) {
-          write_mapping(item);
+          write_mapping_to(vertex_snapshot, res.used_ids, item);
         }
         const auto &props = maybe_props.GetValue();
-        snapshot.WriteUint(props.size());
+        vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
-          write_mapping(item.first);
-          snapshot.WritePropertyValue(item.second);
+          write_mapping_to(vertex_snapshot, res.used_ids, item.first);
+          vertex_snapshot.WritePropertyValue(item.second);
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
         const auto &out_edges = maybe_out_edges.GetValue().edges;
 
         if (storage->config_.salient.items.properties_on_edges) {
-          snapshot.WriteUint(in_edges.size());
+          vertex_snapshot.WriteUint(in_edges.size());
           for (const auto &item : in_edges) {
-            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
-          snapshot.WriteUint(out_edges.size());
+          vertex_snapshot.WriteUint(out_edges.size());
           for (const auto &item : out_edges) {
-            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
         } else {
-          snapshot.WriteUint(in_edges.size());
+          vertex_snapshot.WriteUint(in_edges.size());
           for (const auto &item : in_edges) {
-            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
-          snapshot.WriteUint(out_edges.size());
+          vertex_snapshot.WriteUint(out_edges.size());
           for (const auto &item : out_edges) {
-            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
         }
       }
 
-      ++vertices_count;
+      ++res.count;
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
-        vertex_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
-        batch_start_offset = snapshot.GetPosition();
+        res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+        batch_start_offset = vertex_snapshot.GetPosition();
         items_in_current_batch = 0;
       }
     }
 
     if (items_in_current_batch > 0) {
-      vertex_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+      // This needs to be updated
+      res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+    }
+
+    res.snapshot_size = vertex_snapshot.GetSize();
+    return res;
+  };
+
+  std::vector<BatchInfo> edge_batch_infos;
+  std::vector<BatchInfo> vertex_batch_infos;
+
+  if (storage->config_.durability.allow_parallel_snapshot_creation) {
+    auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
+    MultiThreadedWorkflow(edge_ptr, vertices, partial_edge_handler, partial_vertex_handler,
+                          storage->config_.durability.items_per_batch, offset_edges, offset_vertices, snapshot,
+                          edges_count, vertices_count, edge_batch_infos, vertex_batch_infos, used_ids,
+                          storage->config_.durability.snapshot_thread_count, snapshot_aborted);
+  } else {
+    if (storage->config_.salient.items.properties_on_edges) {
+      offset_edges = snapshot.GetPosition();  // Global edge offset
+      // Handle edges
+      const auto res = partial_edge_handler(0, kEnd, snapshot);
+      edges_count = res.count;
+      edge_batch_infos = res.batch_info;
+      used_ids.insert(res.used_ids.begin(), res.used_ids.end());
+    }
+    if (snapshot_aborted()) {
+      return false;
+    }
+    {
+      offset_vertices = snapshot.GetPosition();  // Global vertex offset
+      // Handle vertices
+      const auto res = partial_vertex_handler(0, kEnd, snapshot);
+      vertices_count = res.count;
+      vertex_batch_infos = res.batch_info;
+      used_ids.insert(res.used_ids.begin(), res.used_ids.end());
+    }
+    if (snapshot_aborted()) {
+      return false;
     }
   }
 
@@ -4919,7 +5186,10 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_mapper = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_MAPPER);
     snapshot.WriteUint(used_ids.size());
-    for (auto item : used_ids) {
+    // Sort ids so they match expectations
+    std::vector<uint64_t> sorted_ids(used_ids.begin(), used_ids.end());
+    std::sort(sorted_ids.begin(), sorted_ids.end());
+    for (auto item : sorted_ids) {
       snapshot.WriteUint(item);
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
     }

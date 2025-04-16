@@ -2583,6 +2583,11 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return CreateSnapshotError::DisabledForReplica;
   }
 
+  auto abort_reset = utils::OnScopeExit([this]() mutable {
+    // Abort is a one shot, reset it to false every time
+    abort_snapshot_.store(false, std::memory_order_release);
+  });
+
   if (abort_snapshot_.load(std::memory_order_acquire)) {
     return CreateSnapshotError::AbortSnapshot;
   }
@@ -2610,8 +2615,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
-
-  abort_snapshot_.store(false, std::memory_order_release);
 
   return {};
 }
