@@ -35,6 +35,8 @@ class ReplicationStorageClient;
 class ReplicaStream;
 class TransactionReplication;
 
+using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
+
 struct ReplicationStorageState {
   // Only MAIN can send
   auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
@@ -69,7 +71,7 @@ struct ReplicationStorageState {
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
-  std::deque<std::pair<std::string, uint64_t>> history;
+  EpochHistory history;
   std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
 
   // We create ReplicationClient using unique_ptr so we can move

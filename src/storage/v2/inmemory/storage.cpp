@@ -809,8 +809,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Replica can only update the last durable timestamp with
           // the commits received from main.
           // Update the last durable timestamp
-          auto prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+#ifndef NDEBUG
+          auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
           DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
+#endif
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
         }
 
@@ -2603,7 +2605,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation? // timeout?
     }
-    return Access(IsolationLevel::SNAPSHOT_ISOLATION);// timeout?
+    return Access(IsolationLevel::SNAPSHOT_ISOLATION);  // timeout?
   });
 
   // is it even worth it?
@@ -2611,11 +2613,20 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
+
+  DMG_ASSERT(transaction->last_durable_ts_.has_value());
   auto const &epoch = repl_storage_state_.epoch_;
+  auto const &epochHistory = repl_storage_state_.history;
+  auto const &storage_uuid = uuid();
+
+  auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
+  if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+
+  last_snapshot_digest_ = std::move(current_digest);
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
   if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
-                                  &vertices_, &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_,
+                                  &vertices_, &edges_, storage_uuid, epoch, epochHistory, &file_retainer_,
                                   &abort_snapshot_)) {
     return CreateSnapshotError::AbortSnapshot;
   }
@@ -2855,7 +2866,10 @@ void InMemoryStorage::CreateSnapshotHandler(
           spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
           break;
         case CreateSnapshotError::AlreadyRunning:
-          spdlog::warn("Failed to create snapshot. Another snapshot creation is already in progress.");
+          spdlog::info("Skipping snapshot creation. Another snapshot creation is already in progress.");
+          break;
+        case CreateSnapshotError::NothingNewToWrite:
+          spdlog::info("Skipping snapshot creation. Nothing has been written since the last snapshot.");
           break;
       }
     }

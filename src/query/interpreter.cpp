@@ -4406,6 +4406,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
               throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
             case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
               throw utils::BasicException("Another snapshot creation is already in progress.");
+            case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
+              throw utils::BasicException("Nothing has been written since the last snapshot.");
           }
         }
         return QueryHandlerResult::COMMIT;
