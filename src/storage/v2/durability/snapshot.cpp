@@ -4555,7 +4555,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       // `IsVersionSupported` checks that the version is within the supported
       // range. This catches the case of the version having been updated but no
       // matching implementation yet having being written.
-      DMG_ASSERT(false, "Trying to load snapshot for unimplemented version");
+      MG_ASSERT(false, "Trying to load snapshot for unimplemented version");
+      throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
     }
   }
 }
