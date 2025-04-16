@@ -4556,7 +4556,6 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       // range. This catches the case of the version having been updated but no
       // matching implementation yet having being written.
       MG_ASSERT(false, "Trying to load snapshot for unimplemented version");
-      throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
     }
   }
 }
