@@ -1,12 +1,30 @@
 name: "Jepsen HA Stress Tests"
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+  
 on:
   workflow_dispatch:
+    inputs:
+      sync:
+        description: "Run sync tests (untick for async)"
+        type: boolean
+        default: true
+      run-mt: 
+        description: "Run MT tests"
+        type: boolean
+        default: true
+      run-non-mt:
+        description: "Run non-MT tests"
+        type: boolean
+        default: true
+
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
 
 jobs:
   determine-sync:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     name: "Determine Sync Mode"
     runs-on: ubuntu-latest
     outputs:
@@ -39,4 +57,22 @@ jobs:
       name: "${{ needs.determine-sync.outputs.name_start }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
       sync: ${{ needs.determine-sync.outputs.sync == 'true' }}
+    secrets: inherit
+
+  run-manual-jepsen-tests:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-non-mt }}
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ inputs.sync && 'sync' || 'mixed' }}"
+      mt: false
+      sync: ${{ inputs.sync }}
+    secrets: inherit
+
+  run-manual-jepsen-tests-mt:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-mt }}
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ inputs.sync && 'sync' || 'mixed' }}-mt"
+      mt: true
+      sync: ${{ inputs.sync }}
     secrets: inherit
