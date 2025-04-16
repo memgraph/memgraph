@@ -2593,8 +2593,10 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return CreateSnapshotError::AbortSnapshot;
   }
 
-  // Only one at a time? timeout?
-  std::lock_guard snapshot_guard(snapshot_lock_);
+  auto snapshot_guard = std::unique_lock(snapshot_lock_, std::try_to_lock);
+  if (!snapshot_guard.owns_lock()) {
+    return CreateSnapshotError::AlreadyRunning;
+  }
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
@@ -2840,7 +2842,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 
 void InMemoryStorage::CreateSnapshotHandler(
     std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
-  create_snapshot_handler = [cb]() {
+  create_snapshot_handler = [cb = std::move(cb)] {
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
@@ -2851,6 +2853,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::AbortSnapshot:
           spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
+          break;
+        case CreateSnapshotError::AlreadyRunning:
+          spdlog::warn("Failed to create snapshot. Another snapshot creation is already in progress.");
           break;
       }
     }
