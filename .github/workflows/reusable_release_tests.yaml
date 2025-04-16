@@ -50,7 +50,6 @@ env:
 
 jobs:
   community_build:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Community build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -107,7 +106,6 @@ jobs:
           stop --remove
 
   coverage_build:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Coverage build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -181,7 +179,6 @@ jobs:
           stop --remove
 
   debug_build:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -279,7 +276,6 @@ jobs:
           stop --remove
 
   debug_integration_test:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug integration tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -339,7 +335,6 @@ jobs:
 
 
   malloc_build:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Malloc build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -430,7 +425,6 @@ jobs:
 
   release_build:
     continue-on-error: true
-    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
@@ -526,7 +520,6 @@ jobs:
           stop --remove
 
   release_benchmark_tests:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -602,7 +595,6 @@ jobs:
           stop --remove
 
   release_e2e_test:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release End-to-end Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -677,7 +669,6 @@ jobs:
           stop --remove
 
   release_durability_stress_tests:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release durability and stress tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -763,7 +754,6 @@ jobs:
           stop --remove
 
   release_jepsen_test:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -837,7 +827,6 @@ jobs:
           stop --remove
 
   stress_test_large:
-    continue-on-error: true
     if: ${{ inputs.run_stress_large == 'true' }}
     name: "Stress test large"
     runs-on: [self-hosted, DockerMgBuild, BigMemory, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
@@ -893,7 +882,6 @@ jobs:
           stop --remove
 
   release_query_modules_test:
-    continue-on-error: true
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Query Modules Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
