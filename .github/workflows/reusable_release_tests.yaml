@@ -69,6 +69,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -127,6 +128,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -200,6 +202,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -297,6 +300,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -354,6 +358,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -443,6 +448,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -539,6 +545,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -614,6 +621,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -688,6 +696,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -776,6 +785,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -846,6 +856,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
@@ -901,6 +912,7 @@ jobs:
 
       - name: Spin up mgbuild container
         run: |
+          exit 1
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
