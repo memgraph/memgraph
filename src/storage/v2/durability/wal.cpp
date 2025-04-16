@@ -117,8 +117,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(LABEL_INDEX_STATS_SET);
     add_case(LABEL_PROPERTIES_INDEX_CREATE);
     add_case(LABEL_PROPERTIES_INDEX_DROP);
-    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
-    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
@@ -188,8 +188,8 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_LABEL_INDEX_STATS_CLEAR:
     case DELTA_LABEL_PROPERTIES_INDEX_CREATE:
     case DELTA_LABEL_PROPERTIES_INDEX_DROP:
-    case DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
-    case DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case DELTA_LABEL_PROPERTIES_INDEX_STATS_SET:
+    case DELTA_LABEL_PROPERTIES_INDEX_STATS_CLEAR:
     case DELTA_EDGE_INDEX_CREATE:
     case DELTA_EDGE_INDEX_DROP:
     case DELTA_EDGE_PROPERTY_INDEX_CREATE:
@@ -451,7 +451,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(LABEL_INDEX_CREATE, WalLabelIndexCreate);
     read_skip(LABEL_INDEX_DROP, WalLabelIndexDrop);
     read_skip(LABEL_INDEX_STATS_CLEAR, WalLabelIndexStatsClear);
-    read_skip(LABEL_PROPERTY_INDEX_STATS_CLEAR, WalLabelPropertyIndexStatsClear);
+    read_skip(LABEL_PROPERTIES_INDEX_STATS_CLEAR, WalLabelPropertyIndexStatsClear);
     read_skip(EDGE_INDEX_CREATE, WalEdgeTypeIndexCreate);
     read_skip(EDGE_INDEX_DROP, WalEdgeTypeIndexDrop);
     read_skip(LABEL_INDEX_STATS_SET, WalLabelIndexStatsSet);
@@ -461,7 +461,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(POINT_INDEX_DROP, WalPointIndexDrop);
     read_skip(EXISTENCE_CONSTRAINT_CREATE, WalExistenceConstraintCreate);
     read_skip(EXISTENCE_CONSTRAINT_DROP, WalExistenceConstraintDrop);
-    read_skip(LABEL_PROPERTY_INDEX_STATS_SET, WalLabelPropertyIndexStatsSet);
+    read_skip(LABEL_PROPERTIES_INDEX_STATS_SET, WalLabelPropertyIndexStatsSet);
     read_skip(EDGE_PROPERTY_INDEX_CREATE, WalEdgeTypePropertyIndexCreate);
     read_skip(EDGE_PROPERTY_INDEX_DROP, WalEdgeTypePropertyIndexDrop);
     read_skip(GLOBAL_EDGE_PROPERTY_INDEX_CREATE, WalEdgePropertyIndexCreate);

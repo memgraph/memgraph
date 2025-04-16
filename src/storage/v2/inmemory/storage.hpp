@@ -269,7 +269,7 @@ class InMemoryStorage final : public Storage {
     auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
         -> std::optional<storage::LabelPropertyIndexStats> override {
       return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
-          ->GetIndexStats(std::make_pair(label, properties));
+          ->GetIndexStats(std::pair(label, properties));
     }
 
     void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;

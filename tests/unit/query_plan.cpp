@@ -1276,7 +1276,7 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
         RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    // We expect ScanAllByLabelProperty > Filter
+    // We expect ScanAllByLabelProperties > Filter
     // to come instead of ScanAll > Filter.
     CheckPlan(
         planner.plan(), symbol_table,
@@ -3309,8 +3309,7 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
   // Plan should use label index on Label1 and do a union with the Label2 property index because of the index hint
 
   auto index_hint = memgraph::query::IndexHint{.index_type_ = memgraph::query::IndexHint::IndexType::LABEL,
-                                               .label_ix_ = this->storage.GetLabelIx("Label1"),
-                                               .property_ixs_ = std::nullopt};
+                                               .label_ix_ = this->storage.GetLabelIx("Label1")};
   auto node_identifier = IDENT("n");
   auto lit_2 = LITERAL(2);
   Bound upper_bound(lit_2, Bound::Type::EXCLUSIVE);

@@ -4546,9 +4546,16 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       return LoadSnapshotVersion22or23(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                        edge_count, config, enum_store, schema_info, snapshot_info);
     }
-    default: {
+    case 24U: {
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                         edge_count, config, enum_store, schema_info, snapshot_info);
+    }
+
+    default: {
+      // `IsVersionSupported` checks that the version is within the supported
+      // range. This catches the case of the version having been updated but no
+      // matching implementation yet having being written.
+      MG_ASSERT(false, "Trying to load snapshot for unimplemented version");
     }
   }
 }

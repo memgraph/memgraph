@@ -180,7 +180,7 @@ auto ExpressionRange::In(Expression *value) -> ExpressionRange {
 
 auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
 
-auto ExpressionRange::evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
+auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange {
   auto const to_bounded_property_value = [&](auto &value) -> std::optional<utils::Bound<storage::PropertyValue>> {
     if (value == std::nullopt) {
       return std::nullopt;
@@ -235,7 +235,7 @@ std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expre
   return std::nullopt;
 }
 
-auto ExpressionRange::plantime_resolve(Parameters const &params) const -> std::optional<storage::PropertyValueRange> {
+auto ExpressionRange::ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange> {
   struct UnknownAtPlanTime {};
 
   using obpv = std::optional<utils::Bound<storage::PropertyValue>>;
@@ -1230,7 +1230,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
 
-    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.evaluate(evaluator); };
+    auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
     auto prop_value_ranges = expression_ranges_ | ranges::views::transform(to_property_value_range) | ranges::to_vector;
 
     auto const bound_is_null = [](auto &&range) {

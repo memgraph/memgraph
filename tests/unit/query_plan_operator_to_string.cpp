@@ -116,7 +116,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabel) {
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
-TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyRange) {
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_OverARange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
       nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
@@ -128,7 +128,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyRange) {
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
-TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyValue) {
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_Value) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
       nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},

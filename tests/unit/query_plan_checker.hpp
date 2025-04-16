@@ -742,20 +742,20 @@ class FakeDbAccessor {
 
       std::vector<long> properties_poses;
       properties_poses.reserve(properties.size());
-      bool is_meaningful = false;
+      bool has_matching_property = false;
       for (auto prop : props) {
         auto prop_it = std::ranges::find(properties, prop);
         if (prop_it == properties.end()) {
           properties_poses.emplace_back(-1);
         } else {
-          is_meaningful = true;
+          has_matching_property = true;
           auto distance = std::distance(properties.begin(), prop_it);
           // NOLINTNEXTLINE(google-runtime-int)
           properties_poses.emplace_back(static_cast<long>(distance));
         }
       }
 
-      if (is_meaningful) {
+      if (has_matching_property) {
         auto l_pos = std::distance(labels.begin(), label_it);
         res.emplace_back(l_pos, std::move(properties_poses), label, props);
       }

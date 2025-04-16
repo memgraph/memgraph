@@ -1742,10 +1742,10 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
                                          kErrorMessage);
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
                                          kErrorMessage);
         } break;
