@@ -293,11 +293,14 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     for (auto &lookup : it->second | rv::filter(relevant_index)) {
       auto &[property_ids, index] = lookup.second;
 
-      auto values = index->permutations_helper.extract(vertex->properties);
-      index->permutations_helper.apply_permutation(values);
+      // auto values = index->permutations_helper.extract(vertex->properties);
+      auto values = std::vector<PropertyValue>{value};
+      // index->permutations_helper.apply_permutation(values);
 
       auto acc = index->skiplist.access();
       acc.insert({std::move(values), vertex, tx.start_timestamp});
+      std::cout << &index->skiplist << " " << index->skiplist.size() << std::endl;
+      return;
     }
   }
 
