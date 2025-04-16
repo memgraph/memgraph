@@ -15,7 +15,7 @@ on:
         type: boolean
         description: "Run synchronous cluster"
         required: true
-        
+
 
 env:
   ARCH: 'amd'
@@ -50,11 +50,6 @@ jobs:
           else
             echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
           fi
-
-      - name: Refresh Jepsen Cluster
-        run: |
-          cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no $NODES_NO
 
       - name: Spin up mgbuild container
         run: |
@@ -114,6 +109,13 @@ jobs:
         with:
           name: "Jepsen Report-${{ inputs.name }}"
           path: tests/jepsen/Jepsen.tar.gz
+
+      - name: Refresh Jepsen Cluster
+        if: always()
+        continue-on-error: true
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no $NODES_NO
 
       - name: Stop mgbuild container
         if: always()
