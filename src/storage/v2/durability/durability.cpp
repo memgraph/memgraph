@@ -588,6 +588,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items, enum_store, schema_info, find_edge);
+        // Update recovery info data only if WAL file was used and its deltas loaded
         if (info.has_value()) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
