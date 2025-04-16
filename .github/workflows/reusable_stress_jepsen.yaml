@@ -51,6 +51,11 @@ jobs:
             echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
           fi
 
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no $NODES_NO
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH run
