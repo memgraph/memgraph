@@ -18,9 +18,9 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
 
 #include <variant>
 
@@ -55,6 +55,10 @@ class CoordinatorState {
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
   auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
+
+  auto UpdateReadsOnMainPolicy(bool value) -> UpdateReadsOnMainPolicyStatus;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

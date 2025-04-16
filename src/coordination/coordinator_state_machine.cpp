@@ -13,7 +13,7 @@
 
 #include "coordination/coordinator_state_machine.hpp"
 
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"

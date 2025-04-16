@@ -12,7 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_log_store.hpp"
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/utils.hpp"
 #include "utils/logging.hpp"

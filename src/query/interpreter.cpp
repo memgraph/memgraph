@@ -33,8 +33,9 @@
 #include <vector>
 
 #include "auth/auth.hpp"
+#include "coordination/constants.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
@@ -263,12 +264,7 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
 }
 
 template <typename T>
-concept HasEmpty = requires(T t) {
-  { t.empty() } -> std::convertible_to<bool>;
-};
-
-template <typename T>
-inline std::optional<T> GenOptional(const T &in) {
+std::optional<T> GenOptional(const T &in) {
   return in.empty() ? std::nullopt : std::make_optional<T>(in);
 }
 
@@ -276,7 +272,6 @@ struct Callback {
   std::vector<std::string> header;
   using CallbackFunction = std::function<std::vector<std::vector<TypedValue>>()>;
   CallbackFunction fn;
-  bool should_abort_query{false};
 };
 
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionVisitor<TypedValue> &eval) {
@@ -2040,7 +2035,13 @@ Callback HandleConfigQuery() {
   return callback;
 }
 
-Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters) {
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters
+#ifdef MG_ENTERPRISE
+                            ,
+                            std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+#endif
+
+) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -2062,7 +2063,18 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.fn = [setting_name = std::string{setting_name.ValueString()},
-                     setting_value = std::string{setting_value.ValueString()}]() mutable {
+                     setting_value = std::string{setting_value.ValueString()}, &coordinator_state]() mutable {
+
+#ifdef MG_ENTERPRISE
+        if (setting_name == coordination::kEnabledReadsOnMain) {
+          if (!coordinator_state.has_value()) {
+            throw utils::BasicException("Routing policy enabled_reads_on_main can only be updated in HA cluster.");
+          }
+          coordinator_state.value().get().UpdateReadsOnMainPolicy(utils::ToLowerCase(setting_value) == "true"sv);
+          return std::vector<std::vector<TypedValue>>{};
+        }
+#endif
+
         if (!utils::global_settings.SetValue(setting_name, setting_value)) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
@@ -2077,16 +2089,29 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.header = {"setting_value"};
-      callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}, &coordinator_state] {
         auto maybe_value = utils::global_settings.GetValue(setting_name);
         if (!maybe_value) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
+
         std::vector<std::vector<TypedValue>> results;
         results.reserve(1);
 
         std::vector<TypedValue> setting_value;
         setting_value.reserve(1);
+
+#ifdef MG_ENTERPRISE
+        if (setting_name == coordination::kEnabledReadsOnMain) {
+          if (!coordinator_state.has_value()) {
+            throw utils::BasicException("Routing policy enabled_reads_on_main can only be read in HA cluster.");
+          }
+          bool const res = coordinator_state.value().get().GetEnabledReadsOnMain();
+          setting_value.emplace_back(res);
+          results.push_back(std::move(setting_value));
+          return results;
+        }
+#endif
 
         setting_value.emplace_back(*maybe_value);
         results.push_back(std::move(setting_value));
@@ -2096,7 +2121,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
     }
     case SettingQuery::Action::SHOW_ALL_SETTINGS: {
       callback.header = {"setting_name", "setting_value"};
-      callback.fn = [] {
+      callback.fn = [&coordinator_state] {
         auto all_settings = utils::global_settings.AllSettings();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_settings.size());
@@ -2109,6 +2134,17 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
           setting_info.emplace_back(v);
           results.push_back(std::move(setting_info));
         }
+
+#ifdef MG_ENTEPRISE
+        if (coordinator_state.has_value()) {
+          std::vector<TypedValue> setting_info;
+          setting_info.reserve(2);
+
+          setting_info.emplace_back(coordination::kEnabledReadsOnMain);
+          setting_info.emplace_back(coordinator_state.value().get().GetEnabledReadsOnMain());
+          results.push_back(std::move(setting_info));
+        }
+#endif
 
         return results;
       };
@@ -4505,14 +4541,25 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+PreparedQuery PrepareSettingQuery(
+    ParsedQuery parsed_query, const bool in_explicit_transaction
+#ifdef MG_ENTERPRISE
+    ,
+    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+#endif
+) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
+
+#ifdef MG_ENTERPRISE
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, coordinator_state);
+#else
   auto callback = HandleSettingQuery(setting_query, parsed_query.parameters);
+#endif
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -6234,7 +6281,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
-      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_
+#ifdef MG_ENTERPRISE
+                                           ,
+                                           interpreter_context_->coordinator_state_
+#endif
+      );
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);

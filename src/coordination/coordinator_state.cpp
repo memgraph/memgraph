@@ -15,7 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -146,6 +146,18 @@ auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -
             "Coordinator cannot be unregistered since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
 }
+
+auto CoordinatorState::UpdateReadsOnMainPolicy(bool const value) -> UpdateReadsOnMainPolicyStatus {
+   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+             "Routing policy 'enabled_reads_on_main' cannot be updated since variant holds wrong alternative");
+   return std::get<CoordinatorInstance>(data_).UpdateReadsOnMainPolicy(value);
+ }
+
+ auto CoordinatorState::GetEnabledReadsOnMain() const -> bool {
+   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+             "Routing policy 'enabled_reads_on_main' cannot be retrieved since variant holds wrong alternative");
+   return std::get<CoordinatorInstance>(data_).GetEnabledReadsOnMain();
+ }
 
 auto CoordinatorState::GetRoutingTable() const -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
