@@ -106,7 +106,7 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries, AbortSnapshot };
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries, AbortSnapshot, AlreadyRunning };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     DisabledForMainWithReplicas,
