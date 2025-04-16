@@ -193,10 +193,8 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   IndexHint object;
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-  if (property_ixs_) {
-    auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
-    object.property_ixs_ = *property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
-  }
+  auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
+  object.property_ixs_ = property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
   return object;
 }
 

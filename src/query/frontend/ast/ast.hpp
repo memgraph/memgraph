@@ -2260,12 +2260,12 @@ struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
+  enum class IndexType { LABEL, LABEL_PROPERTIES, POINT };
 
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::optional<std::vector<memgraph::query::PropertyIx>> property_ixs_{std::nullopt};
+  std::vector<memgraph::query::PropertyIx> property_ixs_;
 
   IndexHint Clone(AstStorage *storage) const;
 };

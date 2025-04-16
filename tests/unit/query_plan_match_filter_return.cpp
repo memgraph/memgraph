@@ -3113,7 +3113,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   EXPECT_EQ(result_vertex.Gid(), labeled_vertex.Gid());
 }
 
-TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
+TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
   // Add 5 vertices with same label, but with different property values.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");

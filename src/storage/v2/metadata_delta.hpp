@@ -31,8 +31,8 @@ struct MetadataDelta {
     LABEL_INDEX_STATS_CLEAR,
     LABEL_PROPERTIES_INDEX_CREATE,
     LABEL_PROPERTIES_INDEX_DROP,
-    LABEL_PROPERTY_INDEX_STATS_SET,
-    LABEL_PROPERTY_INDEX_STATS_CLEAR,
+    LABEL_PROPERTIES_INDEX_STATS_SET,
+    LABEL_PROPERTIES_INDEX_STATS_CLEAR,
     EDGE_INDEX_CREATE,
     EDGE_INDEX_DROP,
     EDGE_PROPERTY_INDEX_CREATE,
@@ -132,10 +132,10 @@ struct MetadataDelta {
 
   MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
                 LabelPropertyIndexStats const &stats)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
+      : action(Action::LABEL_PROPERTIES_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
   MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
+      : action(Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
       : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
@@ -208,7 +208,7 @@ struct MetadataDelta {
       using enum memgraph::storage::MetadataDelta::Action;
       case LABEL_INDEX_CREATE:
       case LABEL_INDEX_DROP:
-      case LABEL_PROPERTY_INDEX_STATS_CLEAR:
+      case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
       case LABEL_INDEX_STATS_CLEAR: {
         std::destroy_at(&label);
         break;
@@ -262,7 +262,7 @@ struct MetadataDelta {
         std::destroy_at(&label_ordered_properties);
         break;
       }
-      case LABEL_PROPERTY_INDEX_STATS_SET: {
+      case LABEL_PROPERTIES_INDEX_STATS_SET: {
         std::destroy_at(&label_property_stats);
         break;
       }

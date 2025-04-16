@@ -2729,7 +2729,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndexNew = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
+  using LPIndex = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -2785,10 +2785,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   };
 
   auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
-    std::map<LPIndexNew, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
-    std::map<LPIndexNew, uint64_t> vertex_degree_counter;
+    std::map<LPIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
+    std::map<LPIndex, uint64_t> vertex_degree_counter;
 
-    auto const count_vertex_prop_info = [&](LPIndexNew const &key) {
+    auto const count_vertex_prop_info = [&](LPIndex const &key) {
       struct StatsByPrefix {
         std::map<std::vector<storage::PropertyValue>, int64_t> *properties_value_counter;
         uint64_t *vertex_degree_counter;
@@ -2863,7 +2863,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       count_vertex_prop_info(index);
     }
 
-    std::vector<std::pair<LPIndexNew, storage::LabelPropertyIndexStats>> label_property_stats;
+    std::vector<std::pair<LPIndex, storage::LabelPropertyIndexStats>> label_property_stats;
     label_property_stats.reserve(label_property_counter.size());
     std::for_each(
         label_property_counter.begin(), label_property_counter.end(),
@@ -2904,7 +2904,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   erase_not_specified_label_indices(label_indices_info);
   auto label_stats = populate_label_stats(label_indices_info);
 
-  std::vector<LPIndexNew> label_property_indices_info = index_info.label_properties;
+  std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 

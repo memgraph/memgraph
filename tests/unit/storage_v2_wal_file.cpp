@@ -190,7 +190,8 @@ class DeltaGenerator final {
     if (!stats.empty()) {
       if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET) {
         ASSERT_TRUE(FromJson(stats, l_stats));
-      } else if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET) {
+      } else if (operation ==
+                 memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_SET) {
         ASSERT_TRUE(FromJson(stats, lp_stats));
       } else {
         ASSERT_TRUE(false) << "Unexpected statistics operation!";
@@ -242,13 +243,13 @@ class DeltaGenerator final {
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeLabel(encoder, mapper_, label_id);
         });
         break;
       }
-      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET: {
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeLabelPropertyStats(encoder, mapper_, label_id, property_ids, lp_stats);
         });
@@ -373,9 +374,9 @@ class DeltaGenerator final {
             return {WalLabelPropertyIndexCreate{label, properties}};
           case LABEL_PROPERTIES_INDEX_DROP:
             return {WalLabelPropertyIndexDrop{label, properties}};
-          case LABEL_PROPERTY_INDEX_STATS_SET:
+          case LABEL_PROPERTIES_INDEX_STATS_SET:
             return {WalLabelPropertyIndexStatsSet{label, properties, stats}};
-          case LABEL_PROPERTY_INDEX_STATS_CLEAR:
+          case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
             return {WalLabelPropertyIndexStatsClear{label}};
           case EDGE_INDEX_CREATE:
             return {WalEdgeTypeIndexCreate{edge_type}};
@@ -726,9 +727,9 @@ GENERATE_SIMPLE_TEST(MultiOpTransaction, {
   auto l_stats = ms::ToJson(ms::LabelIndexStats{12, 34});
   auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
   auto tx = gen.CreateTransaction();
-  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
-  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"and"}, lp_stats);
-  OPERATION(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"universe"}, lp_stats);
+  OPERATION(LABEL_PROPERTIES_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
+  OPERATION(LABEL_PROPERTIES_INDEX_STATS_SET, "hello", {"and"}, lp_stats);
+  OPERATION(LABEL_PROPERTIES_INDEX_STATS_SET, "hello", {"universe"}, lp_stats);
   OPERATION(LABEL_INDEX_STATS_SET, "hello", {}, l_stats);
   tx.FinalizeOperationTx();
 });
@@ -746,10 +747,10 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP, "hello", {"world"});
   OPERATION_TX(LABEL_PROPERTIES_INDEX_DROP, "Person", {"name", "age", "height"});
   auto lp_stats = ms::ToJson(ms::LabelPropertyIndexStats{98, 76, 54., 32., 10.});
-  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
-  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_CLEAR, "hello");
-  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_SET, "Person", {"name", "age"}, lp_stats);
-  OPERATION_TX(LABEL_PROPERTY_INDEX_STATS_CLEAR, "Person");
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_STATS_SET, "hello", {"world"}, lp_stats);
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_STATS_CLEAR, "hello");
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_STATS_SET, "Person", {"name", "age"}, lp_stats);
+  OPERATION_TX(LABEL_PROPERTIES_INDEX_STATS_CLEAR, "Person");
   OPERATION_TX(EXISTENCE_CONSTRAINT_CREATE, "hello", {"world"});
   OPERATION_TX(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
   OPERATION_TX(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
