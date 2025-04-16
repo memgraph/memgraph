@@ -1147,6 +1147,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     std::vector<std::filesystem::path> ret;
     std::error_code ec;  // For exception suppression.
     for (auto &item : std::filesystem::directory_iterator(path, ec)) {
+      // Parallel snapshot creation creates additional temporary files; these need to be ignored for the test
+      if (item.path().filename().string().find("_part_") != std::string::npos) continue;
       ret.push_back(item.path());
     }
     std::sort(ret.begin(), ret.end());
