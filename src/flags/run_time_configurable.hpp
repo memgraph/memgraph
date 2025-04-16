@@ -51,6 +51,15 @@ bool GetHopsLimitPartialResults();
  */
 bool GetCartesianProductEnabled();
 
+#ifdef MG_ENTERPRISE
+/**
+ * @brief Get the enable reads on main value
+ *
+ * @return bool
+ */
+bool GetReadsOnMainEnabled();
+#endif
+
 /**
  * @brief Get the debug query plans value
  *

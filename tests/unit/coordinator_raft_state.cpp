@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/raft_state.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
@@ -17,6 +18,7 @@
 #include <nlohmann/json.hpp>
 
 #include "libnuraft/nuraft.hxx"
+#include "utils/settings.hpp"
 
 using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
@@ -81,7 +83,19 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   ASSERT_EQ(coords_aux.size(), 1);
 }
 
-TEST_F(RaftStateTest, GetMixedRoutingTable) {
+class RaftStateParamTest : public RaftStateTest, public ::testing::WithParamInterface<bool> {};
+
+INSTANTIATE_TEST_SUITE_P(BoolParams, RaftStateParamTest, ::testing::Values(true, false));
+
+TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
+  memgraph::utils::global_settings.Initialize(test_folder_ / "settings");
+  memgraph::flags::run_time::Initialize();
+  if (GetParam()) {
+    ASSERT_TRUE(memgraph::utils::global_settings.SetValue("enabled_reads_on_main", "true"));
+  } else {
+    ASSERT_TRUE(memgraph::utils::global_settings.SetValue("enabled_reads_on_main", "false"));
+  }
+
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
   auto const init_config =
@@ -146,11 +160,17 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
   auto const &[replica_instances, replica_role] = routing_table[1];
   ASSERT_EQ(replica_role, "READ");
-  auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7689"};
-  ASSERT_EQ(replica_instances, expected_replicas);
+  if (memgraph::flags::run_time::GetReadsOnMainEnabled()) {
+    auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7689", "0.0.0.0:7687"};
+    ASSERT_EQ(replica_instances, expected_replicas);
+  } else {
+    auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7689"};
+    ASSERT_EQ(replica_instances, expected_replicas);
+  }
 
   auto const &[routing_instances, routing_role] = routing_table[2];
   ASSERT_EQ(routing_role, "ROUTE");
-  auto const expected_routers = std::vector<std::string>{fmt::format("localhost:{}", bolt_port)};
+  auto const expected_routers = std::vector{fmt::format("localhost:{}", bolt_port)};
   ASSERT_EQ(routing_instances, expected_routers);
+  memgraph::utils::global_settings.Finalize();
 }

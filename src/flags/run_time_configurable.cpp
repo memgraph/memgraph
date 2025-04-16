@@ -93,6 +93,9 @@ DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7LU * 24 * 3600));
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(enabled_reads_on_main, false, "Enable reads on main in HA.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -117,6 +120,11 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+#ifdef MG_ENTERPRISE
+constexpr auto kEnableReadsOnMainSettingKey = "enabled_reads_on_main";
+constexpr auto kEnableReadsOnMainGFlagsKey = "enabled_reads_on_main";
+#endif
+
 constexpr auto kDebugQueryPlansSettingKey = "debug-query-plans";
 constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
 
@@ -134,6 +142,9 @@ constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
+#ifdef MG_ENTERPRISE
+std::atomic enabled_reads_on_main_{false};
+#endif
 std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 
@@ -350,6 +361,15 @@ void Initialize() {
       kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
 
+#ifdef MG_ENTERPRISE
+  /*
+   * Register enable-reads-on-main flag
+   */
+  register_flag(
+      kEnableReadsOnMainGFlagsKey, kEnableReadsOnMainSettingKey, kRestore,
+      [](const std::string &val) { enabled_reads_on_main_ = val == "true"; }, ValidBoolStr);
+#endif
+
   /*
    * Register debug query plans
    */
@@ -426,6 +446,10 @@ double GetExecutionTimeout() { return execution_timeout_sec_; }
 bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+#ifdef MG_ENTERPRISE
+bool GetReadsOnMainEnabled() { return enabled_reads_on_main_; }
+#endif
 
 bool GetDebugQueryPlans() { return debug_query_plans_; }
 

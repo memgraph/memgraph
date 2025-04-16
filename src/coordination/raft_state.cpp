@@ -25,6 +25,7 @@
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/utils.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -439,29 +440,33 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   // Fetch data instances from raft log
   auto const raft_log_data_instances = GetDataInstancesContext();
 
-  auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
-                    ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
-  MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
+  auto writers = raft_log_data_instances | ranges::views::filter(is_instance_main) |
+                 ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
+  MG_ASSERT(writers.size() <= 1, "There can be at most one main instance active!");
 
   spdlog::trace("WRITERS");
-  for (auto const &writer : bolt_mains) {
+  for (auto const &writer : writers) {
     spdlog::trace("  {}", writer);
   }
 
-  if (!std::ranges::empty(bolt_mains)) {
-    res.emplace_back(std::move(bolt_mains), "WRITE");
+  auto readers = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
+                 ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
+
+  if (flags::run_time::GetReadsOnMainEnabled() && writers.size() == 1) {
+    readers.push_back(writers[0]);
   }
 
-  auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
-                       ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
-
   spdlog::trace("READERS:");
-  for (auto const &reader : bolt_replicas) {
+  for (auto const &reader : readers) {
     spdlog::trace("  {}", reader);
   }
 
-  if (!std::ranges::empty(bolt_replicas)) {
-    res.emplace_back(std::move(bolt_replicas), "READ");
+  if (!std::ranges::empty(writers)) {
+    res.emplace_back(std::move(writers), "WRITE");
+  }
+
+  if (!std::ranges::empty(readers)) {
+    res.emplace_back(std::move(readers), "READ");
   }
 
   auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
