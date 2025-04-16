@@ -14,6 +14,8 @@
 #include <string>
 #include <string_view>
 
+using namespace std::string_view_literals;
+
 namespace memgraph::coordination {
 
 enum class LogStoreVersion : int {
@@ -22,7 +24,7 @@ enum class LogStoreVersion : int {
   // kv3 = 3,  // when new version is added
 };
 
-constexpr LogStoreVersion kActiveVersion = LogStoreVersion::kV2;
+constexpr auto kActiveVersion = LogStoreVersion::kV2;
 
 constexpr std::string_view kLogStoreVersion = "log_store_version";  // top level
 
@@ -45,5 +47,8 @@ constexpr std::string_view kStartIdx = "start_idx";           // top level
 const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
 const std::string kLogEntryValTypeKey = "val_type";
+
+// routing policies
+constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
 
 }  // namespace memgraph::coordination

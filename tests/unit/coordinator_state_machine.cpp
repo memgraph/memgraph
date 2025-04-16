@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_state_machine.hpp"
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
