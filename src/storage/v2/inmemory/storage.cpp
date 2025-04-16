@@ -598,8 +598,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  mem_storage->edge_id_.store(std::max(mem_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                              std::memory_order_release);
+
+  auto const next_edge_id = gid.AsUint() + 1;
+  auto current_edge_id = mem_storage->edge_id_.load(std::memory_order_acquire);
+  bool updated = false;
+  while (!updated && current_edge_id < next_edge_id) {
+    updated = mem_storage->edge_id_.compare_exchange_weak(current_edge_id, next_edge_id, std::memory_order_acq_rel);
+  }
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
