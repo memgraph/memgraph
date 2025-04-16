@@ -145,6 +145,8 @@ struct BatchInfo {
   uint64_t count;
 };
 
+using SnapshotEncoder = Encoder<utils::NonConcurrentOutputFile>;
+
 constexpr auto kEnd = std::numeric_limits<int64_t>::max();
 
 // Result of a partial snapshot creation
@@ -189,7 +191,7 @@ class SafeTaskQueue {
 
 using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bool>>>;
 
-void WaitAndCombine(task_results_t &partial_results, Encoder &snapshot_encoder, uint64_t &element_count,
+void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
                     std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
                     auto &&snapshot_aborted) {
   // NOTE: They have to be combined in order
@@ -264,7 +266,7 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
 
 void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
                            auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
-                           uint64_t &offset_vertices, Encoder &snapshot_encoder, uint64_t &edges_count,
+                           uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
                            uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
                            std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
                            uint64_t thread_count, auto &&snapshot_aborted) {
@@ -281,7 +283,7 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
                      end_gid = edge_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
         // Create workers temporary file
         {
-          Encoder edges_snapshot;
+          SnapshotEncoder edges_snapshot;
           const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
           edges_snapshot.Initialize(snapshot_path);
           // Fill snapshot with edges
@@ -302,7 +304,7 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
                    end_gid = vertex_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
       // Create workers temporary file
       {
-        Encoder vertex_snapshot;
+        SnapshotEncoder vertex_snapshot;
         const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
         vertex_snapshot.Initialize(snapshot_path);
         // Fill snapshot with edges
@@ -4676,7 +4678,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                                                   : transaction->start_timestamp);
   spdlog::info("Starting snapshot creation to {}", path);
-  Encoder snapshot;
+  SnapshotEncoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
   // TODO: snapshot is single threaded write...yet internally has a flush_lock_ protecting its buffer
 

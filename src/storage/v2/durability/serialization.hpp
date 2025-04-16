@@ -42,6 +42,7 @@ class BaseEncoder {
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
+template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
   void Initialize(const std::filesystem::path &path);
@@ -72,11 +73,11 @@ class Encoder final : public BaseEncoder {
   void Finalize();
 
   // Disable flushing of the internal buffer.
-  void DisableFlushing();
+  void DisableFlushing() requires std::same_as<FileType, utils::OutputFile>;
   // Enable flushing of the internal buffer.
-  void EnableFlushing();
+  void EnableFlushing() requires std::same_as<FileType, utils::OutputFile>;
   // Try flushing the internal buffer.
-  void TryFlushing();
+  void TryFlushing() requires std::same_as<FileType, utils::OutputFile>;
   // Get the current internal buffer with its size.
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
@@ -87,7 +88,7 @@ class Encoder final : public BaseEncoder {
   auto native_handle() const { return file_.fd(); }
 
  private:
-  utils::OutputFile file_;
+  FileType file_;
 };
 
 /// Decoder interface class. Used to implement streams from different sources
