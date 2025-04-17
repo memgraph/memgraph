@@ -2608,13 +2608,10 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other write txn can be in play
-      return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation? // timeout?
+      return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
-    return Access(IsolationLevel::SNAPSHOT_ISOLATION);  // timeout?
+    return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
-
-  // is it even worth it?
-  // what was the last snapshot, has their been writes since?
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();

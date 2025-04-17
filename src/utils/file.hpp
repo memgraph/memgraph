@@ -240,12 +240,12 @@ class OutputFile {
   void Close() noexcept;
 
   /// Disable flushing of the internal buffer.
-  void DisableFlushing();  // This is over the top for snapshot file...no concurrent flush protection needed
+  void DisableFlushing();
 
   /// Enable flushing of the internal buffer.
   /// Before the flushing is enabled, the internal buffer
   /// is flushed.
-  void EnableFlushing();  // This is over the top for snapshot file...no concurrent flush protection needed
+  void EnableFlushing();
 
   /// Try flushing the internal buffer.
   void TryFlushing();
@@ -266,8 +266,7 @@ class OutputFile {
   size_t SeekFile(Position position, ssize_t offset);
 
   // put flush lock on its own cacheline
-  alignas(64) utils::RWSpinLock
-      flush_lock_{};  // This is over the top for snapshot file...no concurrent flush protection needed
+  alignas(64) utils::RWSpinLock flush_lock_{};
 
   // ensure the rest start on a new cacheline
   alignas(64) int fd_{-1};
