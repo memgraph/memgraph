@@ -261,8 +261,7 @@ class VertexCountCache {
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
   std::unordered_map<EdgeTypePropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, EdgeTypePropertyHash>
       property_value_edge_count_;
-  std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
-                                                             query::TypedValue::BoolEqual>>
+  std::unordered_map<storage::PropertyId, std::unordered_map<storage::PropertyValue, int64_t>>
       edge_property_value_edge_count_;
   std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash>, LabelPropertyHash>
       property_bounds_vertex_count_;

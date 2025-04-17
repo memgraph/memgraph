@@ -21,6 +21,7 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/fnv.hpp"

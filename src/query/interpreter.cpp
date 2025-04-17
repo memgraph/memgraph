@@ -205,7 +205,8 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
     os << " - {";
     std::string header;
     for (const auto &[key, val] : *qlw.metadata) {
-      os << header << key << ":" << val;
+      // TODO put back...
+      // os << header << key << ":" << val;
       if (header.empty()) header = ", ";
     }
     os << "}";
@@ -2570,6 +2571,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  evaluation_context.name_id_mapper = storage->name_id_mapper.get();
+
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);

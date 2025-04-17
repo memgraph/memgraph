@@ -58,6 +58,7 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   Scope scope{};
+  storage::NameIdMapper *name_id_mapper{};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);
