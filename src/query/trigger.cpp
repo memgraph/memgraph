@@ -316,13 +316,14 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   }
 
   std::optional<Trigger> trigger;
-  try {
-    trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user));
-  } catch (const utils::BasicException &e) {
-    spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
-    return;
-  }
+  // TODO put back in...
+  // try {
+  //   trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
+  //                   query_config, std::move(user));
+  // } catch (const utils::BasicException &e) {
+  //   spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
+  //   return;
+  // }
 
   auto triggers_acc =
       phase == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
@@ -372,8 +373,9 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   // When the format of the persisted trigger is changed, update the kVersion
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
-  data["user_parameters"] =
-      serialization::SerializePropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
+  // TODO put back in...
+  // data["user_parameters"] =
+  //     serialization::SerializePropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;

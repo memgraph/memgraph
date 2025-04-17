@@ -432,9 +432,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case TypedValue::Type::Map: {
       storage::PropertyValue::map_t map;
       for (const auto &kv : map_v) {
-        auto key = name_id_mapper->NameToId(kv.first);
-        auto typed_value = kv.second.ToPropertyValue(name_id_mapper);
-        map.emplace(key, std::move(typed_value));
+        map.emplace(name_id_mapper->NameToId(kv.first), kv.second);
       }
       return storage::PropertyValue(std::move(map));
     }

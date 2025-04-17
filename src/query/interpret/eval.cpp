@@ -99,14 +99,19 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Vertex: {
       for (const auto properties = *expression_result.ValueVertex().Properties(view_);
            const auto &[property_id, value] : properties) {
-        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), value);
+        // result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->name_id_mapper, ctx_->memory),
+        // value);
+        auto typed_value = TypedValue(value, ctx_->name_id_mapper, ctx_->memory);
+        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
       for (const auto properties = *expression_result.ValueEdge().Properties(view_);
            const auto &[property_id, value] : properties) {
-        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), value);
+        // result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), value);
+        auto typed_value = TypedValue(value, ctx_->name_id_mapper, ctx_->memory);
+        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
       return {result, ctx_->memory};
     }
@@ -384,11 +389,12 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], ctx_->memory};
+          return {property_lookup_cache_[symbol_pos][property_id], ctx_->name_id_mapper, ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory};
+        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->name_id_mapper,
+                ctx_->memory};
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
@@ -399,11 +405,12 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], ctx_->memory};
+          return {property_lookup_cache_[symbol_pos][property_id], ctx_->name_id_mapper, ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory};
+        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->name_id_mapper,
+                ctx_->memory};
       }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();

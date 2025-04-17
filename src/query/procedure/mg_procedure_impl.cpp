@@ -1832,10 +1832,11 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
   auto result_map = memgraph::storage::PropertyValue::map_t{};
-  result_map.reserve(map.items.size());
-  for (const auto &[key, value] : map.items) {
-    result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
-  }
+  // TODO put back in ...
+  // result_map.reserve(map.items.size());
+  // for (const auto &[key, value] : map.items) {
+  //   result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
+  // }
   return memgraph::storage::PropertyValue{std::move(result_map)};
 }
 
@@ -1926,13 +1927,14 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
       return;
     }
-    const auto old_value = memgraph::query::TypedValue(*result);
-    if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-      trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), prop_key, old_value);
-      return;
-    }
-    const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), prop_key, old_value, new_value);
+    // TODO put back in ...
+    // const auto old_value = memgraph::query::TypedValue(*result);
+    // if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
+    //   trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), prop_key, old_value);
+    //   return;
+    // }
+    // const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    // trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), prop_key, old_value, new_value);
   });
 }
 
@@ -1988,19 +1990,19 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
       return;
     }
+    // TODO put back in ...
+    // for (const auto &res : *result) {
+    //   const auto property_key = std::get<0>(res);
+    //   const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+    //   const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
 
-    for (const auto &res : *result) {
-      const auto property_key = std::get<0>(res);
-      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
-      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+    //   if (new_value.IsNull()) {
+    //     trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
+    //     continue;
+    //   }
 
-      if (new_value.IsNull()) {
-        trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
-        continue;
-      }
-
-      trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), property_key, old_value, new_value);
-    }
+    //   trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), property_key, old_value, new_value);
+    // }
   });
 }
 
@@ -2555,19 +2557,20 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
-
-    auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
-    if (!trigger_ctx_collector ||
-        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
-      return;
-    }
-    const auto old_value = memgraph::query::TypedValue(*result);
-    if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-      e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
-      return;
-    }
-    const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value, new_value);
+    // TODO put back in ...
+    // auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
+    // if (!trigger_ctx_collector ||
+    //     !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
+    //   return;
+    // }
+    // const auto old_value = memgraph::query::TypedValue(*result);
+    // if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
+    //   e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
+    //   return;
+    // }
+    // const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    // e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value,
+    // new_value);
   });
 }
 
@@ -2618,19 +2621,19 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
       return;
     }
+    // TODO put back in ...
+    // for (const auto &res : *result) {
+    //   const auto property_key = std::get<0>(res);
+    //   const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+    //   const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
 
-    for (const auto &res : *result) {
-      const auto property_key = std::get<0>(res);
-      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
-      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+    //   if (new_value.IsNull()) {
+    //     trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
+    //     continue;
+    //   }
 
-      if (new_value.IsNull()) {
-        trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
-        continue;
-      }
-
-      trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
-    }
+    //   trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
+    // }
   });
 }
 
@@ -4472,12 +4475,13 @@ struct MgProcedureResultStream final {
 
 memgraph::storage::PropertyValue::map_t CreateQueryParams(mgp_map *params) {
   auto query_params = memgraph::storage::StringToPropertyValueMap{};
-  query_params.reserve(params->items.size());
-  for (auto &[k, v] : params->items) {
-    query_params.emplace(k, ToPropertyValue(v));
-  }
+  // TODO put back in...
+  // query_params.reserve(params->items.size());
+  // for (auto &[k, v] : params->items) {
+  //   query_params.emplace(k, ToPropertyValue(v));
+  // }
 
-  return query_params;
+  return memgraph::storage::PropertyValue::map_t{};
 }
 
 struct mgp_execution_result::pImplMgpExecutionResult {
@@ -4515,17 +4519,17 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
 
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
+        // TODO: put back in...
+        // auto query_params_func = [&](memgraph::storage::Storage const *) -> memgraph::storage::PropertyValue::map_t {
+        //   return CreateQueryParams(params);
+        // };
+        // auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});
 
-        auto query_params_func = [&](memgraph::storage::Storage const *) -> memgraph::storage::PropertyValue::map_t {
-          return CreateQueryParams(params);
-        };
-        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});
-
-        memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
-        for (const auto &header : prepare_query_result.headers) {
-          headers.emplace_back(header);
-        }
-        result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
+        // memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
+        // for (const auto &header : prepare_query_result.headers) {
+        //   headers.emplace_back(header);
+        // }
+        // result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
 
         return result;
       },
