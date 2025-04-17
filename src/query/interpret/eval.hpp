@@ -586,7 +586,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TVector result(ctx_->memory);
     result.reserve(literal.elements_.size());
     for (const auto &expression : literal.elements_) result.emplace_back(expression->Accept(*this));
-    return TypedValue(result, ctx_->name_id_mapper, ctx_->memory);
+    return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(MapLiteral &literal) override {
@@ -939,7 +939,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
+                      ctx_->memory);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override;

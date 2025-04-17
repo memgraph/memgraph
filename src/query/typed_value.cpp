@@ -59,7 +59,7 @@ TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(m
 
 TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper)
     // TODO: MemoryResource in storage::PropertyValue
-    : TypedValue(value, utils::NewDeleteResource()) {}
+    : TypedValue(value, name_id_mapper, utils::NewDeleteResource()) {}
 
 TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper,
                        utils::MemoryResource *memory)
@@ -96,7 +96,13 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       std::construct_at(&map_v, memory_);
-      for (const auto &kv : map) map_v.emplace(TString(kv.first, memory_), kv.second);
+      // for (const auto &kv : map) map_v.emplace(TString(name_id_mapper->IdToName(kv.first.AsUint()), memory_),
+      // kv.second);
+      for (const auto &kv : map) {
+        auto typed_value = TypedValue(kv.second, name_id_mapper, memory_);
+        auto key = name_id_mapper->IdToName(kv.first.AsUint());
+        map_v.emplace(TString(key, memory_), std::move(typed_value));
+      }
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -192,9 +198,14 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
-      // TODO put this back now!
-      // for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
-      break;
+      // for (auto &kv : map) map_v.emplace(TString(name_id_mapper->IdToName(kv.first.AsUint()), memory_),
+      // std::move(kv.second));
+      for (auto &kv : map) {
+        auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
+        auto key = name_id_mapper->IdToName(kv.first.AsUint());
+        map_v.emplace(TString(key, memory_), std::move(typed_value));
+      }
+      c break;
     }
     case storage::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = other.ValueTemporalData();
@@ -401,6 +412,56 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
         auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
         std::construct_at(&graph_v, graph_ptr);
       }
+  }
+}
+
+TypedValue TypedValue::ToTypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper) const {
+  switch (type_) {
+    case TypedValue::Type::Null:
+      return storage::PropertyValue();
+    case TypedValue::Type::Bool:
+      return storage::PropertyValue(bool_v);
+    case TypedValue::Type::Int:
+      return storage::PropertyValue(int_v);
+    case TypedValue::Type::Double:
+      return storage::PropertyValue(double_v);
+    case TypedValue::Type::String:
+      return storage::PropertyValue(std::string(string_v));
+    case TypedValue::Type::List:
+      return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
+    case TypedValue::Type::Map: {
+      storage::PropertyValue::map_t map;
+      // for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
+      // return storage::PropertyValue(std::move(map));
+    }
+    case Type::Date:
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
+    case Type::LocalTime:
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
+    case Type::LocalDateTime:
+      // Use generic system time (UTC)
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.SysMicrosecondsSinceEpoch()});
+    case Type::ZonedDateTime:
+      return storage::PropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
+                                                               zoned_date_time_v.SysTimeSinceEpoch(),
+                                                               zoned_date_time_v.GetTimezone()});
+    case Type::Duration:
+      return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
+    case TypedValue::Type::Enum:
+      return storage::PropertyValue(enum_v);
+    case TypedValue::Type::Point2d:
+      return storage::PropertyValue(point_2d_v);
+    case TypedValue::Type::Point3d:
+      return storage::PropertyValue(point_3d_v);
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::Path:
+    case Type::Graph:
+    case Type::Function:
+      throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
 }
 
