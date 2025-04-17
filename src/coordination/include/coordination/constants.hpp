@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,5 +50,15 @@ const std::string kLogEntryValTypeKey = "val_type";
 
 // routing policies
 constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
+
+// cluster state
+constexpr int MAX_SNAPSHOTS = 3;
+constexpr auto kUuid = "uuid"sv;
+constexpr auto kDataInstances =
+    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
+constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
+constexpr std::string_view kMainUUID = "current_main_uuid";
+constexpr std::string_view kConfig{"config"};
+constexpr std::string_view kStatus{"status"};
 
 }  // namespace memgraph::coordination

@@ -95,6 +95,8 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
+  auto UpdateReadsOnMainPolicy(bool enabled_reads_on_main) -> UpdateReadsOnMainPolicyStatus;
+
   auto GetRoutingTable() const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
@@ -115,6 +117,8 @@ class CoordinatorInstance {
   void InstanceFailCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name)

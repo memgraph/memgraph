@@ -2061,16 +2061,31 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       if (!setting_value.IsString()) {
         throw utils::BasicException("Setting value should be a string literal");
       }
-
+#ifdef MG_ENTERPRISE
       callback.fn = [setting_name = std::string{setting_name.ValueString()},
-                     setting_value = std::string{setting_value.ValueString()}, &coordinator_state]() mutable {
+                     setting_value = std::string{setting_value.ValueString()}, coordinator_state]
+#else
+      callback.fn = [setting_name = std::string{setting_name.ValueString()},
+                     setting_value = std::string{setting_value.ValueString()}]
+#endif
+      {
 
 #ifdef MG_ENTERPRISE
         if (setting_name == coordination::kEnabledReadsOnMain) {
           if (!coordinator_state.has_value()) {
             throw utils::BasicException("Routing policy enabled_reads_on_main can only be updated in HA cluster.");
           }
-          coordinator_state.value().get().UpdateReadsOnMainPolicy(utils::ToLowerCase(setting_value) == "true"sv);
+          switch (auto const new_value = utils::ToLowerCase(setting_value) == "true"sv;
+                  coordinator_state.value().get().UpdateReadsOnMainPolicy(new_value)) {
+            case coordination::UpdateReadsOnMainPolicyStatus::SUCCESS: {
+              spdlog::info("Successfully updated routing policy 'enabled_reads_on_main' to {}", new_value);
+              break;
+            }
+            case coordination::UpdateReadsOnMainPolicyStatus::RAFT_LOG_ERROR: {
+              throw utils::BasicException(
+                  "Couldn't update routing policy 'enabled_reads_on_main' because writing to raft failed.");
+            }
+          }
           return std::vector<std::vector<TypedValue>>{};
         }
 #endif
@@ -2089,12 +2104,13 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.header = {"setting_value"};
-      callback.fn = [setting_name = std::string{setting_name.ValueString()}, &coordinator_state] {
-        auto maybe_value = utils::global_settings.GetValue(setting_name);
-        if (!maybe_value) {
-          throw utils::BasicException("Unknown setting name '{}'", setting_name);
-        }
+#ifdef MG_ENTERPRISE
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}, coordinator_state]
+#else
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}]
+#endif
 
+      {
         std::vector<std::vector<TypedValue>> results;
         results.reserve(1);
 
@@ -2112,6 +2128,10 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
           return results;
         }
 #endif
+        auto maybe_value = utils::global_settings.GetValue(setting_name);
+        if (!maybe_value) {
+          throw utils::BasicException("Unknown setting name '{}'", setting_name);
+        }
 
         setting_value.emplace_back(*maybe_value);
         results.push_back(std::move(setting_value));
@@ -2121,7 +2141,12 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
     }
     case SettingQuery::Action::SHOW_ALL_SETTINGS: {
       callback.header = {"setting_name", "setting_value"};
-      callback.fn = [&coordinator_state] {
+#ifdef MG_ENTERPRISE
+      callback.fn = [coordinator_state]
+#else
+      callback.fn = []
+#endif
+      {
         auto all_settings = utils::global_settings.AllSettings();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_settings.size());
@@ -2135,11 +2160,10 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
           results.push_back(std::move(setting_info));
         }
 
-#ifdef MG_ENTEPRISE
+#ifdef MG_ENTERPRISE
         if (coordinator_state.has_value()) {
           std::vector<TypedValue> setting_info;
           setting_info.reserve(2);
-
           setting_info.emplace_back(coordination::kEnabledReadsOnMain);
           setting_info.emplace_back(coordinator_state.value().get().GetEnabledReadsOnMain());
           results.push_back(std::move(setting_info));
@@ -6243,7 +6267,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
         throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port and coordinator id or management port where not "
+            "Coordinator was not initialized as coordinator port, coordinator id or management port were not "
             "set.");
       }
       prepared_query =

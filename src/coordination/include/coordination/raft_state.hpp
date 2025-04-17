@@ -73,8 +73,8 @@ class RaftState {
   auto GetLeaderId() const -> int32_t;
 
   auto AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
-                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) const
-      -> bool;
+                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid,
+                           bool enabled_reads_on_main) const -> bool;
 
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
   auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
@@ -97,6 +97,8 @@ class RaftState {
   // Return empty optional in the case when user didn't add coordinator on which setup of the cluster has been done
   auto GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string>;
   auto GetMyBoltServer() const -> std::optional<std::string>;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
  private:
   uint16_t coordinator_port_;
