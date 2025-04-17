@@ -3035,16 +3035,16 @@ def test_enabled_reads_on_main(test_name):
     results = execute_and_fetch_all(coord_cursor_3, "SHOW DATABASE SETTINGS")
     for setting_key, setting_value in results:
         if setting_key == "enabled_reads_on_main":
-            assert setting_value == False
+            assert setting_value is False
 
     execute_and_fetch_all(coord_cursor_3, "SET DATABASE SETTING 'enabled_reads_on_main' to 'true'")
-    assert execute_and_fetch_all(coord_cursor_3, "SHOW DATABASE SETTING 'enabled_reads_on_main'")[0][0] == True
+    assert execute_and_fetch_all(coord_cursor_3, "SHOW DATABASE SETTING 'enabled_reads_on_main'")[0][0] is True
 
     # Check that the value is distributed between all coordinators
     results = execute_and_fetch_all(coord_cursor_2, "SHOW DATABASE SETTINGS")
     for setting_key, setting_value in results:
         if setting_key == "enabled_reads_on_main":
-            assert setting_value == True
+            assert setting_value is True
 
     execute_and_fetch_all(coord_cursor_2, "SET DATABASE SETTING 'enabled_reads_on_main' to 'false'")
 
@@ -3052,7 +3052,7 @@ def test_enabled_reads_on_main(test_name):
     results = execute_and_fetch_all(coord_cursor_1, "SHOW DATABASE SETTINGS")
     for setting_key, setting_value in results:
         if setting_key == "enabled_reads_on_main":
-            assert setting_value == False
+            assert setting_value is False
 
 
 if __name__ == "__main__":
