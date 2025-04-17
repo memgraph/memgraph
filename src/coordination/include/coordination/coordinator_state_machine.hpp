@@ -60,10 +60,10 @@ class CoordinatorStateMachine : public state_machine {
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
   static auto SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
                                           std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                          utils::UUID uuid) -> ptr<buffer>;
+                                          utils::UUID uuid, bool enabled_reads_on_main) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data)
-      -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID>;
+      -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID, bool>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -101,6 +101,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

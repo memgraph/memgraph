@@ -15,7 +15,7 @@
 
 namespace memgraph::coordination {
 
-enum class UpdateReadsOnMainPolicyStatus : uint8_t { SUCCESS = 0 };
+enum class UpdateReadsOnMainPolicyStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,

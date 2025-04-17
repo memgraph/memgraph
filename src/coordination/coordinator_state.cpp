@@ -134,7 +134,8 @@ auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceMa
   return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> AddCoordinatorInstanceStatus {
+auto CoordinatorState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
+    -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be added since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
@@ -147,16 +148,18 @@ auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) -> Remo
 }
 
 auto CoordinatorState::UpdateReadsOnMainPolicy(bool const value) -> UpdateReadsOnMainPolicyStatus {
-  spdlog::info("Updating reads on main policy to value {}", value);
-  return UpdateReadsOnMainPolicyStatus::SUCCESS;
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Routing policy 'enabled_reads_on_main' cannot be updated since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).UpdateReadsOnMainPolicy(value);
 }
 
 auto CoordinatorState::GetEnabledReadsOnMain() const -> bool {
-  spdlog::info("Retrieving value of enabled_reads_on_main");
-  return false;
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Routing policy 'enabled_reads_on_main' cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetEnabledReadsOnMain();
 }
 
-auto CoordinatorState::GetRoutingTable() -> RoutingTable {
+auto CoordinatorState::GetRoutingTable() const -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRoutingTable();

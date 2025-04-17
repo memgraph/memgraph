@@ -52,7 +52,7 @@ class CoordinatorState {
 
   [[nodiscard]] auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> AddCoordinatorInstanceStatus;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
   auto RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus;
 
@@ -65,7 +65,7 @@ class CoordinatorState {
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;
 
-  auto GetRoutingTable() -> RoutingTable;
+  auto GetRoutingTable() const -> RoutingTable;
 
   [[nodiscard]] auto IsCoordinator() const -> bool;
   [[nodiscard]] auto IsDataInstance() const -> bool;

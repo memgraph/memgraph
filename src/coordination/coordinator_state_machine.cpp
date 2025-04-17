@@ -19,20 +19,12 @@
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/logging.hpp"
 
+#include <boost/iterator/detail/enable_if.hpp>
 #include <regex>
 
 using nuraft::cluster_config;
 using nuraft::ptr;
 using nuraft::snapshot;
-
-namespace {
-constexpr int MAX_SNAPSHOTS = 3;
-using namespace std::string_view_literals;
-constexpr auto kDataInstances =
-    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
-constexpr auto kCoordInstances = "coordinator_instances"sv;
-constexpr auto kUuid = "uuid"sv;
-}  // namespace
 
 namespace memgraph::coordination {
 void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx) {
@@ -158,21 +150,29 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
 
 auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
                                                           std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                                          utils::UUID uuid) -> ptr<buffer> {
-  return CreateLog({{kDataInstances, data_instances}, {kCoordInstances, coordinator_instances}, {kUuid, uuid}});
+                                                          utils::UUID uuid, bool const enabled_reads_on_main)
+    -> ptr<buffer> {
+  return CreateLog({{kDataInstances, data_instances},
+                    {kCoordinatorInstances, coordinator_instances},
+                    {kUuid, uuid},
+                    {kEnabledReadsOnMain, enabled_reads_on_main}});
 }
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data)
-    -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
+    -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID, bool> {
   buffer_serializer bs(data);
   try {
     auto const json = nlohmann::json::parse(bs.get_str());
+
     auto const data_instances = json.at(kDataInstances.data());
     auto const uuid = json.at(kUuid.data());
-    auto const coordinator_instances = json.at(kCoordInstances.data());
+    auto const coordinator_instances = json.at(kCoordinatorInstances.data());
+    // enabled_reads_on_main policy is added later
+    auto const enabled_reads_on_main = json.value(kEnabledReadsOnMain.data(), false);
+
     return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
                            coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(),
-                           uuid.get<utils::UUID>());
+                           uuid.get<utils::UUID>(), enabled_reads_on_main);
   } catch (std::exception const &e) {
     LOG_FATAL("Error occurred while decoding log {}.", e.what());
   }
@@ -182,8 +182,9 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto [data_instances, coordinator_instances, main_uuid] = DecodeLog(data);
-  cluster_state_.DoAction(std::move(data_instances), std::move(coordinator_instances), main_uuid);
+  auto [data_instances, coordinator_instances, main_uuid, enabled_reads_on_main] = DecodeLog(data);
+  cluster_state_.DoAction(std::move(data_instances), std::move(coordinator_instances), main_uuid,
+                          enabled_reads_on_main);
   durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   last_committed_idx_ = log_idx;
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
@@ -350,5 +351,8 @@ auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) cons
 auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {
   return cluster_state_.TryGetCurrentMainName();
 }
+
+auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return cluster_state_.GetEnabledReadsOnMain(); }
+
 }  // namespace memgraph::coordination
 #endif
