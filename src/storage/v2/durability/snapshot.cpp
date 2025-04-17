@@ -4682,7 +4682,6 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   spdlog::info("Starting snapshot creation to {}", path);
   SnapshotEncoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
-  // TODO: snapshot is single threaded write...yet internally has a flush_lock_ protecting its buffer
 
   // Write placeholder offsets.
   uint64_t offset_offsets = 0;
