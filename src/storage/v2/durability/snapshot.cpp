@@ -147,6 +147,7 @@ struct BatchInfo {
 
 using SnapshotEncoder = Encoder<utils::NonConcurrentOutputFile>;
 
+// Used for an upper limit, ie. something beyond the last item we should be processing
 constexpr auto kEnd = std::numeric_limits<int64_t>::max();
 
 // Result of a partial snapshot creation
@@ -258,7 +259,7 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
       batches[batch_id++] = elem.gid.AsInt();  // This batch's start ID and previous batch's end ID
       i = 1;                                   // 1 on purpose, as the first element is already in the batch
       // Check if we have enough batches
-      if (batch_id == n_batches) break;
+      if (batch_id == n_batches) break;  // THIS IS IMPORTANT, we do not want to remove the kEnd as our upper limit
     }
   }
   return batches;
@@ -4745,16 +4746,24 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     auto batch_start_offset = edges_snapshot.GetPosition();
 
     auto acc = edges->access();
+    // edge_id_ is monotonically increasing, holds a value which is currently unused
+    auto const unused_edge_gid = storage->edge_id_.load(std::memory_order_acquire);
 
     // Comparison start <= elem.gid < end with GID is important here because we need to
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
-      if (snapshot_aborted()) {
+      if (snapshot_aborted()) [[unlikely]] {
         break;
       }
 
       auto &edge = *it;
+
+      // If we have reached a newly inserted edge, we can stop processing
+      if (unused_edge_gid <= edge.gid.AsUint()) [[unlikely]] {
+        break;
+      }
+
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
       bool is_visible = true;
@@ -4840,15 +4849,24 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     auto acc = vertices->access();
 
+    // vertex_id_ is monotonically increasing, holds a value which is currently unused
+    auto const unused_vertex_gid = storage->vertex_id_.load(std::memory_order_acquire);
+
     // Comparison start <= elem.gid < end with GID is important here because we need to
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
-      if (snapshot_aborted()) {
+      if (snapshot_aborted()) [[unlikely]] {
         break;
       }
 
       auto &vertex = *it;
+
+      // If we have reached a newly inserted vertex, we can stop processing
+      if (unused_vertex_gid <= vertex.gid.AsUint()) [[unlikely]] {
+        break;
+      }
+
       // The visibility check is implemented for vertices so we use it here.
       auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
       if (!va) continue;
