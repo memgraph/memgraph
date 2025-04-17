@@ -3592,8 +3592,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
-        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
-                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueVertex(), self_.property_, TypedValue{std::move(old_value), context.name_id_mapper},
+            TypedValue{rhs});
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
@@ -3657,15 +3658,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -3731,8 +3730,11 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       return {};
     }();
 
+    auto name_id_mapper = context->db_accessor->GetStorageAccessor()->name_id_mapper_.get();
+
     context->trigger_context_collector->RegisterSetObjectProperty(
-        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
+        *record, key, TypedValue(std::move(old_value)),
+        TypedValue(std::forward<decltype(new_value)>(new_value), context->name_id_mapper_));
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
@@ -4659,7 +4661,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }  // end loop over all aggregations
+    }    // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -4905,8 +4907,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();

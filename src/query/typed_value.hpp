@@ -28,6 +28,10 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 
+namespace memgraph::storage {
+class NameIdMapper;
+}  // namespace memgraph::storage
+
 namespace memgraph::query {
 
 class Graph;  // fwd declare
@@ -319,10 +323,10 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value);
+  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
 
@@ -455,13 +459,13 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other);
+  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
 
   // copy assignment operators
   TypedValue &operator=(const char *);

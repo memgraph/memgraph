@@ -124,7 +124,8 @@ nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &pa
   data.emplace("value", nlohmann::json::object());
 
   for (const auto &[key, value] : parameters) {
-    data["value"][key] = SerializePropertyValue(value, storage_acc);
+    // TODO put back
+    // data["value"][key] = SerializePropertyValue(value, storage_acc);
   }
 
   return data;
@@ -211,7 +212,7 @@ storage::PropertyValue::map_t DeserializePropertyValueMap(nlohmann::json::object
   auto property_values = storage::PropertyValue::map_t{};
   property_values.reserve(values.size());
   for (const auto &[key, value] : values) {
-    property_values.emplace(key, DeserializePropertyValue(value, storage_acc));
+    property_values.emplace(storage_acc->NameToProperty(key), DeserializePropertyValue(value, storage_acc));
   }
 
   return property_values;

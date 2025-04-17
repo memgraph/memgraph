@@ -36,7 +36,7 @@ namespace {
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
-  auto metadata_pv = memgraph::storage::PropertyValue::map_t{};
+  auto metadata_pv = memgraph::storage::StringToPropertyValueMap{};
 
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {

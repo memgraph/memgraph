@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -244,9 +244,10 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       auto map = storage::PropertyValue::map_t{};
       map.reserve(size);
       for (size_t i = 0; i < size; ++i) {
-        std::pair<std::string, storage::PropertyValue> kv;
-        slk::Load(&kv, reader);
-        map.insert(kv);
+        // TODO put this back!
+        // std::pair<std::string, storage::PropertyValue> kv;
+        // slk::Load(&kv, reader);
+        // map.insert(kv);
       }
       *value = storage::PropertyValue(std::move(map));
       return;

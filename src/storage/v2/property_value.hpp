@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "storage/v2/enum.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
@@ -74,8 +75,8 @@ class PropertyValueImpl {
   using string_t = std::basic_string<char, std::char_traits<char>, typename alloc_trait::template rebind_alloc<char>>;
 
   using map_t =
-      boost::container::flat_map<string_t, PropertyValueImpl, std::less<>,
-                                 typename alloc_trait::template rebind_alloc<std::pair<string_t, PropertyValueImpl>>>;
+      boost::container::flat_map<PropertyId, PropertyValueImpl, std::less<>,
+                                 typename alloc_trait::template rebind_alloc<std::pair<PropertyId, PropertyValueImpl>>>;
 
   using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
 
@@ -418,6 +419,16 @@ namespace pmr {
 using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>>;
 }
 
+// TODO there are many places throughout the code base which rely on
+// the old definition of the property map (i.e, string -> PropertyValue).
+// Having the old type defined here means they can still use this definition
+// (but it probably needs to be defined in some place elsewhere, rather
+// than in the `property_value.hpp` file.)
+using StringToPropertyValueMap =
+    boost::container::flat_map<storage::PropertyValue::string_t, storage::PropertyValue, std::less<>,
+                               typename storage::PropertyValue::alloc_trait::template rebind_alloc<
+                                   std::pair<storage::PropertyValue::string_t, storage::PropertyValue>>>;
+
 struct ExtendedPropertyType {
   PropertyValueType type{PropertyValueType::Null};
   TemporalType temporal_type{};
@@ -581,7 +592,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc> &first, const PropertyVal
       auto const &m2 = second.ValueMap();
       if (m1.size() != m2.size()) return m1.size() <=> m2.size();
       for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
-        auto key_cmp_res = std::string_view{v1.first} <=> v2.first;
+        auto key_cmp_res = v1.first <=> v2.first;
         if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
         auto val_cmp_res = v1.second <=> v2.second;
         if (val_cmp_res != std::weak_ordering::equivalent) return val_cmp_res;
@@ -891,7 +902,7 @@ struct hash<memgraph::storage::PropertyValue> {
       case Map: {
         size_t hash = 6543457;
         for (const auto &kv : value.ValueMap()) {
-          hash ^= std::hash<std::string_view>{}(kv.first);
+          hash ^= std::hash<memgraph::storage::PropertyId>{}(kv.first);
           hash ^= this->operator()(kv.second);
         }
         return hash;
