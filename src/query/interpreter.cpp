@@ -175,7 +175,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 struct QueryLogWrapper {
   std::string_view query;
-  const memgraph::storage::PropertyValue::map_t *metadata;
+  const memgraph::StringToPropertyValueMap *metadata;
   std::string_view db_name;
 };
 
@@ -199,7 +199,8 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
     os << " - {";
     std::string header;
     for (const auto &[key, val] : *qlw.metadata) {
-      os << header << key << ":" << val;
+      // TODO put back...
+      // os << header << key << ":" << val;
       if (header.empty()) header = ", ";
     }
     os << "}";
@@ -2466,6 +2467,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  evaluation_context.name_id_mapper = storage->name_id_mapper.get();
+
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
@@ -3921,8 +3925,8 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query, const storage::PropertyValue::map_t &user_parameters,
-                       TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
+Callback CreateTrigger(TriggerQuery *trigger_query, const UserParameters &user_parameters, TriggerStore *trigger_store,
+                       InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());

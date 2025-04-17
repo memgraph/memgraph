@@ -151,7 +151,7 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       WriteMarker(Marker::TYPE_MAP);
       WriteSize(this, map.size());
       for (const auto &item : map) {
-        WriteString(item.first);
+        // WriteString(item.first); TODO - persist property id by name?
         WritePropertyValue(item.second);
       }
       break;
@@ -469,7 +469,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
         if (!key) return std::nullopt;
         auto item = ReadPropertyValue();
         if (!item) return std::nullopt;
-        value.emplace(std::move(*key), std::move(*item));
+        // TODO read property id
+        // value.emplace(std::move(*key), std::move(*item));
       }
       return PropertyValue(std::move(value));
     }
