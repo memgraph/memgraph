@@ -119,6 +119,8 @@ class TypedValue {
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
+  TypedValue ToTypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper) const;
+
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
 
