@@ -21,6 +21,7 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/fnv.hpp"
@@ -56,11 +57,13 @@ TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(m
   std::construct_at(&graph_v, graph_ptr);
 }
 
-TypedValue::TypedValue(const storage::PropertyValue &value)
+TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper)
     // TODO: MemoryResource in storage::PropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper,
+                       utils::MemoryResource *memory)
+    : memory_(memory) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -152,11 +155,13 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
   LOG_FATAL("Unsupported type");
 }
 
-TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
+TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper) /* noexcept */
     // TODO: MemoryResource in storage::PropertyValue, so this can be noexcept
-    : TypedValue(std::move(other), utils::NewDeleteResource()) {}
+    : TypedValue(std::move(other), name_id_mapper, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper,
+                       utils::MemoryResource *memory)
+    : memory_(memory) {
   switch (other.type()) {
     case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -187,7 +192,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
-      for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
+      // TODO put this back now!
+      // for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {

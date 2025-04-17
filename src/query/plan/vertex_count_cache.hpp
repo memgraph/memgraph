@@ -120,11 +120,9 @@ class VertexCountCache {
 
   int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) {
     auto &value_edge_count = edge_property_value_edge_count_[property];
-    // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(value);
-    if (value_edge_count.find(tv_value) == value_edge_count.end())
-      value_edge_count[tv_value] = db_->EdgesCount(property, value);
-    return value_edge_count.at(tv_value);
+    if (value_edge_count.find(value) == value_edge_count.end())
+      value_edge_count[value] = db_->EdgesCount(property, value);
+    return value_edge_count.at(value);
   }
 
   int64_t EdgesCount(storage::PropertyId property, const std::optional<utils::Bound<storage::PropertyValue>> &lower,
@@ -259,8 +257,7 @@ class VertexCountCache {
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
   std::unordered_map<EdgeTypePropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, EdgeTypePropertyHash>
       property_value_edge_count_;
-  std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
-                                                             query::TypedValue::BoolEqual>>
+  std::unordered_map<storage::PropertyId, std::unordered_map<storage::PropertyValue, int64_t>>
       edge_property_value_edge_count_;
   std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash>, LabelPropertyHash>
       property_bounds_vertex_count_;

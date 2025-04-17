@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -150,7 +150,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 }
 }  // namespace
 
-Trigger::Trigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                  std::shared_ptr<QueryUserOrRole> owner)
@@ -343,11 +343,10 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
   }
 }
 
-void TriggerStore::AddTrigger(std::string name, const std::string &query,
-                              const storage::PropertyValue::map_t &user_parameters, TriggerEventType event_type,
-                              TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
-                              DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                              std::shared_ptr<QueryUserOrRole> owner) {
+void TriggerStore::AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
+                              TriggerEventType event_type, TriggerPhase phase,
+                              utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");

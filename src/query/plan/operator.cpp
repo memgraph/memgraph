@@ -3934,8 +3934,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
-        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
-                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueVertex(), self_.property_, TypedValue{std::move(old_value), context.name_id_mapper},
+            TypedValue{rhs});
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
@@ -4080,8 +4081,11 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       return {};
     }();
 
+    auto name_id_mapper = context->db_accessor->GetStorageAccessor()->name_id_mapper_.get();
+
     context->trigger_context_collector->RegisterSetObjectProperty(
-        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
+        *record, key, TypedValue(std::move(old_value)),
+        TypedValue(std::forward<decltype(new_value)>(new_value), context->name_id_mapper_));
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {

@@ -4469,7 +4469,7 @@ struct MgProcedureResultStream final {
 };
 
 memgraph::storage::PropertyValue::map_t CreateQueryParams(mgp_map *params) {
-  auto query_params = memgraph::storage::PropertyValue::map_t{};
+  auto query_params = memgraph::storage::StringToPropertyValueMap{};
   query_params.reserve(params->items.size());
   for (auto &[k, v] : params->items) {
     query_params.emplace(k, ToPropertyValue(v));
