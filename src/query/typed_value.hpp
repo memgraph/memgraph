@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "query/path.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/flat_map.hpp"
@@ -119,7 +120,7 @@ class TypedValue {
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
-  TypedValue ToTypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper) const;
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
