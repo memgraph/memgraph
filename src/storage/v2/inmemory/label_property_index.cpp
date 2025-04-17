@@ -278,8 +278,8 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   }
 
   for (const auto &[key, value] : map_properties) {
-    const auto it = new_indices_by_property_.find(key);
-    if (it == new_indices_by_property_.end()) continue;
+    const auto it = indices_by_property_.find(key);
+    if (it == indices_by_property_.end()) continue;
 
     auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
     // auto const has_property = [&](auto &&each) {
