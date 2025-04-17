@@ -175,7 +175,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 struct QueryLogWrapper {
   std::string_view query;
-  const memgraph::StringToPropertyValueMap *metadata;
+  const memgraph::storage::StringToPropertyValueMap *metadata;
   std::string_view db_name;
 };
 
@@ -2468,7 +2468,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   storage::Storage *storage = current_db.db_acc_->get()->storage();
-  evaluation_context.name_id_mapper = storage->name_id_mapper.get();
+  evaluation_context.name_id_mapper = storage->name_id_mapper_.get();
 
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
@@ -4541,13 +4541,14 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                           : ""),
            TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
       // Handle user-defined metadata
-      std::map<std::string, TypedValue> metadata_tv;
-      if (interpreter->metadata_) {
-        for (const auto &md : *(interpreter->metadata_)) {
-          metadata_tv.emplace(md.first, TypedValue(md.second));
-        }
-      }
-      results.back().emplace_back(metadata_tv);
+      // TODO bring this back...
+      // std::map<std::string, TypedValue> metadata_tv;
+      // if (interpreter->metadata_) {
+      //   for (const auto &md : *(interpreter->metadata_)) {
+      //     metadata_tv.emplace(md.first, TypedValue(md.second));
+      //   }
+      // }
+      // results.back().emplace_back(metadata_tv);
     }
   }
   return results;
