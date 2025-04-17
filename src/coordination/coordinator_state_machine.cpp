@@ -19,7 +19,6 @@
 #include "coordination/coordinator_state_manager.hpp"
 #include "utils/logging.hpp"
 
-#include <boost/iterator/detail/enable_if.hpp>
 #include <regex>
 
 using nuraft::cluster_config;
