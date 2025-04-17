@@ -24,12 +24,12 @@
 (defn random-coord
   "Get random leader."
   [nodes]
-  (nth nodes (+ 2 (rand-int 3)))) ; Runs under assumption that first 2 instances are data instances and last 3 are coordinators.
+  (nth nodes (+ 3 (rand-int 3)))) ; Runs under assumption that first 3 instances are data instances and last 3 are coordinators.
 
 (defn random-data-instance
   "Get random data instance."
   [nodes]
-  (nth nodes (rand-int 2))) ; Runs under assumption that first 2 instances are data instances
+  (nth nodes (rand-int 3))) ; Runs under assumption that first 3 instances are data instances
 
 (defn register-replication-instances
   "Register replication instances."
