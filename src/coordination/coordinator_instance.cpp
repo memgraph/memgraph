@@ -72,7 +72,6 @@ extern const Event GetHistories_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
-
 namespace {
 constexpr int kDisconnectedCluster = 1;
 constexpr std::string_view kUp{"up"};
@@ -312,7 +311,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   if (leader_id == raft_state_->GetMyCoordinatorId()) {
     spdlog::trace("Coordinator itself not yet leader, returning report as follower.");
     return ShowInstancesStatusAsFollower();  // We don't want to ask ourselves for instances, as coordinator is
-                                             // not ready still as leader
+    // not ready still as leader
   }
 
   if (leader_id == -1) {
@@ -523,8 +522,10 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   main_data_instance->status = ReplicationRole::MAIN;
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
 
-  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), new_main_uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), new_main_uuid,
+                                        enabled_reads_on_main)) {
     spdlog::error("Aborting failover. Writing to Raft failed.");
     metrics::IncrementCounter(metrics::RaftFailedFailovers);
     return FailoverStatus::RAFT_FAILURE;
@@ -597,8 +598,10 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   main_data_instance->status = ReplicationRole::MAIN;
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
 
-  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), new_main_uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), new_main_uuid,
+                                        enabled_reads_on_main)) {
     spdlog::error("Aborting setting instance to main. Writing to Raft failed.");
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
@@ -635,7 +638,10 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   auto curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
-  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), curr_main_uuid)) {
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
+
+  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), curr_main_uuid,
+                                        enabled_reads_on_main)) {
     spdlog::error("Aborting demoting instance. Writing to Raft failed.");
     return DemoteInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
@@ -697,7 +703,10 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
   cluster_state.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
-  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), curr_main_uuid)) {
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
+
+  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), curr_main_uuid,
+                                        enabled_reads_on_main)) {
     spdlog::error("Aborting instance registration. Writing to Raft failed.");
     repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
@@ -753,8 +762,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
+
   // Append new cluster state. We may need to restore old state if something goes wrong.
-  if (!raft_state_->AppendClusterUpdate(std::move(new_data_instances), coordinator_instances, curr_main_uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(new_data_instances), coordinator_instances, curr_main_uuid,
+                                        enabled_reads_on_main)) {
     return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
@@ -767,8 +779,8 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::SUCCESS;
   }
 
-  if (!raft_state_->AppendClusterUpdate(std::move(old_data_instances), std::move(coordinator_instances),
-                                        curr_main_uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(old_data_instances), std::move(coordinator_instances), curr_main_uuid,
+                                        enabled_reads_on_main)) {
     LOG_FATAL(
         "Coordinator instances cannot be brought into the consistent state before unregistration started. Please "
         "restart coordinators with fresh data directory and reconnect the cluster. Data on main and replicas will be "
@@ -795,6 +807,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   auto data_instances = raft_state_->GetDataInstancesContext();
   auto uuid = raft_state_->GetCurrentMainUUID();
   auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
 
   auto const num_removed = std::erase_if(coordinator_instances_context, [coordinator_id](auto const &coordinator) {
     return coordinator.id == coordinator_id;
@@ -810,7 +823,8 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   }
 
   // If we managed to remove it from the NuRaft configuration but not to our app logs. If this fails, not good.
-  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid,
+                                        enabled_reads_on_main)) {
     LOG_FATAL("Couldn't append application log when removing coordinator {} from the cluster. ", coordinator_id);
   }
 
@@ -898,9 +912,11 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
   auto data_instances = raft_state_->GetDataInstancesContext();
   const auto uuid = raft_state_->GetCurrentMainUUID();
+  auto const enabled_reads_on_main = raft_state_->GetEnabledReadsOnMain();
 
   // If we managed to add it to the NuRaft configuration but not to our app logs.
-  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid,
+                                        enabled_reads_on_main)) {
     LOG_FATAL(
         "Couldn't append application log when adding coordinator {} to the cluster. Please restart your instance with "
         "a fresh data directory and try again. If you already partially connected a cluster, please delete data "
@@ -909,6 +925,19 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   }
 
   return AddCoordinatorInstanceStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::UpdateReadsOnMainPolicy(bool const enabled_reads_on_main) -> UpdateReadsOnMainPolicyStatus {
+  auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+  auto data_instances = raft_state_->GetDataInstancesContext();
+  auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
+
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), curr_main_uuid,
+                                        enabled_reads_on_main)) {
+    spdlog::error("Aborting the update of routing policy 'enabled_reads_on_main'. Writing to Raft failed.");
+    return UpdateReadsOnMainPolicyStatus::RAFT_LOG_ERROR;
+  }
+  return UpdateReadsOnMainPolicyStatus::SUCCESS;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
@@ -1170,6 +1199,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
 
   return ChooseMostUpToDateInstance(instances_info);
 }
+
+auto CoordinatorInstance::GetEnabledReadsOnMain() const -> bool { return raft_state_->GetEnabledReadsOnMain(); }
 
 }  // namespace memgraph::coordination
 #endif

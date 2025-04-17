@@ -55,7 +55,8 @@ class CoordinatorClusterState {
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto DoAction(std::vector<DataInstanceContext> data_instances,
-                std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid) -> void;
+                std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid,
+                bool enabled_reads_on_main) -> void;
 
   auto Serialize(ptr<buffer> &data) const -> void;
 
@@ -66,6 +67,8 @@ class CoordinatorClusterState {
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
@@ -78,14 +81,20 @@ class CoordinatorClusterState {
   // Setter function used on parsing data from json
   void SetCoordinatorInstances(std::vector<CoordinatorInstanceContext>);
 
-  friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
-    return lhs.data_instances_ == rhs.data_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
+  // Setter function used on parsing data from json
+  void SetEnabledReadsOnMain(bool enabled_reads_on_main);
+
+  bool operator==(const CoordinatorClusterState &other) const {
+    return std::tie(data_instances_, coordinator_instances_, current_main_uuid_, enabled_reads_on_main_) ==
+           std::tie(other.data_instances_, other.coordinator_instances_, other.current_main_uuid_,
+                    other.enabled_reads_on_main_);
   }
 
  private:
   std::vector<DataInstanceContext> data_instances_;
   std::vector<CoordinatorInstanceContext> coordinator_instances_;
   utils::UUID current_main_uuid_;
+  bool enabled_reads_on_main_{false};
   mutable utils::ResourceLock app_lock_;
 };
 

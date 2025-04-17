@@ -77,6 +77,7 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+  auto const buffer =
+      CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
   auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(*buffer);
 }

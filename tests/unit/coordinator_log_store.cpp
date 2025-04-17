@@ -72,7 +72,7 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
 
   // coordinator log store start
   {
@@ -151,7 +151,7 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     };
 
     auto log_entry_update = cs_new<log_entry>(
-        1, CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}),
+        1, CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO),
         nuraft::log_val_type::app_log);
 
     log_store.append(log_entry_update);
@@ -199,7 +199,7 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
         CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
     };
 
-    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
 
     auto log_entry_common = cs_new<log_entry>(1, buffer, nuraft::log_val_type::app_log);
     log_store1.append(log_entry_common);
@@ -224,9 +224,11 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
                                  .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i + 3)}}};
 
       data_instances.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
-      auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+      auto buffer1 =
+          CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
       data_instances.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
-      auto buffer2 = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+      auto buffer2 =
+          CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
 
       auto log_entry1 = cs_new<log_entry>(i, buffer1, nuraft::log_val_type::app_log);
       auto log_entry2 = cs_new<log_entry>(i, buffer2, nuraft::log_val_type::app_log);
@@ -296,7 +298,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
 
     auto coord_instances = std::vector<CoordinatorInstanceContext>();
 
-    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
 
     auto log_entry_obj = cs_new<log_entry>(i, buffer, nuraft::log_val_type::app_log);
     log_store.append(log_entry_obj);
