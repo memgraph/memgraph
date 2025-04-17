@@ -547,6 +547,8 @@ class Storage {
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 
+    auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
+
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
