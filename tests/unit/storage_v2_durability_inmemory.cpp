@@ -1496,7 +1496,8 @@ TEST_P(DurabilityTest, SnapshotRetention) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
-                       .snapshot_retention_count = 3},
+                       .snapshot_retention_count = 1},  // if the retention is more than 1 snapshots won't get created
+                                                        // due to db having the same state as before
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -1505,19 +1506,19 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     // Restore unrelated snapshots after the database has been started.
     RestoreBackups();
     CreateBaseDataset(db.storage(), GetParam());
-    // Allow approximately 5 snapshots to be created.
-    std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+    // Allow approximately 3 snapshots to be created.
+    std::this_thread::sleep_for(std::chrono::milliseconds(6000));
   }
 
-  ASSERT_EQ(GetSnapshotsList().size(), 1 + 3);
+  ASSERT_EQ(GetSnapshotsList().size(), 1 + 1);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
-  // Verify that exactly 3 snapshots and 1 unrelated snapshot exist.
+  // Verify that exactly 1 snapshots and 1 unrelated snapshot exist.
   {
     auto snapshots = GetSnapshotsList();
-    ASSERT_EQ(snapshots.size(), 1 + 3);
+    ASSERT_EQ(snapshots.size(), 1 + 1);
     std::string uuid;
     for (size_t i = 0; i < snapshots.size(); ++i) {
       const auto &path = snapshots[i];

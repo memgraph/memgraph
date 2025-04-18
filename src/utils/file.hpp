@@ -262,6 +262,7 @@ class OutputFile {
  private:
   void FlushBuffer();
   void FlushBufferInternal();
+  void FlushBufferInternal(unsigned long to_write);
 
   size_t SeekFile(Position position, ssize_t offset);
 
@@ -355,6 +356,7 @@ class NonConcurrentOutputFile {
  private:
   void FlushBuffer();
   void FlushBufferInternal();
+  void FlushBufferInternal(unsigned long to_write);
 
   size_t SeekFile(Position position, ssize_t offset);
 

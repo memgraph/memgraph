@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -356,7 +357,7 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopend file.");
-      FlushBufferInternal();
+      FlushBufferInternal(write_ptr - buffer_);
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_;
     }
@@ -509,6 +510,26 @@ void OutputFile::FlushBuffer() {
   FlushBufferInternal();
 }
 
+void OutputFile::FlushBufferInternal(unsigned long to_write) {
+  // Doesn't update buffer_position_ to avoid using atomics
+  auto *buffer = buffer_;
+  while (to_write > 0) {
+    auto written = write(fd_, buffer, to_write);
+    if (written == -1 && errno == EINTR) {
+      continue;
+    }
+
+    MG_ASSERT(written > 0,
+              "while trying to write to {} an error occurred: {} ({}). "
+              "Possibly {} bytes of data were lost from this call and "
+              "possibly {} bytes were lost from previous calls.",
+              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
+
+    to_write -= written;
+    buffer += written;
+  }
+}
+
 void OutputFile::FlushBufferInternal() {
   MG_ASSERT(buffer_position_.load(std::memory_order_acquire) <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
@@ -607,7 +628,7 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopend file.");
-      FlushBufferInternal();
+      FlushBufferInternal(write_ptr - buffer_);
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_;
     }
@@ -759,6 +780,25 @@ void NonConcurrentOutputFile::FlushBuffer() {
   MG_ASSERT(IsOpen(), "Flushing an unopend file.");
 
   FlushBufferInternal();
+}
+
+void NonConcurrentOutputFile::FlushBufferInternal(unsigned long to_write) {
+  auto *buffer = buffer_;
+  while (to_write > 0) {
+    auto written = write(fd_, buffer, to_write);
+    if (written == -1 && errno == EINTR) {
+      continue;
+    }
+
+    MG_ASSERT(written > 0,
+              "while trying to write to {} an error occurred: {} ({}). "
+              "Possibly {} bytes of data were lost from this call and "
+              "possibly {} bytes were lost from previous calls.",
+              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
+
+    to_write -= written;
+    buffer += written;
+  }
 }
 
 void NonConcurrentOutputFile::FlushBufferInternal() {
