@@ -680,9 +680,10 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       // released.
       type = MGP_VALUE_TYPE_MAP;
       memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(m);
-      for (const auto &item : pv.ValueMap()) {
-        items.emplace(item.first, item.second);
-      }
+      // TODO put back in...
+      // for (const auto &item : pv.ValueMap()) {
+      //   items.emplace(item.first, item.second);
+      // }
       memgraph::utils::Allocator<mgp_map> allocator(m);
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
