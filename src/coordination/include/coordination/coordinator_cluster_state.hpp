@@ -91,10 +91,17 @@ class CoordinatorClusterState {
   // Setter function used on parsing data from json
   void SetEnabledReadsOnMain(bool enabled_reads_on_main);
 
-  bool operator==(const CoordinatorClusterState &other) const {
-    return std::tie(data_instances_, coordinator_instances_, current_main_uuid_, enabled_reads_on_main_) ==
-           std::tie(other.data_instances_, other.coordinator_instances_, other.current_main_uuid_,
-                    other.enabled_reads_on_main_);
+  friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
+    if (&lhs == &rhs) {
+      return true;
+    }
+    std::lock(lhs.app_lock_, rhs.app_lock_);
+    auto lock_lhs = std::lock_guard{lhs.app_lock_, std::adopt_lock};
+    auto lock_rhs = std::lock_guard{rhs.app_lock_, std::adopt_lock};
+
+    return std::tie(lhs.data_instances_, lhs.coordinator_instances_, lhs.current_main_uuid_,
+                    lhs.enabled_reads_on_main_) == std::tie(rhs.data_instances_, rhs.coordinator_instances_,
+                                                            rhs.current_main_uuid_, rhs.enabled_reads_on_main_);
   }
 
  private:

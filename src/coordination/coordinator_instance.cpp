@@ -924,7 +924,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::UpdateReadsOnMainPolicy(bool const enabled_reads_on_main) -> UpdateReadsOnMainPolicyStatus {
+auto CoordinatorInstance::UpdateReadsOnMainPolicy(bool const enabled_reads_on_main) const
+    -> UpdateReadsOnMainPolicyStatus {
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = enabled_reads_on_main};
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
