@@ -1162,6 +1162,12 @@ TEST_F(ReplicationTest, RecoverySteps) {
     ASSERT_FALSE(acc->Commit().HasError());
   };
 
+  auto create_vertex_and_commit = [&]() {
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+  };
+
   // Nothing
   {
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
@@ -1170,9 +1176,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Only Current
   {
-    auto acc = in_mem->Access();
-    acc->CreateVertex();
-    ASSERT_FALSE(acc->Commit().HasError());
+    create_vertex_and_commit();
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[0]));
@@ -1204,9 +1208,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   // WALs + Current
   {
     // A new current WAL is created on the next transaction after the previous one has been finalized
-    auto acc = in_mem->Access();
-    acc->CreateVertex();
-    ASSERT_FALSE(acc->Commit().HasError());
+    create_vertex_and_commit();
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
@@ -1228,11 +1230,15 @@ TEST_F(ReplicationTest, RecoverySteps) {
   // Only snapshot (without dirty WALs)
   {
     // Once we are over the allowed number of snapshots, we clean both snapshots and wals
+    // Have to make a change to the db so the snapshot doesn't get aborted (to bypass SnapshotDigest)
+    create_vertex_and_commit();
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    create_vertex_and_commit();
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    create_vertex_and_commit();
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
-    ASSERT_EQ(recovery_steps.size(), 1);
+    ASSERT_EQ(recovery_steps.size(), 2);  // TODO: Gareth/Andreja/Andi is this fine?
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
   }
 
