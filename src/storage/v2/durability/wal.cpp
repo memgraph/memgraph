@@ -759,7 +759,8 @@ std::optional<RecoveryInfo> LoadWal(
     return std::nullopt;
   }
 
-  RecoveryInfo ret{.last_durable_timestamp = info.to_timestamp};
+  RecoveryInfo ret;
+  ret.last_durable_timestamp = info.to_timestamp;
 
   // Recover deltas.
   wal.SetPosition(info.offset_deltas);
