@@ -78,6 +78,6 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
   };
 
   auto const buffer =
-      CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, TODO);
-  auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(*buffer);
+      CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}, false);
+  auto const [ds, cs, uuid, enabled_reads_on_main] = CoordinatorStateMachine::DecodeLog(*buffer);
 }
