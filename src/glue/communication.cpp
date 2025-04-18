@@ -76,7 +76,7 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
     case Value::Type::Map: {
       auto const &valueMap = value.ValueMap();
       auto mg_type = BoltMapToMgType(valueMap, storage);
-      if (mg_type) return query::TypedValue{*mg_type};
+      if (mg_type) return query::TypedValue{*mg_type, storage->name_id_mapper_.get()};
 
       std::map<std::string, query::TypedValue> map;
       for (const auto &kv : valueMap) map.emplace(kv.first, ToTypedValue(kv.second, storage));
