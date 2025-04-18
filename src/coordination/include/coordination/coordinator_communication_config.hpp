@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
@@ -21,7 +21,6 @@
 #include "utils/uuid.hpp"
 
 #include <chrono>
-#include <cstdint>
 #include <string>
 #include <utility>
 

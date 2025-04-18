@@ -12,10 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/data_instance_context.hpp"
-
-static constexpr std::string_view kConfig{"config"};
-static constexpr std::string_view kStatus{"status"};
-static constexpr std::string_view kUuid{"uuid"};
+#include "coordination/constants.hpp"
 
 namespace memgraph::coordination {
 
