@@ -55,7 +55,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   /// @throw std::bad_alloc
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx,
-                           NameIdMapper *name_id_mapper = nullptr) override;
+                           NameIdMapper *name_id_mapper) override;
 
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 

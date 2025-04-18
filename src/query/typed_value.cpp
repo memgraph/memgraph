@@ -88,10 +88,10 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       return;
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
-      const auto &vec = value.ValueList();
-      new (&list_v) TVector(memory_);
-      list_v.reserve(vec.size());
-      for (const auto &v : vec) list_v.emplace_back(v);
+      // const auto &vec = value.ValueList();
+      // new (&list_v) TVector(memory_);
+      // list_v.reserve(vec.size());
+      // for (const auto &v : vec) list_v.emplace_back(v);
       return;
     }
     case storage::PropertyValue::Type::Map: {
@@ -195,8 +195,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       break;
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
-      auto &vec = other.ValueList();
-      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
+      // auto &vec = other.ValueList();
+      // new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
       break;
     }
     case storage::PropertyValue::Type::Map: {
@@ -435,10 +435,10 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(std::string(string_v));
     case TypedValue::Type::List: {
       std::vector<storage::PropertyValue> list;
-      list.reserve(list_v.size());
-      for (const auto &v : list_v) {
-        list.emplace_back(v.ToPropertyValue(name_id_mapper));
-      }
+      // list.reserve(list_v.size());
+      // for (const auto &v : list_v) {
+      //   list.emplace_back(v.ToPropertyValue(name_id_mapper));
+      // }
       return storage::PropertyValue(std::move(list));
     }
     case TypedValue::Type::Map: {

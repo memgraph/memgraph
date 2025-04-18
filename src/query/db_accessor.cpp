@@ -168,14 +168,16 @@ auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId prope
                                storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
                                TypedValue const &boundary_value, plan::PointDistanceCondition condition)
     -> PointIterable {
-  return PointIterable(accessor_->PointVertices(label, property, crs, point_value.ToPropertyValue(),
-                                                boundary_value.ToPropertyValue(), condition));
+  return PointIterable(
+      accessor_->PointVertices(label, property, crs, point_value.ToPropertyValue(accessor_->GetNameIdMapper()),
+                               boundary_value.ToPropertyValue(accessor_->GetNameIdMapper()), condition));
 }
 
 auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
                                storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
                                TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
-  return PointIterable(accessor_->PointVertices(label, property, crs, bottom_left.ToPropertyValue(),
-                                                top_right.ToPropertyValue(), condition));
+  return PointIterable(accessor_->PointVertices(label, property, crs,
+                                                bottom_left.ToPropertyValue(accessor_->GetNameIdMapper()),
+                                                top_right.ToPropertyValue(accessor_->GetNameIdMapper()), condition));
 }
 }  // namespace memgraph::query
