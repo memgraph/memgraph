@@ -57,13 +57,11 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override = default;
 
-  static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
-                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                          utils::UUID uuid, bool enabled_reads_on_main) -> ptr<buffer>;
+  static auto CreateLog(nlohmann::json const &log) -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data)
-      -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID, bool>;
+  static auto SerializeUpdateClusterState(CoordinatorClusterStateDelta const &delta_state) -> ptr<buffer>;
+
+  static auto DecodeLog(buffer &data) -> CoordinatorClusterStateDelta;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 

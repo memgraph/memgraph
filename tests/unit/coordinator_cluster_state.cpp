@@ -21,6 +21,7 @@
 #include <vector>
 
 using memgraph::coordination::CoordinatorClusterState;
+using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
@@ -54,9 +55,11 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-  std::vector<CoordinatorInstanceContext> coord_instances;
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .current_main_uuid_ = uuid};
 
-  cluster_state.DoAction(data_instances, coord_instances, uuid, false);
+  cluster_state.DoAction(delta_state);
 
   auto const data_instances_res = cluster_state.GetDataInstancesContext();
   ASSERT_EQ(data_instances_res.size(), 1);
@@ -77,8 +80,9 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
 
-    std::vector<CoordinatorInstanceContext> coord_instances;
-    cluster_state.DoAction(data_instances, coord_instances, uuid, false);
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances, .current_main_uuid_ = uuid};
+    cluster_state.DoAction(delta_state);
   }
   {
     auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -91,9 +95,10 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-    std::vector<CoordinatorInstanceContext> coord_instances;
-
-    cluster_state.DoAction(data_instances, coord_instances, uuid, false);
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                   .current_main_uuid_ = uuid};
+    cluster_state.DoAction(delta_state);
   }
 
   auto const repl_instances = cluster_state.GetDataInstancesContext();
@@ -114,7 +119,10 @@ TEST_F(CoordinatorClusterStateTest, Coordinators) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  cluster_state.DoAction({}, coord_instances, UUID{}, false);
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coord_instances),
+                                                 .current_main_uuid_ = UUID{}};
+  cluster_state.DoAction(delta_state);
 
   auto const coord_instances_res = cluster_state.GetCoordinatorInstancesContext();
   ASSERT_EQ(coord_instances_res.size(), 2);
@@ -143,7 +151,12 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  cluster_state.DoAction(data_instances, coord_instances, uuid, false);
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = uuid,
+                                                 .enabled_reads_on_main_ = true};
+  cluster_state.DoAction(delta_state);
 
   ptr<buffer> data{};
   cluster_state.Serialize(data);

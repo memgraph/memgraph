@@ -368,11 +368,8 @@ auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
-                                    std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                    const utils::UUID uuid, bool const enabled_reads_on_main) const -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(
-      std::move(data_instances), std::move(coordinator_instances), uuid, enabled_reads_on_main);
+auto RaftState::AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
     spdlog::error("Failed to accept request for updating cluster state.");

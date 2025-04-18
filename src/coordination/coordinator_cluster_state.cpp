@@ -76,15 +76,20 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(std::vector<DataInstanceContext> data_instances,
-                                       std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                       utils::UUID const main_uuid, bool const enabled_reads_on_main) -> void {
+auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state) -> void {
   auto lock = std::lock_guard{app_lock_};
-  spdlog::trace("DoAction: update cluster state.");
-  data_instances_ = std::move(data_instances);
-  current_main_uuid_ = main_uuid;
-  coordinator_instances_ = std::move(coordinator_instances);
-  enabled_reads_on_main_ = enabled_reads_on_main;
+  if (delta_state.data_instances_.has_value()) {
+    data_instances_ = std::move(*delta_state.data_instances_);
+  }
+  if (delta_state.coordinator_instances_.has_value()) {
+    coordinator_instances_ = std::move(*delta_state.coordinator_instances_);
+  }
+  if (delta_state.current_main_uuid_.has_value()) {
+    current_main_uuid_ = *delta_state.current_main_uuid_;
+  }
+  if (delta_state.enabled_reads_on_main_.has_value()) {
+    enabled_reads_on_main_ = *delta_state.enabled_reads_on_main_;
+  }
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
