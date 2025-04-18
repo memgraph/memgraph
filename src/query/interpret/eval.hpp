@@ -122,11 +122,11 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_, ctx_->name_id_mapper, ctx_->memory);
+    return TypedValue(literal.value_, ctx_->memory, ctx_->name_id_mapper);
   }
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
-                      ctx_->memory);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory,
+                      ctx_->name_id_mapper);
   }
 
 #define INVALID_VISIT(expr_name)                                                             \
@@ -582,7 +582,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_, ctx_->name_id_mapper, ctx_->memory);
+    return TypedValue(literal.value_, ctx_->memory, ctx_->name_id_mapper);
   }
 
   TypedValue Visit(ListLiteral &literal) override {

@@ -119,7 +119,7 @@ class TypedValue {
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
-  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper = nullptr) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
@@ -325,7 +325,7 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
+  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper = nullptr);
 
   /** Construct a copy using the given utils::MemoryResource */
   TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
@@ -467,7 +467,7 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
+  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper = nullptr);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.

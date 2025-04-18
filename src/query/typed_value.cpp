@@ -16,6 +16,7 @@
 #include <cmath>
 #include <iosfwd>
 #include <memory>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 
@@ -60,10 +61,10 @@ TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(m
 
 TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper)
     // TODO: MemoryResource in storage::PropertyValue
-    : TypedValue(value, name_id_mapper, utils::NewDeleteResource()) {}
+    : TypedValue(value, utils::NewDeleteResource(), name_id_mapper) {}
 
-TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper,
-                       utils::MemoryResource *memory)
+TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory,
+                       storage::NameIdMapper *name_id_mapper)
     : memory_(memory) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
@@ -103,7 +104,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
       }
       for (const auto &kv : map) {
-        auto typed_value = TypedValue(kv.second, name_id_mapper, memory_);
+        auto typed_value = TypedValue(kv.second, memory_, name_id_mapper);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
         map_v.emplace(TString(key, memory_), std::move(typed_value));
       }
@@ -167,10 +168,10 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
 
 TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper) /* noexcept */
     // TODO: MemoryResource in storage::PropertyValue, so this can be noexcept
-    : TypedValue(std::move(other), name_id_mapper, utils::NewDeleteResource()) {}
+    : TypedValue(std::move(other), utils::NewDeleteResource(), name_id_mapper) {}
 
-TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper,
-                       utils::MemoryResource *memory)
+TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory,
+                       storage::NameIdMapper *name_id_mapper)
     : memory_(memory) {
   switch (other.type()) {
     case storage::PropertyValue::Type::Null:
@@ -210,8 +211,11 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
+      if (!name_id_mapper) {
+        throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
+      }
       for (auto &kv : map) {
-        auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
+        auto typed_value = TypedValue(std::move(kv.second), memory_, name_id_mapper);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
         map_v.emplace(TString(key, memory_), std::move(typed_value));
       }
