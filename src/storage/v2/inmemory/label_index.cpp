@@ -61,7 +61,7 @@ std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
 }
 
 void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter(2048);
 
   for (auto &label_storage : index_) {
     // before starting index, check if stop_requested

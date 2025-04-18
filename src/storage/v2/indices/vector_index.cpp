@@ -358,7 +358,7 @@ void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
 }
 
 void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter(2048);
   for (auto &[_, index_item] : pimpl->index_) {
     if (maybe_stop() && token.stop_requested()) {
       return;

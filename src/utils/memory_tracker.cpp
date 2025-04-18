@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,14 +33,7 @@ bool MemoryTrackerCanThrow() {
 }  // namespace
 
 thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_ = 0;
-MemoryTracker::OutOfMemoryExceptionEnabler::OutOfMemoryExceptionEnabler() { ++counter_; }
-MemoryTracker::OutOfMemoryExceptionEnabler::~OutOfMemoryExceptionEnabler() { --counter_; }
-bool MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() { return counter_ > 0; }
-
 thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_ = 0;
-MemoryTracker::OutOfMemoryExceptionBlocker::OutOfMemoryExceptionBlocker() { ++counter_; }
-MemoryTracker::OutOfMemoryExceptionBlocker::~OutOfMemoryExceptionBlocker() { --counter_; }
-bool MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() { return counter_ > 0; }
 
 MemoryTracker total_memory_tracker;
 

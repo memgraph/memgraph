@@ -455,7 +455,7 @@ class WalFile {
  private:
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
-  Encoder wal_;
+  Encoder<utils::OutputFile> wal_;
   std::filesystem::path path_;
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;

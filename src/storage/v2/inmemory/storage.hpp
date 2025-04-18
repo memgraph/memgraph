@@ -106,7 +106,13 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries, AbortSnapshot };
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    ReachedMaxNumTries,
+    AbortSnapshot,
+    AlreadyRunning,
+    NothingNewToWrite
+  };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     DisabledForMainWithReplicas,
@@ -486,8 +492,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -668,6 +674,18 @@ class InMemoryStorage final : public Storage {
 
   // A way to tell async operation to stop
   std::stop_source stop_source;
+
+  // Snapshot digest is the minimal meta info of a snapshot
+  // Used to figure out if the current snapshot should be written or not
+  struct SnapshotDigest {
+    memgraph::replication::ReplicationEpoch epoch_;
+    memgraph::storage::EpochHistory history_;
+    memgraph::utils::UUID storage_uuid_;
+    uint64_t last_durable_ts_;
+
+    friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
+  };
+  std::optional<SnapshotDigest> last_snapshot_digest_;
 
   void Clear();
 };
