@@ -21,6 +21,7 @@
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -198,8 +199,6 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
-      // for (auto &kv : map) map_v.emplace(TString(name_id_mapper->IdToName(kv.first.AsUint()), memory_),
-      // std::move(kv.second));
       for (auto &kv : map) {
         auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
@@ -431,9 +430,9 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
       storage::PropertyValue::map_t map;
-      for (const auto &kv : map_v) {
-        map.emplace(name_id_mapper->NameToId(kv.first), kv.second);
-      }
+      // for (const auto &kv : map_v) {
+      //   map.emplace(storage::PropertyId::FromUint(name_id_mapper->NameToId(kv.first)), kv.second);
+      // }
       return storage::PropertyValue(std::move(map));
     }
     case Type::Date:
@@ -467,56 +466,9 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
   }
 }
 
-// TypedValue::operator storage::PropertyValue() const {
-//   switch (type_) {
-//     case TypedValue::Type::Null:
-//       return storage::PropertyValue();
-//     case TypedValue::Type::Bool:
-//       return storage::PropertyValue(bool_v);
-//     case TypedValue::Type::Int:
-//       return storage::PropertyValue(int_v);
-//     case TypedValue::Type::Double:
-//       return storage::PropertyValue(double_v);
-//     case TypedValue::Type::String:
-//       return storage::PropertyValue(std::string(string_v));
-//     case TypedValue::Type::List:
-//       return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
-//     case TypedValue::Type::Map: {
-//       storage::PropertyValue::map_t map;
-//       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
-//       return storage::PropertyValue(std::move(map));
-//     }
-//     case Type::Date:
-//       return storage::PropertyValue(
-//           storage::TemporalData{storage::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
-//     case Type::LocalTime:
-//       return storage::PropertyValue(
-//           storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
-//     case Type::LocalDateTime:
-//       // Use generic system time (UTC)
-//       return storage::PropertyValue(
-//           storage::TemporalData{storage::TemporalType::LocalDateTime,
-//           local_date_time_v.SysMicrosecondsSinceEpoch()});
-//     case Type::ZonedDateTime:
-//       return storage::PropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
-//                                                                zoned_date_time_v.SysTimeSinceEpoch(),
-//                                                                zoned_date_time_v.GetTimezone()});
-//     case Type::Duration:
-//       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
-//     case TypedValue::Type::Enum:
-//       return storage::PropertyValue(enum_v);
-//     case TypedValue::Type::Point2d:
-//       return storage::PropertyValue(point_2d_v);
-//     case TypedValue::Type::Point3d:
-//       return storage::PropertyValue(point_3d_v);
-//     case Type::Vertex:
-//     case Type::Edge:
-//     case Type::Path:
-//     case Type::Graph:
-//     case Type::Function:
-//       throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
-//   }
-// }
+TypedValue::operator storage::PropertyValue() const {
+  throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field)                    \

@@ -3593,7 +3593,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
-            lhs.ValueVertex(), self_.property_, TypedValue{std::move(old_value), context.name_id_mapper},
+            lhs.ValueVertex(), self_.property_,
+            TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
@@ -3613,8 +3614,10 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid
         // during current pull
-        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
-                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueEdge(), self_.property_,
+            TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
+            TypedValue{rhs});
       }
       break;
     }
@@ -3730,11 +3733,11 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       return {};
     }();
 
-    auto name_id_mapper = context->db_accessor->GetStorageAccessor()->name_id_mapper_.get();
+    auto name_id_mapper = context->db_accessor->GetStorageAccessor()->GetNameIdMapper();
 
     context->trigger_context_collector->RegisterSetObjectProperty(
-        *record, key, TypedValue(std::move(old_value)),
-        TypedValue(std::forward<decltype(new_value)>(new_value), context->name_id_mapper_));
+        *record, key, TypedValue(std::move(old_value), name_id_mapper),
+        TypedValue(std::forward<decltype(new_value)>(new_value), name_id_mapper));
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
@@ -3787,8 +3790,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   if (should_register_change && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
-      context->trigger_context_collector->RegisterRemovedObjectProperty(*record, property_id,
-                                                                        TypedValue(std::move(property_value)));
+      context->trigger_context_collector->RegisterRemovedObjectProperty(
+          *record, property_id,
+          TypedValue(std::move(property_value), context->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   }
 }
@@ -3979,8 +3983,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     }
 
     if (context.trigger_context_collector) {
-      context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
-                                                                       TypedValue(std::move(*maybe_old_value)));
+      context.trigger_context_collector->RegisterRemovedObjectProperty(
+          *record, property,
+          TypedValue(std::move(*maybe_old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   };
 
