@@ -138,8 +138,14 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
   coord_instances.emplace_back(1, fmt::format("localhost:{}", bolt_port));
 
   bool const enabled_reads_on_main = GetParam();
-  ASSERT_TRUE(
-      raft_state_leader->AppendClusterUpdate(data_instances, coord_instances, curr_uuid, enabled_reads_on_main));
+  // NOLINTNEXTLINE
+  memgraph::coordination::CoordinatorClusterStateDelta const delta_state{
+      .data_instances_ = data_instances,
+      .coordinator_instances_ = coord_instances,
+      .current_main_uuid_ = curr_uuid,
+      .enabled_reads_on_main_ = enabled_reads_on_main};
+
+  ASSERT_TRUE(raft_state_leader->AppendClusterUpdate(delta_state));
 
   auto const routing_table = raft_state_leader->GetRoutingTable();
 

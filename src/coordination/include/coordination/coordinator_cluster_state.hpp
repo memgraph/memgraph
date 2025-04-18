@@ -33,6 +33,15 @@ using nuraft::buffer_serializer;
 using nuraft::ptr;
 using replication_coordination_glue::ReplicationRole;
 
+struct CoordinatorClusterStateDelta {
+  std::optional<std::vector<DataInstanceContext>> data_instances_;
+  std::optional<std::vector<CoordinatorInstanceContext>> coordinator_instances_;
+  std::optional<utils::UUID> current_main_uuid_;
+  std::optional<bool> enabled_reads_on_main_{false};
+
+  bool operator==(const CoordinatorClusterStateDelta &other) const = default;
+};
+
 // Represents the state of the cluster from the coordinator's perspective.
 // Source of truth since it is modified only as the result of RAFT's commiting.
 // Needs to be thread safe because the NuRaft's thread is committing and changing the state
@@ -54,9 +63,7 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(std::vector<DataInstanceContext> data_instances,
-                std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid,
-                bool enabled_reads_on_main) -> void;
+  auto DoAction(CoordinatorClusterStateDelta delta_state) -> void;
 
   auto Serialize(ptr<buffer> &data) const -> void;
 
