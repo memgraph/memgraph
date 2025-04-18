@@ -71,9 +71,9 @@ struct DatabaseState {
     std::string label;
   };
 
-  struct LabelPropertyItem {
+  struct OrderedLabelPropertiesItem {
     std::string label;
-    std::string property;
+    std::vector<std::string> properties;
   };
 
   struct TextItem {
@@ -84,6 +84,11 @@ struct DatabaseState {
   struct LabelPropertiesItem {
     std::string label;
     std::set<std::string, std::less<>> properties;
+  };
+
+  struct LabelPropertyItem {
+    std::string label;
+    std::string property;
   };
 
   struct PointItem {
@@ -100,7 +105,7 @@ struct DatabaseState {
   std::set<Vertex> vertices;
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
-  std::set<LabelPropertyItem> label_property_indices;
+  std::set<OrderedLabelPropertiesItem> label_property_indices;
   std::set<TextItem> text_indices;
   std::set<PointItem> point_indices;
   std::set<LabelPropertyItem> existence_constraints;
@@ -123,6 +128,12 @@ bool operator<(const DatabaseState::Edge &first, const DatabaseState::Edge &seco
 
 bool operator<(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
   return first.label < second.label;
+}
+
+bool operator<(const DatabaseState::OrderedLabelPropertiesItem &first,
+               const DatabaseState::OrderedLabelPropertiesItem &second) {
+  if (first.label != second.label) return first.label < second.label;
+  return first.properties < second.properties;
 }
 
 bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
@@ -160,6 +171,11 @@ bool operator==(const DatabaseState::Edge &first, const DatabaseState::Edge &sec
 
 bool operator==(const DatabaseState::LabelItem &first, const DatabaseState::LabelItem &second) {
   return first.label == second.label;
+}
+
+bool operator==(const DatabaseState::OrderedLabelPropertiesItem &first,
+                const DatabaseState::OrderedLabelPropertiesItem &second) {
+  return first.label == second.label && first.properties == second.properties;
 }
 
 bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
@@ -234,16 +250,22 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
 
   // Capture all indices
   std::set<DatabaseState::LabelItem> label_indices;
-  std::set<DatabaseState::LabelPropertyItem> label_property_indices;
+  std::set<DatabaseState::OrderedLabelPropertiesItem> label_properties_indices;
   std::set<DatabaseState::TextItem> text_indices;
   std::set<DatabaseState::PointItem> point_indices;
+  // TODO: where are the edge types indicies?
+
   {
     auto info = dba->ListAllIndices();
     for (const auto &item : info.label) {
       label_indices.insert({dba->LabelToName(item)});
     }
-    for (const auto &item : info.label_property) {
-      label_property_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
+    for (const auto &[label, properties] : info.label_properties) {
+      auto properties_as_strings =
+          properties |
+          ranges::views::transform([&](memgraph::storage::PropertyId prop) { return dba->PropertyToName(prop); }) |
+          ranges::to_vector;
+      label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
     for (const auto &item : info.text_indices) {
       text_indices.insert({item.first, dba->LabelToName(item.second)});
@@ -274,7 +296,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices,        edges,         label_indices,         label_property_indices,
+  return {vertices,        edges,         label_indices,         label_properties_indices,
           text_indices,    point_indices, existence_constraints, unique_constraints,
           type_constraints};
 }
@@ -681,7 +703,8 @@ TYPED_TEST(DumpTest, IndicesKeys) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label1"), {this->db->storage()->NameToProperty("prop")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -689,7 +712,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
         unique_acc
-            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
+            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), {this->db->storage()->NameToProperty("prop `")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -705,6 +728,42 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);", "CREATE INDEX ON :`Label 2`(`prop ```);",
                   kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, CompositeIndicesKeys) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite indices not implemented for disk storage";
+  }
+
+  {
+    auto dba = this->db->Access();
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                          {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
+                           this->db->storage()->NameToProperty("prop_c")})
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`, `prop_b`, `prop_c`);", kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});", kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
   }
 }
 
@@ -1074,7 +1133,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
+        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1082,7 +1141,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                   this->db->storage()->NameToProperty("unexisting_property"))
+                                   {this->db->storage()->NameToProperty("unexisting_property")})
                      .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1162,8 +1221,8 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
@@ -1245,8 +1304,8 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
       EXPECT_EQ(item.size(), 1);
       EXPECT_TRUE(item[0].IsString());
     }
-    EXPECT_EQ(results[0][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
-    EXPECT_EQ(results[1][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[0][0].ValueString(), "CREATE (:__mg_vertex__ {__mg_id__: 0});");
+    EXPECT_EQ(results[1][0].ValueString(), "CREATE INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[2][0].ValueString(), "DROP INDEX ON :__mg_vertex__(__mg_id__);");
     EXPECT_EQ(results[3][0].ValueString(), "MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;");
   }
@@ -1263,16 +1322,16 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
       auto unique_acc = this->db->UniqueAccess();
       ASSERT_FALSE(
           unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
+              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), {this->db->storage()->NameToProperty("name")})
               .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
-              .HasError());
+      ASSERT_FALSE(unique_acc
+                       ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
+                                     {this->db->storage()->NameToProperty("surname")})
+                       .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
@@ -1354,18 +1413,12 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     ++offset_index;
   };
 
-  check_next("CREATE INDEX ON :`PERSON`(`name`);");
-  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
-  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
-  check_next(kCreateInternalIndex);
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 0, `name`: "Person1", `surname`: "Unique1"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 1, `name`: "Person2", `surname`: "Unique2"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 2, `name`: "Person3", `surname`: "Unique3"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 3, `name`: "Person4", `surname`: "Unique4"});)r");
   check_next(R"r(CREATE (:__mg_vertex__:`PERSON` {__mg_id__: 4, `name`: "Person5", `surname`: "Unique5"});)r");
+  check_next(kCreateInternalIndex);
 
   pullPlan.Pull(&query_stream, 4);
   const auto edge_results = stream.GetResults();
@@ -1384,22 +1437,91 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
+  check_next("CREATE INDEX ON :`PERSON`(`name`);");
+  check_next("CREATE INDEX ON :`PERSON`(`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`surname`);");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;");
+  check_next("CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS UNIQUE;");
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
   auto acc = this->db->storage()->Access();
   memgraph::query::DbAccessor dba(acc.get());
+  memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
+  memgraph::query::AllowEverythingAuthChecker auth_checker;
+  memgraph::query::InterpreterConfig::Query query_config;
+  memgraph::storage::PropertyValue::map_t props;
+
   {
     auto trigger_store = this->db.get()->trigger_store();
-    const std::string trigger_name = "test_trigger";
+    const std::string trigger_name = "trigger_on_vcreate";
     const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
     memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
     memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
-    memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
-    memgraph::query::AllowEverythingAuthChecker auth_checker;
-    memgraph::query::InterpreterConfig::Query query_config;
-    memgraph::query::DbAccessor dba(acc.get());
-    const memgraph::storage::PropertyValue::map_t props;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_vupdate";
+    const std::string trigger_statement = "CREATE (:DummyUpdate)";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_UPDATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_vdelete";
+    const std::string trigger_statement = "CREATE (:DummyDelete)";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_DELETE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_ecreate";
+    const std::string trigger_statement = "CREATE ()-[:DummyCreate]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_CREATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_eupdate";
+    const std::string trigger_statement = "CREATE ()-[:DummyUpdate]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_UPDATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_edelete";
+    const std::string trigger_statement = "CREATE ()-[:DummyDelete]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::EDGE_DELETE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_any";
+    const std::string trigger_statement = "CREATE ()-[:Any]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::BEFORE_COMMIT;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "trigger_on_any_after";
+    const std::string trigger_statement = "CREATE ()-[:Any]->()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::ANY;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
@@ -1407,9 +1529,17 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     { memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db); }
-    VerifyQueries(stream.GetResults(),
-                  "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
-                  "SET newNodes.created = timestamp();");
+    VerifyQueries(
+        stream.GetResults(),
+        "CREATE TRIGGER trigger_on_vcreate ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
+        "SET newNodes.created = timestamp();",
+        "CREATE TRIGGER trigger_on_vupdate ON () UPDATE BEFORE COMMIT EXECUTE CREATE (:DummyUpdate);",
+        "CREATE TRIGGER trigger_on_vdelete ON () DELETE AFTER COMMIT EXECUTE CREATE (:DummyDelete);",
+        "CREATE TRIGGER trigger_on_ecreate ON --> CREATE BEFORE COMMIT EXECUTE CREATE ()-[:DummyCreate]->();",
+        "CREATE TRIGGER trigger_on_eupdate ON --> UPDATE BEFORE COMMIT EXECUTE CREATE ()-[:DummyUpdate]->();",
+        "CREATE TRIGGER trigger_on_edelete ON --> DELETE AFTER COMMIT EXECUTE CREATE ()-[:DummyDelete]->();",
+        "CREATE TRIGGER trigger_on_any BEFORE COMMIT EXECUTE CREATE ()-[:Any]->();",
+        "CREATE TRIGGER trigger_on_any_after AFTER COMMIT EXECUTE CREATE ()-[:Any]->();");
   }
 }
 

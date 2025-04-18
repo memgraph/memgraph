@@ -158,7 +158,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto GetReplState() const { return repl_state_.ReadLock(); }
   auto GetReplState() { return repl_state_.Lock(); }
 
-  auto GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories;
+#ifdef MG_ENTERPRISE
+  auto GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo;
+#endif
 
  private:
   void ClientsShutdown(auto &locked_repl_state) const {

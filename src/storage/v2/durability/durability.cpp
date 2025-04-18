@@ -43,6 +43,9 @@
 #include "utils/message.hpp"
 #include "utils/timer.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::metrics {
 extern const Event SnapshotRecoveryLatency_us;
 }  // namespace memgraph::metrics
@@ -199,13 +202,17 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   // Recover label+property indices.
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   {
-    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
-    for (const auto &item : indices_metadata.label_property) {
-      if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
+    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
+    for (auto const &[label, properties] : indices_metadata.label_properties) {
+      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
                                                  snapshot_info))
         throw RecoveryFailure("The label+property index must be created here!");
-      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                   name_id_mapper->IdToName(item.second.AsUint()));
+
+      auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
+      auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
+
+      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                   properties_string);
     }
     spdlog::info("Label+property indices are recreated.");
   }
@@ -216,11 +223,13 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                  indices_metadata.label_property_stats.size());
     for (const auto &item : indices_metadata.label_property_stats) {
       const auto label_id = item.first;
-      const auto property_id = item.second.first;
+      const auto &property_ids = item.second.first;
       const auto &stats = item.second.second;
-      mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+      mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
+      auto id_to_name = [&](PropertyId prop) { return name_id_mapper->IdToName(prop.AsUint()); };
+      auto const properties_str = utils::Join(property_ids | rv::transform(id_to_name), ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
-                   name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
+                   name_id_mapper->IdToName(label_id.AsUint()), properties_str);
     }
     spdlog::info("Label+property indices statistics are recreated.");
   }
@@ -537,9 +546,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     const auto &wal_files = *maybe_wal_files;
 
     spdlog::info("Checking WAL files.");
-    std::ranges::for_each(wal_files, [](auto &&wal_file) {
-      spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num);
-    });
+    r::for_each(wal_files,
+                [](auto &&wal_file) { spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num); });
     {
       const auto &first_wal = wal_files[0];
       spdlog::trace("Checking 1st wal file: {}.", first_wal.path);
@@ -580,25 +588,25 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items, enum_store, schema_info, find_edge);
-        recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
-        recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
-        recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
-
-        recovery_info.last_durable_timestamp = info.last_durable_timestamp;
-
-        if (recovery_info.next_timestamp != 0) {
-          last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
+        // Update recovery info data only if WAL file was used and its deltas loaded
+        if (info.has_value()) {
+          recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
+          recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
+          recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
+          recovery_info.last_durable_timestamp = info->last_durable_timestamp;
+          if (info->last_durable_timestamp) {
+            last_loaded_timestamp.emplace(info->last_durable_timestamp.value_or(0));
+          }
         }
 
-        auto last_loaded_timestamp_value = last_loaded_timestamp.value_or(0);
         if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
           // no history or new epoch, add it
-          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
+          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
           repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
           spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
-        } else if (epoch_history->back().second < last_loaded_timestamp_value) {
+        } else if (epoch_history->back().second < *last_loaded_timestamp) {
           // existing epoch, update with newer timestamp
-          epoch_history->back().second = last_loaded_timestamp_value;
+          epoch_history->back().second = *last_loaded_timestamp;
         }
 
       } catch (const RecoveryFailure &e) {
@@ -641,7 +649,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                 repl_storage_state.last_durable_timestamp_);
 
   spdlog::trace("History with its epochs and attached commit timestamps.");
-  std::ranges::for_each(repl_storage_state.history, [](auto &&history) {
+  r::for_each(repl_storage_state.history, [](auto &&history) {
     spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
   });
   return recovery_info;

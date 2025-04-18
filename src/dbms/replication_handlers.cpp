@@ -22,10 +22,10 @@ namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
 
-void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                            slk::Reader *req_reader, slk::Builder *res_builder) {
-  using memgraph::storage::replication::CreateDatabaseRes;
+  using storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
   // Ignore if no license
@@ -37,17 +37,17 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
-  memgraph::storage::replication::CreateDatabaseReq req;
-  memgraph::slk::Load(&req, req_reader);
+  storage::replication::CreateDatabaseReq req;
+  Load(&req, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::CreateDatabaseReq::kType.name);
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CreateDatabaseReq::kType.name);
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
-  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       of the set of databases. Hence, no history exists to maintain regarding epoch change.
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
@@ -60,8 +60,7 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   try {
     // Create new
-    auto new_db = dbms_handler.Update(req.config);
-    if (new_db.HasValue()) {
+    if (auto const new_db = dbms_handler.Update(req.config); new_db.HasValue()) {
       // Successfully create db
       system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
