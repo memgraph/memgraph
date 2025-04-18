@@ -643,6 +643,11 @@ int main(int argc, char **argv) {
     }
   }
 
+  // Global worker pool!
+  // Used by sessions to schedule tasks.
+  memgraph::utils::PriorityThreadPool worker_pool_{/* low priority */ static_cast<uint64_t>(FLAGS_bolt_num_workers),
+                                                   /* high priority */ 1U};
+
   ServerContext context;
   std::string service_name = "Bolt";
   if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
@@ -656,11 +661,12 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
-  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &audit_log};
+  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &audit_log,
+                                          &worker_pool_};
 #else
-  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get()};
+  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &worker_pool_};
 #endif
-  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, FLAGS_bolt_num_workers);
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
@@ -712,10 +718,12 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &coordinator_state, &metrics_server,
 #endif
-                      &websocket_server, &server, &interpreter_context_, &dbms_handler] {
+                      &websocket_server, &server, &interpreter_context_, &dbms_handler, &worker_pool_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+    spdlog::info("Workers shutting down.");
+    worker_pool_.ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
     // Stop all triggers, streams and ttl
@@ -767,6 +775,8 @@ int main(int argc, char **argv) {
 
   spdlog::info("Memgraph succesfully started!");
 
+  // TODO
+  // worker_pool_.AwaitShutdown();
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();

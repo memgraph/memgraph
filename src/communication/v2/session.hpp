@@ -204,8 +204,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_{*session_context, input_buffer_.read_end(), &output_stream_},
         session_context_{session_context},
         remote_endpoint_{GetRemoteEndpoint()},
-        service_name_{service_name},
-        worker_pool_(server_context.worker_pool_) {
+        service_name_{service_name} {
     std::visit(utils::Overloaded{[](WebSocket & /* unused */) { DMG_ASSERT(false, "Shouldn't get here..."); },
                                  [](auto &socket) {
                                    socket.lowest_layer().set_option(tcp::no_delay(true));  // enable PSH
@@ -341,7 +340,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoWork() {
-    worker_pool_->ScheduledAddTask(
+    session_context_->AddTask(
         [shared_this = shared_from_this()](const auto thread_priority) {
           try {
             while (true) {
@@ -483,8 +482,5 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
-
- public:
-  utils::PriorityThreadPool *worker_pool_;  // TODO Need to think about where to put this
 };
 }  // namespace memgraph::communication::v2

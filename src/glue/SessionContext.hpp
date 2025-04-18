@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,9 @@
 #pragma once
 
 #include "communication/v2/server.hpp"
+#include "utils/logging.hpp"
+#include "utils/priorities.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::query {
@@ -28,16 +31,22 @@ class WritePrioritizedRWLock;
 }
 namespace memgraph::auth {
 class Auth;
-using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
+using SynchedAuth = utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock>;
 }  // namespace memgraph::auth
 
 namespace memgraph::glue {
 struct Context {
-  memgraph::communication::v2::ServerEndpoint endpoint;
-  memgraph::query::InterpreterContext *ic;
-  memgraph::auth::SynchedAuth *auth;
+  communication::v2::ServerEndpoint endpoint;
+  query::InterpreterContext *ic;
+  auth::SynchedAuth *auth;
 #if MG_ENTERPRISE
-  memgraph::audit::Log *audit_log;
+  audit::Log *audit_log;
 #endif
+  utils::PriorityThreadPool *worker_pool_;
+
+  auto AddTask(auto &&task, utils::Priority priority) {
+    MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
+    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
+  }
 };
 }  // namespace memgraph::glue

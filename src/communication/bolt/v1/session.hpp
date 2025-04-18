@@ -88,19 +88,21 @@ class Session {
       // Receive the handshake.
       if (input_stream_.size() < kHandshakeSize) {
         spdlog::trace("Received partial handshake of size {}", input_stream_.size());
-        return false;
+        return false;  // no more data
       }
       state_ = StateHandshakeRun(impl);
       if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
-        return false;
+        return false;  // no more data
       }
       // Update the decoder's Bolt version (v5 has changed the undelying structure)
       decoder_.UpdateVersion(version_.major);
       encoder_.UpdateVersion(version_.major);
+      // Fallthrough as there could be more data to process
     }
 
-    // Had to split Prepare in two
+    // Re-entering while in the Parsed state. Query has been parsed, execution has yielded to check the priority, we are
+    // here now (with the correct priority), so continue with Prepare.
     // Phase 1: parse and deduce priority
     // Phase 2: actually prepare interpreter for the query
     if (state_ == State::Parsed) {
@@ -145,7 +147,7 @@ class Session {
         // After Parsed, we do a Prepare (state::Result) and the Pull/Discard (state::Result)
         // Try to not break from Prepare till the end of the execution as this will lead to worse performance.
         // Last pull will set the state to State::Idle
-        return true;
+        return true;  // more data to process
       }
 
       if (state_ == State::Close) [[unlikely]] {
@@ -186,7 +188,6 @@ class Session {
   std::vector<std::string> client_supported_bolt_versions_;
   std::optional<BoltMetrics::Metrics> metrics_;
 
-  // virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
   std::string GetLoginTimestamp() const { return login_timestamp_; }
 

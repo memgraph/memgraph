@@ -258,7 +258,11 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
   IncrementQueryMetrics(session);
 
   try {
-    // Interpret can throw.
+    // Split in 2 parts: Parsing and Preparing
+    // Parsing generates ast tree and metadata
+    //  - here we figure out which query has been sent and its priority
+    // Prepare actually makes the plan
+    //  - here we take the storage accessors, so priority is important to know
     session.InterpretParse(query.ValueString(), params.ValueMap(), {});
     return State::Parsed;
   } catch (const std::exception &e) {
@@ -312,7 +316,11 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   IncrementQueryMetrics(session);
 
   try {
-    // Interpret can throw.
+    // Split in 2 parts: Parsing and Preparing
+    // Parsing generates ast tree and metadata
+    //  - here we figure out which query has been sent and its priority
+    // Prepare actually makes the plan
+    //  - here we take the storage accessors, so priority is important to know
     session.InterpretParse(query.ValueString(), params.ValueMap(), extra.ValueMap());
     return State::Parsed;
   } catch (const std::exception &e) {

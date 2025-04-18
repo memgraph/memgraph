@@ -70,7 +70,7 @@ class Server final {
    */
 
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         std::string_view service_name, size_t workers_count = std::thread::hardware_concurrency());
+         std::string_view service_name);
 
   ~Server();
 
@@ -84,8 +84,6 @@ class Server final {
   bool Start();
 
   void Shutdown() {
-    spdlog::info("{} workers shutting down.", service_name_);
-    worker_pool_.ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     spdlog::info("{} io shutting down.", service_name_);
     io_thread_pool_.Shutdown();
     spdlog::info("{} shutdown.", service_name_);
@@ -116,8 +114,6 @@ class Server final {
   ServerEndpoint endpoint_;
   std::string service_name_;
 
-  utils::PriorityThreadPool worker_pool_;
-
   TSessionContext *session_context_;
   ServerContext *server_context_;
 
@@ -132,16 +128,12 @@ Server<TSession, TSessionContext>::~Server() {
 
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionContext *session_context,
-                                          ServerContext *server_context, const std::string_view service_name,
-                                          size_t workers_count)
+                                          ServerContext *server_context, const std::string_view service_name)
     : endpoint_{endpoint},
       service_name_{service_name},
-      worker_pool_{workers_count, /* high priority */ 1U},
       session_context_(session_context),
       server_context_(server_context),
       io_thread_pool_{1U} {
-  // TODO: Better
-  server_context_->worker_pool_ = &worker_pool_;
   boost::system::error_code ec;
   // Open the acceptor
   (void)acceptor_.open(endpoint_.protocol(), ec);

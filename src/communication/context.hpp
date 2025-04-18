@@ -16,7 +16,6 @@
 
 #include <openssl/ssl.h>
 #include <boost/asio/ssl/context.hpp>
-#include "utils/priority_thread_pool.hpp"
 
 // Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
 #undef TRUE
@@ -107,9 +106,6 @@ class ServerContext final {
 
  private:
   std::optional<boost::asio::ssl::context> ctx_;
-
- public:
-  utils::PriorityThreadPool *worker_pool_;  // TODO Need to think about where to put this
 };
 
 }  // namespace memgraph::communication

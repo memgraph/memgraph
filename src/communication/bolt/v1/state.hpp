@@ -37,7 +37,8 @@ enum class State : uint8_t {
   Idle,
 
   /**
-   *
+   * Query has been parsed (ast tree and priority), but not prepared (actual plan and storage accessors).
+   * Going to Result once query has been prepared.
    */
   Parsed,
 
