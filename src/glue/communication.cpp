@@ -326,7 +326,7 @@ storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, 
       auto map = storage::PropertyValue::map_t{};
       map.reserve(valueMap.size());
       for (const auto &[k, v] : valueMap) {
-        map.try_emplace(k, ToPropertyValue(v, storage));
+        map.try_emplace(storage->NameToProperty(k), ToPropertyValue(v, storage));
       }
       return storage::PropertyValue(std::move(map));
     }
@@ -388,7 +388,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       const auto &map = value.ValueMap();
       bolt_map_t dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(kv.first, ToBoltValue(kv.second, storage));
+        dv_map.emplace(storage.PropertyToName(kv.first), ToBoltValue(kv.second, storage));
       }
       return Value(std::move(dv_map));
     }

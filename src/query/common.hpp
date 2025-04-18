@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@
 #include "query/typed_value.hpp"
 #include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
@@ -192,9 +193,10 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
+                                       storage::NameIdMapper *name_id_mapper) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
+    auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
     if (maybe_old_value.HasError()) {
       ProcessError(maybe_old_value.GetError());
     }

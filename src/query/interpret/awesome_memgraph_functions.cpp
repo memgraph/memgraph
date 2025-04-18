@@ -438,7 +438,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     for (const auto &property : *maybe_props) {
       // properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), property.second);
       auto typed_value =
-          TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+          TypedValue(property.second, ctx.memory, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
     }
     return TypedValue(std::move(properties));
