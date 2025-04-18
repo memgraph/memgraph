@@ -762,7 +762,7 @@ std::optional<RecoveryInfo> LoadWal(
   RecoveryInfo ret;
   ret.last_durable_timestamp = info.to_timestamp;
 
-  // Recover deltas.
+  // Recover deltas
   wal.SetPosition(info.offset_deltas);
   uint64_t deltas_applied = 0;
   auto edge_acc = edges->access();
