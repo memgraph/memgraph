@@ -29,6 +29,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/cast.hpp"
@@ -121,11 +122,11 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_, ctx_->name_id_mapper, ctx_->memory);
+    return TypedValue(literal.value_, ctx_->memory, ctx_->name_id_mapper);
   }
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
-                      ctx_->memory);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory,
+                      ctx_->name_id_mapper);
   }
 
 #define INVALID_VISIT(expr_name)                                                             \
@@ -199,6 +200,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   using ExpressionVisitor<TypedValue>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
+  storage::NameIdMapper *GetNameIdMapper() const { return ctx_->name_id_mapper; }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
@@ -434,12 +437,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->name_id_mapper, ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory, ctx_->name_id_mapper};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->name_id_mapper, ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory, ctx_->name_id_mapper};
     };
 
     // lhs is Null
@@ -579,7 +582,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_, ctx_->name_id_mapper, ctx_->memory);
+    return TypedValue(literal.value_, ctx_->memory, ctx_->name_id_mapper);
   }
 
   TypedValue Visit(ListLiteral &literal) override {
@@ -939,8 +942,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
-                      ctx_->memory);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory,
+                      ctx_->name_id_mapper);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override;
