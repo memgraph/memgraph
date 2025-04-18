@@ -350,6 +350,7 @@ const std::filesystem::path &OutputFile::path() const { return path_; }
 
 void OutputFile::Write(const uint8_t *data, size_t size) {
   std::unique_lock flush_guard(flush_lock_);
+  MG_ASSERT(IsOpen(), "Trying to write to an unopened file!");
   auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
 
   auto write_ptr = buffer_ + buffer_start;
