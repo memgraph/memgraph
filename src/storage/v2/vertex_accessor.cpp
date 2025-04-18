@@ -416,7 +416,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_, storage_->name_id_mapper_.get());
   transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
   return std::move(old_value);
@@ -504,7 +504,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     }
 
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
+      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage->name_id_mapper_.get());
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
@@ -548,31 +548,31 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock(
-      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
-        properties.emplace(vertex->properties.Properties());
-        if (!properties.has_value()) {
-          return;
-        }
-        auto new_value = PropertyValue();
-        for (const auto &[property, old_value] : *properties) {
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-          transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-          if (schema_acc) {
-            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                           acc.SetProperty(vertex, property, ExtendedPropertyType{},
-                                                           ExtendedPropertyType{old_value});
-                                         },
-                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                       *schema_acc);
-          }
-        }
-        if (transaction->constraint_verification_info) {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
-        }
-        vertex->properties.ClearProperties();
-      });
+  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
+                            &schema_acc]() {
+    properties.emplace(vertex->properties.Properties());
+    if (!properties.has_value()) {
+      return;
+    }
+    auto new_value = PropertyValue();
+    for (const auto &[property, old_value] : *properties) {
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction, storage->name_id_mapper_.get());
+      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(vertex, property, ExtendedPropertyType{},
+                                                       ExtendedPropertyType{old_value});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
+    }
+    if (transaction->constraint_verification_info) {
+      transaction->constraint_verification_info->RemovedProperty(vertex);
+    }
+    vertex->properties.ClearProperties();
+  });
 
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
