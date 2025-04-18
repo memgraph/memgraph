@@ -48,7 +48,7 @@ struct SnapshotCtx {
 void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx);
 void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
-class CoordinatorStateMachine : public state_machine {
+class CoordinatorStateMachine final : public state_machine {
  public:
   CoordinatorStateMachine(LoggerWrapper logger, LogStoreDurability log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;

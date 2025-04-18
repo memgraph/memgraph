@@ -66,10 +66,8 @@ class ReplicationInstanceConnector {
   std::chrono::seconds instance_down_timeout_sec_{5};
   bool is_alive_{false};
 
-  friend bool operator==(ReplicationInstanceConnector const &first, ReplicationInstanceConnector const &second) {
-    return first.client_ == second.client_ && first.last_response_time_ == second.last_response_time_ &&
-           first.is_alive_ == second.is_alive_;
-  }
+  friend bool operator==(ReplicationInstanceConnector const &first,
+                         ReplicationInstanceConnector const &second) = default;
 };
 
 }  // namespace memgraph::coordination

@@ -95,7 +95,7 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
-  auto UpdateReadsOnMainPolicy(bool enabled_reads_on_main) -> UpdateReadsOnMainPolicyStatus;
+  auto UpdateReadsOnMainPolicy(bool enabled_reads_on_main) const -> UpdateReadsOnMainPolicyStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
