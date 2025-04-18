@@ -32,7 +32,7 @@ jobs:
       - name: Get current date
         id: set_date
         run: |
-          current_date=$(date +'%Y%m%d')
+          current_date=$(date -u +'%Y%m%d')
           echo "Current date is: $current_date"
           echo "current_date=$current_date" >> $GITHUB_OUTPUT
 
@@ -200,7 +200,7 @@ jobs:
         run: |
           # Check if the 'date' input is empty; if so, compute today's date in YYYYMMDD format.
           if [ -z "${{ github.event.inputs.build_date }}" ]; then
-            build_date=$(date +'%Y%m%d')
+            build_date=$(date -u +'%Y%m%d')
           else
             build_date="${{ github.event.inputs.build_date }}"
           fi

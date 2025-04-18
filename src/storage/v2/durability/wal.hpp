@@ -385,11 +385,12 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
-RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
+std::optional<RecoveryInfo> LoadWal(
+    std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
+    std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

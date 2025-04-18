@@ -15,7 +15,7 @@ on:
         type: boolean
         description: "Run synchronous cluster"
         required: true
-        
+
 
 env:
   ARCH: 'amd'
@@ -86,7 +86,7 @@ jobs:
           trap "kill $CLEANUP_PID" EXIT
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 18000 --concurrency $NODES_NO --num-tenants 5 --recovery-time 600 --nemesis-start-sleep 480"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 14400 --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
           else
             ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit 25200 --concurrency $NODES_NO"
           fi
@@ -114,6 +114,13 @@ jobs:
         with:
           name: "Jepsen Report-${{ inputs.name }}"
           path: tests/jepsen/Jepsen.tar.gz
+
+      - name: Refresh Jepsen Cluster
+        if: always()
+        continue-on-error: true
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no $NODES_NO
 
       - name: Stop mgbuild container
         if: always()

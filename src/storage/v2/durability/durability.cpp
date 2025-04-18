@@ -588,25 +588,25 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items, enum_store, schema_info, find_edge);
-        recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
-        recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
-        recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
-
-        recovery_info.last_durable_timestamp = info.last_durable_timestamp;
-
-        if (recovery_info.next_timestamp != 0) {
-          last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
+        // Update recovery info data only if WAL file was used and its deltas loaded
+        if (info.has_value()) {
+          recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
+          recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
+          recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
+          recovery_info.last_durable_timestamp = info->last_durable_timestamp;
+          if (info->last_durable_timestamp) {
+            last_loaded_timestamp.emplace(info->last_durable_timestamp.value_or(0));
+          }
         }
 
-        auto last_loaded_timestamp_value = last_loaded_timestamp.value_or(0);
         if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
           // no history or new epoch, add it
-          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
+          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
           repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
           spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
-        } else if (epoch_history->back().second < last_loaded_timestamp_value) {
+        } else if (epoch_history->back().second < *last_loaded_timestamp) {
           // existing epoch, update with newer timestamp
-          epoch_history->back().second = last_loaded_timestamp_value;
+          epoch_history->back().second = *last_loaded_timestamp;
         }
 
       } catch (const RecoveryFailure &e) {
