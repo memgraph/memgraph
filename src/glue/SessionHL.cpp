@@ -279,8 +279,8 @@ bolt_map_t SessionHL::Pull(SessionHL::TEncoder *encoder, std::optional<int> n, s
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(const std::string &query,
                                                                              const bolt_map_t &params,
                                                                              const bolt_map_t &extra) {
-  auto get_params_pv = [params](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
-    auto params_pv = memgraph::storage::PropertyValue::map_t{};
+  auto get_params_pv = [params](storage::Storage const *storage) -> memgraph::storage::StringToPropertyValueMap {
+    auto params_pv = memgraph::storage::StringToPropertyValueMap{};
     params_pv.reserve(params.size());
     for (const auto &[key, bolt_param] : params) {
       params_pv.try_emplace(key, ToPropertyValue(bolt_param, storage));
