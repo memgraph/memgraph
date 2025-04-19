@@ -181,20 +181,6 @@
   [txn]
   (mgquery/collect-ids txn))
 
-(defn is-main?
-  "Tests if data instance is main. Returns bool true/false, catches all exceptions."
-  [bolt-conn]
-  (try
-    (utils/with-session bolt-conn session
-      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
-            role-vec (vec (apply concat role-map))
-            role (last role-vec)]
-        (info "Role:" role)
-        (info "is-main?" (= role "main"))
-        (= role "main")))
-    (catch Exception _
-      false)))
-
 (defrecord Client [nodes-config first-leader first-main license organization]
   jclient/Client
   ; Open Bolt connection to all nodes.
@@ -230,20 +216,29 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :add-nodes (if (and (hautils/data-instance? node) (is-main? bolt-conn))
-                     (let [max-idx (atom nil)]
+        :add-nodes (if (hautils/coord-instance? node)
+                     (let [max-idx (atom nil)
+                           bolt-routing-conn (utils/open-bolt-routing node)
+                     ]
                        (try
-                         (utils/with-session bolt-conn session
+                         (utils/with-session bolt-routing-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                           (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size}) (map :id) (reduce conj []) first)]
-                             (reset! max-idx local-idx)
-                             (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
+                           (let [res (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
+                                         (map :id)
+                                         (reduce conj [])
+                                         first)]
+                                      (reset! max-idx local-idx)
+                                      (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx}))]
+                            (dbclient/disconnect bolt-routing-conn)
+                            res))
 
                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                           (dbclient/disconnect bolt-routing-conn)
                            (utils/process-service-unavailable-exc op node))
 
                          (catch Exception e
+                           (dbclient/disconnect bolt-routing-conn)
                            ; Even if sync replica is down, nodes will get created on the main.
                            (cond
                                  (utils/sync-replica-down? e)
@@ -260,7 +255,9 @@
                                  (assoc op :type :info :value (str e))
 
                                  :else
-                                 (assoc op :type :fail :value (str e))))))
+                                 (assoc op :type :fail :value (str e)))))
+
+                     )
 
                      (assoc op :type :info :value "Not main data instance."))
 
@@ -425,14 +422,14 @@
                                        (map :value))
 
             failed-add-nodes (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :add-nodes (:f %)))
-                                       (map :value))
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :add-nodes (:f %)))
+                                  (map :value))
 
             failed-get-nodes (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :get-nodes (:f %)))
-                                       (map :value))
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :get-nodes (:f %)))
+                                  (map :value))
 
             si-reads  (->> history
                            (filter #(= :ok (:type %)))
@@ -556,11 +553,13 @@
         first-leader (random-coord (keys nodes-config))
         first-main (random-data-instance (keys nodes-config))
         organization (:organization opts)
-        license (:license opts)]
+        license (:license opts)
+        recovery-time (:recovery-time opts)
+        nemesis-start-sleep (:nemesis-start-sleep opts)]
     {:client    (Client. nodes-config first-leader first-main license organization)
      :checker   (checker/compose
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 900}
-     :nemesis-config (nemesis/create db nodes-config)}))
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time recovery-time}
+     :nemesis-config (nemesis/create db nodes-config nemesis-start-sleep)}))

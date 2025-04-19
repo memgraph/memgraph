@@ -18,10 +18,21 @@
   [node port]
   (str "bolt://" node ":" port))
 
+(defn bolt-routing-url
+  "Get URL for connecting using bolt+routing connection."
+  [node port]
+  (str "neo4j://" node ":" port))
+
 (defn open-bolt
   "Open Bolt connection to the node. All instances use port 7687, so it is hardcoded."
   [node]
   (dbclient/connect (URI. (bolt-url node 7687)) "" ""))
+
+; TODO: (andi) Add authentication
+(defn open-bolt-routing
+  "Open bolt+routing connection to the node."
+  [node]
+  (dbclient/connect (URI. (bolt-routing-url node 7687))))
 
 (defn random-nonempty-subset
   "Return a random nonempty subset of the input collection. Relies on the fact that first 3 instances from the collection are data instances
