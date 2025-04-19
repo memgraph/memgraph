@@ -15,6 +15,7 @@
 #include <span>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -47,27 +48,30 @@ struct Indices {
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices
-  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const;
-  void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp) const;
-  void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp) const;
-  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
-                    uint64_t exact_start_timestamp) const;
   void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                     std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
                     uint64_t exact_start_timestamp) const;
 
   void DropGraphClearIndices();
 
-  struct IndexStats {
-    std::vector<LabelId> label;
-    LabelPropertyIndex::IndexStats property_label;
-    std::vector<EdgeTypeId> edge_type;
-    EdgeTypePropertyIndex::IndexStats property_edge_type;
-    VectorIndex::IndexStats vector;
+  struct AbortProcessor {
+    LabelIndex::AbortProcessor label_;
+    LabelPropertyIndex::AbortProcessor property_label_;
+    EdgeTypeIndex::AbortProcessor edge_type_;
+
+    EdgeTypePropertyIndex::IndexStats property_edge_type_;
+    EdgePropertyIndex::IndexStats property_edge_;
+    // TODO: point? Nothing to abort, it gets build in Commit
+    // TODO: text?
+    VectorIndex::IndexStats vector_;
+
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+    void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+    void Process(Indices &indices, uint64_t start_timestamp);
   };
-  IndexStats Analysis() const;
+
+  auto GetAbortProcessor() const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`
@@ -96,6 +100,7 @@ struct Indices {
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
+  std::unique_ptr<EdgePropertyIndex> edge_property_index_;
   mutable TextIndex text_index_;
   PointIndexStorage point_index_;
   mutable VectorIndex vector_index_;

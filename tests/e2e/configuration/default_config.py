@@ -122,6 +122,11 @@ startup_config_dict = {
         "false",
         "Controls whether the index creation can be done in a multithreaded fashion.",
     ),
+    "storage_parallel_snapshot_creation": (
+        "false",
+        "false",
+        "If true, snapshots will be created using --storage-snapshot-thread-count number of treads.",
+    ),
     "storage_parallel_schema_recovery": (
         "false",
         "false",
@@ -179,6 +184,7 @@ startup_config_dict = {
         "true",
         "Controls whether updating a property with the same value should create a delta object.",
     ),
+    "storage_access_timeout_sec": ("1", "1", "Query's storage level access timeout in seconds."),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (
@@ -187,6 +193,7 @@ startup_config_dict = {
         "The number of edges and vertices stored in a batch in a snapshot file.",
     ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
+    "storage_snapshot_thread_count": ("12", "12", "The number of threads used to create snapshots."),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "0",

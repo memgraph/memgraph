@@ -102,14 +102,8 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabel & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByLabel & /*unused*/) override { return true; }
 
-  bool PreVisit(ScanAllByLabelPropertyRange & /*unused*/) override { return true; }
-  bool PostVisit(ScanAllByLabelPropertyRange & /*unused*/) override { return true; }
-
-  bool PreVisit(ScanAllByLabelPropertyValue & /*unused*/) override { return true; }
-  bool PostVisit(ScanAllByLabelPropertyValue & /*unused*/) override { return true; }
-
-  bool PreVisit(ScanAllByLabelProperty & /*unused*/) override { return true; }
-  bool PostVisit(ScanAllByLabelProperty & /*unused*/) override { return true; }
+  bool PreVisit(ScanAllByLabelProperties & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByLabelProperties & /*unused*/) override { return true; }
 
   bool PreVisit(ScanAllById & /*unused*/) override { return true; }
   bool PostVisit(ScanAllById & /*unused*/) override { return true; }
@@ -128,6 +122,15 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByEdgeProperty & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgeProperty & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByEdgePropertyValue & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgePropertyValue & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByEdgePropertyRange & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgePropertyRange & /*unused*/) override { return true; }
 
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeId & /*unused*/) override { return true; }

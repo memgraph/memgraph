@@ -1008,8 +1008,11 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     return py::FetchError();
   }
   for (auto &cache_entry : current_record_cache) {
-    auto maybe_exc =
-        InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, cache_entry.field_val);
+    // move ownership of the value to avoid double free
+    // no longer the cache's responsibility to cleanup this value
+    // as InsertField will take ownership
+    auto *field_val = std::exchange(cache_entry.field_val, nullptr);
+    auto maybe_exc = InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, field_val);
     if (maybe_exc) return maybe_exc;
   }
 

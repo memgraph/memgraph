@@ -3,12 +3,31 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
 
+(dbclient/defquery update-pokec-nodes
+  "unwind range($param, $param + 100) as x
+  match (n:User {id: x})
+  set n.prop = {int_value: 1, double_value: 2.2, string_value: 'little_string', list_value: [1, 2, 3], map_value: {nested_obj: {value: 1, str_value: 'nested_prop'}}, date_value: date(), datetime_value: localdatetime()};
+  ")
+
+(dbclient/defquery create-ttl-edges
+  "unwind range($param, $param + 100) as x
+  match (n:User {id: x}) match (n:User {id: x + 100}) CREATE (n)-[:KNOWS {ttl: timestamp() + timestamp(duration({minute: 1})) }]->(m);
+  ")
+
+(dbclient/defquery delete-ttl-edges
+  "MATCH (n)-[r:KNOWS]->(m) where r.ttl < timestamp() WITH r LIMIT 1000 DELETE r;
+  ")
+
 (defn create-database
   "Creates DB with name 'db'."
   [db]
   (dbclient/create-query
    (let [query (str "CREATE DATABASE " db)]
      query)))
+
+(dbclient/defquery create-ttl-edge-idx
+  "create edge index on :KNOWS(ttl);
+  ")
 
 (dbclient/defquery create-label-idx
   "
@@ -23,14 +42,14 @@
 ; Path inside the container
 (dbclient/defquery import-pokec-medium-nodes
   "
-  LOAD CSV FROM '/opt/memgraph/datasets/pokec_medium/nodes.csv' WITH HEADER AS row
+  LOAD CSV FROM '/opt/memgraph/datasets/nodes.csv' WITH HEADER AS row
   CREATE (:User {id: row.id});
   ")
 
 ; Path inside the container
 (dbclient/defquery import-pokec-medium-edges
   "
-  LOAD CSV FROM '/opt/memgraph/datasets/pokec_medium/relationships.csv' WITH HEADER AS row
+  LOAD CSV FROM '/opt/memgraph/datasets/relationships.csv' WITH HEADER AS row
   MATCH (n1:User {id: row.from_id})
   MATCH (n2:User {id: row.to_id})
   CREATE (n1)-[:KNOWS]->(n2);
@@ -90,9 +109,11 @@
   [name node-config]
   (info "name" name "node-config" node-config)
   (dbclient/create-query
-   (let [query
+   (let [async-suffix (if (= "async" (:replica-type node-config)) " AS ASYNC" "")
+         query
          (str "REGISTER INSTANCE "
               name
+              async-suffix
               " WITH CONFIG {'bolt_server': '"
               name
               ":7687', "

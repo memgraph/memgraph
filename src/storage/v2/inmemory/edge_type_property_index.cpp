@@ -15,9 +15,10 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
-#include "storage/v2/inmemory/property_constants.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
 
 namespace memgraph::storage {
@@ -88,10 +89,10 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
                                                           std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &specific_index : index_) {
+  for (auto &[key, index] : index_) {
     if (token.stop_requested()) return;
 
-    auto edges_acc = specific_index.second.access();
+    auto edges_acc = index.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
       if (maybe_stop() && token.stop_requested()) return;
 
@@ -114,8 +115,9 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
       const bool redundant_duplicate = has_next && it->value == next_it->value &&
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
+      auto const &[_, property] = key;
       if (redundant_duplicate || vertices_deleted || edge_deleted ||
-          !AnyVersionHasProperty(*it->edge, specific_index.first.second, it->value, oldest_active_start_timestamp)) {
+          !AnyVersionHasProperty(*it->edge, property, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
 
@@ -248,88 +250,13 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Access
   if (lower_bound_ && !upper_bound_) {
     // Here we need to supply an upper bound. The upper bound is set to an
     // exclusive lower bound of the following type.
-    switch (lower_bound_->value().type()) {
-      case PropertyValue::Type::Null:
-        // This shouldn't happen because of the nullopt-ing above.
-        LOG_FATAL("Invalid database state!");
-        break;
-      case PropertyValue::Type::Bool:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
-        break;
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-        // Both integers and doubles are treated as the same type in
-        // `PropertyValue` and they are interleaved when sorted.
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
-        break;
-      case PropertyValue::Type::String:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
-        break;
-      case PropertyValue::Type::List:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
-        break;
-      case PropertyValue::Type::Map:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
-        break;
-      case PropertyValue::Type::TemporalData:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
-        break;
-      case PropertyValue::Type::ZonedTemporalData:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
-        break;
-      case PropertyValue::Type::Enum:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-        break;
-      case PropertyValue::Type::Point2d:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-        break;
-      case PropertyValue::Type::Point3d:
-        // This is the last type in the order so we leave the upper bound empty.
-        break;
-    }
+    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
   }
+
   if (upper_bound_ && !lower_bound_) {
     // Here we need to supply a lower bound. The lower bound is set to an
     // inclusive lower bound of the current type.
-    switch (upper_bound_->value().type()) {
-      case PropertyValue::Type::Null:
-        // This shouldn't happen because of the nullopt-ing above.
-        LOG_FATAL("Invalid database state!");
-        break;
-      case PropertyValue::Type::Bool:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
-        break;
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-        // Both integers and doubles are treated as the same type in
-        // `PropertyValue` and they are interleaved when sorted.
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
-        break;
-      case PropertyValue::Type::String:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
-        break;
-      case PropertyValue::Type::List:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
-        break;
-      case PropertyValue::Type::Map:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
-        break;
-      case PropertyValue::Type::TemporalData:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
-        break;
-      case PropertyValue::Type::ZonedTemporalData:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
-        break;
-      case PropertyValue::Type::Enum:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
-        break;
-      case PropertyValue::Type::Point2d:
-        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-        break;
-      case PropertyValue::Type::Point3d:
-        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-        break;
-    }
+    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
   }
 }
 
@@ -358,23 +285,10 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (self_->lower_bound_) {
-      if (index_iterator_->value < self_->lower_bound_->value()) {
-        continue;
-      }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-        continue;
-      }
-    }
-    if (self_->upper_bound_) {
-      if (self_->upper_bound_->value() < index_iterator_->value) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
+    if (!IsValueIncludedByLowerBound(index_iterator_->value, self_->lower_bound_)) continue;
+    if (!IsValueIncludedByUpperBound(index_iterator_->value, self_->upper_bound_)) {
+      index_iterator_ = self_->index_accessor_.end();
+      break;
     }
 
     if (!CurrentEdgeVersionHasProperty(*index_iterator_->edge, self_->property_, index_iterator_->value,

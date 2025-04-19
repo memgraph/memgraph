@@ -11,6 +11,18 @@
 
 #include "storage/v2/durability/snapshot.hpp"
 
+#include <fmt/core.h>
+#include <openssl/x509v3.h>
+#include <sys/sendfile.h>
+#include <sys/stat.h>
+#include <atomic>
+#include <cstdint>
+#include <filesystem>
+#include <future>
+#include <limits>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
 #include <usearch/index_plugins.hpp>
 
@@ -42,8 +54,14 @@
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+using namespace std::chrono_literals;
+namespace {
+constexpr auto kCheckIfSnapshotAborted = 3s;
+}  // namespace
 
 namespace memgraph::storage::durability {
 
@@ -125,6 +143,196 @@ namespace memgraph::storage::durability {
 struct BatchInfo {
   uint64_t offset;
   uint64_t count;
+};
+
+constexpr auto kEnd = std::numeric_limits<int64_t>::max();
+
+// Result of a partial snapshot creation
+struct SnapshotPartialRes {
+  std::vector<BatchInfo> batch_info{};      // Batch information in the current part
+  std::unordered_set<uint64_t> used_ids{};  // Used ids in the current part
+  uint64_t count{0};                        // Number of handled elements
+  std::filesystem::path snapshot_path{};    // File location
+  size_t snapshot_size{0};                  // Size of the file
+};
+
+class SafeTaskQueue {
+ public:
+  using task_t = std::function<void()>;
+  SafeTaskQueue() = default;
+
+  // Add a task to the queue.
+  void AddTask(task_t task) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    tasks_.push(std::move(task));
+  }
+
+  std::optional<task_t> PopTask() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (tasks_.empty()) {
+      return std::nullopt;
+    }
+    auto task = std::move(tasks_.front());
+    tasks_.pop();
+    return std::move(task);
+  }
+
+  auto size() const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return tasks_.size();
+  }
+
+ private:
+  mutable std::mutex mtx_;
+  std::queue<task_t> tasks_;
+};
+
+using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bool>>>;
+
+void WaitAndCombine(task_results_t &partial_results, Encoder &snapshot_encoder, uint64_t &element_count,
+                    std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
+                    auto &&snapshot_aborted) {
+  // NOTE: They have to be combined in order
+  for (auto &[res, promise] : partial_results) {
+    promise.get_future().wait();  // Wait for incoming result
+
+    spdlog::trace("Handling snapshot part {}, size {}, count {}...", res.snapshot_path, res.snapshot_size, res.count);
+    utils::OnScopeExit cleanup{[path = res.snapshot_path] {
+      std::error_code ec;
+      std::filesystem::remove(path, ec);
+      if (ec) spdlog::warn("Couldn't remove temporary snapshot part {}: {}", path, ec.message());
+    }};
+
+    if (snapshot_aborted()) {
+      continue;  // Run through and clean up
+    }
+
+    if (res.snapshot_size > 0) {
+      element_count += res.count;
+      used_ids.merge(std::move(res.used_ids));
+      const auto current_offset = snapshot_encoder.GetPosition();
+      // Update batch positions
+      for (auto &[offset, _] : res.batch_info) {
+        offset += current_offset;
+      }
+      // TODO Regenerate batches (currently could be less then optimal)
+      batch_infos.insert(batch_infos.end(), std::make_move_iterator(res.batch_info.begin()),
+                         std::make_move_iterator(res.batch_info.end()));
+      // Append the edge part to the snapshot
+      int part_fd = open(res.snapshot_path.string().c_str(), O_RDONLY);
+      if (part_fd == -1) {
+        throw RecoveryFailure("Couldn't open snapshot part {}!", res.snapshot_path);
+      }
+      utils::OnScopeExit cleanup{[part_fd] { close(part_fd); }};
+      // Use sendfile for efficient copying (zero-copy)
+      off_t offset = 0;
+      const auto size = res.snapshot_size - offset;
+      ssize_t bytes_sent = sendfile(snapshot_encoder.native_handle(), part_fd, &offset, size);
+      if (bytes_sent == -1 || bytes_sent != size) {
+        throw RecoveryFailure("Couldn't copy edge part to snapshot!");
+      }
+      snapshot_encoder.SetPosition(current_offset + size);
+    }
+  }
+}
+
+// Return at least one batch (at least 2 elements: start and end gid)
+auto Batch(auto &&acc, const uint64_t items_per_batch) {
+  // Skiplist sizes can change, last thread will pick up any new elements. In the end, these will be skiped (MVCC)
+  const auto n_batches = (items_per_batch < 1) ? 1 : (acc.size() + items_per_batch - 1) / items_per_batch;
+
+  if (n_batches < 2) {
+    // Single batch, scan whole skiplist
+    return std::vector<int64_t>{0, kEnd};
+  }
+
+  // TODO Use sampling iterator (after composite index)
+  std::vector<int64_t> batches(n_batches + 1, kEnd);  // start and end gids
+  batches[0] = 0;                                     // Always start from the lowest possible
+  int i = 0;
+  int batch_id = 1;
+  for (const auto &elem : acc) {
+    if (items_per_batch == i++) {
+      batches[batch_id++] = elem.gid.AsInt();  // This batch's start ID and previous batch's end ID
+      i = 1;                                   // 1 on purpose, as the first element is already in the batch
+      // Check if we have enough batches
+      if (batch_id == n_batches) break;
+    }
+  }
+  return batches;
+}
+
+void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
+                           auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
+                           uint64_t &offset_vertices, Encoder &snapshot_encoder, uint64_t &edges_count,
+                           uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
+                           std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
+                           uint64_t thread_count, auto &&snapshot_aborted) {
+  SafeTaskQueue tasks;
+
+  // Generate edge tasks
+  std::vector<int64_t> edge_batch_gid{};
+  task_results_t edge_res{};
+  if (edges != nullptr) {  // No edges skiplist <=> no properties on edges
+    edge_batch_gid = Batch(edges->access(), items_per_batch);
+    edge_res = task_results_t{edge_batch_gid.size() - 1};  // last element is an end marker
+    for (int id = 0; id < edge_res.size(); ++id) {
+      tasks.AddTask([&edge_res, &partial_edge_handler, id, start_gid = edge_batch_gid[id],
+                     end_gid = edge_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
+        // Create workers temporary file
+        {
+          Encoder edges_snapshot;
+          const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
+          edges_snapshot.Initialize(snapshot_path);
+          // Fill snapshot with edges
+          edge_res[id].first = partial_edge_handler(start_gid, end_gid, edges_snapshot);
+          edges_snapshot.Finalize();
+        }
+        // Signal that the snapshot is done
+        edge_res[id].second.set_value(true);
+      });
+    }
+  }
+
+  // Generate vertex tasks
+  auto vertex_batch_gid = Batch(vertices->access(), items_per_batch);
+  task_results_t vertex_res(vertex_batch_gid.size() - 1);  // last element is an end marker
+  for (int id = 0; id < vertex_res.size(); ++id) {
+    tasks.AddTask([&vertex_res, &partial_vertex_handler, id, start_gid = vertex_batch_gid[id],
+                   end_gid = vertex_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
+      // Create workers temporary file
+      {
+        Encoder vertex_snapshot;
+        const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
+        vertex_snapshot.Initialize(snapshot_path);
+        // Fill snapshot with edges
+        vertex_res[id].first = partial_vertex_handler(start_gid, end_gid, vertex_snapshot);
+        vertex_snapshot.Finalize();
+      }
+      // Signal that the snapshot is done
+      vertex_res[id].second.set_value(true);
+    });
+  }
+
+  const auto n_workers = std::min(thread_count, tasks.size());
+  std::vector<std::jthread> workers;
+  workers.reserve(n_workers);
+  for (int i = 0; i < n_workers; ++i) {
+    workers.emplace_back([&, i] {
+      utils::ThreadSetName("snapshot" + std::to_string(i));
+      while (true) {
+        auto task = tasks.PopTask();
+        if (!task) break;  // No more tasks; if aborted, run through all tasks to mark them as done
+        (*task)();         // Execute the task
+      }
+    });
+  }
+
+  // Wait for tasks to finish and combine results as they come in
+  if (!edge_res.empty()) offset_edges = snapshot_encoder.GetPosition();  // 0 -> edges without properties
+  WaitAndCombine(edge_res, snapshot_encoder, edges_count, edge_batch_infos, used_ids, snapshot_aborted);
+  offset_vertices = snapshot_encoder.GetPosition();
+  WaitAndCombine(vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted);
 };
 
 // Function used to read information about the snapshot file.
@@ -480,17 +688,18 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     {
       auto props_size = snapshot.ReadUint();
       if (!props_size) throw RecoveryFailure("Couldn't read size of vertex properties!");
-      auto &props = it->properties;
-      read_properties.clear();
-      read_properties.reserve(*props_size);
-      for (uint64_t j = 0; j < *props_size; ++j) {
-        auto key = snapshot.ReadUint();
-        if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-        auto value = snapshot.ReadPropertyValue();
-        if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
-        read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
+      if (*props_size != 0) {
+        read_properties.clear();
+        read_properties.reserve(*props_size);
+        for (uint64_t j = 0; j < *props_size; ++j) {
+          auto key = snapshot.ReadUint();
+          if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
+          auto value = snapshot.ReadPropertyValue();
+          if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
+          read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
+        }
+        it->properties.InitProperties(std::move(read_properties));
       }
-      props.InitProperties(std::move(read_properties));
     }
 
     // Update schema info
@@ -693,7 +902,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-            if (edge == edge_acc.end()) throw RecoveryFailure(":ouldn't find edge in the loaded edges!");
+            if (edge == edge_acc.end()) throw RecoveryFailure("Couldn't find edge in the loaded edges!");
             edge_ref = EdgeRef(&*edge);
           } else {
             auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
@@ -756,22 +965,18 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   }
 }
 
-RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, SalientConfig::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  Decoder snapshot;
-  auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (*version != 14U) throw RecoveryFailure(fmt::format("Expected snapshot version is 14, but got {}", *version));
-
   // Cleanup of loaded data in case of failure.
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  const utils::OnScopeExit cleanup([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -784,7 +989,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -1130,8 +1335,8 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -1175,7 +1380,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -1237,24 +1442,18 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
   return {info, ret, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version != 15U) throw RecoveryFailure(fmt::format("Expected snapshot version is 15, but got {}", *version));
-
   // Cleanup of loaded data in case of failure.
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  const utils::OnScopeExit cleanup([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -1267,7 +1466,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -1311,29 +1510,6 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -1356,6 +1532,29 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -1422,8 +1621,9 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -1467,7 +1667,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -1529,24 +1729,18 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version != 16U) throw RecoveryFailure(fmt::format("Expected snapshot version is 16, but got {}", *version));
-
   // Cleanup of loaded data in case of failure.
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  const utils::OnScopeExit cleanup([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -1559,7 +1753,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -1603,29 +1797,6 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -1648,6 +1819,29 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -1734,8 +1928,8 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -1767,10 +1961,11 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -1813,7 +2008,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -1875,18 +2070,14 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -1947,29 +2138,6 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -1992,6 +2160,29 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -2078,8 +2269,8 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -2111,10 +2302,11 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2198,7 +2390,7 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -2262,19 +2454,15 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
 
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
 /// hence same load for 18 will work for 19
-RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesystem::path &path,
+                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                            utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
                                             memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -2374,29 +2562,6 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -2419,6 +2584,29 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -2505,8 +2693,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -2538,10 +2726,11 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -2581,7 +2770,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
         if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type + property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property of edge-type + property index!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_property,
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_type_property,
                                     {get_edge_type_from_id(*edge_type), get_property_from_id(*property)},
                                     "The edge-type + property index already exists!");
         SPDLOG_TRACE("Recovered metadata of edge-type index for :{}({})",
@@ -2644,7 +2833,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -2706,19 +2895,15 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
+                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                            utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                             SharedSchemaTracking *schema_info, const Config &config,
                                             memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -2818,29 +3003,6 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
   edge_count->store(0, std::memory_order_release);
 
   {
-    spdlog::info("Recovering edges.");
-    // Recover edges.
-    if (snapshot_has_edges) {
-      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
-      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
-      // affect what it does:
-      // 1. If properties are allowed on edges, then it loads the edges.
-      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
-      if (!snapshot.SetPosition(info.offset_edge_batches)) {
-        throw RecoveryFailure("Couldn't read data from snapshot!");
-      }
-      const auto edge_batches = ReadBatchInfos(snapshot);
-
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          },
-          edge_batches);
-    }
-    spdlog::info("Edges are recovered.");
-
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.", info.vertices_count);
     uint64_t last_vertex_gid{0};
@@ -2863,6 +3025,29 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
         vertex_batches);
 
     spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          },
+          edge_batches);
+    }
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -2949,8 +3134,8 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -2982,10 +3167,11 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -3025,7 +3211,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
         if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type + property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property of edge-type + property index!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_property,
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_type_property,
                                     {get_edge_type_from_id(*edge_type), get_property_from_id(*property)},
                                     "The edge-type + property index already exists!");
         SPDLOG_TRACE("Recovered metadata of edge-type index for :{}({})",
@@ -3110,7 +3296,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -3136,7 +3322,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
     // Recover type constraints.
     // Snapshot version should be checked since type constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kPointIndexAndTypeConstraints) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
 
@@ -3201,49 +3387,20 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                               std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
-                               memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
+                                            utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                            utils::SkipList<EdgeMetadata> *edges_metadata,
+                                            std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                            NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                            const Config &config, memgraph::storage::EnumStore *enum_store,
+                                            SharedSchemaTracking *schema_info,
+                                            std::optional<SnapshotObserverInfo> const &snapshot_info) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
-  Decoder snapshot;
-  const auto version = snapshot.Initialize(path, kSnapshotMagic);
-  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
-  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version == 14U) {
-    return LoadSnapshotVersion14(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config.salient.items);
-  }
-  if (*version == 15U) {
-    return LoadSnapshotVersion15(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config);
-  }
-  if (*version == 16U) {
-    return LoadSnapshotVersion16(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config);
-  }
-  if (*version == 17U) {
-    return LoadSnapshotVersion17(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 schema_info, config);
-  }
-  if (*version == 18U || *version == 19U) {
-    return LoadSnapshotVersion18or19(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                     schema_info, config, enum_store);
-  }
-  if (*version == 20U || *version == 21U) {
-    return LoadSnapshotVersion20or21(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                     schema_info, config, enum_store);
-  }
-  // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
-
   // Cleanup of loaded data in case of failure.
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  const utils::OnScopeExit cleanup([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -3257,7 +3414,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -3339,6 +3496,30 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   edge_count->store(0, std::memory_order_release);
 
   {
+    // Recover vertices (labels and properties).
+    spdlog::info("Recovering vertices.", info.vertices_count);
+    uint64_t last_vertex_gid{0};
+
+    if (!snapshot.SetPosition(info.offset_vertex_batches)) {
+      throw RecoveryFailure("Couldn't read data from snapshot!");
+    }
+
+    const auto vertex_batches = ReadBatchInfos(snapshot);
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+         &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch =
+              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                  get_property_from_id, snapshot_info);
+          if (batch_index == vertex_batches.size() - 1) {
+            last_vertex_gid = last_vertex_gid_in_batch;
+          }
+        },
+        vertex_batches);
+
+    spdlog::info("Vertices are recovered.");
+
     spdlog::info("Recovering edges.");
     // Recover edges.
     if (snapshot_has_edges) {
@@ -3352,43 +3533,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      {
-        RecoverOnMultipleThreads(
-            config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
-                const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
-            },
-            edge_batches);
-      }
-      spdlog::info("Edges are recovered.");
-    }
-
-    // Recover vertices (labels and properties).
-    spdlog::info("Recovering vertices.");
-    uint64_t last_vertex_gid{0};
-
-    if (!snapshot.SetPosition(info.offset_vertex_batches)) {
-      throw RecoveryFailure("Couldn't read data from snapshot!");
-    }
-
-    const auto vertex_batches = ReadBatchInfos(snapshot);
-    {
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto last_vertex_gid_in_batch =
-                LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
-                                    get_property_from_id, snapshot_info);
-            if (batch_index == vertex_batches.size() - 1) {
-              last_vertex_gid = last_vertex_gid_in_batch;
-            }
+          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
           },
-          vertex_batches);
+          edge_batches);
     }
-
-    spdlog::info("Vertices are recovered.");
+    spdlog::info("Edges are recovered.");
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
@@ -3398,26 +3551,24 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    {
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-           snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result =
-                LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset,
-                                        batch.count, items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
-            edge_count->fetch_add(result.edge_count);
-            auto known_highest_edge_gid = highest_edge_gid.load();
-            while (known_highest_edge_gid < result.highest_edge_id) {
-              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-            }
-            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-          },
-          vertex_batches);
+    RecoverOnMultipleThreads(
+        config.durability.recovery_thread_count,
+        [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
+         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+         &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+          const auto result =
+              LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
+                                      items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
+          edge_count->fetch_add(result.edge_count);
+          auto known_highest_edge_gid = highest_edge_gid.load();
+          while (known_highest_edge_gid < result.highest_edge_id) {
+            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
+          }
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+        },
+        vertex_batches);
 
-      spdlog::info("Connectivity is recovered.");
-    }
+    spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
@@ -3477,8 +3628,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
-                                    {get_label_from_id(*label), get_property_from_id(*property)},
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), {get_property_from_id(*property)}},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -3510,10 +3661,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         const auto avg_degree = snapshot.ReadDouble();
         if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
-        const auto property_id = get_property_from_id(*property);
+        auto property_id = std::vector{get_property_from_id(*property)};
         indices_constraints.indices.label_property_stats.emplace_back(
-            label_id, std::make_pair(property_id, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
-                                                                          *avg_group_size, *avg_degree}));
+            label_id,
+            std::make_pair(std::move(property_id), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                           *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
@@ -3546,14 +3698,14 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     {
       // Recover edge-type + property indices.
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
+      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type+property indices");
       spdlog::info("Recovering metadata of {} edge-type indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto edge_type = snapshot.ReadUint();
         if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type + property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property of edge-type + property index!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_property,
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_type_property,
                                     {get_edge_type_from_id(*edge_type), get_property_from_id(*property)},
                                     "The edge-type + property index already exists!");
         SPDLOG_TRACE("Recovered metadata of edge-type index for :{}({})",
@@ -3679,7 +3831,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kUniqueConstraintVersion) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
@@ -3705,7 +3857,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Recover type constraints.
     // Snapshot version should be checked since type constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kPointIndexAndTypeConstraints) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
 
@@ -3770,6 +3922,644 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
+RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem::path const &path,
+                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                             utils::SkipList<EdgeMetadata> *edges_metadata,
+                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                             Config const &config, EnumStore *enum_store,
+                                             SharedSchemaTracking *schema_info,
+                                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // Cleanup of loaded data in case of failure.
+
+  RecoveryInfo recovery_info;
+  RecoveredIndicesAndConstraints indices_constraints;
+
+  bool success = false;
+  auto const cleanup = utils::OnScopeExit([&] {
+    if (!success) {
+      edges->clear();
+      vertices->clear();
+      edges_metadata->clear();
+      epoch_history->clear();
+      enum_store->clear();
+    }
+  });
+
+  // Read snapshot info.
+  const auto info = ReadSnapshotInfo(path);
+  spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
+  // Check for edges.
+  bool const snapshot_has_edges = info.offset_edges != 0;
+
+  // Recover mapper.
+  std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
+  {
+    spdlog::info("Recovering mapper metadata.");
+    if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
+
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
+
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto id = snapshot.ReadUint();
+      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
+      auto name = snapshot.ReadString();
+      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
+      auto my_id = name_id_mapper->NameToId(*name);
+      snapshot_id_map.emplace(*id, my_id);
+      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
+    }
+  }
+
+  // Recover enums.
+  // TODO: when we have enum deletion/edits we will need to handle remapping
+  {
+    spdlog::info("Recovering metadata of enums.");
+    if (!snapshot.SetPosition(info.offset_enums)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_ENUMS) {
+      throw RecoveryFailure("Couldn't read section enums marker!");
+    }
+
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Couldn't read the number of enums!");
+    spdlog::info("Recovering metadata of {} enums.", *size);
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto etype = snapshot.ReadString();
+      if (!etype) throw RecoveryFailure("Couldn't read enum type of enums!");
+
+      auto value_count = snapshot.ReadUint();
+      if (!value_count) throw RecoveryFailure("Couldn't read enum values length of enums!");
+
+      auto evalues = std::vector<std::string>{};
+      evalues.reserve(*value_count);
+      for (uint64_t j = 0; j < *value_count; ++j) {
+        auto evalue = snapshot.ReadString();
+        if (!evalue) throw RecoveryFailure("Couldn't read enum value of enums!");
+        evalues.emplace_back(*std::move(evalue));
+      }
+
+      auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
+      if (ret.HasError()) {
+        throw RecoveryFailure("The enum could not be created!");
+      }
+    }
+    spdlog::info("Metadata of enums are recovered.");
+  }
+
+  auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
+    auto it = snapshot_id_map.find(label_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find label id in snapshot_id_map!");
+    return LabelId::FromUint(it->second);
+  };
+  auto get_property_from_id = [&snapshot_id_map](uint64_t property_id) {
+    auto it = snapshot_id_map.find(property_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find property id in snapshot_id_map!");
+    return PropertyId::FromUint(it->second);
+  };
+  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t edge_type_id) {
+    auto it = snapshot_id_map.find(edge_type_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find edge type id in snapshot_id_map!");
+    return EdgeTypeId::FromUint(it->second);
+  };
+
+  // Reset current edge count.
+  edge_count->store(0, std::memory_order_release);
+
+  {
+    // Recover vertices (labels and properties).
+    spdlog::info("Recovering vertices.");
+    uint64_t last_vertex_gid{0};
+
+    if (!snapshot.SetPosition(info.offset_vertex_batches)) {
+      throw RecoveryFailure("Couldn't read data from snapshot!");
+    }
+
+    const auto vertex_batches = ReadBatchInfos(snapshot);
+    {
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch =
+                LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                    get_property_from_id, snapshot_info);
+            if (batch_index == vertex_batches.size() - 1) {
+              last_vertex_gid = last_vertex_gid_in_batch;
+            }
+          },
+          vertex_batches);
+    }
+
+    spdlog::info("Vertices are recovered.");
+
+    spdlog::info("Recovering edges.");
+    // Recover edges.
+    if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
+      if (!snapshot.SetPosition(info.offset_edge_batches)) {
+        throw RecoveryFailure("Couldn't read data from snapshot!");
+      }
+      const auto edge_batches = ReadBatchInfos(snapshot);
+
+      {
+        RecoverOnMultipleThreads(
+            config.durability.recovery_thread_count,
+            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
+                const size_t /*batch_index*/, const BatchInfo &batch) {
+              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
+            },
+            edge_batches);
+      }
+    }
+    spdlog::info("Edges are recovered.");
+
+    // Recover vertices (in/out edges).
+    spdlog::info("Recover connectivity.");
+    recovery_info.vertex_batches.reserve(vertex_batches.size());
+    for (const auto batch : vertex_batches) {
+      recovery_info.vertex_batches.emplace_back(Gid::FromUint(0), batch.count);
+    }
+    std::atomic<uint64_t> highest_edge_gid{0};
+
+    {
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
+           snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+            const auto result =
+                LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset,
+                                        batch.count, items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
+            edge_count->fetch_add(result.edge_count);
+            auto known_highest_edge_gid = highest_edge_gid.load();
+            while (known_highest_edge_gid < result.highest_edge_id) {
+              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
+            }
+            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+          },
+          vertex_batches);
+    }
+    spdlog::info("Connectivity is recovered.");
+
+    // Set initial values for edge/vertex ID generators.
+    recovery_info.next_edge_id = highest_edge_gid + 1;
+    recovery_info.next_vertex_id = last_vertex_gid + 1;
+  }
+
+  // Recover indices.
+  {
+    spdlog::info("Recovering metadata of indices.");
+    if (!snapshot.SetPosition(info.offset_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Couldn't read section indices!");
+
+    // Recover label indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of label indices");
+      spdlog::info("Recovering metadata of {} label indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of label index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label, get_label_from_id(*label),
+                                    "The label index already exists!");
+        SPDLOG_TRACE("Recovered metadata of label index for :{}", name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of label indices are recovered.");
+    }
+
+    // Recover label indices statistics.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of entries for label index statistics!");
+      spdlog::info("Recovering metadata of {} label indices statistics.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label while recovering label index statistics!");
+        const auto count = snapshot.ReadUint();
+        if (!count) throw RecoveryFailure("Couldn't read count for label index statistics!");
+        const auto avg_degree = snapshot.ReadDouble();
+        if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
+        const auto label_id = get_label_from_id(*label);
+        indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
+        SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of label indices are recovered.");
+    }
+
+    // Recover label+property indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of label properties indices.");
+      spdlog::info("Recovering metadata of {} label+properties indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
+        auto properties = std::invoke([&]() {
+          auto n_props = snapshot.ReadUint();
+          if (!n_props) throw RecoveryFailure("Couldn't read number of properties for label properties index.");
+          std::vector<PropertyId> props;
+          props.reserve(*n_props);
+          for (uint64_t i = 0; i < *n_props; ++i) {
+            auto property = snapshot.ReadUint();
+            if (!property) throw RecoveryFailure("Couldn't read property for label properties index.");
+            props.emplace_back(get_property_from_id(*property));
+          }
+          return props;
+        });
+
+        auto properties_string =
+            properties |
+            ranges::views::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
+            ranges::views::join(", ") | ranges::_to_::to<std::string>;
+
+        AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
+                                    {get_label_from_id(*label), std::move(properties)},
+                                    "The label+property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+      }
+      spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    // Recover label+property indices statistics.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for label property statistics!");
+      spdlog::info("Recovering metadata of {} label+property indices statistics.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        const auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for label property index statistics!");
+        auto n_props = snapshot.ReadUint();
+        if (!n_props)
+          throw RecoveryFailure("Couldn't read the number of properties for label property index statistics!");
+        std::vector<PropertyId> properties;
+        properties.reserve(*n_props);
+        for (auto i = 0; i != *n_props; ++i) {
+          const auto property = snapshot.ReadUint();
+          if (!property) throw RecoveryFailure("Couldn't read property for label property index statistics!");
+          const auto property_id = get_property_from_id(*property);
+          properties.emplace_back(property_id);
+        }
+        const auto count = snapshot.ReadUint();
+        if (!count) throw RecoveryFailure("Couldn't read count for label property index statistics!!");
+        const auto distinct_values_count = snapshot.ReadUint();
+        if (!distinct_values_count)
+          throw RecoveryFailure("Couldn't read distinct values count for label property index statistics!");
+        const auto statistic = snapshot.ReadDouble();
+        if (!statistic) throw RecoveryFailure("Couldn't read statistics value for label-property index statistics!");
+        const auto avg_group_size = snapshot.ReadDouble();
+        if (!avg_group_size)
+          throw RecoveryFailure("Couldn't read average group size for label property index statistics!");
+        const auto avg_degree = snapshot.ReadDouble();
+        if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
+        const auto label_id = get_label_from_id(*label);
+        indices_constraints.indices.label_property_stats.emplace_back(
+            label_id,
+            std::make_pair(std::move(properties), LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                          *avg_group_size, *avg_degree}));
+        SPDLOG_TRACE("Recovered metadata of label+property index statistics for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    spdlog::info("Recovering metadata of indices.");
+    if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_EDGE_INDICES)
+      throw RecoveryFailure("Couldn't read section edge-indices!");
+
+    {
+      // Recover edge-type indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
+      spdlog::info("Recovering metadata of {} edge-type indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto edge_type = snapshot.ReadUint();
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge, get_edge_type_from_id(*edge_type),
+                                    "The edge-type index already exists!");
+        SPDLOG_TRACE("Recovered metadata of edge-type index for :{}",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)));
+      }
+      spdlog::info("Metadata of edge-type indices are recovered.");
+    }
+    {
+      // Recover edge-type + property indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
+      spdlog::info("Recovering metadata of {} edge-type indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto edge_type = snapshot.ReadUint();
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type + property index!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of edge-type + property index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_type_property,
+                                    {get_edge_type_from_id(*edge_type), get_property_from_id(*property)},
+                                    "The edge-type + property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of edge-type index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of edge-type + property indices are recovered.");
+    }
+
+    {
+      // Recover global edge property indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of global edge property indices");
+      spdlog::info("Recovering metadata of {} global edge property indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of global edge property index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_property, get_property_from_id(*property),
+                                    "The global edge property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of global edge property index for ({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of global edge property indices are recovered.");
+    }
+
+    // Recover point indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of point indices!");
+      spdlog::info("Recovering metadata of {} point indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for point index!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property for point index");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.point_label_property,
+                                    {get_label_from_id(*label), get_property_from_id(*property)},
+                                    "The point index already exists!");
+        SPDLOG_TRACE("Recovered metadata of point index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of point indices are recovered.");
+    }
+
+    // Recover vector indices.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of vector indices!");
+      spdlog::info("Recovering metadata of {} vector indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+
+        // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
+        // same name
+        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&index_name](const auto &vector_index) {
+              return vector_index.index_name == index_name;
+            })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
+
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read vector index property!");
+        auto metric = snapshot.ReadString();
+        if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
+        auto metric_kind = VectorIndex::MetricFromName(metric.value());
+        auto dimension = snapshot.ReadUint();
+        if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
+        auto resize_coefficient = snapshot.ReadUint();
+        if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
+        auto capacity = snapshot.ReadUint();
+        if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", *index_name,
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+
+        indices_constraints.indices.vector_indices.emplace_back(
+            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
+            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity);
+      }
+      spdlog::info("Metadata of vector indices are recovered.");
+    }
+
+    // Recover text indices.
+    // NOTE: while this is experimental and hence optional
+    //       it must be last in the SECTION_INDICES
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
+      spdlog::info("Recovering metadata of {} text indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read text index label!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
+                                    {index_name.value(), get_label_from_id(*label)}, "The text index already exists!");
+        SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of text indices are recovered.");
+    }
+
+    spdlog::info("Metadata of indices are recovered.");
+  }
+
+  // Recover constraints.
+  {
+    spdlog::info("Recovering metadata of constraints.");
+    if (!snapshot.SetPosition(info.offset_constraints)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_CONSTRAINTS)
+      throw RecoveryFailure("Couldn't read section constraints marker!");
+
+    // Recover existence constraints.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of existence constraints!");
+      spdlog::info("Recovering metadata of {} existence constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of existence constraints!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of existence constraints!");
+        AddRecoveredIndexConstraint(&indices_constraints.constraints.existence,
+                                    {get_label_from_id(*label), get_property_from_id(*property)},
+                                    "The existence constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata of existence constraint for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of existence constraints are recovered.");
+    }
+
+    // Recover unique constraints.
+    // Snapshot version should be checked since unique constraints were
+    // implemented in later versions of snapshot.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
+      spdlog::info("Recovering metadata of {} unique constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of unique constraints!");
+        auto properties_count = snapshot.ReadUint();
+        if (!properties_count) throw RecoveryFailure("Couldn't read the number of properties in unique constraint!");
+        std::set<PropertyId> properties;
+        for (uint64_t j = 0; j < *properties_count; ++j) {
+          auto property = snapshot.ReadUint();
+          if (!property) throw RecoveryFailure("Couldn't read property of unique constraint!");
+          properties.insert(get_property_from_id(*property));
+        }
+        AddRecoveredIndexConstraint(&indices_constraints.constraints.unique, {get_label_from_id(*label), properties},
+                                    "The unique constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata of unique constraints for :{}",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of unique constraints are recovered.");
+    }
+
+    // Recover type constraints.
+    // Snapshot version should be checked since type constraints were
+    // implemented in later versions of snapshot.
+    {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
+
+      spdlog::info("Recovering metadata of {} type constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of type constraints!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of type constraint!");
+        auto type = snapshot.ReadUint();
+        if (!type) throw RecoveryFailure("Couldn't read type of type constraint!");
+
+        AddRecoveredIndexConstraint(
+            &indices_constraints.constraints.type,
+            {get_label_from_id(*label), get_property_from_id(*property), static_cast<TypeConstraintKind>(*type)},
+            "The type constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata for IS TYPED {} constraint for :{}({})",
+                     TypeConstraintKindToString(static_cast<TypeConstraintKind>(*type)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of type constraints are recovered.");
+    }
+
+    spdlog::info("Metadata of constraints are recovered.");
+  }
+
+  spdlog::info("Recovering metadata.");
+  // Recover epoch history
+  {
+    if (!snapshot.SetPosition(info.offset_epoch_history)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    const auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Couldn't read section epoch history marker!");
+
+    const auto history_size = snapshot.ReadUint();
+    if (!history_size) {
+      throw RecoveryFailure("Couldn't read history size!");
+    }
+
+    for (int i = 0; i < *history_size; ++i) {
+      auto maybe_epoch_id = snapshot.ReadString();
+      if (!maybe_epoch_id) {
+        throw RecoveryFailure("Couldn't read maybe epoch id!");
+      }
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read maybe last durable timestamp!");
+      }
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
+    }
+  }
+
+  spdlog::info("Metadata recovered.");
+  // Recover timestamp.
+  recovery_info.next_timestamp = info.start_timestamp + 1;
+
+  // Set success flag (to disable cleanup).
+  success = true;
+
+  return {info, recovery_info, std::move(indices_constraints)};
+}
+
+RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
+                               utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+                               std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
+                               memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
+                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  Decoder snapshot;
+  const auto version = snapshot.Initialize(path, kSnapshotMagic);
+  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
+
+  switch (*version) {
+    case 14U: {
+      return LoadSnapshotVersion14(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config.salient.items);
+    }
+    case 15U: {
+      return LoadSnapshotVersion15(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config);
+    }
+    case 16U: {
+      return LoadSnapshotVersion16(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config);
+    }
+    case 17U: {
+      return LoadSnapshotVersion17(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, schema_info, config);
+    }
+    case 18U:
+    case 19U: {
+      return LoadSnapshotVersion18or19(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                       edge_count, schema_info, config, enum_store);
+    }
+    case 20U:
+    case 21U: {
+      return LoadSnapshotVersion20or21(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                       edge_count, schema_info, config, enum_store);
+    }
+    case 22U:
+    case 23U: {
+      // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
+      return LoadSnapshotVersion22or23(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                       edge_count, config, enum_store, schema_info, snapshot_info);
+    }
+    case 24U: {
+      return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                        edge_count, config, enum_store, schema_info, snapshot_info);
+    }
+
+    default: {
+      // `IsVersionSupported` checks that the version is within the supported
+      // range. This catches the case of the version having been updated but no
+      // matching implementation yet having being written.
+      MG_ASSERT(false, "Trying to load snapshot for unimplemented version");
+    }
+  }
+}
+
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles old_snapshot_files, Transaction *transaction,
@@ -3783,6 +4573,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
+      spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will NOT be deleted.", item.path(), e.what());
       // TODO If we want to do this we need a way to protect current wal file
       // We can't get the engine lock here
       // Maybe the file locker can help us. Careful, in any case we don't really want to delete it by accident.
@@ -3852,7 +4643,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
   std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
   if (old_snapshot_files.size() <= storage->config_.durability.snapshot_retention_count - 1) return old_snapshot_files;
 
-  uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
+  const uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
     file_retainer->DeleteFile(snapshot_path);
@@ -3861,12 +4652,23 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
   return old_snapshot_files;
 }
 
-void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                    utils::FileRetainer *file_retainer) {
+                    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot) {
+  utils::Timer timer;
+
+  auto const snapshot_aborted = [abort_snapshot, &timer]() -> bool {
+    if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
+      const bool abort = abort_snapshot != nullptr && abort_snapshot->load(std::memory_order_acquire);
+      if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also retrun true
+      return abort;
+    }
+    return false;
+  };
+
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
@@ -3923,15 +4725,33 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteUint(mapping.AsUint());
   };
 
-  std::vector<BatchInfo> edge_batch_infos;
-  auto items_in_current_batch{0UL};
-  auto batch_start_offset{0UL};
-  // Store all edges.
-  if (storage->config_.salient.items.properties_on_edges) {
-    offset_edges = snapshot.GetPosition();
-    batch_start_offset = offset_edges;
+  // Specify destination for the mapper data (used in multi-threaded)
+  auto write_mapping_to = [](auto &snapshot, auto &used_ids, auto mapping) {
+    used_ids.insert(mapping.AsUint());
+    snapshot.WriteUint(mapping.AsUint());
+  };
+
+  // Store edges.
+  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to](
+                                  int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
+    if (start_gid >= end_gid) return {};
+
+    SnapshotPartialRes res{};
+    res.snapshot_path = edges_snapshot.GetPath();
+    auto items_in_current_batch{0UL};
+    auto batch_start_offset = edges_snapshot.GetPosition();
+
     auto acc = edges->access();
-    for (auto &edge : acc) {
+
+    // Comparison start <= elem.gid < end with GID is important here because we need to
+    // ensure that we are not reading elemets that are not in the batch.
+    auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
+    for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
+      if (snapshot_aborted()) {
+        break;
+      }
+
+      auto &edge = *it;
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
       bool is_visible = true;
@@ -3977,38 +4797,55 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
       // Store the edge.
       {
-        snapshot.WriteMarker(Marker::SECTION_EDGE);
-        snapshot.WriteUint(edge.gid.AsUint());
+        edges_snapshot.WriteMarker(Marker::SECTION_EDGE);
+        edges_snapshot.WriteUint(edge.gid.AsUint());
         const auto &props = maybe_props.GetValue();
-        snapshot.WriteUint(props.size());
+        edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
-          write_mapping(item.first);
-          snapshot.WritePropertyValue(item.second);
+          write_mapping_to(edges_snapshot, res.used_ids, item.first);
+          edges_snapshot.WritePropertyValue(item.second);
         }
       }
 
-      ++edges_count;
+      ++res.count;
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
-        edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
-        batch_start_offset = snapshot.GetPosition();
+        res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+        batch_start_offset = edges_snapshot.GetPosition();
         items_in_current_batch = 0;
       }
     }
-  }
+    res.snapshot_size = edges_snapshot.GetSize();
 
-  if (items_in_current_batch > 0) {
-    edge_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
-  }
+    if (items_in_current_batch > 0) {
+      // Needs updating before appending to the snapshot
+      res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+    }
 
-  std::vector<BatchInfo> vertex_batch_infos;
-  // Store all vertices.
-  {
-    items_in_current_batch = 0;
-    offset_vertices = snapshot.GetPosition();
-    batch_start_offset = offset_vertices;
+    return res;
+  };
+
+  // Store vertices.
+  auto partial_vertex_handler = [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to](
+                                    int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
+    if (start_gid >= end_gid) return {};
+
+    SnapshotPartialRes res;
+    res.snapshot_path = vertex_snapshot.GetPath();
+    auto items_in_current_batch = 0UL;
+    auto batch_start_offset = vertex_snapshot.GetPosition();
+
     auto acc = vertices->access();
-    for (auto &vertex : acc) {
+
+    // Comparison start <= elem.gid < end with GID is important here because we need to
+    // ensure that we are not reading elemets that are not in the batch.
+    auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
+    for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
+      if (snapshot_aborted()) {
+        break;
+      }
+
+      auto &vertex = *it;
       // The visibility check is implemented for vertices so we use it here.
       auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
       if (!va) continue;
@@ -4027,62 +4864,100 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
       // Store the vertex.
       {
-        snapshot.WriteMarker(Marker::SECTION_VERTEX);
-        snapshot.WriteUint(vertex.gid.AsUint());
+        vertex_snapshot.WriteMarker(Marker::SECTION_VERTEX);
+        vertex_snapshot.WriteUint(vertex.gid.AsUint());
         const auto &labels = maybe_labels.GetValue();
-        snapshot.WriteUint(labels.size());
+        vertex_snapshot.WriteUint(labels.size());
         for (const auto &item : labels) {
-          write_mapping(item);
+          write_mapping_to(vertex_snapshot, res.used_ids, item);
         }
         const auto &props = maybe_props.GetValue();
-        snapshot.WriteUint(props.size());
+        vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
-          write_mapping(item.first);
-          snapshot.WritePropertyValue(item.second);
+          write_mapping_to(vertex_snapshot, res.used_ids, item.first);
+          vertex_snapshot.WritePropertyValue(item.second);
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
         const auto &out_edges = maybe_out_edges.GetValue().edges;
 
         if (storage->config_.salient.items.properties_on_edges) {
-          snapshot.WriteUint(in_edges.size());
+          vertex_snapshot.WriteUint(in_edges.size());
           for (const auto &item : in_edges) {
-            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
-          snapshot.WriteUint(out_edges.size());
+          vertex_snapshot.WriteUint(out_edges.size());
           for (const auto &item : out_edges) {
-            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
         } else {
-          snapshot.WriteUint(in_edges.size());
+          vertex_snapshot.WriteUint(in_edges.size());
           for (const auto &item : in_edges) {
-            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
-          snapshot.WriteUint(out_edges.size());
+          vertex_snapshot.WriteUint(out_edges.size());
           for (const auto &item : out_edges) {
-            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
-            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-            write_mapping(item.EdgeType());
+            vertex_snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            vertex_snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping_to(vertex_snapshot, res.used_ids, item.EdgeType());
           }
         }
       }
 
-      ++vertices_count;
+      ++res.count;
       ++items_in_current_batch;
       if (items_in_current_batch == storage->config_.durability.items_per_batch) {
-        vertex_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
-        batch_start_offset = snapshot.GetPosition();
+        res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+        batch_start_offset = vertex_snapshot.GetPosition();
         items_in_current_batch = 0;
       }
     }
 
     if (items_in_current_batch > 0) {
-      vertex_batch_infos.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+      // This needs to be updated
+      res.batch_info.push_back(BatchInfo{batch_start_offset, items_in_current_batch});
+    }
+
+    res.snapshot_size = vertex_snapshot.GetSize();
+    return res;
+  };
+
+  std::vector<BatchInfo> edge_batch_infos;
+  std::vector<BatchInfo> vertex_batch_infos;
+
+  if (storage->config_.durability.allow_parallel_snapshot_creation) {
+    auto *edge_ptr = storage->config_.salient.items.properties_on_edges ? edges : nullptr;
+    MultiThreadedWorkflow(edge_ptr, vertices, partial_edge_handler, partial_vertex_handler,
+                          storage->config_.durability.items_per_batch, offset_edges, offset_vertices, snapshot,
+                          edges_count, vertices_count, edge_batch_infos, vertex_batch_infos, used_ids,
+                          storage->config_.durability.snapshot_thread_count, snapshot_aborted);
+  } else {
+    if (storage->config_.salient.items.properties_on_edges) {
+      offset_edges = snapshot.GetPosition();  // Global edge offset
+      // Handle edges
+      const auto res = partial_edge_handler(0, kEnd, snapshot);
+      edges_count = res.count;
+      edge_batch_infos = res.batch_info;
+      used_ids.insert(res.used_ids.begin(), res.used_ids.end());
+    }
+    if (snapshot_aborted()) {
+      return false;
+    }
+    {
+      offset_vertices = snapshot.GetPosition();  // Global vertex offset
+      // Handle vertices
+      const auto res = partial_vertex_handler(0, kEnd, snapshot);
+      vertices_count = res.count;
+      vertex_batch_infos = res.batch_info;
+      used_ids.insert(res.used_ids.begin(), res.used_ids.end());
+    }
+    if (snapshot_aborted()) {
+      return false;
     }
   }
 
@@ -4097,6 +4972,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
+      }
+      if (snapshot_aborted()) {
+        return false;
       }
     }
 
@@ -4123,15 +5001,24 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(i);  // Write real size
         snapshot.SetPosition(last_pos);
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
 
-    // Write label+property indices.
+    // Write label+properties indices.
     {
       auto label_property = storage->indices_.label_property_index_->ListIndices();
       snapshot.WriteUint(label_property.size());
-      for (const auto &item : label_property) {
-        write_mapping(item.first);
-        write_mapping(item.second);
+      for (const auto &[label, properties] : label_property) {
+        write_mapping(label);
+        snapshot.WriteUint(properties.size());
+        for (auto prop : properties) {
+          write_mapping(prop);
+        }
+      }
+      if (snapshot_aborted()) {
+        return false;
       }
     }
 
@@ -4146,8 +5033,12 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : label) {
         auto stats = inmem_index->GetIndexStats(item);
         if (stats) {
+          // TODO: should we use write_mapping for the label + properties here?
           snapshot.WriteUint(item.first.AsUint());
-          snapshot.WriteUint(item.second.AsUint());
+          snapshot.WriteUint(item.second.size());
+          for (auto const &prop : item.second) {
+            snapshot.WriteUint(prop.AsUint());
+          }
           snapshot.WriteUint(stats->count);
           snapshot.WriteUint(stats->distinct_values_count);
           snapshot.WriteDouble(stats->statistic);
@@ -4162,6 +5053,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(i);  // Write real size
         snapshot.SetPosition(last_pos);
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
 
     // Write edge-type indices.
@@ -4173,6 +5067,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &item : edge_type) {
         write_mapping(item);
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
 
     // Write edge-type + property indices.
@@ -4183,6 +5080,18 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item.first);
         write_mapping(item.second);
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
+    }
+
+    // Write global edge property indices.
+    {
+      auto indices = storage->indices_.edge_property_index_->ListIndices();
+      snapshot.WriteUint(indices.size());
+      for (const auto &property : indices) {
+        write_mapping(property);
+      }
     }
 
     // Write point indices.
@@ -4192,6 +5101,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &[label, property] : point_keys) {
         write_mapping(label);
         write_mapping(property);
+      }
+      if (snapshot_aborted()) {
+        return false;
       }
     }
 
@@ -4209,6 +5121,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(resize_coefficient);
         snapshot.WriteUint(capacity);
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
 
     // Write text indices.
@@ -4218,6 +5133,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &[index_name, label] : text_indices) {
         snapshot.WriteString(index_name);
         write_mapping(label);
+      }
+      if (snapshot_aborted()) {
+        return false;
       }
     }
   }
@@ -4235,6 +5153,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(item.first);
         write_mapping(item.second);
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
 
     // Write unique constraints.
@@ -4248,6 +5169,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
           write_mapping(property);
         }
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
     // Write type constraints
     {
@@ -4258,6 +5182,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         write_mapping(property);
         snapshot.WriteUint(static_cast<uint64_t>(type));
       }
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
   }
 
@@ -4266,9 +5193,15 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_mapper = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_MAPPER);
     snapshot.WriteUint(used_ids.size());
-    for (auto item : used_ids) {
+    // Sort ids so they match expectations
+    std::vector<uint64_t> sorted_ids(used_ids.begin(), used_ids.end());
+    std::sort(sorted_ids.begin(), sorted_ids.end());
+    for (auto item : sorted_ids) {
       snapshot.WriteUint(item);
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
+    }
+    if (snapshot_aborted()) {
+      return false;
     }
   }
 
@@ -4287,6 +5220,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteString(evalue);
       }
     }
+    if (snapshot_aborted()) {
+      return false;
+    }
   }
 
   // Write epoch history
@@ -4297,6 +5233,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     for (const auto &[epoch_id, last_durable_timestamp] : epoch_history) {
       snapshot.WriteString(epoch_id);
       snapshot.WriteUint(last_durable_timestamp);
+    }
+    if (snapshot_aborted()) {
+      return false;
     }
   }
 
@@ -4312,32 +5251,47 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                                                      : transaction->start_timestamp);  // Fallback to start ts
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
+    if (snapshot_aborted()) {
+      return false;
+    }
   }
 
-  auto write_batch_infos = [&snapshot](const std::vector<BatchInfo> &batch_infos) {
+  auto write_batch_infos = [&snapshot, &snapshot_aborted](const std::vector<BatchInfo> &batch_infos) -> bool {
     snapshot.WriteUint(batch_infos.size());
     for (const auto &batch_info : batch_infos) {
       snapshot.WriteUint(batch_info.offset);
       snapshot.WriteUint(batch_info.count);
+      if (snapshot_aborted()) {
+        return false;
+      }
     }
+    return true;
   };
 
   // Write edge batches
   {
     offset_edge_batches = snapshot.GetPosition();
-    write_batch_infos(edge_batch_infos);
+    if (!write_batch_infos(edge_batch_infos)) {
+      return false;
+    }
   }
 
   // Write vertex batches
   {
     offset_vertex_batches = snapshot.GetPosition();
-    write_batch_infos(vertex_batch_infos);
+    if (!write_batch_infos(vertex_batch_infos)) {
+      return false;
+    }
   }
 
   // Write true offsets.
   {
     snapshot.SetPosition(offset_offsets);
     write_offsets();
+  }
+
+  if (snapshot_aborted()) {
+    return false;
   }
 
   // Finalize snapshot file.
@@ -4354,6 +5308,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other
   // timestamp to use) and we are relaxing the ts checks on replica
+  return true;
 }
 
 }  // namespace memgraph::storage::durability

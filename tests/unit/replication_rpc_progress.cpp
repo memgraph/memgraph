@@ -23,21 +23,18 @@
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
-using memgraph::dbms::InMemoryReplicationHandlers;
 using memgraph::io::network::Endpoint;
 using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
-using memgraph::slk::Save;
 using memgraph::storage::Config;
-using memgraph::storage::Delta;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::ReplicaStream;
-using memgraph::storage::Storage;
 using memgraph::storage::replication::AppendDeltasReq;
 using memgraph::storage::replication::AppendDeltasRes;
 using memgraph::storage::replication::AppendDeltasRpc;
+using memgraph::storage::replication::CurrentWalRpc;
 using memgraph::storage::replication::Decoder;
 using memgraph::utils::UUID;
 
@@ -208,9 +205,9 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream = memgraph::storage::InMemoryCurrentWalHandler{UUID{}, &main_storage, client, false};
+  auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_NO_THROW(stream.Finalize());
+  EXPECT_NO_THROW(stream.AwaitResponseWhileInProgress());
 }
 
 // First send progress, then timeout
@@ -244,9 +241,9 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream = memgraph::storage::InMemoryCurrentWalHandler{UUID{}, &main_storage, client, false};
+  auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
 }
 
 // First send progress, then timeout
@@ -275,7 +272,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1, false);
+  auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
   EXPECT_NO_THROW(stream.AwaitResponseWhileInProgress());
 }
 
@@ -310,7 +307,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1, false);
+  auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
   EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
 }
 
@@ -350,12 +347,12 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   {
-    auto stream = memgraph::storage::InMemoryCurrentWalHandler{UUID{}, &main_storage, client, false};
-    EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+    auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
+    EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
   }
 
   {
-    auto wal_files_stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1, false);
+    auto wal_files_stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
     EXPECT_NO_THROW(wal_files_stream.AwaitResponseWhileInProgress());
   }
 }

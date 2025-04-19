@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -138,6 +138,36 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeProperty &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgePropertyValue &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgePropertyRange &op) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -293,29 +323,11 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllByLabelPropertyRange &op) override {
+  bool PreVisit(ScanAllByLabelProperties &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
-  bool PostVisit(ScanAllByLabelPropertyRange &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByLabelPropertyValue &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelPropertyValue &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByLabelProperty &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllByLabelProperty &) override {
+  bool PostVisit(ScanAllByLabelProperties &) override {
     prev_ops_.pop_back();
     return true;
   }

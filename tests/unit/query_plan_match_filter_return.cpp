@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -3113,7 +3113,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   EXPECT_EQ(result_vertex.Gid(), labeled_vertex.Gid());
 }
 
-TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
+TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
   // Add 5 vertices with same label, but with different property values.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
@@ -3149,7 +3149,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3211,34 +3211,16 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
     return a == b || (is_numeric(a) && is_numeric(b));
   };
 
-  auto is_orderable = [](const memgraph::storage::PropertyValue &t) {
-    return t.IsNull() || t.IsInt() || t.IsDouble() || t.IsString();
-  };
-
   // when a range contains different types, nothing should get returned
+  // TODO: extend what is orderable to match opencypher see "Orderability and equivalence"
   for (const auto &value_a : values) {
     for (const auto &value_b : values) {
-      if (are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
-                         static_cast<memgraph::storage::PropertyValue>(value_b).type()))
-        continue;
-      if (is_orderable(value_a) && is_orderable(value_b)) {
+      if (!are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
+                          static_cast<memgraph::storage::PropertyValue>(value_b).type())) {
         check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
-      } else {
-        EXPECT_THROW(
-            run_scan_all(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE),
-            QueryRuntimeException);
       }
     }
   }
-  // These should all raise an exception due to type mismatch when using
-  // `operator<`.
-  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::INCLUSIVE, TypedValue(true), Bound::Type::EXCLUSIVE),
-               QueryRuntimeException);
-  EXPECT_THROW(run_scan_all(TypedValue(false), Bound::Type::EXCLUSIVE, TypedValue(true), Bound::Type::INCLUSIVE),
-               QueryRuntimeException);
-  EXPECT_THROW(run_scan_all(TypedValue(std::vector<TypedValue>{TypedValue(0.5)}), Bound::Type::EXCLUSIVE,
-                            TypedValue(std::vector<TypedValue>{TypedValue(1.5)}), Bound::Type::INCLUSIVE),
-               QueryRuntimeException);
 }
 
 TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
@@ -3259,7 +3241,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3298,7 +3280,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3331,7 +3313,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3375,6 +3357,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
+    // CREATE (:label), (:label {prop: 42})
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
@@ -3386,14 +3369,14 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  // MATCH (n :label {prop: 42})
+  // MATCH (n :label {prop: null})
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, LITERAL(TypedValue()));
   // RETURN n
@@ -3422,7 +3405,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3455,7 +3438,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   }
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -3499,7 +3482,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 
   {
     auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 

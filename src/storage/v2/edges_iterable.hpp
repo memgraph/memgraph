@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,18 +14,20 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 
 namespace memgraph::storage {
 
 class InMemoryEdgeTypeIndex;
 
 class EdgesIterable final {
-  enum class Type { BY_EDGE_TYPE_IN_MEMORY, BY_EDGE_TYPE_PROPERTY_IN_MEMORY };
+  enum class Type { BY_EDGE_TYPE_IN_MEMORY, BY_EDGE_TYPE_PROPERTY_IN_MEMORY, BY_EDGE_PROPERTY_IN_MEMORY };
 
   Type type_;
   union {
     InMemoryEdgeTypeIndex::Iterable in_memory_edges_by_edge_type_;
     InMemoryEdgeTypePropertyIndex::Iterable in_memory_edges_by_edge_type_property_;
+    InMemoryEdgePropertyIndex::Iterable in_memory_edges_by_edge_property_;
   };
 
   void Destroy() noexcept;
@@ -33,6 +35,7 @@ class EdgesIterable final {
  public:
   explicit EdgesIterable(InMemoryEdgeTypeIndex::Iterable);
   explicit EdgesIterable(InMemoryEdgeTypePropertyIndex::Iterable);
+  explicit EdgesIterable(InMemoryEdgePropertyIndex::Iterable);
 
   EdgesIterable(const EdgesIterable &) = delete;
   EdgesIterable &operator=(const EdgesIterable &) = delete;
@@ -47,6 +50,7 @@ class EdgesIterable final {
     union {
       InMemoryEdgeTypeIndex::Iterable::Iterator in_memory_edges_by_edge_type_;
       InMemoryEdgeTypePropertyIndex::Iterable::Iterator in_memory_edges_by_edge_type_property_;
+      InMemoryEdgePropertyIndex::Iterable::Iterator in_memory_edges_by_edge_property_;
     };
 
     void Destroy() noexcept;
@@ -54,6 +58,7 @@ class EdgesIterable final {
    public:
     explicit Iterator(InMemoryEdgeTypeIndex::Iterable::Iterator);
     explicit Iterator(InMemoryEdgeTypePropertyIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryEdgePropertyIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);

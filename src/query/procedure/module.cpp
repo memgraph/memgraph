@@ -1369,8 +1369,8 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
-auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name)
-    -> find_result<T> {
+auto MakePairIfPropFound(const ModuleRegistry &module_registry,
+                         std::string_view fully_qualified_name) -> find_result<T> {
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
@@ -1411,18 +1411,18 @@ auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view
 }
 
 }  // namespace
-auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name)
-    -> find_result<mgp_proc> {
+auto FindProcedure(const ModuleRegistry &module_registry,
+                   std::string_view fully_qualified_procedure_name) -> find_result<mgp_proc> {
   return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
-    -> find_result<mgp_trans> {
+auto FindTransformation(const ModuleRegistry &module_registry,
+                        std::string_view fully_qualified_transformation_name) -> find_result<mgp_trans> {
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name);
 }
 
-auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name)
-    -> find_result<mgp_func> {
+auto FindFunction(const ModuleRegistry &module_registry,
+                  std::string_view fully_qualified_function_name) -> find_result<mgp_func> {
   return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name);
 }
 void ConstructArguments(std::span<TypedValue const> args, mgp_func const &callable, mgp_list &args_list,

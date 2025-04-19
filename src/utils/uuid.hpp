@@ -16,6 +16,7 @@
 #include "fmt/format.h"
 
 #include <array>
+// NOLINTNEXTLINE
 #include <nlohmann/json.hpp>
 #include <string>
 

@@ -17,28 +17,28 @@ from common import cursor, execute_and_fetch_all
 
 def test_removing_obsolete_indexes(cursor):
     index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
-    expected_index_info = {
+    expected_index_info = [
         ("label", "Node", None, 1000),
-        ("label+property", "Node", "id", 1000),
-    }
-    assert set(index_info) == expected_index_info
+        ("label+property", "Node", ["id"], 1000),
+    ]
+    assert index_info == expected_index_info
 
     cursor.execute("MATCH (n) SET n.id = n.id + 1000;")
 
     index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
-    expected_index_info = {
+    expected_index_info = [
         ("label", "Node", None, 1000),
-        ("label+property", "Node", "id", 2000),
-    }
-    assert set(index_info) == expected_index_info
+        ("label+property", "Node", ["id"], 2000),
+    ]
+    assert index_info == expected_index_info
 
     cursor.execute("FREE MEMORY;")
     index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
-    expected_index_info = {
+    expected_index_info = [
         ("label", "Node", None, 1000),
-        ("label+property", "Node", "id", 1000),
-    }
-    assert set(index_info) == expected_index_info
+        ("label+property", "Node", ["id"], 1000),
+    ]
+    assert index_info == expected_index_info
 
 
 if __name__ == "__main__":

@@ -74,19 +74,20 @@ void Session::Execute() {
   // over them.
   auto const it = server_->callbacks_.find(req_id);
   if (it == server_->callbacks_.end()) {
-    throw SessionException("Session trying to execute an unregistered RPC call!");
+    throw SessionException("Session trying to execute an unregistered RPC call!. Request id: {}",
+                           static_cast<uint64_t>(req_id));
   }
 
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
   try {
     it->second.callback(&req_reader, &res_builder);
+    // Finalize the SLK stream. It may fail because not all data has been read, that's fine.
+    req_reader.Finalize();
   } catch (const slk::SlkReaderException &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
     throw rpc::SlkRpcFailedException();
+  } catch (const slk::SlkReaderLeftoverDataException &) {
   }
-
-  // Finalize the SLK streams.
-  req_reader.Finalize();
 }
 
 }  // namespace memgraph::rpc

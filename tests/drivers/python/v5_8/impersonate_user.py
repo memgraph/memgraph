@@ -140,4 +140,13 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
     with driver.session(impersonated_user="user3") as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "user3"
 
+# Cleanup
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        session.run("DROP USER admin;").consume()
+        session.run("DROP USER user;").consume()
+        session.run("DROP USER user2;").consume()
+        session.run("DROP USER user3;").consume()
+
+
 print("All ok!")

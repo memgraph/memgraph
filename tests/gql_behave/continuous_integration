@@ -28,6 +28,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 TESTS_DIR = os.path.join(SCRIPT_DIR, "tests")
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
+LOG_LEVEL = "TRACE"
 
 
 def wait_for_server(port, delay=0.01):
@@ -102,13 +103,17 @@ class MemgraphRunner:
 
         self.data_directory = tempfile.TemporaryDirectory()
         memgraph_binary = os.path.join(self.build_directory, "memgraph")
+        log_dir = os.path.join(BASE_DIR, "tests", "gql_behave", "memgraph-logs")
+        os.makedirs(log_dir, exist_ok=True)
         args_mg = [
             memgraph_binary,
             "--storage-properties-on-edges=true",
             "--data-directory",
             self.data_directory.name,
             "--log-file",
-            str(os.path.join(BASE_DIR, "tests", "gql_behave", "memgraph.log")),
+            str(os.path.join(log_dir, "memgraph.log")),
+            "--log-level",
+            LOG_LEVEL,
             "--query-modules-directory",
             str(os.path.join(BUILD_DIR, "query_modules")),
         ]

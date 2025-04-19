@@ -17,14 +17,30 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
-#include "utils/uuid.hpp"
 
 #include <string>
 
 namespace memgraph::coordination {
 
-ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
-                                                     const std::chrono::seconds instance_health_check_frequency_sec)
+// clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define RpcInfoMetrics(RPC)                                     \
+  template <>                                                   \
+  auto const RpcInfo<RPC>::succCounter = metrics::RPC##Success; \
+  template <>                                                   \
+  auto const RpcInfo<RPC>::failCounter = metrics::RPC##Fail;    \
+  template <>                                                   \
+  auto const RpcInfo<RPC>::timerLabel = metrics::RPC##_us;
+
+RpcInfoMetrics(PromoteToMainRpc)
+RpcInfoMetrics(DemoteMainToReplicaRpc)
+RpcInfoMetrics(RegisterReplicaOnMainRpc)
+RpcInfoMetrics(UnregisterReplicaRpc)
+RpcInfoMetrics(EnableWritingOnMainRpc)
+    // clang-format on
+
+    ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+                                                         const std::chrono::seconds instance_health_check_frequency_sec)
     : rpc_context_{communication::ClientContext{}},
       rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
@@ -65,109 +81,36 @@ void ReplicationInstanceClient::StartStateCheck() {
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
-auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+auto ReplicationInstanceClient::GetReplicationClientInfo() const -> ReplicationClientInfo {
   return config_.replication_client_info;
-}
-
-auto ReplicationInstanceClient::SendPromoteToMainRpc(const utils::UUID &uuid,
-                                                     ReplicationClientsInfo replication_clients_info) const -> bool {
-  try {
-    spdlog::trace("Sending PromoteToMainRpc");
-    auto stream{rpc_client_.Stream<PromoteToMainRpc>(uuid, std::move(replication_clients_info))};
-    spdlog::trace("Awaiting response after sending PromoteToMainRpc");
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful PromoteToMainRpc response!");
-      return false;
-    }
-    spdlog::trace("Received successful response to PromoteToMainRPC");
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending PromoteToMainRpc!");
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
-  auto const &instance_name = config_.instance_name;
-  try {
-    auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
-      return false;
-    }
-    spdlog::trace("Received successful response to DemoteMainToReplicaRpc!");
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when demoting instance {} to replica!", instance_name);
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
-                                                       ReplicationClientInfo replication_client_info) const -> bool {
-  auto const instance_name = replication_client_info.instance_name;
-  try {
-    auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for registering replica instance {} on main!",
-                    instance_name);
-      return false;
-    }
-    spdlog::trace("Received successful response to RegisterReplicaOnMainRpc!");
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);
-  }
-  return false;
 }
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   try {
+    utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     auto res = stream.AwaitResponse();
+    metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
     return res.state;
-  } catch (rpc::RpcFailedException const &) {
+  } catch (rpc::RpcFailedException const &e) {
+    spdlog::error("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
+    metrics::IncrementCounter(metrics::StateCheckRpcFail);
     return {};
   }
 }
 
-auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
+auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
+    -> std::optional<replication_coordination_glue::InstanceInfo> {
   try {
-    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for unregistering replica!");
-      return false;
-    }
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when unregistering replica!");
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
-  try {
-    auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for enabling writing on main!");
-      return false;
-    }
-    return true;
-  } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to receive RPC response when enabling writing on main!");
-  }
-  return false;
-}
-
-auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
-    -> std::optional<replication_coordination_glue::DatabaseHistories> {
-  try {
+    utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.AwaitResponse();
-    return res.database_histories;
+    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
+    return res.instance_info;
 
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetInstanceTimestampRPC");
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
     return {};
   }
 }

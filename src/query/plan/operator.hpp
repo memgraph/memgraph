@@ -14,7 +14,6 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -22,10 +21,13 @@
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
@@ -41,6 +43,30 @@ class Frame;
 class SymbolTable;
 
 namespace plan {
+
+struct ExpressionRange {
+  using Type = PropertyFilter::Type;
+
+  Type type_;
+  std::optional<utils::Bound<Expression *>> lower_;
+  std::optional<utils::Bound<Expression *>> upper_;
+
+  static auto Equal(Expression *value) -> ExpressionRange;
+  static auto RegexMatch() -> ExpressionRange;
+  static auto Range(std::optional<utils::Bound<Expression *>> lower, std::optional<utils::Bound<Expression *>> upper)
+      -> ExpressionRange;
+  static auto In(Expression *value) -> ExpressionRange;
+  static auto IsNotNull() -> ExpressionRange;
+
+  auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
+  auto ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
+
+  ExpressionRange(ExpressionRange const &other, AstStorage &storage);
+
+ private:
+  ExpressionRange(Type type, std::optional<utils::Bound<Expression *>> lower,
+                  std::optional<utils::Bound<Expression *>> upper);
+};
 
 /// Base class for iteration cursors of @c LogicalOperator classes.
 ///
@@ -91,15 +117,16 @@ class CreateNode;
 class CreateExpand;
 class ScanAll;
 class ScanAllByLabel;
-class ScanAllByLabelPropertyRange;
-class ScanAllByLabelPropertyValue;
-class ScanAllByLabelProperty;
+class ScanAllByLabelProperties;
 class ScanAllById;
 class ScanAllByEdge;
 class ScanAllByEdgeType;
 class ScanAllByEdgeTypeProperty;
 class ScanAllByEdgeTypePropertyValue;
 class ScanAllByEdgeTypePropertyRange;
+class ScanAllByEdgeProperty;
+class ScanAllByEdgePropertyValue;
+class ScanAllByEdgePropertyRange;
 class ScanAllByEdgeId;
 class ScanAllByPointDistance;
 class ScanAllByPointWithinbbox;
@@ -139,13 +166,14 @@ class PeriodicCommit;
 class PeriodicSubquery;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
-    ScanAllByLabelProperty, ScanAllById, ScanAllByEdge, ScanAllByEdgeType, ScanAllByEdgeTypeProperty,
-    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance,
-    ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
-    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
+    ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange,
+    ScanAllByEdgeProperty, ScanAllByEdgePropertyValue, ScanAllByEdgePropertyRange, ScanAllByEdgeId,
+    ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
+    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
+    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
+    Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
+    PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -526,8 +554,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
 /// with a constructor argument.
 ///
 /// @sa ScanAllByLabel
-/// @sa ScanAllByLabelPropertyRange
-/// @sa ScanAllByLabelPropertyValue
+/// @sa ScanAllByLabelProperties
 class ScanAll : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
@@ -568,8 +595,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
 /// given label.
 ///
 /// @sa ScanAll
-/// @sa ScanAllByLabelPropertyRange
-/// @sa ScanAllByLabelPropertyValue
+/// @sa ScanAllByLabelProperties
 class ScanAllByLabel : public memgraph::query::plan::ScanAll {
  public:
   static const utils::TypeInfo kType;
@@ -772,54 +798,99 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
   }
 };
 
-/// Behaves like @c ScanAll, but produces only vertices with given label and
-/// property value which is inside a range (inclusive or exlusive).
-///
-/// @sa ScanAll
-/// @sa ScanAllByLabel
-/// @sa ScanAllByLabelPropertyValue
-class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
+class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByEdgeProperty() = default;
+  ScanAllByEdgeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                        Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
+                        storage::View view = storage::View::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+
+  storage::PropertyId property_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByEdgeProperty>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->common_ = common_;
+    object->view_ = view_;
+    object->property_ = property_;
+    return object;
+  }
+};
+
+class ScanAllByEdgePropertyValue : public memgraph::query::plan::ScanAllByEdge {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByEdgePropertyValue() = default;
+  ScanAllByEdgePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
+                             Expression *expression, storage::View view = storage::View::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+
+  storage::PropertyId property_;
+  Expression *expression_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByEdgePropertyValue>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->common_ = common_;
+    object->view_ = view_;
+    object->property_ = property_;
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+
+class ScanAllByEdgePropertyRange : public memgraph::query::plan::ScanAllByEdge {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   /** Bound with expression which when evaluated produces the bound value. */
   using Bound = utils::Bound<Expression *>;
-  ScanAllByLabelPropertyRange() = default;
-  /**
-   * Constructs the operator for given label and property value in range
-   * (inclusive).
-   *
-   * Range bounds are optional, but only one bound can be left out.
-   *
-   * @param input Preceding operator which will serve as the input.
-   * @param output_symbol Symbol where the vertices will be stored.
-   * @param label Label which the vertex must have.
-   * @param property Property from which the value will be looked up from.
-   * @param lower_bound Optional lower @c Bound.
-   * @param upper_bound Optional upper @c Bound.
-   * @param view storage::View used when obtaining vertices.
-   */
-  ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                              storage::LabelId label, storage::PropertyId property, std::optional<Bound> lower_bound,
-                              std::optional<Bound> upper_bound, storage::View view = storage::View::OLD);
+  ScanAllByEdgePropertyRange() = default;
 
+  ScanAllByEdgePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                             Symbol node2_symbol, EdgeAtom::Direction direction, storage::PropertyId property,
+                             std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
+                             storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
-  storage::LabelId label_;
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override;
+
   storage::PropertyId property_;
   std::optional<Bound> lower_bound_;
   std::optional<Bound> upper_bound_;
 
-  std::string ToString() const override;
-
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
-    auto object = std::make_unique<ScanAllByLabelPropertyRange>();
+    auto object = std::make_unique<ScanAllByEdgePropertyRange>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
-    object->label_ = label_;
     object->property_ = property_;
     if (lower_bound_) {
       object->lower_bound_.emplace(
@@ -833,18 +904,17 @@ class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
   }
 };
 
-/// Behaves like @c ScanAll, but produces only vertices with given label and
-/// property value.
+/// Behaves like @c ScanAll, but produces only vertices with matching label and
+/// whose properties are in the given property ranges.
 ///
 /// @sa ScanAll
 /// @sa ScanAllByLabel
-/// @sa ScanAllByLabelPropertyRange
-class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
+class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ScanAllByLabelPropertyValue() = default;
+  ScanAllByLabelProperties() = default;
   /**
    * Constructs the operator for given label and property value.
    *
@@ -855,64 +925,20 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
    * @param expression Expression producing the value of the vertex property.
    * @param view storage::View used when obtaining vertices.
    */
-  ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                              storage::LabelId label, storage::PropertyId property, Expression *expression,
-                              storage::View view = storage::View::OLD);
+  ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
+                           std::vector<storage::PropertyId> properties, std::vector<ExpressionRange> expression_ranges,
+                           storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
-  storage::PropertyId property_;
-  Expression *expression_;
+  std::vector<storage::PropertyId> properties_;
+  std::vector<ExpressionRange> expression_ranges_;
 
   std::string ToString() const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
-    auto object = std::make_unique<ScanAllByLabelPropertyValue>();
-    object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->view_ = view_;
-    object->label_ = label_;
-    object->property_ = property_;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    return object;
-  }
-};
-
-/// Behaves like @c ScanAll, but this operator produces only vertices with
-/// given label and property.
-///
-/// @sa ScanAll
-/// @sa ScanAllByLabelPropertyRange
-/// @sa ScanAllByLabelPropertyValue
-class ScanAllByLabelProperty : public memgraph::query::plan::ScanAll {
- public:
-  static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ScanAllByLabelProperty() = default;
-  ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                         storage::PropertyId property, storage::View view = storage::View::OLD);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-
-  storage::LabelId label_;
-  storage::PropertyId property_;
-  Expression *expression_;
-
-  std::string ToString() const override;
-
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
-    auto object = std::make_unique<ScanAllByLabelProperty>();
-    object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->view_ = view_;
-    object->label_ = label_;
-    object->property_ = property_;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    return object;
-  }
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
 /// ScanAll producing a single node with ID equal to evaluated expression
@@ -1392,18 +1418,45 @@ class Filter : public memgraph::query::plan::LogicalOperator {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      std::set<std::string, std::less<>> label_names;
+      std::set<std::string, std::less<>> AND_label_names;
       for (const auto &label : filter_expression->labels_) {
-        label_names.insert(label.name);
+        AND_label_names.insert(label.name);
+      }
+
+      // Generate OR label string only if there are OR labels
+      std::string OR_label_string;
+      if (!filter_expression->or_labels_.empty()) {
+        if (AND_label_names.empty()) {
+          // If there is no AND_labels or if there is only one OR_labels vector we
+          // don't need parentheses
+          OR_label_string =
+              filter_expression->or_labels_.size() == 1
+                  ? utils::IterableToString(filter_expression->or_labels_[0], "|",
+                                            [](const auto &label) { return label.name; })
+                  : utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+                      return fmt::format("({})", utils::IterableToString(label_vec, "|",
+                                                                         [](const auto &label) { return label.name; }));
+                    });
+          OR_label_string = fmt::format(":{}", OR_label_string);
+        } else {
+          OR_label_string = fmt::format(
+              ":{}", utils::IterableToString(filter_expression->or_labels_, ":", [](const auto &label_vec) {
+                return fmt::format(
+                    "({})", utils::IterableToString(label_vec, "|", [](const auto &label) { return label.name; }));
+              }));
+        }
+      }
+      std::string AND_label_string;
+      if (!AND_label_names.empty()) {
+        AND_label_string =
+            fmt::format(":{}", utils::IterableToString(AND_label_names, ":", [](const auto &label) { return label; }));
       }
 
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+        return fmt::format("({}{})", AND_label_string, OR_label_string);
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
-
-      return fmt::format("({} :{})", identifier_expression->name_,
-                         utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+      return fmt::format("({} {}{})", identifier_expression->name_, AND_label_string, OR_label_string);
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {

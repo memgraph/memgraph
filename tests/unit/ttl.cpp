@@ -13,6 +13,8 @@
 #include <chrono>
 #include <filesystem>
 #include <thread>
+#include <tuple>
+#include <type_traits>
 
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
@@ -21,6 +23,7 @@
 #include "query/time_to_live/time_to_live.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
@@ -39,8 +42,19 @@ int GetPart(auto &current) {
 }
 }  // namespace
 
-template <typename StorageType>
+template <typename TestType>
 class TTLFixture : public ::testing::Test {
+  using StorageType = typename std::tuple_element<0, TestType>::type;
+  using PropOnEdge = typename std::tuple_element<1, TestType>::type;
+
+ public:
+  bool HasPropOnEdge() const { return PropOnEdge::value; }
+
+  bool RunEdgeTTL() const {
+    return db_->config().salient.items.properties_on_edges &&
+           db_->GetStorageMode() != memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  }
+
  protected:
   const std::string testSuite = "ttl";
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
@@ -49,6 +63,7 @@ class TTLFixture : public ::testing::Test {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory_;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+        config.salient.items.properties_on_edges = PropOnEdge::value;
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
           config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
           config.force_on_disk = true;
@@ -86,15 +101,7 @@ class TTLFixture : public ::testing::Test {
 
   memgraph::query::ttl::TTL *ttl_{&db_->ttl()};
 
-  void SetUp() override {
-    {
-      auto acc = db_->Access();
-      for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
-        acc->DetachDeleteVertex({&v});
-      }
-      acc->Commit();
-    }
-  }
+  void SetUp() override {}
 
   void TearDown() override {
     db_->StopAllBackgroundTasks();
@@ -105,28 +112,34 @@ class TTLFixture : public ::testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_SUITE(TTLFixture, StorageTypes);
+using TestTypes = ::testing::Types<std::tuple<memgraph::storage::InMemoryStorage, std::true_type>,
+                                   std::tuple<memgraph::storage::InMemoryStorage, std::false_type>,
+                                   std::tuple<memgraph::storage::DiskStorage, std::true_type>,
+                                   std::tuple<memgraph::storage::DiskStorage, std::false_type>>;
+TYPED_TEST_SUITE(TTLFixture, TestTypes);
 
 TYPED_TEST(TTLFixture, EnableTest) {
   const memgraph::query::ttl::TtlInfo ttl_info{std::chrono::days(1), std::chrono::system_clock::now()};
   EXPECT_FALSE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
+               memgraph::query::ttl::TtlException);
   this->ttl_->Enable();
   EXPECT_TRUE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Configure({}), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
+               memgraph::query::ttl::TtlException);
   EXPECT_NO_THROW(this->ttl_->Configure(ttl_info));
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
   this->ttl_->Stop();
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
   this->ttl_->Disable();
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
+               memgraph::query::ttl::TtlException);
 }
 
 TYPED_TEST(TTLFixture, Periodic) {
@@ -166,7 +179,7 @@ TYPED_TEST(TTLFixture, Periodic) {
   }
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -224,7 +237,7 @@ TYPED_TEST(TTLFixture, StartTime) {
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(100),
                                                       std::chrono::system_clock::now() + std::chrono::seconds(3)});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   // Shouldn't start still
   for (int i = 0; i < 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -252,6 +265,109 @@ TYPED_TEST(TTLFixture, StartTime) {
     for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
       if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 4);
+  }
+}
+
+TYPED_TEST(TTLFixture, Edge) {
+  auto lbl = this->db_->storage()->NameToLabel("L");
+  auto prop = this->db_->storage()->NameToProperty("prop");
+  auto ttl_lbl = this->db_->storage()->NameToLabel("TTL");
+  auto ttl_prop = this->db_->storage()->NameToProperty("ttl");
+  auto et1 = this->db_->storage()->NameToEdgeType("t1");
+  auto et2 = this->db_->storage()->NameToEdgeType("t2");
+  auto now = std::chrono::system_clock::now();
+  auto older = now - std::chrono::seconds(10);
+  auto older_ts = std::chrono::duration_cast<std::chrono::microseconds>(older.time_since_epoch()).count();
+  auto newer = now + std::chrono::seconds(3);
+  auto newer_ts = std::chrono::duration_cast<std::chrono::microseconds>(newer.time_since_epoch()).count();
+  {
+    auto acc = this->db_->Access();
+    auto v1 = acc->CreateVertex();  // No label no property
+    auto v2 = acc->CreateVertex();  // A label a property
+    auto v3 = acc->CreateVertex();  // TTL label no ttl property
+    auto v4 = acc->CreateVertex();  // No TTL label, with ttl property
+    auto v5 = acc->CreateVertex();  // TTL label and ttl property (older)
+    auto v6 = acc->CreateVertex();  // TTL label and ttl property (newer)
+    ASSERT_FALSE(v2.AddLabel(lbl).HasError());
+    ASSERT_FALSE(v2.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasError());
+    ASSERT_FALSE(v3.AddLabel(ttl_lbl).HasError());
+    ASSERT_FALSE(v4.SetProperty(ttl_prop, memgraph::storage::PropertyValue(42)).HasError());
+    ASSERT_FALSE(v5.AddLabel(ttl_lbl).HasError());
+    ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
+    ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
+    ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
+
+    auto e1 = acc->CreateEdge(&v1, &v2, et1);  // stable vertices no ttl prop
+    ASSERT_TRUE(e1.HasValue());
+    auto e2 = acc->CreateEdge(&v1, &v2, et2);  // stable vertices older ttl ts
+    ASSERT_TRUE(e2.HasValue());
+    auto e3 = acc->CreateEdge(&v5, &v2, et1);  // older ttl vertex, no ttl prop
+    ASSERT_TRUE(e3.HasValue());
+    auto e4 = acc->CreateEdge(&v6, &v2, et1);  // newer ttl vertex, with older ttl prop
+    ASSERT_TRUE(e4.HasValue());
+    auto e5 = acc->CreateEdge(&v2, &v3, et1);  // stable vertices, newer ttl prop
+    ASSERT_TRUE(e5.HasValue());
+
+    if (this->HasPropOnEdge()) {  // edge prop enabled
+      ASSERT_FALSE(e2->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
+      ASSERT_FALSE(e4->SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
+      ASSERT_FALSE(e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
+    }
+
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+  {
+    auto acc = this->db_->Access();
+    size_t size = 0;
+    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
+    EXPECT_EQ(size, 6);
+  }
+  this->ttl_->Enable();
+  this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  {
+    auto acc = this->db_->Access();
+    size_t size = 0;
+    size_t edge_size = 0;
+    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
+      if (v.IsVisible(memgraph::storage::View::NEW)) {
+        ++size;
+        auto edges = v.OutEdges(memgraph::storage::View::NEW);
+        ASSERT_TRUE(edges.HasValue());
+        for (const auto e : edges.GetValue().edges) {
+          edge_size += e.IsVisible(memgraph::storage::View::NEW);
+        }
+      }
+    }
+    EXPECT_EQ(size, 5);
+    if (this->RunEdgeTTL()) {
+      EXPECT_EQ(edge_size, 2);
+    } else {
+      EXPECT_EQ(edge_size, 4);
+    }
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  {
+    auto acc = this->db_->Access();
+    size_t size = 0;
+    size_t edge_size = 0;
+    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
+      if (v.IsVisible(memgraph::storage::View::NEW)) {
+        ++size;
+        auto edges = v.OutEdges(memgraph::storage::View::NEW);
+        ASSERT_TRUE(edges.HasValue());
+        for (const auto e : edges.GetValue().edges) {
+          edge_size += e.IsVisible(memgraph::storage::View::NEW);
+        }
+      }
+    }
+    EXPECT_EQ(size, 4);
+    if (this->RunEdgeTTL()) {
+      EXPECT_EQ(edge_size, 1);
+    } else {
+      EXPECT_EQ(edge_size, 3);
+    }
   }
 }
 
@@ -298,7 +414,7 @@ TYPED_TEST(TTLFixture, Durability) {
       memgraph::query::ttl::TTL ttl(path);
       ttl.Enable();
       ttl.Configure(ttl_info);
-      ttl.Setup(this->db_, &this->interpreter_context_);
+      ttl.Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL());
     }
     {
       memgraph::query::ttl::TTL ttl(path);

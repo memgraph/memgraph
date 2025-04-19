@@ -43,7 +43,7 @@ def test_range_w_index(memgraph):
 
     expected_explain = [
         " * Produce {n}",
-        " * ScanAllByLabelPropertyRange (n :l {p})",
+        " * ScanAllByLabelProperties (n :l {p})",
         " * Once",
     ]
 
@@ -100,7 +100,7 @@ def test_range_w_index(memgraph):
     expected_explain = [
         " * Produce {n}",
         " * Filter {n.p}",
-        " * ScanAllByLabelPropertyRange (n :l {p})",
+        " * ScanAllByLabelProperties (n :l {p})",
         " * Once",
     ]
 
@@ -165,7 +165,7 @@ def test_range_w_index(memgraph):
     expected_explain = [
         " * Produce {n}",
         " * Filter {n.p}",
-        " * ScanAllByLabelPropertyRange (n :l {p})",
+        " * ScanAllByLabelProperties (n :l {p})",
         " * Once",
     ]
 

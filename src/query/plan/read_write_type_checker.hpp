@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,9 +56,7 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
-  bool PreVisit(ScanAllByLabelPropertyValue &) override;
-  bool PreVisit(ScanAllByLabelPropertyRange &) override;
+  bool PreVisit(ScanAllByLabelProperties &) override;
   bool PreVisit(ScanAllById &) override;
 
   bool PreVisit(ScanAllByEdge &) override;
@@ -66,6 +64,9 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeProperty &) override;
+  bool PreVisit(ScanAllByEdgePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(Expand &) override;

@@ -48,6 +48,8 @@ inline constexpr std::string_view kDefaultMetric = "l2sq";
 struct LabelIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  friend bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix; }
+  friend bool operator<(const LabelIx &a, const LabelIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -56,6 +58,8 @@ struct LabelIx {
 struct PropertyIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  friend bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix; }
+  friend bool operator<(const PropertyIx &a, const PropertyIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
@@ -64,22 +68,13 @@ struct PropertyIx {
 struct EdgeTypeIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
+  friend bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix; }
+  friend bool operator<(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix < b.ix; }
 
   std::string name;
   int64_t ix;
 };
 
-inline bool operator==(const LabelIx &a, const LabelIx &b) { return a.ix == b.ix && a.name == b.name; }
-
-inline bool operator!=(const LabelIx &a, const LabelIx &b) { return !(a == b); }
-
-inline bool operator==(const PropertyIx &a, const PropertyIx &b) { return a.ix == b.ix && a.name == b.name; }
-
-inline bool operator!=(const PropertyIx &a, const PropertyIx &b) { return !(a == b); }
-
-inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix && a.name == b.name; }
-
-inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) { return !(a == b); }
 }  // namespace memgraph::query
 
 namespace std {
@@ -130,6 +125,7 @@ class AstStorage {
 
   EdgeTypeIx GetEdgeTypeIx(const std::string &name) { return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)}; }
 
+  // TODO: would be good if these were stable memory locations, then *Ix could have string_view rather than stringq
   std::vector<std::string> labels_;
   std::vector<std::string> edge_types_;
   std::vector<std::string> properties_;
@@ -1195,7 +1191,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
 
   MapProjectionLiteral *Clone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
-    object->map_variable_ = map_variable_;
+    object->map_variable_ = map_variable_->Clone(storage);
 
     for (const auto &entry : elements_) {
       auto key = storage->GetPropertyIx(entry.first.name);
@@ -1346,7 +1342,10 @@ class LabelsTest : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<memgraph::query::LabelIx> labels_;  // TODO: Maybe we should unify this with or_labels_
+  std::vector<std::vector<memgraph::query::LabelIx>>
+      or_labels_;  // Because we need to support OR in labels -> node has to have at least one of the labels in "inner"
+                   // vector
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
@@ -1355,11 +1354,25 @@ class LabelsTest : public memgraph::query::Expression {
     for (auto i = 0; i < object->labels_.size(); ++i) {
       object->labels_[i] = storage->GetLabelIx(labels_[i].name);
     }
+    object->or_labels_.resize(or_labels_.size());
+    for (auto i = 0; i < object->or_labels_.size(); ++i) {
+      object->or_labels_[i].resize(or_labels_[i].size());
+      for (auto j = 0; j < object->or_labels_[i].size(); ++j) {
+        object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
+      }
+    }
     return object;
   }
 
  protected:
-  LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
+      : expression_(expression) {
+    if (!label_expression) {
+      labels_ = std::move(labels);
+    } else {
+      or_labels_.push_back(std::move(labels));
+    }
+  }
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
     labels_.reserve(labels.size());
     for (const auto &label : labels) {
@@ -1715,6 +1728,56 @@ class None : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+class ListComprehension : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ListComprehension() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor);
+      list_->Accept(visitor);
+      if (where_) {
+        where_->Accept(visitor);
+      }
+      if (expression_) {
+        expression_->Accept(visitor);
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  /// Identifier for the list element.
+  memgraph::query::Identifier *identifier_{nullptr};
+  /// Expression which produces a list which will be extracted.
+  memgraph::query::Expression *list_{nullptr};
+  /// Expression which is the predicate for the list.
+  memgraph::query::Where *where_{nullptr};
+  /// Expression which produces the new value for list element.
+  memgraph::query::Expression *expression_{nullptr};
+
+  ListComprehension *Clone(AstStorage *storage) const override {
+    ListComprehension *object = storage->Create<ListComprehension>();
+    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->list_ = list_ ? list_->Clone(storage) : nullptr;
+    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  ListComprehension(Identifier *identifier, Expression *list, Where *where, Expression *expression)
+      : identifier_(identifier), list_(list), where_(where), expression_(expression) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class ParameterLookup : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1881,6 +1944,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
+  bool label_expression_{false};
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
@@ -1902,6 +1966,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
+    object->label_expression_ = label_expression_;
     return object;
   }
 
@@ -2195,21 +2260,14 @@ struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
+  enum class IndexType { LABEL, LABEL_PROPERTIES, POINT };
 
   memgraph::query::IndexHint::IndexType index_type_;
-  memgraph::query::LabelIx label_;
-  std::optional<memgraph::query::PropertyIx> property_{std::nullopt};
+  memgraph::query::LabelIx label_ix_;
+  // This is not the exact properies of the index, it is the prefix (which might be exact)
+  std::vector<memgraph::query::PropertyIx> property_ixs_;
 
-  IndexHint Clone(AstStorage *storage) const {
-    IndexHint object;
-    object.index_type_ = index_type_;
-    object.label_ = storage->GetLabelIx(label_.name);
-    if (property_) {
-      object.property_ = storage->GetPropertyIx(property_->name);
-    }
-    return object;
-  }
+  IndexHint Clone(AstStorage *storage) const;
 };
 
 struct PreQueryDirectives {
@@ -2374,6 +2432,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
+  bool global_{false};
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
@@ -2383,6 +2442,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
     for (auto i = 0; i < object->properties_.size(); ++i) {
       object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
     }
+    object->global_ = global_;
     return object;
   }
 
@@ -3965,7 +4025,7 @@ class PatternComprehension : public memgraph::query::Expression {
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       if (variable_) {
-        throw utils::NotYetImplemented("Variable in pattern comprehension.");
+        variable_->Accept(visitor);
       }
       pattern_->Accept(visitor);
       if (filter_) {

@@ -55,7 +55,7 @@ struct PullPlanDump {
 
   PullChunk CreateEnumsPullChunk();
   PullChunk CreateLabelIndicesPullChunk();
-  PullChunk CreateLabelPropertyIndicesPullChunk();
+  PullChunk CreateLabelPropertiesIndicesPullChunk();
   PullChunk CreateTextIndicesPullChunk();
   PullChunk CreatePointIndicesPullChunk();
   PullChunk CreateVectorIndicesPullChunk();
@@ -70,5 +70,6 @@ struct PullPlanDump {
   PullChunk CreateTriggersPullChunk();
   PullChunk CreateEdgeTypeIndicesPullChunk();
   PullChunk CreateEdgeTypePropertyIndicesPullChunk();
+  PullChunk CreateEdgePropertyIndicesPullChunk();
 };
 }  // namespace memgraph::query

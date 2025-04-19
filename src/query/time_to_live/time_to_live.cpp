@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ int GetPart(auto &current) {
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
-void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
+void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context, const bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
@@ -67,41 +67,64 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
                                                         // register new interpreter into interpreter_context
   interpreter_context->interpreters->insert(interpreter.get());
 
-  auto TTL = [interpreter = std::move(interpreter)]() {
+  auto TTL = [interpreter = std::move(interpreter), should_run_edge_ttl]() {
     memgraph::query::DiscardValueResultStream result_stream;
-    bool finished = false;
+    bool finished_vertex = false;
+    bool finished_edge = !should_run_edge_ttl;
     // Using microseconds to be aligned with timestamp() query, could just use seconds
     const auto now = std::chrono::system_clock::now();
     const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+
+    auto get_value = [](auto map, std::string_view key) {
+      int64_t n = 0;
+      // Empty set will not have a stats field (nothing happened, so nothing to report)
+      const auto stats = map.find("stats");
+      if (stats != map.end()) {
+        // TODO: C++26 will handle transparent comparator with at()
+        n = stats->second.ValueMap().find(key)->second.ValueInt();
+      }
+      return n;
+    };
+
     spdlog::trace("Running TTL at {}", now);
-    while (!finished) {
+    while (!finished_vertex || !finished_edge) {
       try {
+        int n_deleted = 0;
+        int n_edges_deleted = 0;
         interpreter->BeginTransaction();
-        auto prepare_result =
-            interpreter->Prepare("MATCH (n:TTL) WHERE n.ttl < $now WITH n LIMIT $batch DETACH DELETE n;",
-                                 [now_us](auto) {
-                                   UserParameters params;
-                                   params.emplace("now", now_us.count());
-                                   params.emplace("batch", 10000);
-                                   return params;
-                                 },
-                                 {});
-        const auto pull_res = interpreter->PullAll(&result_stream);
-        auto get_value = [&](std::string_view key) {
-          int64_t n = 0;
-          // Empty set will not have a stats field (nothing happened, so nothing to report)
-          const auto stats = pull_res.find("stats");
-          if (stats != pull_res.end()) {
-            // TODO: C++26 will handle transparent comparator with at()
-            n = stats->second.ValueMap().find(key)->second.ValueInt();
-          }
-          return n;
-        };
-        const auto n_deleted = get_value("nodes-deleted");
-        finished = !pull_res.at("has_more").ValueBool() && n_deleted == 0;
+        // First run vertex TTL as that might already delete edges scheduled to be deleted by the edge TTL
+        if (!finished_vertex) {
+          auto prepare_result =
+              interpreter->Prepare("MATCH (n:TTL) WHERE n.ttl < $now WITH n LIMIT $batch DETACH DELETE n;",
+                                   [now_us](auto) {
+                                     UserParameters params;
+                                     params.emplace("now", now_us.count());
+                                     params.emplace("batch", 10000);
+                                     return params;
+                                   },
+                                   {});
+          const auto pull_res = interpreter->PullAll(&result_stream);
+          n_deleted = get_value(pull_res, "nodes-deleted");
+          n_edges_deleted = get_value(pull_res, "relationships-deleted");
+          finished_vertex = !pull_res.at("has_more").ValueBool() && n_deleted == 0;
+        } else if (!finished_edge) {
+          auto prepare_result =
+              interpreter->Prepare("MATCH ()-[e]->() WHERE e.ttl < $now WITH e LIMIT $batch DETACH DELETE e;",
+                                   [now_us](auto) {
+                                     UserParameters params;
+                                     params.emplace("now", now_us.count());
+                                     params.emplace("batch", 10000);
+                                     return params;
+                                   },
+                                   {});
+          const auto pull_res = interpreter->PullAll(&result_stream);
+          n_edges_deleted = get_value(pull_res, "relationships-deleted");
+          finished_edge = !pull_res.at("has_more").ValueBool() && n_edges_deleted == 0;
+        } else {
+          DMG_ASSERT(false, "Unsupported TTL state.");
+        }
         spdlog::trace("Committing TTL batch transaction");
         interpreter->CommitTransaction();
-        const auto n_edges_deleted = get_value("relationships-deleted");
         spdlog::trace("Committed TTL batch deleted {} vertices and {} edges", n_deleted, n_edges_deleted);
         // Telemetry
         memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedNodes, n_deleted);
@@ -190,7 +213,9 @@ bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
         return fail("running");
       }
       if (*run == "true") {
-        Setup_(db, interpreter_context);
+        const bool run_edge_ttl = db->config().salient.items.properties_on_edges &&
+                                  db->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+        Setup_(db, interpreter_context, run_edge_ttl);
       }
     }
   } catch (TtlException &e) {
@@ -289,7 +314,8 @@ std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st
 }
 
 template bool TTL::Restore<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
-template void TTL::Setup_<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
+template void TTL::Setup_<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
+                                                bool should_run_edge_ttl);
 
 }  // namespace memgraph::query::ttl
 

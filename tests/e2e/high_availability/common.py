@@ -16,6 +16,14 @@ import typing
 import mgclient
 
 
+def has_main(data):
+    return any("main" in entry for entry in data)
+
+
+def has_leader(data):
+    return any("leader" in entry for entry in data)
+
+
 def get_data_path(file: str, test: str):
     """
     Data is stored in high_availability folder.

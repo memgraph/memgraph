@@ -15,12 +15,15 @@
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/functional.hpp"
 #include "utils/synchronized.hpp"
 
 #include <spdlog/spdlog.h>
 
 namespace memgraph::replication {
+
+using namespace std::chrono_literals;
 
 namespace {
 #ifdef MG_ENTERPRISE
@@ -196,6 +199,37 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
                                                    const std::optional<utils::UUID> &main_uuid) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
+
+    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      storage->snapshot_runner_.Pause();
+      storage->abort_snapshot_.store(true, std::memory_order_release);
+    });
+
+    std::map<std::string, std::unique_lock<std::mutex>> snapshot_locks;
+    auto const timer = utils::Timer();
+    while (true) {
+      if (timer.Elapsed() > 10s) {
+        spdlog::error("Failed to take snapshot lock on all DBs within 10s while demoting to replica.");
+        return false;
+      }
+      if (snapshot_locks.size() == dbms_handler_.Count()) {
+        break;
+      }
+
+      dbms_handler_.ForEach([&snapshot_locks](dbms::DatabaseAccess db_acc) {
+        auto const lock_it = snapshot_locks.find(db_acc->name());
+        if (lock_it != snapshot_locks.end()) {
+          return;
+        }
+        auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+        auto db_lock = std::unique_lock{storage->snapshot_lock_, std::defer_lock};
+        if (db_lock.try_lock()) {
+          snapshot_locks.emplace(db_acc->name(), std::move(db_lock));
+        }
+      });
+    }
+
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
@@ -215,6 +249,12 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
 bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
+
+    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
+      storage->abort_snapshot_.store(false, std::memory_order_release);
+      storage->snapshot_runner_.Resume();
+    });
 
     if (locked_repl_state->IsMain()) {
       if (!force) return false;
@@ -302,7 +342,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
       }
       // Remove database specific clients
       dbms_handler_.ForEach([name](dbms::DatabaseAccess db_acc) {
-        db_acc->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
+        db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock([&name](auto &clients) {
           std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
         });
       });
@@ -323,22 +363,19 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.ReadLock()->GetRole();
 }
 
-auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories {
-  replication_coordination_glue::DatabaseHistories results;
+#ifdef MG_ENTERPRISE
+auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo {
+  replication_coordination_glue::InstanceInfo results;
+  results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
-    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
-
-    std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(repl_storage_state.history);
-
-    history.emplace_back(std::string(repl_storage_state.epoch_.id()),
-                         repl_storage_state.last_durable_timestamp_.load());
-    replication_coordination_glue::DatabaseHistory repl{
-        .db_uuid = utils::UUID{db_acc->storage()->uuid()}, .history = history, .name = std::string(db_acc->name())};
-    results.emplace_back(repl);
+    auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
+    results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
+                                  repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
   });
 
   return results;
 }
+#endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }
 

@@ -36,14 +36,8 @@ constexpr utils::TypeInfo query::plan::ScanAll::kType{utils::TypeId::SCAN_ALL, "
 constexpr utils::TypeInfo query::plan::ScanAllByLabel::kType{utils::TypeId::SCAN_ALL_BY_LABEL, "ScanAllByLabel",
                                                              &query::plan::ScanAll::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyRange::kType{
-    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY_RANGE, "ScanAllByLabelPropertyRange", &query::plan::ScanAll::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyValue::kType{
-    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY_VALUE, "ScanAllByLabelPropertyValue", &query::plan::ScanAll::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByLabelProperty::kType{
-    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY, "ScanAllByLabelProperty", &query::plan::ScanAll::kType};
+constexpr utils::TypeInfo query::plan::ScanAllByLabelProperties::kType{
+    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTIES, "ScanAllByLabelProperties", &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllById::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllById",
                                                           &query::plan::ScanAll::kType};
@@ -64,6 +58,15 @@ constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyValue::kType{
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyRange::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_RANGE, "ScanAllByEdgeTypePropertyRange",
     &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByEdgeProperty::kType{
+    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY, "ScanAllByEdgeProperty", &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyValue::kType{
+    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_VALUE, "ScanAllByEdgePropertyValue", &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyRange::kType{
+    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_RANGE, "ScanAllByEdgePropertyRange", &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllByEdgeId",
                                                               &query::plan::ScanAll::kType};

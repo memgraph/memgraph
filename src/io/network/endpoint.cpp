@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -51,7 +50,6 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
 
   auto resolved_address = std::get<0>(*result);
   auto resolved_port = std::get<1>(*result);
-  spdlog::trace("{}:{} successfully resolved to {}:{}.", address_, port_, resolved_address, resolved_port);
 
   return fmt::format("{}{}{}", resolved_address, delimiter, resolved_port);
 }
@@ -63,7 +61,6 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
   }
 
   auto resolved_address = std::get<0>(*result);
-  spdlog::trace("{}:{} successfully resolved to {}:{}.", address_, port_, resolved_address, port_);
 
   return resolved_address;
 }
@@ -75,10 +72,6 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
   }
 
   return std::get<2>(*result);
-}
-
-std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  return os << endpoint.GetResolvedSocketAddress();
 }
 
 std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
@@ -124,7 +117,8 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
 
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
-      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}", address, port);
+      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}. Error occurred: {}", address, port,
+                    gai_strerror(status));
       return std::nullopt;
     }
 

@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <thread>
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -22,9 +21,12 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include <atomic>
+#include <thread>
+
 namespace memgraph::storage {
 
-namespace {
+namespace details {
 
 template <Delta::Action... actions>
 struct ActionSet {
@@ -52,7 +54,7 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
   return false;
 }
 
-}  // namespace
+}  // namespace details
 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
@@ -70,109 +72,43 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
     return true;
   }
   constexpr auto interesting =
-      ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
-                Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-        if (delta.label.value == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      case Delta::Action::REMOVE_LABEL:
-        if (delta.label.value == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-    return !deleted && has_label;
-  });
-}
-
-/// Helper function for label-property index garbage collection. Returns true if
-/// there's a reachable version of the vertex that has the given label and
-/// property value.
-inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key, const PropertyValue &value,
-                                       uint64_t timestamp) {
-  Delta const *delta;
-  bool deleted;
-  bool has_label;
-  bool current_value_equal_to_value;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta;
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    // Avoid IsPropertyEqual if already not possible
-    if (delta == nullptr && (deleted || !has_label)) return false;
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-  }
-
-  if (!deleted && has_label && current_value_equal_to_value) {
-    return true;
-  }
-
-  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
-                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
-      timestamp, delta, [&has_label, &current_value_equal_to_value, &deleted, label, key, &value](const Delta &delta) {
-        switch (delta.action) {
-          case Delta::Action::ADD_LABEL:
-            if (delta.label.value == label) {
-              MG_ASSERT(!has_label, "Invalid database state!");
-              has_label = true;
-            }
-            break;
-          case Delta::Action::REMOVE_LABEL:
-            if (delta.label.value == label) {
-              MG_ASSERT(has_label, "Invalid database state!");
-              has_label = false;
-            }
-            break;
-          case Delta::Action::SET_PROPERTY:
-            if (delta.property.key == key) {
-              current_value_equal_to_value = *delta.property.value == value;
-            }
-            break;
-          case Delta::Action::RECREATE_OBJECT: {
-            MG_ASSERT(deleted, "Invalid database state!");
-            deleted = false;
-            break;
-          }
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT: {
-            MG_ASSERT(!deleted, "Invalid database state!");
-            deleted = true;
-            break;
-          }
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            break;
-        }
-        return !deleted && has_label && current_value_equal_to_value;
-      });
+      details::ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
+                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(timestamp, delta,
+                                                            [&has_label, &deleted, label](const Delta &delta) {
+                                                              switch (delta.action) {
+                                                                case Delta::Action::ADD_LABEL:
+                                                                  if (delta.label.value == label) {
+                                                                    MG_ASSERT(!has_label, "Invalid database state!");
+                                                                    has_label = true;
+                                                                  }
+                                                                  break;
+                                                                case Delta::Action::REMOVE_LABEL:
+                                                                  if (delta.label.value == label) {
+                                                                    MG_ASSERT(has_label, "Invalid database state!");
+                                                                    has_label = false;
+                                                                  }
+                                                                  break;
+                                                                case Delta::Action::RECREATE_OBJECT: {
+                                                                  MG_ASSERT(deleted, "Invalid database state!");
+                                                                  deleted = false;
+                                                                  break;
+                                                                }
+                                                                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                                                                case Delta::Action::DELETE_OBJECT: {
+                                                                  MG_ASSERT(!deleted, "Invalid database state!");
+                                                                  deleted = true;
+                                                                  break;
+                                                                }
+                                                                case Delta::Action::SET_PROPERTY:
+                                                                case Delta::Action::ADD_IN_EDGE:
+                                                                case Delta::Action::ADD_OUT_EDGE:
+                                                                case Delta::Action::REMOVE_IN_EDGE:
+                                                                case Delta::Action::REMOVE_OUT_EDGE:
+                                                                  break;
+                                                              }
+                                                              return !deleted && has_label;
+                                                            });
 }
 
 /// Helper function for edgetype-property index garbage collection. Returns true if
@@ -194,9 +130,10 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
     return true;
   }
 
-  constexpr auto interesting = ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
+  constexpr auto interesting =
+      details::ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::SET_PROPERTY:
@@ -225,65 +162,6 @@ inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const Proper
         }
         return !deleted && current_value_equal_to_value;
       });
-}
-
-// Helper function for iterating through label-property index. Returns true if
-// this transaction can see the given vertex, and the visible version has the
-// given label and property.
-inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key,
-                                           const PropertyValue &value, Transaction *transaction, View view) {
-  bool exists = true;
-  bool deleted = false;
-  bool has_label = false;
-  bool current_value_equal_to_value = value.IsNull();
-  const Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-    delta = vertex.delta;
-  }
-
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
-    if (useCache) {
-      auto const &cache = transaction->manyDeltasCache;
-      if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
-      auto resLabel = cache.GetHasLabel(view, &vertex, label);
-      if (resLabel && *resLabel) {
-        auto resProp = cache.GetProperty(view, &vertex, key);
-        if (resProp && resProp->get() == value) return true;
-      }
-    }
-
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, label, key](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Deleted_ActionMethod(deleted),
-        Exists_ActionMethod(exists),
-        HasLabel_ActionMethod(has_label, label),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
-      });
-      // clang-format on
-    });
-
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
-      auto &cache = transaction->manyDeltasCache;
-      cache.StoreExists(view, &vertex, exists);
-      cache.StoreDeleted(view, &vertex, deleted);
-      cache.StoreHasLabel(view, &vertex, label, has_label);
-      if (current_value_equal_to_value) {
-        cache.StoreProperty(view, &vertex, key, value);
-      }
-    }
-  }
-
-  return exists && !deleted && has_label && current_value_equal_to_value;
 }
 
 // Helper function for iterating through label-property index. Returns true if
@@ -328,29 +206,101 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &i
   index_accessor.insert({&vertex, 0});
 }
 
-template <typename TIndexAccessor>
-inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, PropertyId> label_property_pair,
-                                        TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label_property_pair.first)) {
-    return;
+template <typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
+                                           TSkipListAccessorFactory &&accessor_factory, const TFunc &func,
+                                           durability::ParallelizedSchemaCreationInfo const &parallel_exec_info,
+                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
+  const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
+
+  MG_ASSERT(!vertex_batches.empty(),
+            "The size of batches should always be greater than zero if you want to use the parallel version of index "
+            "creation!");
+
+  std::atomic<uint64_t> batch_counter = 0;
+
+  // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
+  auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
+
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back([&]() mutable {
+        auto acc = accessor_factory();
+        while (!maybe_error.Lock()->has_value()) {
+          const auto batch_index = batch_counter++;
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &batch = vertex_batches[batch_index];
+          auto it = vertices.find(batch.first);
+
+          try {
+            for (auto i{0U}; i < batch.second; ++i, ++it) {
+              func(*it, acc);
+              if (snapshot_info) {
+                snapshot_info->Update(UpdateType::VERTICES);
+              }
+            }
+
+          } catch (utils::OutOfMemoryException &failure) {
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+            *maybe_error.Lock() = std::move(failure);
+          }
+        }
+      });
+    }
   }
-  auto value = vertex.properties.GetProperty(label_property_pair.second);
-  if (value.IsNull()) {
-    return;
+  auto error = maybe_error.Lock();
+  if (error->has_value()) {
+    throw *std::move(*error);
   }
-  index_accessor.insert({std::move(value), &vertex, 0});
 }
 
-template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
+template <typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices,
+                                        TSkipListAccessorFactory &&accessor_factory, const TFunc &func,
+                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  auto acc = accessor_factory();
+  for (Vertex &vertex : vertices) {
+    func(vertex, acc);
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::VERTICES);
+    }
+  }
+}
+
+template <typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndex(utils::SkipList<Vertex>::Accessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                          const TFunc &func,
+                          std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
+                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+  if (parallel_exec_info && parallel_exec_info->thread_count > 1) {
+    PopulateIndexOnMultipleThreads(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), func,
+                                   *parallel_exec_info, snapshot_info);
+  } else {
+    PopulateIndexOnSingleThread(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), func,
+                                snapshot_info);
+  }
+}
+
+// @TODO Is `Create` the correct term here? Should this be `PopulateIndexOnSingleThread`?
+template <typename TSkiplistIter, typename TIndex, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
-                                      TIndexKey key, const TFunc &func,
+                                      const TFunc &func,
                                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   try {
     auto acc = it->second.access();
     for (Vertex &vertex : vertices) {
-      func(vertex, key, acc);
+      func(vertex, acc);
       if (snapshot_info) {
         snapshot_info->Update(UpdateType::VERTICES);
       }
@@ -362,9 +312,9 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
   }
 }
 
-template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
+template <typename TIndex, typename TSKiplistIter, typename TFunc>
 inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
-                                         TIndex &index, TIndexKey key,
+                                         TIndex &index,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
                                          const TFunc &func,
                                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
@@ -379,26 +329,26 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
   std::atomic<uint64_t> batch_counter = 0;
 
+  // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
   utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
-                            &vertices, &snapshot_info]() mutable {
+      threads.emplace_back([&]() mutable {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
             return;
           }
           const auto &batch = vertex_batches[batch_index];
-          auto index_accessor = index.at(key).access();
+          auto index_accessor = skiplist_iter->second.access();
           auto it = vertices.find(batch.first);
 
           try {
             for (auto i{0U}; i < batch.second; ++i, ++it) {
-              func(*it, key, index_accessor);
+              func(*it, index_accessor);
               if (snapshot_info) {
                 snapshot_info->Update(UpdateType::VERTICES);
               }
@@ -406,7 +356,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
           } catch (utils::OutOfMemoryException &failure) {
             utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            index.erase(skiplist_iter);
+            index.erase(skiplist_iter);  // TODO(composite_index): make this safe...only should only be called once
             *maybe_error.Lock() = std::move(failure);
           }
         }

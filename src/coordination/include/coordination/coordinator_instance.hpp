@@ -36,9 +36,8 @@
 namespace memgraph::coordination {
 
 struct NewMainRes {
-  std::string most_up_to_date_instance;
-  std::string latest_epoch;
-  uint64_t latest_commit_timestamp;
+  std::string instance_name;
+  uint64_t latest_durable_timestamp;
 };
 
 enum class FailoverStatus : uint8_t {
@@ -49,7 +48,7 @@ enum class FailoverStatus : uint8_t {
 
 enum class CoordinatorStatus : uint8_t { FOLLOWER, LEADER_NOT_READY, LEADER_READY };
 
-using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
+using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::InstanceInfo>;
 
 class CoordinatorInstance {
  public:
@@ -98,10 +97,11 @@ class CoordinatorInstance {
 
   auto GetRoutingTable() const -> RoutingTable;
 
-  static auto GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
-      -> std::optional<std::string>;
+  auto GetInstanceForFailover() const -> std::optional<std::string>;
 
-  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
+  static auto ChooseMostUpToDateInstance(
+      std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
+      -> std::optional<std::string>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

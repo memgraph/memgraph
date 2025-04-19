@@ -31,7 +31,6 @@ struct RecoveryInfo {
   uint64_t next_vertex_id{0};
   uint64_t next_edge_id{0};
   uint64_t next_timestamp{0};
-
   // last timestamp read from a WAL file
   std::optional<uint64_t> last_durable_timestamp;
 
@@ -42,12 +41,13 @@ struct RecoveryInfo {
 struct RecoveredIndicesAndConstraints {
   struct IndicesMetadata {
     std::vector<LabelId> label;
-    std::vector<std::pair<LabelId, PropertyId>> label_property;
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_properties;
     std::vector<std::pair<LabelId, PropertyId>> point_label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
-    std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
+    std::vector<std::pair<LabelId, std::pair<std::vector<PropertyId>, LabelPropertyIndexStats>>> label_property_stats;
     std::vector<EdgeTypeId> edge;
-    std::vector<std::pair<EdgeTypeId, PropertyId>> edge_property;
+    std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
+    std::vector<PropertyId> edge_property;
     std::vector<std::pair<std::string, LabelId>> text_indices;
     std::vector<VectorIndexSpec> vector_indices;
   } indices;

@@ -139,11 +139,24 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
             "errors": f"Missing roles field named {roles_field}, roles are probably not correctly configured on the token issuer",
         }
 
-    roles = access_token[roles_field]
-    role = roles[0] if isinstance(roles, list) else roles
+    role = access_token[roles_field]
 
-    if role not in config["role_mapping"]:
-        return {"authenticated": False, "errors": f"Cannot map role {role} to Memgraph role"}
+    if isinstance(role, list):
+        # if multiple roles map to same memgraph role, thats ok
+        matching_roles = {config["role_mapping"][r] for r in role if r in config["role_mapping"]}
+
+        if len(matching_roles) == 0:
+            return {"authenticated": False, "errors": f"Cannot map any of the roles {sorted(role)} to Memgraph roles"}
+        if len(matching_roles) > 1:
+            return {
+                "authenticated": False,
+                "errors": f"Multiple roles {sorted(matching_roles)} can mapped to Memgraph roles. Only one matching role must exist",
+            }
+        role = next(iter(matching_roles))
+    elif isinstance(role, str):
+        if role not in config["role_mapping"]:
+            return {"authenticated": False, "errors": f"Cannot map role {role} to Memgraph role"}
+        role = config["role_mapping"][role]
 
     token_type, field = config["username"].split(":")
     if (token_type == "id" and field not in id_token) or (token_type == "access" and field not in access_token):
@@ -151,7 +164,7 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
 
     return {
         "authenticated": True,
-        "role": config["role_mapping"][role],
+        "role": role,
         "username": id_token[field] if token_type == "id" else access_token[field],
     }
 

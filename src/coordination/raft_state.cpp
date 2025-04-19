@@ -440,7 +440,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto const raft_log_data_instances = GetDataInstancesContext();
 
   auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
-                    ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+                    ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
   MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
 
   spdlog::trace("WRITERS");
@@ -453,7 +453,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   }
 
   auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
-                       ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+                       ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
 
   spdlog::trace("READERS:");
   for (auto const &reader : bolt_replicas) {
@@ -467,7 +467,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
 
   auto const coord_servers = GetCoordinatorInstancesContext();
-  auto bolt_coords = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to<std::vector>();
+  auto bolt_coords = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to_vector;
   spdlog::trace("ROUTERS:");
   for (auto const &server : bolt_coords) {
     spdlog::trace("  {}", server);

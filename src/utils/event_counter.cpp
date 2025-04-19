@@ -12,6 +12,12 @@
 #include "utils/event_counter.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define GenerateHARpcCounters(NAME)                                                     \
+  M(NAME##Success, HighAvailability, "Number of times " #NAME " finished successfully") \
+  M(NAME##Fail, HighAvailability, "Number of times " #NAME " finished unsuccessfully")
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+// clang-format off
 #define APPLY_FOR_COUNTERS(M)                                                                                          \
   M(ReadQuery, QueryType, "Number of read-only queries executed.")                                                     \
   M(WriteQuery, QueryType, "Number of write-only queries executed.")                                                   \
@@ -22,9 +28,7 @@
   M(CreateExpandOperator, Operator, "Number of times CreateExpand operator was used.")                                 \
   M(ScanAllOperator, Operator, "Number of times ScanAll operator was used.")                                           \
   M(ScanAllByLabelOperator, Operator, "Number of times ScanAllByLabel operator was used.")                             \
-  M(ScanAllByLabelPropertyRangeOperator, Operator, "Number of times ScanAllByLabelPropertyRange operator was used.")   \
-  M(ScanAllByLabelPropertyValueOperator, Operator, "Number of times ScanAllByLabelPropertyValue operator was used.")   \
-  M(ScanAllByLabelPropertyOperator, Operator, "Number of times ScanAllByLabelProperty operator was used.")             \
+  M(ScanAllByLabelPropertiesOperator, Operator, "Number of times ScanAllByLabelProperties operator was used.")         \
   M(ScanAllByIdOperator, Operator, "Number of times ScanAllById operator was used.")                                   \
   M(ScanAllByEdgeOperator, Operator, "Number of times ScanAllByEdgeOperator operator was used.")                       \
   M(ScanAllByEdgeTypeOperator, Operator, "Number of times ScanAllByEdgeTypeOperator operator was used.")               \
@@ -34,6 +38,11 @@
     "Number of times ScanAllByEdgeTypePropertyValueOperator operator was used.")                                       \
   M(ScanAllByEdgeTypePropertyRangeOperator, Operator,                                                                  \
     "Number of times ScanAllByEdgeTypePropertyRangeOperator operator was used.")                                       \
+  M(ScanAllByEdgePropertyOperator, Operator, "Number of times ScanAllByEdgePropertyOperator operator was used.")       \
+  M(ScanAllByEdgePropertyValueOperator, Operator,                                                                      \
+    "Number of times ScanAllByEdgePropertyValueOperator operator was used.")                                           \
+  M(ScanAllByEdgePropertyRangeOperator, Operator,                                                                      \
+    "Number of times ScanAllByEdgePropertyRangeOperator operator was used.")                                           \
   M(ScanAllByEdgeIdOperator, Operator, "Number of times ScanAllByEdgeIdOperator operator was used.")                   \
   M(ScanAllByPointDistanceOperator, Operator, "Number of times ScanAllByPointDistanceOperator operator was used.")     \
   M(ScanAllByPointWithinbboxOperator, Operator, "Number of times ScanAllByPointWithinbboxOperator operator was used.") \
@@ -102,13 +111,36 @@
   M(DeletedNodes, TTL, "Number of nodes deleted via TTL")                                                              \
   M(DeletedEdges, TTL, "Number of edges deleted via TTL")                                                              \
                                                                                                                        \
-  M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")
-
+  M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")                              \
+                                                                                                                       \
+  M(SuccessfulFailovers, HighAvailability, "Number of successful failovers performed on the coordinator.")             \
+  M(RaftFailedFailovers, HighAvailability, "Number of failed failovers because of Raft on the coordinator.")           \
+  M(NoAliveInstanceFailedFailovers, HighAvailability, "Number of failed failovers, no data instance was alive.")       \
+  M(BecomeLeaderSuccess, HighAvailability, "Number of times the coordinator successfuly became the leader.")           \
+  M(FailedToBecomeLeader, HighAvailability, "Number of times the coordinator failed to become the leader.")            \
+  M(ShowInstance, HighAvailability, "Number of times the user called \"SHOW INSTANCE\" query.")                        \
+  M(ShowInstances, HighAvailability, "Number of times the user called \"SHOW INSTANCES\" query.")                      \
+  M(DemoteInstance, HighAvailability, "Number of times the user called \"DEMOTE INSTANCE ...\" query.")                \
+  M(UnregisterReplInstance, HighAvailability, "Number of times the user called \"UNREGISTER INSTANCE ...\" query.")    \
+  M(RemoveCoordInstance, HighAvailability, "Number of times the user called \"REMOVE COORDINATOR ...\" query.")        \
+  GenerateHARpcCounters(StateCheckRpc)                                                                                 \
+  GenerateHARpcCounters(UnregisterReplicaRpc)                                                                          \
+  GenerateHARpcCounters(EnableWritingOnMainRpc)                                                                        \
+  GenerateHARpcCounters(PromoteToMainRpc)                                                                              \
+  GenerateHARpcCounters(DemoteMainToReplicaRpc)                                                                        \
+  GenerateHARpcCounters(RegisterReplicaOnMainRpc)                                                                      \
+  GenerateHARpcCounters(SwapMainUUIDRpc)                                                                               \
+  GenerateHARpcCounters(GetDatabaseHistoriesRpc)
+// clang-format on
 namespace memgraph::metrics {
+
 // define every Event as an index in the array of counters
+
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
+
 APPLY_FOR_COUNTERS(M)
+
 #undef M
 
 inline constexpr Event END = __COUNTER__;
@@ -123,16 +155,16 @@ EventCounters global_counters(global_counters_array);
 
 const Event EventCounters::num_counters = END;
 
-void EventCounters::Increment(const Event event, Count amount) {
+void EventCounters::Increment(const Event event, Count const amount) {
   counters_[event].fetch_add(amount, std::memory_order_relaxed);
 }
 
-void EventCounters::Decrement(const Event event, Count amount) {
+void EventCounters::Decrement(const Event event, Count const amount) {
   counters_[event].fetch_sub(amount, std::memory_order_relaxed);
 }
 
-void IncrementCounter(const Event event, Count amount) { global_counters.Increment(event, amount); }
-void DecrementCounter(const Event event, Count amount) { global_counters.Decrement(event, amount); }
+void IncrementCounter(const Event event, Count const amount) { global_counters.Increment(event, amount); }
+void DecrementCounter(const Event event, Count const amount) { global_counters.Decrement(event, amount); }
 Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }
 
 const char *GetCounterName(const Event event) {

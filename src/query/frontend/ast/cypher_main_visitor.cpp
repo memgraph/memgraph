@@ -295,19 +295,26 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
 
 antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
   PreQueryDirectives pre_query_directives;
+
+  auto const to_property_ix = [self = this](auto context) { return std::any_cast<PropertyIx>(context->accept(self)); };
+
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
-        if (!index_hint_ctx->propertyKeyName()) {
+        if (index_hint_ctx->propertyKeyName().empty()) {
           pre_query_directives.index_hints_.emplace_back(
-              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
           continue;
         }
-        pre_query_directives.index_hints_.emplace_back(
-            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
-                      .label_ = label,
-                      .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+
+        auto property_ixs =
+            index_hint_ctx->propertyKeyName() | std::ranges::views::transform(to_property_ix) | ranges::to_vector;
+
+        pre_query_directives.index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
+                                                                 .label_ix_ = label,
+                                                                 .property_ixs_ = std::move(property_ixs)});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
@@ -367,21 +374,31 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  if (ctx->propertyKeyName()) {
-    auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
-    index_query->properties_ = {name_key};
+  index_query->properties_.reserve(ctx->propertyKeyName().size());
+  for (auto *property_key_name : ctx->propertyKeyName()) {
+    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
+    index_query->properties_.emplace_back(std::move(prop_key));
   }
+
+  auto const properties_are_unique{
+      std::unordered_set<PropertyIx>{index_query->properties_.begin(), index_query->properties_.end()}.size() ==
+      index_query->properties_.size()};
+  if (!properties_are_unique) {
+    throw SyntaxException("Properties cannot be repeated in a composite index.");
+  }
+
   return index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
-  if (ctx->propertyKeyName()) {
-    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
-    index_query->properties_ = {key};
-  }
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->properties_.reserve(ctx->propertyKeyName().size());
+  for (auto *property_key_name : ctx->propertyKeyName()) {
+    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
+    index_query->properties_.emplace_back(std::move(prop_key));
+  }
   return index_query;
 }
 
@@ -411,6 +428,28 @@ antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeInde
     index_query->properties_ = {key};
   }
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateGlobalEdgeIndex(MemgraphCypher::CreateGlobalEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::CREATE;
+  index_query->global_ = true;
+  if (ctx->propertyKeyName()) {
+    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {name_key};
+  }
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropGlobalEdgeIndex(MemgraphCypher::DropGlobalEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::DROP;
+  index_query->global_ = true;
+  if (ctx->propertyKeyName()) {
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {key};
+  }
   return index_query;
 }
 
@@ -2236,6 +2275,12 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   if (ctx->nodeLabels()) {
     node->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   }
+  if (ctx->labelExpression()) {
+    auto labels_set = std::any_cast<std::unordered_set<LabelIx>>(ctx->labelExpression()->accept(this));
+    node->labels_.reserve(labels_set.size());
+    node->labels_.insert(node->labels_.end(), labels_set.begin(), labels_set.end());
+    node->label_expression_ = true;
+  }
   if (ctx->properties()) {
     // This can return either properties or parameters
     if (ctx->properties()->mapLiteral()) {
@@ -2287,6 +2332,14 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
       }
       labels.emplace_back(expression);
     }
+  }
+  return labels;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) {
+  std::unordered_set<LabelIx> labels;
+  for (auto *label : ctx->symbolicName()) {
+    labels.emplace(AddLabel(std::any_cast<std::string>(label->accept(this))));
   }
   return labels;
 }
@@ -2970,6 +3023,18 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto enum_value = std::any_cast<std::string>(enum_value_access_parts[1]->accept(this));
 
     return static_cast<Expression *>(storage_->Create<EnumValueAccess>(std::move(enum_name), std::move(enum_value)));
+  } else if (ctx->listComprehension()) {
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->listComprehension()->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list = std::any_cast<Expression *>(
+        ctx->listComprehension()->filterExpression()->idInColl()->expression()->accept(this));
+    auto *where = ctx->listComprehension()->filterExpression()->where()
+                      ? std::any_cast<Where *>(ctx->listComprehension()->filterExpression()->where()->accept(this))
+                      : nullptr;
+    auto *expr = ctx->listComprehension()->expression()
+                     ? std::any_cast<Expression *>(ctx->listComprehension()->expression()->accept(this))
+                     : nullptr;
+    return static_cast<Expression *>(storage_->Create<ListComprehension>(ident, list, where, expr));
   }
 
   // NOTE: Memgraph does NOT support patterns under filtering.

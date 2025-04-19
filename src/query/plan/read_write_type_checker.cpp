@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 namespace memgraph::query::plan {
 
 PRE_VISIT(CreateNode, RWType::W, true)
-PRE_VISIT(CreateExpand, RWType::R, true)  // ?? RWType::RW
+PRE_VISIT(CreateExpand, RWType::RW, false)
 PRE_VISIT(Delete, RWType::W, true)
 
 PRE_VISIT(SetProperty, RWType::W, true)
@@ -33,9 +33,7 @@ PRE_VISIT(RemoveLabels, RWType::W, true)
 
 PRE_VISIT(ScanAll, RWType::R, true)
 PRE_VISIT(ScanAllByLabel, RWType::R, true)
-PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
+PRE_VISIT(ScanAllByLabelProperties, RWType::R, true)
 PRE_VISIT(ScanAllById, RWType::R, true)
 
 PRE_VISIT(ScanAllByEdge, RWType::R, true)
@@ -43,6 +41,9 @@ PRE_VISIT(ScanAllByEdgeType, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypeProperty, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypePropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypePropertyRange, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeProperty, RWType::R, true)
+PRE_VISIT(ScanAllByEdgePropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByEdgePropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)

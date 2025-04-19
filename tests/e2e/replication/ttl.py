@@ -51,6 +51,7 @@ def test_ttl_replication(connection, test_name):
     # 2/ MAIN Configure TTL
     # 3/ Validate that TTL is working on MAIN
     # 4/ Validate that nodes have been deleted on REPLICA as well
+    # 5/ Check that the index has been replicated
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -98,23 +99,56 @@ def test_ttl_replication(connection, test_name):
 
     # 1/
     execute_and_fetch_all(
-        cursor, "UNWIND RANGE(0,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+        cursor, "UNWIND RANGE(1,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(1,50) AS d CREATE ()-[:E1{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
+    )
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(51,100) AS d CREATE ()-[:E2{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
     )
 
     # 2/
     execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
 
     # 3/
-    def n_deltas(cursor):
-        return execute_and_fetch_all(cursor, f"MATCH (n) RETURN count(n) < 95;")
+    def n_vertices(cursor):
+        return execute_and_fetch_all(cursor, f"MATCH (n:TTL) RETURN count(n) < 95;")
 
-    mg_sleep_and_assert([(True,)], partial(n_deltas, cursor))
-    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    def n_edges(cursor):
+        return execute_and_fetch_all(cursor, "MATCH ()-[e]->() WHERE e.ttl > 0 RETURN count(e) < 95;")
+
+    def n_stable_vertices(cursor):
+        return execute_and_fetch_all(cursor, f"MATCH (n) WHERE length(labels(n)) = 0 RETURN count(n) = 200;")
+
+    mg_sleep_and_assert([(True,)], partial(n_vertices, cursor))
+    mg_sleep_and_assert([(True,)], partial(n_edges, cursor))
+    mg_sleep_and_assert([(True,)], partial(n_stable_vertices, cursor))
 
     # 4/
-    mg_sleep_and_assert([(True,)], partial(n_deltas, cursor_replica))
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    mg_sleep_and_assert([(True,)], partial(n_vertices, cursor_replica))
+    mg_sleep_and_assert([(True,)], partial(n_edges, cursor_replica))
+    mg_sleep_and_assert([(True,)], partial(n_stable_vertices, cursor_replica))
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
-    mg_sleep_and_assert([(True,)], partial(n_deltas, cursor_replica2))
+    mg_sleep_and_assert([(True,)], partial(n_vertices, cursor_replica2))
+    mg_sleep_and_assert([(True,)], partial(n_edges, cursor_replica2))
+    mg_sleep_and_assert([(True,)], partial(n_stable_vertices, cursor_replica2))
+
+    # 5/
+    def check_index(cursor):
+        index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+        assert index_info[0][0] == "edge-property"
+        assert index_info[0][2] == "ttl"
+        assert index_info[0][3] > 0
+        assert index_info[1][0] == "label+property"
+        assert index_info[1][1] == "TTL"
+        assert index_info[1][2] == ["ttl"]
+        assert index_info[1][3] > 0
+
+    check_index(cursor)
+    check_index(cursor_replica)
+    check_index(cursor_replica2)
 
 
 def test_ttl_on_replica(connection, test_name):
@@ -145,48 +179,63 @@ def test_ttl_on_replica(connection, test_name):
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     def n_vertices():
-        return execute_and_fetch_all(cursor, "MATCH(n) RETURN count(n);")[0][0]
+        return execute_and_fetch_all(cursor, "MATCH(n:TTL) RETURN count(n);")[0][0]
+
+    def n_edges():
+        return execute_and_fetch_all(cursor, "MATCH ()-[e]->() WHERE e.ttl > 0 RETURN count(e);")[0][0]
 
     # 1/
     execute_and_fetch_all(
-        cursor, "UNWIND RANGE(0,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+        cursor, "UNWIND RANGE(1,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(1,50) AS d CREATE ()-[:E1{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
+    )
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(51,100) AS d CREATE ()-[:E2{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
     )
 
     class VertexChecker:
-        def __init__(self):
+        def __init__(self, check):
+            self._check = check
             self.update()
 
         def is_less(self):
             last_n_prev = self.last_n
-            self.last_n = n_vertices()
+            self.last_n = self._check()
             return self.last_n < last_n_prev
 
         def is_same(self):
             last_n_prev = self.last_n
-            self.last_n = n_vertices()
+            self.last_n = self._check()
             return self.last_n == last_n_prev
 
         def update(self):
-            self.last_n = n_vertices()
+            self.last_n = self._check()
 
-    v_checker = VertexChecker()
+    v_checker = VertexChecker(n_vertices)
+    e_checker = VertexChecker(n_edges)
 
     # 2/
     execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
     mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
+    mg_sleep_and_assert(True, e_checker.is_less, max_duration=3)
 
     # 3/
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10000;")
 
     # 4/
     v_checker.update()
+    e_checker.update()
     mg_assert_until(True, v_checker.is_same, max_duration=3)
+    mg_assert_until(True, e_checker.is_same, max_duration=3)
 
     # 5/
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
 
     # 6/
     mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
+    mg_sleep_and_assert(True, e_checker.is_less, max_duration=3)
 
 
 if __name__ == "__main__":

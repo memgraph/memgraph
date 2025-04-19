@@ -63,15 +63,16 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelPropertyValue &) override;
-  bool PreVisit(ScanAllByLabelPropertyRange &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
+  bool PreVisit(ScanAllByLabelProperties &) override;
   bool PreVisit(ScanAllById &) override;
   bool PreVisit(ScanAllByEdge &) override;
   bool PreVisit(ScanAllByEdgeType &) override;
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeProperty &) override;
+  bool PreVisit(ScanAllByEdgePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByPointDistance &) override;
   bool PreVisit(ScanAllByPointWithinbbox &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
@@ -164,6 +165,8 @@ nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
 
 nlohmann::json ToJson(const Aggregate::Element &elem, const DbAccessor &dba);
 
+nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor &dba);
+
 template <class T, class... Args>
 nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
   nlohmann::json json;
@@ -210,9 +213,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
-  bool PreVisit(ScanAllByLabelPropertyValue &) override;
-  bool PreVisit(ScanAllByLabelPropertyRange &) override;
+  bool PreVisit(ScanAllByLabelProperties &) override;
   bool PreVisit(ScanAllById &) override;
 
   bool PreVisit(ScanAllByEdge &) override;
@@ -220,6 +221,9 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeProperty &) override;
+  bool PreVisit(ScanAllByEdgePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(EmptyResult &) override;

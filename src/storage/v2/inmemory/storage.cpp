@@ -29,8 +29,10 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -71,14 +73,16 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(LABEL_INDEX_STATS_SET);
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_INDEX_DROP);
-    add_case(LABEL_PROPERTY_INDEX_CREATE);
-    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
-    add_case(LABEL_PROPERTY_INDEX_DROP);
-    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTIES_INDEX_CREATE);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTIES_INDEX_DROP);
+    add_case(LABEL_PROPERTIES_INDEX_STATS_CLEAR);
     add_case(EDGE_INDEX_CREATE);
     add_case(EDGE_INDEX_DROP);
     add_case(EDGE_PROPERTY_INDEX_CREATE);
     add_case(EDGE_PROPERTY_INDEX_DROP);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
+    add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
@@ -179,18 +183,19 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.durability.recover_on_startup) {
-    auto info =
-        recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
-                              name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
-                              config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-                              [this](Gid edge_gid) { return FindEdge(edge_gid); });
+    auto info = recovery_.RecoverData(
+        uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
+        &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
+        config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name());
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
         repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
-        spdlog::trace("Recovering last durable timestamp {}.", *info->last_durable_timestamp);
+        spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", *info->last_durable_timestamp,
+                      timestamp_);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -229,10 +234,15 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
       CollectGarbage<true>(std::move(main_guard), periodic);
 
+      // Indices
       static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
       static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
+      static_cast<InMemoryEdgePropertyIndex *>(indices_.edge_property_index_.get())->RunGC();
+
+      // Constraints
+      static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get())->RunGC();
 
       // SkipList is already threadsafe
       edges_metadata_.run_gc();
@@ -281,10 +291,17 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
+                                                    IsolationLevel isolation_level, StorageMode storage_mode,
+                                                    Accessor::Type rw_type,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
+      config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, timeout), config_(storage->config_.salient.items) {}
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -782,7 +799,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
           if (config_.enable_schema_info) {
             mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                         transaction_.transaction_id,
+                                                         transaction_.start_timestamp, transaction_.transaction_id,
                                                          mem_storage->config_.salient.items.properties_on_edges);
           }
 
@@ -792,6 +809,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Replica can only update the last durable timestamp with
           // the commits received from main.
           // Update the last durable timestamp
+          auto prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+          DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
         }
 
@@ -975,7 +994,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    const auto index_stats = storage_->indices_.Analysis();
+    auto index_abort_processor = storage_->indices_.GetAbortProcessor();
 
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -983,13 +1002,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<LabelId, std::vector<Vertex *>> label_cleanup;
-    std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
-    std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
-    std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
     std::map<std::pair<EdgeTypeId, PropertyId>,
              std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
-        edge_property_cleanup;
+        edge_type_property_cleanup;  // Covers both edge type-property and global edge property indices
 
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
@@ -1014,17 +1029,19 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::SET_PROPERTY: {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
-                const auto &edge_types = index_stats.property_edge_type.p2et.find(current->property.key);
-                if (edge_types != index_stats.property_edge_type.p2et.end()) {
+                const auto &edge_types = index_abort_processor.property_edge_type_.p2et.find(current->property.key);
+                const auto &edge_prop_indices = index_abort_processor.property_edge_.ep;
+                if (edge_types != index_abort_processor.property_edge_type_.p2et.end() ||
+                    std::find(edge_prop_indices.begin(), edge_prop_indices.end(), current->property.key) !=
+                        edge_prop_indices.end()) {
                   auto old_value = edge->properties.GetProperty(current->property.key);
                   if (!old_value.IsNull()) {
-                    for (const auto &edge_type : edge_types->second) {
-                      auto *from_vertex = current->property.out_vertex;
-                      for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
-                        if (edge_type_out_edge == edge_type) {
-                          edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
-                              from_vertex, target_vertex, edge, old_value);
-                        }
+                    auto *from_vertex = current->property.out_vertex;
+                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
+                    for (const auto &[edge_type, target_vertex, edge_ref] : from_vertex->out_edges) {
+                      if (edge_ref.ptr == edge) {
+                        edge_type_property_cleanup[{edge_type, current->property.key}].emplace_back(
+                            from_vertex, target_vertex, edge, std::move(old_value));
                       }
                     }
                   }
@@ -1092,28 +1109,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 std::swap(*it, *vertex->labels.rbegin());
                 vertex->labels.pop_back();
 
-                // For label index
-                //  check if there is a label index for the label and add entry if so
-                // For property label index
-                //  check if we care about the label; this will return all the propertyIds we care about and then get
-                //  the current property value
-                if (std::binary_search(index_stats.label.begin(), index_stats.label.end(), current->label.value)) {
-                  label_cleanup[current->label.value].emplace_back(vertex);
-                }
-                const auto &properties = index_stats.property_label.l2p.find(current->label.value);
-                if (properties != index_stats.property_label.l2p.end()) {
-                  for (const auto &property : properties->second) {
-                    auto current_value = vertex->properties.GetProperty(property);
-                    if (!current_value.IsNull()) {
-                      label_property_cleanup[current->label.value].emplace_back(std::move(current_value), vertex);
-                    }
-                  }
-                }
+                index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
                 // we have to remove the vertex from the vector index if this label is indexed and vertex has
                 // needed property
-                const auto &vector_properties = index_stats.vector.l2p.find(current->label.value);
-                if (vector_properties != index_stats.vector.l2p.end()) {
+                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
+                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
                   // label is in the vector index
                   for (const auto &property : vector_properties->second) {
                     if (vertex->properties.HasProperty(property)) {
@@ -1130,8 +1131,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 vertex->labels.push_back(current->label.value);
                 // we have to add the vertex to the vector index if this label is indexed and vertex has needed
                 // property
-                const auto &vector_properties = index_stats.vector.l2p.find(current->label.value);
-                if (vector_properties != index_stats.vector.l2p.end()) {
+                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
+                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
                   // label is in the vector index
                   for (const auto &property : vector_properties->second) {
                     auto current_value = vertex->properties.GetProperty(property);
@@ -1149,27 +1150,22 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // For property label index
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
-                const auto &labels = index_stats.property_label.p2l.find(current->property.key);
-                const auto &vector_index_labels = index_stats.vector.p2l.find(current->property.key);
-                const auto has_property_index = labels != index_stats.property_label.p2l.end();
-                const auto has_vector_index = vector_index_labels != index_stats.vector.p2l.end();
-                if (has_property_index || has_vector_index) {
-                  auto current_value = vertex->properties.GetProperty(current->property.key);
-                  if (has_property_index && !current_value.IsNull()) {
-                    property_cleanup[current->property.key].emplace_back(std::move(current_value), vertex);
-                  }
-                  if (has_vector_index) {
-                    auto has_indexed_label = [&vector_index_labels](auto label) {
-                      return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
-                                                label);
-                    };
-                    auto indexed_labels_on_vertex =
-                        vertex->labels | ranges::views::filter(has_indexed_label) | ranges::to<std::vector<LabelId>>();
+                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
 
-                    for (const auto &label : indexed_labels_on_vertex) {
-                      vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
-                          *current->property.value, vertex);
-                    }
+                const auto &vector_index_labels = index_abort_processor.vector_.p2l.find(current->property.key);
+                const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
+                if (has_vector_index) {
+                  auto current_value = vertex->properties.GetProperty(current->property.key);
+                  auto has_indexed_label = [&vector_index_labels](auto label) {
+                    return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
+                                              label);
+                  };
+                  auto indexed_labels_on_vertex =
+                      vertex->labels | ranges::views::filter(has_indexed_label) | ranges::to<std::vector<LabelId>>();
+
+                  for (const auto &label : indexed_labels_on_vertex) {
+                    vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
+                        *current->property.value, vertex);
                   }
                 }
                 // Setting the correct value
@@ -1216,11 +1212,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // TODO: Change edge type index to work with EdgeRef rather than Edge *
                 if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
-                if (std::binary_search(index_stats.edge_type.begin(), index_stats.edge_type.end(),
-                                       current->vertex_edge.edge_type)) {
-                  edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
-                                                                                 current->vertex_edge.edge.ptr);
-                }
+                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex, edge.ptr);
+                // TODO: ensure collector also processeses for edge_type+property index
 
                 break;
               }
@@ -1309,23 +1303,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       });
     }
 
-    // INDICES
-    for (auto const &[label, vertices] : label_cleanup) {
-      storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
-    }
-    for (auto const &[label, prop_vertices] : label_property_cleanup) {
-      storage_->indices_.AbortEntries(label, prop_vertices, transaction_.start_timestamp);
-    }
-    for (auto const &[property, prop_vertices] : property_cleanup) {
-      storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
-    }
+    // Cleanup INDICES
+    index_abort_processor.Process(storage_->indices_, transaction_.start_timestamp);
+
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
     }
-    for (auto const &[edge_type, edge] : edge_type_cleanup) {
-      storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
-    }
-    for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
+    for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
       storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
     }
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
@@ -1384,7 +1368,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
   if (unique_access_needed) {
-    MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
+    MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
@@ -1398,15 +1382,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
+  MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
+  if (!mem_label_property_index->CreateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1415,7 +1399,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, bool unique_access_needed) {
   if (unique_access_needed) {
-    MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+    MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -1428,7 +1412,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -1445,8 +1429,26 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
+    PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
+  return {};
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
@@ -1459,15 +1461,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
+    LabelId label, std::vector<storage::PropertyId> &&properties) {
+  MG_ASSERT(type() == UNIQUE, "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->DropIndex(label, property)) {
+  if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1475,7 +1477,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     EdgeTypeId edge_type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->DropIndex(edge_type)) {
@@ -1487,7 +1489,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     EdgeTypeId edge_type, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -1498,9 +1500,27 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
+    PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  if (!mem_edge_property_index->DropIndex(property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
+  return {};
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
     storage::LabelId label, storage::PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
@@ -1514,7 +1534,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropPointIndex(
     storage::LabelId label, storage::PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping point index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.DropPointIndex(label, property)) {
@@ -1528,7 +1548,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
     VectorIndexSpec spec) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto vertices_acc = in_memory->vertices_.access();
@@ -1543,7 +1563,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
     std::string_view index_name) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   if (!vector_index.DropIndex(index_name)) {
@@ -1557,7 +1577,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating existence requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating existence requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -1575,7 +1595,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void>
 InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -1587,7 +1607,7 @@ InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, Proper
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1604,7 +1624,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
 
 UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1617,33 +1637,33 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
+InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind kind) {
+  MG_ASSERT(type() == UNIQUE, "Creating IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
   if (type_constraints->ConstraintExists(label, property)) {
     return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
   }
   if (auto violation =
-          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, type);
+          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, kind);
       violation.has_value()) {
     return StorageTypeConstraintDefinitionError{violation.value()};
   }
-  type_constraints->InsertConstraint(label, property, type);
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, type);
+  type_constraints->InsertConstraint(label, property, kind);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, kind);
   return {};
 }
 
 utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
-    LabelId label, PropertyId property, TypeConstraintKind type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
+    LabelId label, PropertyId property, TypeConstraintKind kind) {
+  MG_ASSERT(type() == UNIQUE, "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  auto deleted_constraint = type_constraints->DropConstraint(label, property, type);
+  auto deleted_constraint = type_constraints->DropConstraint(label, property, kind);
   if (!deleted_constraint) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, type);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, kind);
   return {};
 }
 
@@ -1652,29 +1672,13 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
   return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
 }
 
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
+VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
+    LabelId label, std::span<storage::PropertyId const> properties,
+    std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
-      mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
-                                                             const PropertyValue &value, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
-                                                             utils::MakeBoundInclusive(value), view, storage_,
-                                                             &transaction_));
-}
-
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+      mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
@@ -1706,6 +1710,30 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
       static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
   return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, lower_bound, upper_bound, view,
                                                            storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(
+      mem_edge_property_index->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(mem_edge_property_index->Edges(property, utils::MakeBoundInclusive(value),
+                                                      utils::MakeBoundInclusive(value), view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
+                                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                       View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(
+      mem_edge_property_index->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
@@ -2181,7 +2209,7 @@ StorageInfo InMemoryStorage::GetInfo() {
     auto access = Access();  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
-    info.label_property_indices = lbl.label_property.size();
+    info.label_property_indices = lbl.label_properties.size();
     info.text_indices = lbl.text_indices.size();
     info.vector_indices = lbl.vector_indices_spec.size();
     const auto &con = access->ListAllConstraints();
@@ -2270,16 +2298,16 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         break;
       }
       case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
         });
         break;
       }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
-                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
+                                   md_delta.label_property_stats.properties, md_delta.label_property_stats.stats);
         });
         break;
       }
@@ -2298,8 +2326,21 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_ordered_properties.label,
+                                md_delta.label_ordered_properties.properties);
+        });
+        break;
+      }
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
       case MetadataDelta::Action::POINT_INDEX_CREATE:
@@ -2337,8 +2378,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
-                                md_delta.label_properties.properties);
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_unordered_properties.label,
+                                md_delta.label_unordered_properties.properties);
         });
         break;
       }
@@ -2540,15 +2581,24 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
-    return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+    return CreateSnapshotError::DisabledForReplica;
+  }
+
+  auto abort_reset = utils::OnScopeExit([this]() mutable {
+    // Abort is a one shot, reset it to false every time
+    abort_snapshot_.store(false, std::memory_order_release);
+  });
+
+  if (abort_snapshot_.load(std::memory_order_acquire)) {
+    return CreateSnapshotError::AbortSnapshot;
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      // For analytical no other txn can be in play
-      return UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION);
+      // For analytical no other write txn can be in play
+      return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
@@ -2556,11 +2606,17 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
-  durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
+
+  // At the moment, the only way in which create snapshot can fail is if it got aborted
+  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
+                                  &vertices_, &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_,
+                                  &abort_snapshot_)) {
+    return CreateSnapshotError::AbortSnapshot;
+  }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
   return {};
 }
 
@@ -2571,7 +2627,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (replication_role == ReplicationRole::REPLICA) {
     return InMemoryStorage::RecoverSnapshotError::DisabledForReplica;
   }
-  if (!repl_storage_state_.replication_clients_->empty()) {
+  if (!repl_storage_state_.replication_storage_clients_->empty()) {
     // MAIN would need to reset its storage handler and force update the replicas to this snapshot. ATM not supported!
     return InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas;
   }
@@ -2620,6 +2676,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
         &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot recovered successfully");
     uuid().set(recovered_snapshot.snapshot_info.uuid);
+    spdlog::trace("Set epoch to {} for db {}", recovered_snapshot.snapshot_info.epoch_id, name());
     repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
     vertex_id_ = recovery_info.next_vertex_id;
@@ -2757,15 +2814,22 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(Accessor::Type rw_type,
+                                                           std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, timeout});
+                                                                storage_mode_, rw_type, timeout});
 }
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, timeout});
+}
+std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
+    std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::read_only_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_, timeout});
 }
@@ -2780,6 +2844,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
+          break;
+        case CreateSnapshotError::AbortSnapshot:
+          spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
           break;
       }
     }
@@ -2911,13 +2978,19 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
   auto &vector_index = storage_->indices_.vector_index_;
 
-  return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
-          mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
-          text_index.ListIndices(),           point_index.ListIndices(),
+  return {mem_label_index->ListIndices(),
+          mem_label_property_index->ListIndices(),
+          mem_edge_type_index->ListIndices(),
+          mem_edge_type_property_index->ListIndices(),
+          mem_edge_property_index->ListIndices(),
+          text_index.ListIndices(),
+          point_index.ListIndices(),
           vector_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
@@ -2928,29 +3001,32 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label, stats);
+  static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
-                                                      const storage::PropertyId &property,
+                                                      std::span<storage::PropertyId const> properties,
                                                       const LabelPropertyIndexStats &stats) {
-  SetIndexStatsForIndex(static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()),
-                        std::make_pair(label, property), stats);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, property, stats);
+  static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
+      ->SetIndexStats(label, properties, stats);
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
+                                      std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
-  const auto res =
-      DeleteIndexStatsForIndex<bool>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label);
+  auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
+  auto res = in_mem_label_index->DeleteIndexStats(label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
   return res;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(
-    const storage::LabelId &label) {
-  const auto &res = DeleteIndexStatsForIndex<std::vector<std::pair<LabelId, PropertyId>>>(
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
+std::vector<std::pair<LabelId, std::vector<PropertyId>>>
+InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::LabelId &label) {
+  auto *in_mem_label_prop_index =
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  auto res = in_mem_label_prop_index->DeleteIndexStats(label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
@@ -3009,6 +3085,6 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                       WithinBBoxCondition condition) -> PointIterable {
   return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, bottom_left,
                                                      top_right, condition);
-};
+}
 
 }  // namespace memgraph::storage

@@ -5,7 +5,7 @@
   (:import (java.net URI)
            (java.time LocalTime)
            (java.time.format DateTimeFormatter)
-           (org.neo4j.driver GraphDatabase AuthTokens Config AuthToken Driver Session)))
+           (org.neo4j.driver Driver)))
 
 (defn current-local-time-formatted
   "Get current time in HH:mm:ss.SSS"
@@ -67,6 +67,12 @@
   [f]
   {:type :info :f f})
 
+(defn not-main-anymore?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Cannot commit because instance is not main anymore")
+  )
+
 (defn node-is-down
   "Log that a node is down"
   [node]
@@ -101,6 +107,21 @@
   "Conflicting transactions error message is allowed."
   [e]
   (string/includes? (str e) "Cannot resolve conflicting transactions."))
+
+(defn concurrent-system-queries?
+  "Concurrent system queries error message is allowed on some queries."
+  [e]
+  (string/includes? (str e) "Multiple concurrent system queries are not supported."))
+
+(defn not-leader?
+  "Not a leader error message is allowed when doing a cluster setup."
+  [e]
+  (string/includes? (str e) "not a leader"))
+
+(defn adding-coordinator-failed?
+  "If concurrently trying to add coordinators, that could cause issues."
+  [e]
+  (string/includes? (str e) "Failed to accept request to add server"))
 
 (defn process-service-unavailable-exc
   "Return a map as the result of ServiceUnavailableException."

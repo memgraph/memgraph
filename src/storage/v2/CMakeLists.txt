@@ -14,6 +14,7 @@ target_sources(mg-storage-v2
         disk/edge_import_mode_cache.cpp
         disk/edge_type_index.cpp
         disk/edge_type_property_index.cpp
+        disk/edge_property_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
@@ -26,12 +27,14 @@ target_sources(mg-storage-v2
         edge_accessor.cpp
         edges_iterable.cpp
         indices/indices.cpp
+        indices/label_property_index.cpp
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
         indices/vector_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
+        inmemory/edge_property_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/replication/recovery.cpp
@@ -53,6 +56,7 @@ target_sources(mg-storage-v2
         schema_info.cpp
         edge_ref.cpp
         indices/point_iterator.cpp
+        property_value_utils.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -79,6 +83,12 @@ target_sources(mg-storage-v2
         vertex_info_cache_fwd.hpp
         schema_info.hpp
         edge_ref.hpp
+        id_types.hpp
+        property_value_utils.hpp
+        property_constants.hpp
+        storage.hpp
+        inmemory/storage.hpp
+        disk/storage.hpp
 )
 
 find_package(gflags REQUIRED)

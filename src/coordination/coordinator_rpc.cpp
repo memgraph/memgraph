@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -80,23 +80,6 @@ void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const & /*self*/, memgr
 
 void EnableWritingOnMainReq::Load(EnableWritingOnMainReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
 
-// GetInstanceUUID
-void GetInstanceUUIDReq::Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void GetInstanceUUIDReq::Load(GetInstanceUUIDReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void GetInstanceUUIDRes::Save(const GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
 // ShowInstances
 void ShowInstancesReq::Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -164,18 +147,18 @@ void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgra
 
 }  // namespace coordination
 
-constexpr utils::TypeInfo coordination::PromoteToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
-                                                                "CoordPromoteToMainReq", nullptr};
+constexpr utils::TypeInfo coordination::PromoteToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ, "PromoteToMainReq",
+                                                                nullptr};
 
-constexpr utils::TypeInfo coordination::PromoteToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES,
-                                                                "CoordPromoteToMainRes", nullptr};
+constexpr utils::TypeInfo coordination::PromoteToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES, "PromoteToMainRes",
+                                                                nullptr};
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaReq::kType{utils::TypeId::COORD_SET_REPL_MAIN_REQ,
-                                                                      "CoordDemoteToReplicaReq", nullptr};
+                                                                      "DemoteMainToReplicaReq", nullptr};
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
 
-                                                                      "CoordDemoteToReplicaRes", nullptr};
+                                                                      "DemoteMainToReplicaRes", nullptr};
 
 constexpr utils::TypeInfo coordination::UnregisterReplicaReq::kType{utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
                                                                     "UnregisterReplicaReq", nullptr};
@@ -184,22 +167,16 @@ constexpr utils::TypeInfo coordination::UnregisterReplicaRes::kType{utils::TypeI
                                                                     "UnregisterReplicaRes", nullptr};
 
 constexpr utils::TypeInfo coordination::EnableWritingOnMainReq::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
-                                                                      "CoordEnableWritingOnMainReq", nullptr};
+                                                                      "EnableWritingOnMainReq", nullptr};
 
 constexpr utils::TypeInfo coordination::EnableWritingOnMainRes::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
-                                                                      "CoordEnableWritingOnMainRes", nullptr};
-
-constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId::COORD_GET_UUID_REQ, "CoordGetUUIDReq",
-                                                                  nullptr};
-
-constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "CoordGetUUIDRes",
-                                                                  nullptr};
+                                                                      "EnableWritingOnMainRes", nullptr};
 
 constexpr utils::TypeInfo coordination::GetDatabaseHistoriesReq::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
-                                                                       "GetInstanceDatabasesReq", nullptr};
+                                                                       "GetDatabaseHistoriesReq", nullptr};
 
 constexpr utils::TypeInfo coordination::GetDatabaseHistoriesRes::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
-                                                                       "GetInstanceDatabasesRes", nullptr};
+                                                                       "GetDatabaseHistoriesRes", nullptr};
 
 constexpr utils::TypeInfo coordination::RegisterReplicaOnMainReq::kType{
     utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ, "RegisterReplicaOnMainReq", nullptr};
@@ -284,32 +261,14 @@ void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::R
   memgraph::slk::Load(&self->success, reader);
 }
 
-// GetInstanceUUIDRpc
-
-void Save(const memgraph::coordination::GetInstanceUUIDReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
-  /* nothing to serialize*/
-}
-
-void Load(memgraph::coordination::GetInstanceUUIDReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
-  /* nothing to serialize*/
-}
-
-void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
-}
-
-void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
-}
-
-// GetInstanceTimestampsRpc
+// GetDatabaseHistoriesRpc
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.database_histories, builder);
+  memgraph::slk::Save(self.instance_info, builder);
 }
 
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->database_histories, reader);
+  memgraph::slk::Load(&self->instance_info, reader);
 }
 
 // RegisterReplicaOnMainRpc

@@ -100,6 +100,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(Single);
   UNSUCCESSFUL_VISIT(Any);
   UNSUCCESSFUL_VISIT(None);
+  UNSUCCESSFUL_VISIT(ListComprehension);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
@@ -173,6 +174,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(Single)
   INVALID_VISIT(Any)
   INVALID_VISIT(None)
+  INVALID_VISIT(ListComprehension)
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
   INVALID_VISIT(Exists)
@@ -512,7 +514,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // `OLD` view: `return old ? old : new`. That means that if the
             // `OLD` view didn't exist, it returned the NEW view. With this hack
             // we simulate that behavior.
-            // TODO (mferencevic, teon.banek): Remove once MERGE is
+            // TODO: Remove once MERGE is
             // reimplemented.
             has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
@@ -529,6 +531,41 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             }
           }
           if (!*has_label) {
+            return TypedValue(false, ctx_->memory);
+          }
+        }
+        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+          bool has_at_least_one_label = false;
+          for (const auto &label : or_labels_pattern) {
+            auto has_label = vertex.HasLabel(view_, GetLabel(label));
+            if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+              // This is a very nasty and temporary hack in order to make MERGE
+              // work. The old storage had the following logic when returning an
+              // `OLD` view: `return old ? old : new`. That means that if the
+              // `OLD` view didn't exist, it returned the NEW view. With this hack
+              // we simulate that behavior.
+              // TODO: Remove once MERGE is
+              // reimplemented.
+              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+            }
+            if (has_label.HasError()) {
+              switch (has_label.GetError()) {
+                case storage::Error::DELETED_OBJECT:
+                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
+                case storage::Error::NONEXISTENT_OBJECT:
+                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+                case storage::Error::SERIALIZATION_ERROR:
+                case storage::Error::VERTEX_HAS_EDGES:
+                case storage::Error::PROPERTIES_DISABLED:
+                  throw QueryRuntimeException("Unexpected error when accessing labels.");
+              }
+            }
+            if (*has_label) {
+              has_at_least_one_label = true;
+              break;
+            }
+          }
+          if (!has_at_least_one_label) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -555,7 +592,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(MapLiteral &literal) override {
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) {
-      result.emplace(pair.first.name, pair.second->Accept(*this));
+      result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
     }
 
     return TypedValue(result, ctx_->memory);
@@ -584,7 +621,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         continue;
       }
 
-      result.emplace(property_key.name, property_value->Accept(*this));
+      result.emplace(TypedValue::TString(property_key.name, ctx_->memory), property_value->Accept(*this));
     }
 
     if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
@@ -687,6 +724,50 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
+    return TypedValue(std::move(result), ctx_->memory);
+  }
+
+  TypedValue Visit(ListComprehension &list_comprehension) override {
+    auto list_value = list_comprehension.list_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue(ctx_->memory);
+    }
+
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("List comprehension expected a list, got {}.", list_value.type());
+    }
+
+    const auto &list = list_value.ValueList();
+    const auto &element_symbol = symbol_table_->at(*list_comprehension.identifier_);
+    const bool needs_predicate = !!list_comprehension.where_;
+    const bool has_transformation = !!list_comprehension.expression_;
+    TypedValue::TVector result(ctx_->memory);
+    result.reserve(list.size());
+
+    for (const auto &element : list) {
+      frame_->at(element_symbol) = element;
+      if (!needs_predicate) {
+        if (has_transformation) {
+          result.emplace_back(list_comprehension.expression_->Accept(*this));
+        } else {
+          result.emplace_back(element);
+        }
+        continue;
+      }
+
+      auto predicate_result = list_comprehension.where_->expression_->Accept(*this);
+      if (!predicate_result.IsBool()) {
+        return TypedValue(ctx_->memory);
+      }
+      if (predicate_result.ValueBool()) {
+        if (has_transformation) {
+          result.emplace_back(list_comprehension.expression_->Accept(*this));
+        } else {
+          result.emplace_back(element);
+        }
+      }
+    }
+
     return TypedValue(std::move(result), ctx_->memory);
   }
 

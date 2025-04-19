@@ -52,7 +52,6 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   COULD_NOT_PROMOTE_TO_MAIN,
-  SWAP_UUID_FAILED,
   SUCCESS,
   LOCK_OPENED,
   FAILED_TO_OPEN_LOCK,
@@ -63,7 +62,6 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
 enum class AddCoordinatorInstanceStatus : uint8_t {
   SUCCESS,
   ID_ALREADY_EXISTS,
-  BOLT_ENDPOINT_ALREADY_EXISTS,
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };

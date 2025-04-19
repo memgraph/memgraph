@@ -50,11 +50,6 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
         DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
       });
 
-  server.Register<coordination::GetInstanceUUIDRpc>(
-      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
-      });
-
   server.Register<coordination::GetDatabaseHistoriesRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(replication_handler, req_reader, res_builder);
@@ -88,9 +83,9 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
   });
 
   coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled};
-  rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("State check returned: is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
-               uuid.has_value() ? std::string{*uuid} : "", writing_enabled);
+  rpc::SendFinalResponse(rpc_res, res_builder,
+                         fmt::format("is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
+                                     uuid.has_value() ? std::string{*uuid} : "", writing_enabled));
 }
 
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
@@ -98,7 +93,62 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
     slk::Builder *res_builder) {
   coordination::GetDatabaseHistoriesRes const rpc_res{replication_handler.GetDatabasesHistories()};
   rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("Database's history returned successfully.");
+}
+
+auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::ReplicationHandler &replication_handler,
+                                                             coordination::ReplicationClientInfo const &config)
+    -> bool {
+  auto const converter = [&config](const auto &repl_info_config) {
+    return replication::ReplicationClientConfig{.name = repl_info_config.instance_name,
+                                                .mode = repl_info_config.replication_mode,
+                                                .repl_server_endpoint = config.replication_server};
+  };
+
+  if (auto instance_client = replication_handler.RegisterReplica(converter(config)); instance_client.HasError()) {
+    using query::RegisterReplicaError;
+    switch (instance_client.GetError()) {
+      case RegisterReplicaError::NO_ACCESS: {
+        spdlog::error("Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.");
+        return false;
+      }
+      case RegisterReplicaError::NOT_MAIN: {
+        spdlog::error("Error when registering instance {} as replica. Instance not main anymore.",
+                      config.instance_name);
+        return false;
+      }
+      case RegisterReplicaError::NAME_EXISTS: {
+        spdlog::error("Error when registering instance {} as replica. Instance with the same name already registered.",
+                      config.instance_name);
+        return false;
+      }
+      case RegisterReplicaError::ENDPOINT_EXISTS: {
+        spdlog::error("Error when registering instance {} as replica. Instance with the same endpoint already exists.",
+                      config.instance_name);
+        return false;
+      }
+      case RegisterReplicaError::COULD_NOT_BE_PERSISTED: {
+        spdlog::error("Error when registering instance {} as replica. Registering instance could not be persisted.",
+                      config.instance_name);
+        return false;
+      }
+      case RegisterReplicaError::ERROR_ACCEPTING_MAIN: {
+        spdlog::error("Error when registering instance {} as replica. Instance couldn't accept change of main.",
+                      config.instance_name);
+        return false;
+      }
+      case RegisterReplicaError::CONNECTION_FAILED: {
+        spdlog::error(
+            "Error when registering instance {} as replica. Instance couldn't register all databases successfully.",
+            config.instance_name);
+        return false;
+      }
+      default: {
+        LOG_FATAL("Error in handling RegisterReplicaError. Unknown enum value.");
+      }
+    }
+  }
+  spdlog::trace("Instance {} successfully registered as replica.", config.instance_name);
+  return true;
 }
 
 void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -146,26 +196,6 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   spdlog::info("MAIN successfully demoted to REPLICA.");
 }
 
-void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(
-    replication::ReplicationHandler const &replication_handler, slk::Reader * /*req_reader*/,
-    slk::Builder *res_builder) {
-  const auto locked_repl_state = replication_handler.GetReplState();
-  if (!locked_repl_state->IsReplica()) {
-    spdlog::trace(
-        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at "
-        "the "
-        "moment. Returning empty uuid.");
-    coordination::GetInstanceUUIDRes const rpc_res{{}};
-    rpc::SendFinalResponse(rpc_res, res_builder);
-    return;
-  }
-
-  auto const replica_uuid = locked_repl_state->GetReplicaRole().uuid_;
-  coordination::GetInstanceUUIDRes const rpc_res{replica_uuid};
-  rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("Replica's UUID returned successfully: {}.", replica_uuid ? std::string{*replica_uuid} : "");
-}
-
 void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::ReplicationHandler &replication_handler,
                                                                 slk::Reader *req_reader, slk::Builder *res_builder) {
   coordination::PromoteToMainReq req;
@@ -185,13 +215,13 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
     return;
   }
 
-  // registering replicas
-  // If disk fails here we are in problem. However, we don't tackle this at the moment since this is so rare event.
-  // If I receive request to promote myself while I am already main, I could have some instances already registered.
-  // In that case ignore failures.
+  // If registering one of replicas fails, we signal to the coordinator that we failed. The writing is disabled on main
+  // so no problem. The coordinator should retry its request until registering all replicas succeeds.
   for (auto const &config : req.replication_clients_info) {
-    if (!DoRegisterReplica<coordination::PromoteToMainRes>(replication_handler, config, res_builder)) {
-      continue;
+    if (!DoRegisterReplica(replication_handler, config)) {
+      coordination::PromoteToMainRes const res{false};
+      rpc::SendFinalResponse(res, res_builder);
+      return;
     }
   }
 
@@ -227,9 +257,10 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
     return;
   }
 
-  if (!DoRegisterReplica<coordination::RegisterReplicaOnMainRes>(replication_handler, req.replication_client_info,
-                                                                 res_builder)) {
+  if (!DoRegisterReplica(replication_handler, req.replication_client_info)) {
     spdlog::error("Replica {} couldn't be registered.", req.replication_client_info.instance_name);
+    coordination::RegisterReplicaOnMainRes const res{false};
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 

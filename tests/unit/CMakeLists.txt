@@ -216,10 +216,10 @@ add_unit_test(network_endpoint.cpp)
 target_link_libraries(${test_prefix}network_endpoint mg-io)
 
 add_unit_test(network_utils.cpp)
-target_link_libraries(${test_prefix}network_utils mg-io)
+target_link_libraries(${test_prefix}network_utils mg-io mg-utils)
 
 add_unit_test(socket.cpp)
-target_link_libraries(${test_prefix}socket mg-io)
+target_link_libraries(${test_prefix}socket mg-utils mg-io mg-events)
 
 # Test mg-utils
 add_unit_test(utils_algorithm.cpp)
@@ -406,6 +406,14 @@ target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
 add_unit_test(auth_handler.cpp)
 target_link_libraries(${test_prefix}auth_handler mg-glue mg-auth)
 
+if(MG_ENTERPRISE)
+add_unit_test(auth_models.cpp)
+target_link_libraries(${test_prefix}auth_models mg-glue mg-auth)
+else()
+add_unit_test(auth_models_comm.cpp)
+target_link_libraries(${test_prefix}auth_models_comm mg-glue mg-auth)
+endif()
+
 add_unit_test(cpp_api.cpp)
 target_link_libraries(${test_prefix}cpp_api mg-query)
 target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -436,8 +444,10 @@ add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test rpc-timeouts
+if(MG_ENTERPRISE)
 add_unit_test(rpc_timeouts.cpp)
-target_link_libraries(${test_prefix}rpc_timeouts mg-rpc)
+target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue)
+endif()
 
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress.cpp)
