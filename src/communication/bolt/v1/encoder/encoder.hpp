@@ -29,6 +29,8 @@ class Encoder : private BaseEncoder<Buffer> {
   using BaseEncoder<Buffer>::WriteRAW;
   using BaseEncoder<Buffer>::WriteList;
   using BaseEncoder<Buffer>::WriteMap;
+  using BaseEncoder<Buffer>::WriteTypeSize;
+  using BaseEncoder<Buffer>::WriteValue;
   using BaseEncoder<Buffer>::buffer_;
 
  public:
@@ -46,10 +48,16 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param values the fields list object that should be sent
    */
-  bool MessageRecord(const std::vector<Value> &values) {
+
+  void MessageRecordHeader(size_t n_values) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Record));
-    WriteList(values);
+    WriteTypeSize(n_values, MarkerList);
+  }
+
+  void MessageRecordAppendValue(const Value &value) { WriteValue(value); }
+
+  bool MessageRecordFinalize() {
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
     if (buffer_.HasData() && !buffer_.Flush(true)) return false;
@@ -58,6 +66,12 @@ class Encoder : private BaseEncoder<Buffer> {
     // and it will surely be followed by either a Record, Success or Failure
     // message.
     return buffer_.Flush(true);
+  }
+
+  bool MessageRecord(const std::vector<Value> &values) {
+    MessageRecordHeader(values.size());
+    for (const auto &v : values) MessageRecordAppendValue(v);
+    return MessageRecordFinalize();
   }
 
   /**
