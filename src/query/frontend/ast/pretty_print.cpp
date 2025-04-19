@@ -130,7 +130,8 @@ void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
                 "to Expression *. This means your other PrintObject overloads aren't "
                 "being called for certain AST nodes when they should (or perhaps such "
                 "overloads don't exist yet).");
-  *out << arg;
+  // TODO put this back...
+  //*out << arg;
 }
 
 void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const std::string &str) { *out << utils::Escape(str); }

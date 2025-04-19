@@ -376,8 +376,20 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->properties_.reserve(ctx->propertyKeyName().size());
   for (auto *property_key_name : ctx->propertyKeyName()) {
-    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
-    index_query->properties_.emplace_back(std::move(prop_key));
+    if (ctx->propertyLookup().empty()) {
+      auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
+      index_query->properties_.emplace_back(std::move(prop_key));
+    } else {
+      std::string property_name = std::any_cast<std::string>(property_key_name->symbolicName()->accept(this));
+      property_name += ".";
+      for (auto *property : ctx->propertyLookup()) {
+        property_name += std::any_cast<std::string>(property->propertyKeyName()->symbolicName()->accept(this));
+        if (property != ctx->propertyLookup().back()) {
+          property_name += ".";
+        }
+      }
+      index_query->properties_.emplace_back(AddProperty(property_name));
+    }
   }
 
   auto const properties_are_unique{

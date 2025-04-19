@@ -19,9 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <forward_list>
-#include <list>
 #include <memory>
-#include <mutex>
 #include <new>
 #include <tuple>
 #include <type_traits>

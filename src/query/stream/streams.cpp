@@ -548,19 +548,21 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
               ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
-          storage::PropertyValue params_prop{params_value};
-          std::string query{query_value.ValueString()};
-          spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-          auto prepare_result = interpreter->Prepare(
-              query,
-              [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
-              {});
-          if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
-            throw StreamsException{
-                "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
-                "query!",
-                query, stream_name};
-          }
+          // TODO put back in...
+          // storage::PropertyValue params_prop{params_value};
+          // std::string query{query_value.ValueString()};
+          // spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
+          // auto prepare_result = interpreter->Prepare(
+          //     query,
+          //     [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters;
+          //     },
+          //     {});
+          // if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
+          //   throw StreamsException{
+          //       "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
+          //       "query!",
+          //       query, stream_name};
+          // }
           interpreter->PullAll(&stream);
         }
 

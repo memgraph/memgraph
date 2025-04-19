@@ -413,7 +413,7 @@ inline void Load(std::optional<T> *obj, Reader *reader) {
 
 template <typename A, typename B>
 inline void Save(const std::pair<A, B> &obj, Builder *builder) {
-  Save(obj.first, builder);
+  // TODO save map property id Save(obj.first, builder);
   Save(obj.second, builder);
 }
 

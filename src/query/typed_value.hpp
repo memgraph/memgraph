@@ -21,12 +21,17 @@
 #include <vector>
 
 #include "query/path.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/flat_map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
+
+namespace memgraph::storage {
+class NameIdMapper;
+}  // namespace memgraph::storage
 
 namespace memgraph::query {
 
@@ -114,6 +119,8 @@ class TypedValue {
   using TString = utils::pmr::string;
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::flat_map<TString, TypedValue>;
+
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
@@ -209,7 +216,7 @@ class TypedValue {
   }
 
   // conversion function to storage::PropertyValue
-  explicit operator storage::PropertyValue() const;
+  // explicit operator storage::PropertyValue() const;
 
   // copy constructors for non-primitive types
   explicit TypedValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -319,10 +326,10 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value);
+  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory, storage::NameIdMapper *name_id_mapper);
 
   // move constructors for non-primitive types
 
@@ -455,13 +462,13 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other);
+  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory, storage::NameIdMapper *name_id_mapper);
 
   // copy assignment operators
   TypedValue &operator=(const char *);

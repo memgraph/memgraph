@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -150,7 +150,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 }
 }  // namespace
 
-Trigger::Trigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                  std::shared_ptr<QueryUserOrRole> owner)
@@ -316,13 +316,14 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   }
 
   std::optional<Trigger> trigger;
-  try {
-    trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user));
-  } catch (const utils::BasicException &e) {
-    spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
-    return;
-  }
+  // TODO put back in...
+  // try {
+  //   trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
+  //                   query_config, std::move(user));
+  // } catch (const utils::BasicException &e) {
+  //   spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
+  //   return;
+  // }
 
   auto triggers_acc =
       phase == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
@@ -343,11 +344,10 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
   }
 }
 
-void TriggerStore::AddTrigger(std::string name, const std::string &query,
-                              const storage::PropertyValue::map_t &user_parameters, TriggerEventType event_type,
-                              TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
-                              DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                              std::shared_ptr<QueryUserOrRole> owner) {
+void TriggerStore::AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
+                              TriggerEventType event_type, TriggerPhase phase,
+                              utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -373,8 +373,9 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   // When the format of the persisted trigger is changed, update the kVersion
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
-  data["user_parameters"] =
-      serialization::SerializePropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
+  // TODO put back in...
+  // data["user_parameters"] =
+  //     serialization::SerializePropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;

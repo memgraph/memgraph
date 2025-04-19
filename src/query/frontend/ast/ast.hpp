@@ -1077,9 +1077,24 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
 
  protected:
   template <typename T>
-  explicit PrimitiveLiteral(T value) : value_(value) {}
+  explicit PrimitiveLiteral(T value) {
+    if constexpr (std::is_same_v<std::decay_t<T>, memgraph::query::TypedValue>) {
+      value_ =
+          value.ToPropertyValue(nullptr);  // This shouldn't be map hence it's fine to pass nullptr as name_id_mapper?
+    } else {
+      value_ = storage::PropertyValue(value);
+    }
+  }
+
   template <typename T>
-  PrimitiveLiteral(T value, int token_position) : value_(value), token_position_(token_position) {}
+  PrimitiveLiteral(T value, int token_position) : token_position_(token_position) {
+    if constexpr (std::is_same_v<std::decay_t<T>, memgraph::query::TypedValue>) {
+      value_ =
+          value.ToPropertyValue(nullptr);  // This shouldn't be map hence it's fine to pass nullptr as name_id_mapper?
+    } else {
+      value_ = storage::PropertyValue(value);
+    }
+  }
 
  private:
   friend class AstStorage;
