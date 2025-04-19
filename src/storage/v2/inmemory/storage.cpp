@@ -2594,6 +2594,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::IsSnapshotCreationActive, 1);
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
@@ -2616,6 +2617,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::IsSnapshotCreationActive, 0);
 
   return {};
 }
