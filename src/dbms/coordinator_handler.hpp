@@ -46,6 +46,8 @@ class CoordinatorHandler {
   auto ShowInstance() const -> coordination::InstanceStatus;
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
+  auto YieldLeadership() const -> coordination::YieldLeadershipStatus;
+
   auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
 

@@ -161,6 +161,8 @@ class CoordinatorQueryHandler {
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
   virtual void ForceResetClusterState() = 0;
+
+  virtual void YieldLeadership() = 0;
 };
 #endif
 

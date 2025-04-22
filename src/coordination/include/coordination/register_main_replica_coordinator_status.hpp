@@ -17,6 +17,8 @@
 
 namespace memgraph::coordination {
 
+enum class YieldLeadershipStatus { SUCCESS, NOT_LEADER };
+
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS,
   MGMT_ENDPOINT_EXISTS,
