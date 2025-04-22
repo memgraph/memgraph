@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
 namespace memgraph::query {

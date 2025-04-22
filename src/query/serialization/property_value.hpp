@@ -26,8 +26,11 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
 nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values,
                                             memgraph::storage::Storage::Accessor *storage_acc);
 
-nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &parameters,
+nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &map,
                                          memgraph::storage::Storage::Accessor *storage_acc);
+
+nlohmann::json SerializeStringToPropertyValueMap(const storage::PropertyValue::StringToPropertyValueMap &parameters,
+                                                 memgraph::storage::Storage::Accessor *storage_acc);
 
 storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, storage::Storage::Accessor *storage_acc);
 
@@ -36,5 +39,8 @@ std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann:
 
 storage::PropertyValue::map_t DeserializePropertyValueMap(nlohmann::json::object_t const &data,
                                                           storage::Storage::Accessor *storage_acc);
+
+storage::PropertyValue::StringToPropertyValueMap DeserializeStringToPropertyValueMap(
+    nlohmann::json::object_t const &data, storage::Storage::Accessor *storage_acc);
 
 }  // namespace memgraph::query::serialization

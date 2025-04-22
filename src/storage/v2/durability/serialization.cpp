@@ -16,6 +16,8 @@
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
 
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
@@ -131,7 +133,7 @@ void Encoder<FileType>::WritePoint3d(storage::Point3d value) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::WritePropertyValue(const PropertyValue &value) {
+void Encoder<FileType>::WritePropertyValue(const PropertyValue &value, NameIdMapper *name_id_mapper) {
   WriteMarker(Marker::TYPE_PROPERTY_VALUE);
   switch (value.type()) {
     case PropertyValue::Type::Null: {
@@ -159,7 +161,7 @@ void Encoder<FileType>::WritePropertyValue(const PropertyValue &value) {
       WriteMarker(Marker::TYPE_LIST);
       WriteSize(this, list.size());
       for (const auto &item : list) {
-        WritePropertyValue(item);
+        WritePropertyValue(item, name_id_mapper);
       }
       break;
     }
@@ -168,8 +170,8 @@ void Encoder<FileType>::WritePropertyValue(const PropertyValue &value) {
       WriteMarker(Marker::TYPE_MAP);
       WriteSize(this, map.size());
       for (const auto &item : map) {
-        // WriteString(item.first); TODO - persist property id by name?
-        WritePropertyValue(item.second);
+        WriteString(name_id_mapper->IdToName(item.first.AsUint()));
+        WritePropertyValue(item.second, name_id_mapper);
       }
       break;
     }
@@ -456,7 +458,7 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
 }
 }  // namespace
 
-std::optional<PropertyValue> Decoder::ReadPropertyValue() {
+std::optional<PropertyValue> Decoder::ReadPropertyValue(NameIdMapper *name_id_mapper) {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return std::nullopt;
 
@@ -496,7 +498,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       std::vector<PropertyValue> value;
       value.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
-        auto item = ReadPropertyValue();
+        auto item = ReadPropertyValue(name_id_mapper);
         if (!item) return std::nullopt;
         value.emplace_back(std::move(*item));
       }
@@ -512,10 +514,9 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
-        auto item = ReadPropertyValue();
+        auto item = ReadPropertyValue(name_id_mapper);
         if (!item) return std::nullopt;
-        // TODO read property id
-        // value.emplace(std::move(*key), std::move(*item));
+        value.emplace(name_id_mapper->NameToId(*key), std::move(*item));
       }
       return PropertyValue(std::move(value));
     }
