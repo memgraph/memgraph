@@ -99,8 +99,6 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Vertex: {
       for (const auto properties = *expression_result.ValueVertex().Properties(view_);
            const auto &[property_id, value] : properties) {
-        // result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->name_id_mapper, ctx_->memory),
-        // value);
         auto typed_value = TypedValue(value, ctx_->memory, ctx_->name_id_mapper);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
@@ -109,7 +107,6 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Edge: {
       for (const auto properties = *expression_result.ValueEdge().Properties(view_);
            const auto &[property_id, value] : properties) {
-        // result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), value);
         auto typed_value = TypedValue(value, ctx_->memory, ctx_->name_id_mapper);
         result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
       }
