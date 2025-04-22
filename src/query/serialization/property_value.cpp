@@ -126,7 +126,6 @@ nlohmann::json SerializeExternalPropertyValueMap(storage::ExternalPropertyValue:
   for (const auto &[key, value] : map) {
     data["value"][key] = SerializeExternalPropertyValue(value, storage_acc);
   }
-
   return data;
 }
 
