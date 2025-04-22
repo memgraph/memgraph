@@ -190,40 +190,8 @@ GENERATE_READ_TEST(
     }                                                                    \
   }
 
-// // NOLINTNEXTLINE(hicpp-special-member-functions)
-// GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(500000, 'a'));
-
-TYPED_TEST(DecoderEncoderTest, SkipString) {
-  std::vector<std::string> dataset{"hello", "world", "nandare", "haihaihai", std::string(500000, 'a')};
-
-  {
-    memgraph::storage::durability::Encoder<TypeParam> encoder;
-    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
-    for (const auto &item : dataset) {
-      encoder.WriteString(item);
-    }
-    {
-      uint8_t invalid = 1;
-      encoder.Write(&invalid, sizeof(invalid));
-    }
-    encoder.Finalize();
-  }
-
-  {
-    memgraph::storage::durability::Decoder decoder;
-    auto version = decoder.Initialize(this->storage_file, kTestMagic);
-    ASSERT_TRUE(version);
-    ASSERT_EQ(*version, kTestVersion);
-    for (auto it = dataset.begin(); it != dataset.end(); ++it) {
-      ASSERT_TRUE(decoder.SkipString());
-    }
-    ASSERT_FALSE(decoder.SkipString());
-    ASSERT_FALSE(decoder.SkipString());
-    auto pos = decoder.GetPosition();
-    ASSERT_TRUE(pos);
-    ASSERT_EQ(pos, decoder.GetSize());
-  }
-}
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(500000, 'a'));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SKIP_TEST(

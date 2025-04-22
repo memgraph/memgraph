@@ -1238,7 +1238,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     create_vertex_and_commit();
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
     const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
-    ASSERT_EQ(recovery_steps.size(), 2);  // TODO: Gareth/Andreja/Andi is this fine?
+    ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
   }
 

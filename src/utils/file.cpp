@@ -357,8 +357,8 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
     if (buffer_remaining == 0) {
-      MG_ASSERT(IsOpen(), "Flushing an unopend file.");
-      FlushBufferInternal(write_ptr - buffer_);
+      MG_ASSERT(IsOpen(), "Flushing an unopened file.");
+      FlushBufferInternal(kFileBufferSize);
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_;
     }
@@ -505,13 +505,13 @@ void OutputFile::Close() noexcept {
 }
 
 void OutputFile::FlushBuffer() {
-  MG_ASSERT(IsOpen(), "Flushing an unopend file.");
+  MG_ASSERT(IsOpen(), "Flushing an unopened file.");
 
   std::unique_lock flush_guard(flush_lock_);
   FlushBufferInternal();
 }
 
-void OutputFile::FlushBufferInternal(unsigned long to_write) {
+void OutputFile::FlushBufferInternal(size_t to_write) {
   // Doesn't update buffer_position_ to avoid using atomics
   auto *buffer = buffer_;
   while (to_write > 0) {
@@ -532,29 +532,12 @@ void OutputFile::FlushBufferInternal(unsigned long to_write) {
 }
 
 void OutputFile::FlushBufferInternal() {
-  MG_ASSERT(buffer_position_.load(std::memory_order_acquire) <= kFileBufferSize,
+  auto to_write = buffer_position_.load(std::memory_order_acquire);
+  MG_ASSERT(to_write <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
-
-  auto *buffer = buffer_;
-  auto to_write = buffer_position_.load(std::memory_order_acquire);
-  while (to_write > 0) {
-    auto written = write(fd_, buffer, to_write);
-    if (written == -1 && errno == EINTR) {
-      continue;
-    }
-
-    MG_ASSERT(written > 0,
-              "while trying to write to {} an error occurred: {} ({}). "
-              "Possibly {} bytes of data were lost from this call and "
-              "possibly {} bytes were lost from previous calls.",
-              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
-
-    to_write -= written;
-    buffer += written;
-  }
-
+  FlushBufferInternal(to_write);
   buffer_position_.store(0, std::memory_order_release);
 }
 
@@ -628,8 +611,8 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
   auto buffer_remaining = kFileBufferSize - buffer_start;
   while (size > 0) {
     if (buffer_remaining == 0) {
-      MG_ASSERT(IsOpen(), "Flushing an unopend file.");
-      FlushBufferInternal(write_ptr - buffer_);
+      MG_ASSERT(IsOpen(), "Flushing an unopened file.");
+      FlushBufferInternal(kFileBufferSize);
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_;
     }
@@ -778,12 +761,12 @@ void NonConcurrentOutputFile::Close() noexcept {
 }
 
 void NonConcurrentOutputFile::FlushBuffer() {
-  MG_ASSERT(IsOpen(), "Flushing an unopend file.");
+  MG_ASSERT(IsOpen(), "Flushing an unopened file.");
 
   FlushBufferInternal();
 }
 
-void NonConcurrentOutputFile::FlushBufferInternal(unsigned long to_write) {
+void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
   auto *buffer = buffer_;
   while (to_write > 0) {
     auto written = write(fd_, buffer, to_write);
@@ -803,29 +786,12 @@ void NonConcurrentOutputFile::FlushBufferInternal(unsigned long to_write) {
 }
 
 void NonConcurrentOutputFile::FlushBufferInternal() {
-  MG_ASSERT(buffer_position_ <= kFileBufferSize,
+  auto to_write = buffer_position_;
+  MG_ASSERT(to_write <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
-
-  auto *buffer = buffer_;
-  auto to_write = buffer_position_;
-  while (to_write > 0) {
-    auto written = write(fd_, buffer, to_write);
-    if (written == -1 && errno == EINTR) {
-      continue;
-    }
-
-    MG_ASSERT(written > 0,
-              "while trying to write to {} an error occurred: {} ({}). "
-              "Possibly {} bytes of data were lost from this call and "
-              "possibly {} bytes were lost from previous calls.",
-              path_, strerror(errno), errno, buffer_position_, written_since_last_sync_);
-
-    to_write -= written;
-    buffer += written;
-  }
-
+  FlushBufferInternal(to_write);
   buffer_position_ = 0;
 }
 

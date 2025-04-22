@@ -1482,7 +1482,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
       acc->CreateVertex();
     }
     ASSERT_FALSE(acc->Commit().HasError());
-  }
+  }  // Snapshot made on exit
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
@@ -1508,7 +1508,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     CreateBaseDataset(db.storage(), GetParam());
     // Allow approximately 3 snapshots to be created.
     std::this_thread::sleep_for(std::chrono::milliseconds(6000));
-  }
+  }  // Periodic snapshot was made ~3 times, retention we only kept 1
 
   ASSERT_EQ(GetSnapshotsList().size(), 1 + 1);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
