@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,8 @@
 #include "utils/resource_lock.hpp"
 
 #include <gtest/gtest.h>
+#include <future>
+#include <latch>
 #include <shared_mutex>
 #include <thread>
 
@@ -161,37 +163,31 @@ TEST_F(ResourceLockTest, TryLock) {
 }
 
 TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
-  std::thread writer([&]() {
-    SharedResourceLockGuard guard_write1(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
-    SharedResourceLockGuard guard_write2(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
+  enum class Outcome { Nothing, ErrorAcquiredButShouldBeDefered, ErrorAcquiredButTryShouldHaveFailed, Success };
 
-    guard_write1.lock();
-    guard_write2.lock();
+  // Pin with one write lock
+  auto guard_w_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
 
-    constexpr auto sleep_time = std::chrono::milliseconds(25);
-
-    // at least one writer has the lock all the time
-    for (int i = 0; i < 5; ++i) {
-      std::this_thread::sleep_for(sleep_time);
-      guard_write1.unlock();
-      std::this_thread::sleep_for(sleep_time);
-      guard_write1.lock();
-      std::this_thread::sleep_for(sleep_time);
-      guard_write2.unlock();
-      std::this_thread::sleep_for(sleep_time);
-      guard_write2.lock();
-    }
-
-    guard_write1.unlock();
-    guard_write2.unlock();
+  // Concurrently acquire read only lock
+  auto ro_outcome = std::async([&] {
+    auto guard_ro = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+    if (guard_ro.owns_lock()) return Outcome::ErrorAcquiredButShouldBeDefered;
+    if (guard_ro.try_lock()) return Outcome::ErrorAcquiredButTryShouldHaveFailed;
+    guard_ro.lock();
+    return Outcome::Success;
   });
 
-  // ensure the writer starts first
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // wait for thread to start + block on acquiring the lock
+  using namespace std::chrono_literals;
+  std::this_thread::sleep_for(5ms);
 
-  SharedResourceLockGuard guard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
-  ASSERT_TRUE(guard.try_lock_for(std::chrono::milliseconds(400)));
-  guard.unlock();
+  // should not be able to get write lock, because ro lock is requested
+  auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
+  ASSERT_FALSE(guard_w_2.owns_lock());
 
-  writer.join();
+  // release write lock that is preventing the read only lock from being acquired
+  guard_w_1.unlock();
+
+  // wait for thread to finish, check result
+  ASSERT_EQ(ro_outcome.get(), Outcome::Success);
 }
