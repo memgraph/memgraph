@@ -92,14 +92,18 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       // new (&list_v) TVector(memory_);
       // list_v.reserve(vec.size());
       // for (const auto &v : vec) list_v.emplace_back(v);
+      const auto &vec = value.ValueList();
+      new (&list_v) TVector(vec.size(), memory_);
+      for (const auto &v : vec) {
+        auto typed_value = TypedValue(v, memory_, name_id_mapper);
+        list_v.emplace_back(std::move(typed_value));
+      }
       return;
     }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       std::construct_at(&map_v, memory_);
-      // for (const auto &kv : map) map_v.emplace(TString(name_id_mapper->IdToName(kv.first.AsUint()), memory_),
-      // kv.second);
       if (!name_id_mapper) {
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
       }
@@ -197,6 +201,13 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       type_ = Type::List;
       // auto &vec = other.ValueList();
       // new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
+      auto &vec = other.ValueList();
+      new (&list_v) TVector(vec.size(), memory_);
+      list_v.reserve(vec.size());
+      for (auto &v : vec) {
+        auto typed_value = TypedValue(std::move(v), memory_, name_id_mapper);
+        list_v.emplace_back(std::move(typed_value));
+      }
       break;
     }
     case storage::PropertyValue::Type::Map: {
@@ -439,6 +450,11 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       // for (const auto &v : list_v) {
       //   list.emplace_back(v.ToPropertyValue(name_id_mapper));
       // }
+      list.reserve(list_v.size());
+      for (const auto &v : list_v) {
+        auto typed_value = v.ToPropertyValue(name_id_mapper);
+        list.emplace_back(std::move(typed_value));
+      }
       return storage::PropertyValue(std::move(list));
     }
     case TypedValue::Type::Map: {
