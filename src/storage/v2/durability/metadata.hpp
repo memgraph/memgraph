@@ -31,6 +31,7 @@ struct RecoveryInfo {
   uint64_t next_vertex_id{0};
   uint64_t next_edge_id{0};
   uint64_t next_timestamp{0};
+
   // last timestamp read from a WAL file
   std::optional<uint64_t> last_durable_timestamp;
 

@@ -16,7 +16,6 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <iosfwd>
 #include <map>
 #include <memory>
 #include <optional>
@@ -29,6 +28,7 @@
 #include <vector>
 
 #include "slk/streams.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/cast.hpp"
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"
@@ -186,6 +186,17 @@ inline void Save(const char *obj, Builder *builder) {
   uint64_t size = strlen(obj);
   Save(size, builder);
   builder->Save(reinterpret_cast<const uint8_t *>(obj), size);
+}
+
+inline void Save(storage::PropertyId obj, Builder *builder) {
+  auto obj_encoded = utils::HostToLittleEndian(obj.AsUint());
+  builder->Save(reinterpret_cast<const uint8_t *>(&obj_encoded), sizeof(storage::PropertyId));
+}
+
+inline void Load(storage::PropertyId *obj, Reader *reader) {
+  uint32_t obj_encoded;
+  reader->Load(reinterpret_cast<uint8_t *>(&obj_encoded), sizeof(storage::PropertyId));
+  *obj = storage::PropertyId::FromUint(utils::LittleEndianToHost(obj_encoded));
 }
 
 inline void Save(const std::string_view obj, Builder *builder) {
@@ -413,7 +424,7 @@ inline void Load(std::optional<T> *obj, Reader *reader) {
 
 template <typename A, typename B>
 inline void Save(const std::pair<A, B> &obj, Builder *builder) {
-  // TODO save map property id Save(obj.first, builder);
+  Save(obj.first, builder);
   Save(obj.second, builder);
 }
 

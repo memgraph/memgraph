@@ -117,19 +117,31 @@ nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyV
   return array;
 }
 
-nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &parameters,
+nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &map,
                                          memgraph::storage::Storage::Accessor *storage_acc) {
   nlohmann::json data = nlohmann::json::object();
   data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
   data.emplace("value", nlohmann::json::object());
 
-  for (const auto &[key, value] : parameters) {
-    // TODO put back
-    // data["value"][key] = SerializePropertyValue(value, storage_acc);
+  for (const auto &[key, value] : map) {
+    auto property_name = storage_acc->PropertyToName(key);
+    data["value"][property_name] = SerializePropertyValue(value, storage_acc);
   }
 
   return data;
-};
+}
+
+nlohmann::json SerializeStringToPropertyValueMap(const storage::PropertyValue::StringToPropertyValueMap &parameters,
+                                                 memgraph::storage::Storage::Accessor *storage_acc) {
+  nlohmann::json data = nlohmann::json::object();
+  data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
+  data.emplace("value", nlohmann::json::object());
+
+  for (const auto &[key, value] : parameters) {
+    data["value"][key] = SerializePropertyValue(value, storage_acc);
+  }
+  return data;
+}
 
 storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, storage::Storage::Accessor *storage_acc) {
   if (data.is_null()) {
@@ -213,6 +225,20 @@ storage::PropertyValue::map_t DeserializePropertyValueMap(nlohmann::json::object
   property_values.reserve(values.size());
   for (const auto &[key, value] : values) {
     property_values.emplace(storage_acc->NameToProperty(key), DeserializePropertyValue(value, storage_acc));
+  }
+
+  return property_values;
+}
+
+storage::PropertyValue::StringToPropertyValueMap DeserializeStringToPropertyValueMap(
+    nlohmann::json::object_t const &data, storage::Storage::Accessor *storage_acc) {
+  MG_ASSERT(data.at("type").get<ObjectType>() == ObjectType::MAP, "Invalid map serialization");
+  const nlohmann::json::object_t &values = data.at("value");
+
+  auto property_values = storage::PropertyValue::StringToPropertyValueMap{};
+  property_values.reserve(values.size());
+  for (const auto &[key, value] : values) {
+    property_values.emplace(key, DeserializePropertyValue(value, storage_acc));
   }
 
   return property_values;

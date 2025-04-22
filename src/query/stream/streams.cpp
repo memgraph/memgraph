@@ -31,6 +31,7 @@
 #include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -539,7 +540,6 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       interpreter->Abort();
     }};
 
-    const static storage::PropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
@@ -548,21 +548,26 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
               ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
-          // TODO put back in...
-          // storage::PropertyValue params_prop{params_value};
-          // std::string query{query_value.ValueString()};
-          // spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-          // auto prepare_result = interpreter->Prepare(
-          //     query,
-          //     [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters;
-          //     },
-          //     {});
-          // if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
-          //   throw StreamsException{
-          //       "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
-          //       "query!",
-          //       query, stream_name};
-          // }
+          std::string query{query_value.ValueString()};
+          spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
+          auto prepare_result = interpreter->Prepare(
+              query,
+              [&](storage::Storage const *) {
+                storage::PropertyValue::StringToPropertyValueMap params_prop;
+                for (const auto &[key, value] : params_value.ValueMap()) {
+                  params_prop.emplace(
+                      key,
+                      value.ToPropertyValue(interpreter->current_db_.db_acc_->get()->storage()->name_id_mapper_.get()));
+                }
+                return params_prop;
+              },
+              {});
+          if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
+            throw StreamsException{
+                "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
+                "query!",
+                query, stream_name};
+          }
           interpreter->PullAll(&stream);
         }
 
