@@ -16,6 +16,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/string_helpers.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
@@ -130,8 +131,7 @@ void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
                 "to Expression *. This means your other PrintObject overloads aren't "
                 "being called for certain AST nodes when they should (or perhaps such "
                 "overloads don't exist yet).");
-  // TODO put this back...
-  //*out << arg;
+  *out << arg;
 }
 
 void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const std::string &str) { *out << utils::Escape(str); }

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,10 @@ namespace memgraph::storage {
     friend bool operator==(const name &, const name &) = default;                         \
     friend bool operator<(const name &, const name &) = default;                          \
     friend std::strong_ordering operator<=>(const name &, const name &) = default;        \
+    friend std::ostream &operator<<(std::ostream &os, const name &id) {                   \
+      os << id.ToString();                                                                \
+      return os;                                                                          \
+    }                                                                                     \
                                                                                           \
    private:                                                                               \
     type_store id_;                                                                       \
