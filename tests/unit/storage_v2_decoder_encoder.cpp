@@ -344,8 +344,7 @@ GENERATE_PARTIAL_SKIP_TEST(
         memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
         memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
         memgraph::storage::PropertyValue("nandare"),
-        memgraph::storage::PropertyValue{
-            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
+        memgraph::storage::StringToPropertyValueMap{{"haihai", memgraph::storage::PropertyValue()}},
         memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
         memgraph::storage::PropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
