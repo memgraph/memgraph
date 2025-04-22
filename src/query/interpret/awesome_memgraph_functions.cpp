@@ -435,13 +435,11 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
-    // for (const auto &property : *maybe_props) {
-    //  // properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), property.second);
-    //  auto typed_value =
-    //     TypedValue(property.second, ctx.memory, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper());
-    //  properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory),
-    //  std::move(typed_value));
-    // }
+    for (const auto &property : *maybe_props) {
+      auto typed_value =
+          TypedValue(property.second, ctx.memory, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
+    }
     return TypedValue(std::move(properties));
   };
   const auto &value = args[0];
@@ -684,7 +682,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 // TODO: How is Keys different from Properties function?
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
-  // auto *dba = ctx.db_accessor;
+  auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
     auto maybe_props = record_accessor.Properties(ctx.view);
@@ -700,10 +698,10 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
           throw QueryRuntimeException("Unexpected error when getting keys.");
       }
     }
-    // for (const auto &property : *maybe_props) {
-    //   keys.emplace_back(dba->PropertyToName(property.first));
-    // }
-    return TypedValue(ctx.memory);
+    for (const auto &property : *maybe_props) {
+      keys.emplace_back(dba->PropertyToName(property.first));
+    }
+    return TypedValue(std::move(keys));
   };
   const auto &value = args[0];
   if (value.IsNull()) {
@@ -716,13 +714,12 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     return get_keys(value.ValueEdge());
   }
 
-  // // map
-  // TypedValue::TVector keys(ctx.memory);
-  // for (const auto &[string_key, value] : value.ValueMap()) {
-  //   keys.emplace_back(string_key);
-  // }
-  // return TypedValue(std::move(keys));
-  return TypedValue(ctx.memory);
+  // map
+  TypedValue::TVector keys(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    keys.emplace_back(string_key);
+  }
+  return TypedValue(std::move(keys));
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -743,10 +740,11 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
           throw QueryRuntimeException("Unexpected error when getting keys.");
       }
     }
-    // for (const auto &[key, value] : *maybe_props) {
-    //   values.emplace_back(std::move(value));
-    // }
-    return TypedValue(ctx.memory);
+    for (const auto &[key, value] : *maybe_props) {
+      auto typed_value = TypedValue(value, ctx.memory, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      values.emplace_back(std::move(typed_value));
+    }
+    return TypedValue(std::move(values));
   };
 
   const auto &value = args[0];
@@ -760,14 +758,13 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     return get_values(value.ValueEdge());
   }
 
-  // // map
-  // TypedValue::TVector values(ctx.memory);
-  // for (const auto &[string_key, value] : value.ValueMap()) {
-  //   values.emplace_back(value);
-  // }
+  // map
+  TypedValue::TVector values(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    values.emplace_back(value);
+  }
 
-  // return TypedValue(std::move(values));
-  return TypedValue(ctx.memory);
+  return TypedValue(std::move(values));
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
