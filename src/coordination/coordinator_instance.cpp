@@ -531,6 +531,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 // NOLINTNEXTLINE
                                                  .current_main_uuid_ = new_main_uuid};
 
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
@@ -607,6 +608,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 // NOLINTNEXTLINE
                                                  .current_main_uuid_ = new_main_uuid};
 
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
