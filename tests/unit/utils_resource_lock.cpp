@@ -159,3 +159,39 @@ TEST_F(ResourceLockTest, TryLock) {
   ASSERT_TRUE(lock.try_lock());
   lock.unlock();
 }
+
+TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
+  std::thread writer([&]() {
+    SharedResourceLockGuard guard_write1(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
+    SharedResourceLockGuard guard_write2(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
+
+    guard_write1.lock();
+    guard_write2.lock();
+
+    constexpr auto sleep_time = std::chrono::milliseconds(25);
+
+    // at least one writer has the lock all the time
+    for (int i = 0; i < 5; ++i) {
+      std::this_thread::sleep_for(sleep_time);
+      guard_write1.unlock();
+      std::this_thread::sleep_for(sleep_time);
+      guard_write1.lock();
+      std::this_thread::sleep_for(sleep_time);
+      guard_write2.unlock();
+      std::this_thread::sleep_for(sleep_time);
+      guard_write2.lock();
+    }
+
+    guard_write1.unlock();
+    guard_write2.unlock();
+  });
+
+  // ensure the writer starts first
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  SharedResourceLockGuard guard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+  ASSERT_TRUE(guard.try_lock_for(std::chrono::milliseconds(400)));
+  guard.unlock();
+
+  writer.join();
+}
