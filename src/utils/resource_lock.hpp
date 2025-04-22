@@ -120,6 +120,15 @@ struct ResourceLock {
     return false;
   }
 
+  template <LockReq Req>
+  bool dowgrade_to_read() {
+    auto lock = std::unique_lock{mtx};
+    if (state == UNIQUE) return false;
+    unlock_state_updater<Req>();
+    lock_pre_state_change<LockReq::READ>();
+    return true;
+  }
+
   template <typename Rep, typename Period, LockReq Req = LockReq::WRITE>
   bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
     auto lock = std::unique_lock{mtx};
@@ -261,6 +270,26 @@ struct SharedResourceLockGuard {
       }
       locked_ = false;
     }
+  }
+
+  bool downgrade_to_read() {
+    if (ptr_ && locked_) {
+      switch (type_) {
+        case WRITE: {
+          auto res = ptr_->dowgrade_to_read<ResourceLock::LockReq::WRITE>();
+          if (res) type_ = READ;
+          return res;
+        }
+        case READ:
+          return true;  // can't downgrade from read to read
+        case READ_ONLY: {
+          auto res = ptr_->dowgrade_to_read<ResourceLock::LockReq::READ_ONLY>();
+          if (res) type_ = READ;
+          return res;
+        }
+      }
+    }
+    return false;
   }
 
   bool owns_lock() const { return ptr_ && locked_; }
