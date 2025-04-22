@@ -597,7 +597,7 @@ TEST(PropertyStore, IsPropertyEqualMap) {
       prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
 
   // Different length.
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(PropertyValue::map_t{{"fgh", PropertyValue(24)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(StringToPropertyValueMap{{"fgh", PropertyValue(24)}})));
 
   // Same length, different value.
   ASSERT_FALSE(props.IsPropertyEqual(

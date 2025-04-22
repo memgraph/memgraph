@@ -508,8 +508,10 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
       return os << "]";
     case PropertyValueType::Map:
       os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+      // TODO: fix this: `pair.first` is no longer a string, but a property id.
+      // Need the id mapper to convert it to a string.
+      // utils::PrintIterable(os, value.ValueMap(), ", ",
+      //                      [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
       return os << "}";
     case PropertyValueType::TemporalData:
       return os << fmt::format("type: {}, microseconds: {}", TemporalTypeToString(value.ValueTemporalData().type),

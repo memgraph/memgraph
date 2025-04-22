@@ -1585,8 +1585,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
          {PropertyValue(std::vector<PropertyValue>()), PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(false)}})),
          std::nullopt,
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-          PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
+         {PropertyValue(StringToPropertyValueMap{{"id", PropertyValue(5)}}),
+          PropertyValue(StringToPropertyValueMap{{"id", PropertyValue(10)}})});
   verify(std::nullopt,
          memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(7.5)}})),
          {PropertyValue(PropertyValue::map_t()), PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}})});
