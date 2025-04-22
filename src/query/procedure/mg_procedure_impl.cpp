@@ -2577,20 +2577,19 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
-    // TODO put back in ...
-    // auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
-    // if (!trigger_ctx_collector ||
-    //     !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
-    //   return;
-    // }
-    // const auto old_value = memgraph::query::TypedValue(*result);
-    // if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-    //   e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
-    //   return;
-    // }
-    // const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    // e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value,
-    // new_value);
+    auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
+      return;
+    }
+    const auto old_value =
+        memgraph::query::TypedValue(*result, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
+    if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
+      e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
+      return;
+    }
+    const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value, new_value);
   });
 }
 
@@ -2643,19 +2642,20 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
       return;
     }
-    // TODO put back in ...
-    // for (const auto &res : *result) {
-    //   const auto property_key = std::get<0>(res);
-    //   const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
-    //   const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value =
+          memgraph::query::TypedValue(std::get<1>(res), ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      const auto new_value =
+          memgraph::query::TypedValue(std::get<2>(res), ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
 
-    //   if (new_value.IsNull()) {
-    //     trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
-    //     continue;
-    //   }
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
+        continue;
+      }
 
-    //   trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
-    // }
+      trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
+    }
   });
 }
 
