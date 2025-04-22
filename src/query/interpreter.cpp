@@ -199,8 +199,7 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
     os << " - {";
     std::string header;
     for (const auto &[key, val] : *qlw.metadata) {
-      // TODO put back...
-      // os << header << key << ":" << val;
+      os << header << key << ":" << val;
       if (header.empty()) header = ", ";
     }
     os << "}";
@@ -4541,14 +4540,14 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                           : ""),
            TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
       // Handle user-defined metadata
-      // TODO bring this back...
-      // std::map<std::string, TypedValue> metadata_tv;
-      // if (interpreter->metadata_) {
-      //   for (const auto &md : *(interpreter->metadata_)) {
-      //     metadata_tv.emplace(md.first, TypedValue(md.second));
-      //   }
-      // }
-      // results.back().emplace_back(metadata_tv);
+      std::map<std::string, TypedValue> metadata_tv;
+      if (interpreter->metadata_) {
+        auto *name_id_mapper = interpreter->current_db_.db_acc_->get()->storage()->name_id_mapper_.get();
+        for (const auto &md : *(interpreter->metadata_)) {
+          metadata_tv.emplace(md.first, TypedValue(md.second, name_id_mapper));
+        }
+      }
+      results.back().emplace_back(metadata_tv);
     }
   }
   return results;

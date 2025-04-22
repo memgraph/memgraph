@@ -582,18 +582,18 @@ class Filters final {
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectWhereFilter(Where &, const SymbolTable &, AstStorage *ast_storage = nullptr);
+  void CollectWhereFilter(Where &, const SymbolTable &);
 
   /// Collects filtering information from an expression.
   ///
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &, AstStorage *ast_storage = nullptr);
+  void CollectFilterExpression(Expression *, const SymbolTable &);
 
  private:
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &, AstStorage *ast_storage = nullptr);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
 /// Normalized representation of a single or multiple Match clauses.

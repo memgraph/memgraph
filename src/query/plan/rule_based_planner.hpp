@@ -1031,7 +1031,7 @@ class RuleBasedPlanner {
       filter_expr = CompactFilters(filter_expr, storage);  // Can only compact; not delete the whole expression
                                                            // Could do in the future when we have parse-time constants
       Filters operator_filters;
-      operator_filters.CollectFilterExpression(filter_expr, symbol_table, &storage);
+      operator_filters.CollectFilterExpression(filter_expr, symbol_table);
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr,
                                          std::move(operator_filters));
     }
