@@ -18,6 +18,7 @@
 
 #include "storage/v2/enum.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
@@ -80,6 +81,15 @@ class PropertyValueImpl {
 
   using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
 
+  // TODO there are many places throughout the code base which rely on
+  // the old definition of the property map (i.e, string -> PropertyValue).
+  // Having the old type defined here means they can still use this definition
+  // (but it probably needs to be defined in some place elsewhere, rather
+  // than in the `property_value.hpp` file.)
+  using StringToPropertyValueMap =
+      boost::container::flat_map<string_t, PropertyValueImpl, std::less<>,
+                                 typename alloc_trait::template rebind_alloc<std::pair<string_t, PropertyValueImpl>>>;
+
   /// Make a Null value
   PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
 
@@ -135,6 +145,40 @@ class PropertyValueImpl {
       : alloc_{alloc}, map_v{.val_ = map_t{value, alloc}} {}
   explicit PropertyValueImpl(map_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, map_v{.val_ = map_t{std::move(value), alloc}} {}
+  explicit PropertyValueImpl(const StringToPropertyValueMap &value, NameIdMapper *name_id_mapper)
+      : alloc_{value.get_allocator()} {
+    for (const auto &[key, val] : value) {
+      auto id = name_id_mapper->NameToId(key);
+      map_v.val_.emplace(id, PropertyValueImpl{val, alloc_});
+    }
+    type_ = Type::Map;
+  }
+  explicit PropertyValueImpl(StringToPropertyValueMap &&value, NameIdMapper *name_id_mapper)
+      : alloc_{value.get_allocator()} {
+    for (const auto &[key, val] : value) {
+      auto id = name_id_mapper->NameToId(key);
+      map_v.val_.emplace(id, PropertyValueImpl{std::move(val), alloc_});
+    }
+    type_ = Type::Map;
+  }
+  explicit PropertyValueImpl(const StringToPropertyValueMap &value, NameIdMapper *name_id_mapper,
+                             allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc} {
+    for (const auto &[key, val] : value) {
+      auto id = name_id_mapper->NameToId(key);
+      map_v.val_.emplace(id, PropertyValueImpl{val, alloc});
+    }
+    type_ = Type::Map;
+  }
+  explicit PropertyValueImpl(StringToPropertyValueMap &&value, NameIdMapper *name_id_mapper,
+                             allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc} {
+    for (const auto &[key, val] : value) {
+      auto id = name_id_mapper->NameToId(key);
+      map_v.val_.emplace(id, PropertyValueImpl{std::move(val), alloc});
+    }
+    type_ = Type::Map;
+  }
 
   // copy constructor
   /// @throw std::bad_alloc
@@ -418,16 +462,6 @@ using PropertyValue = PropertyValueImpl<std::allocator<std::byte>>;
 namespace pmr {
 using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>>;
 }
-
-// TODO there are many places throughout the code base which rely on
-// the old definition of the property map (i.e, string -> PropertyValue).
-// Having the old type defined here means they can still use this definition
-// (but it probably needs to be defined in some place elsewhere, rather
-// than in the `property_value.hpp` file.)
-using StringToPropertyValueMap =
-    boost::container::flat_map<storage::PropertyValue::string_t, storage::PropertyValue, std::less<>,
-                               typename storage::PropertyValue::alloc_trait::template rebind_alloc<
-                                   std::pair<storage::PropertyValue::string_t, storage::PropertyValue>>>;
 
 struct ExtendedPropertyType {
   PropertyValueType type{PropertyValueType::Null};

@@ -14,6 +14,7 @@
 #include <memory_resource>
 #include <sstream>
 
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 
@@ -32,6 +33,11 @@ bool IsOnlyOneType(PropertyValue const &pv) {
   auto count = pv.IsNull() + pv.IsBool() + pv.IsInt() + pv.IsDouble() + pv.IsString() + pv.IsList() + pv.IsMap() +
                pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d();
   return count == 1;
+}
+
+NameIdMapper *GetNameIdMapper() {
+  static NameIdMapper *name_id_mapper = new NameIdMapper();
+  return name_id_mapper;
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

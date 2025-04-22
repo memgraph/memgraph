@@ -175,7 +175,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 struct QueryLogWrapper {
   std::string_view query;
-  const memgraph::storage::StringToPropertyValueMap *metadata;
+  const memgraph::storage::PropertyValue::StringToPropertyValueMap *metadata;
   std::string_view db_name;
 };
 

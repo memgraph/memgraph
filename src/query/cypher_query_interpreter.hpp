@@ -57,7 +57,7 @@ class LogicalPlan {
   virtual plan::ReadWriteTypeChecker::RWType RWType() const = 0;
 };
 
-using UserParameters = storage::StringToPropertyValueMap;
+using UserParameters = storage::PropertyValue::StringToPropertyValueMap;
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
     -> Parameters;
