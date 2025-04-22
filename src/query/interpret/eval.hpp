@@ -123,11 +123,11 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_, ctx_->memory, ctx_->name_id_mapper);
+    return TypedValue(literal.value_, ctx_->name_id_mapper, ctx_->memory);
   }
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory,
-                      ctx_->name_id_mapper);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
+                      ctx_->memory);
   }
 
 #define INVALID_VISIT(expr_name)                                                             \
@@ -438,12 +438,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory, ctx_->name_id_mapper};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->name_id_mapper, ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory, ctx_->name_id_mapper};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->name_id_mapper, ctx_->memory};
     };
 
     // lhs is Null
@@ -583,7 +583,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    return TypedValue(literal.value_, ctx_->memory, ctx_->name_id_mapper);
+    return TypedValue(literal.value_, ctx_->name_id_mapper, ctx_->memory);
   }
 
   TypedValue Visit(ListLiteral &literal) override {
@@ -943,8 +943,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory,
-                      ctx_->name_id_mapper);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
+                      ctx_->memory);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override;
