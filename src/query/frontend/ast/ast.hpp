@@ -2280,6 +2280,8 @@ struct PreQueryDirectives {
   memgraph::query::Expression *hops_limit_{nullptr};
   /// Commit frequency
   memgraph::query::Expression *commit_frequency_{nullptr};
+  /// Thread number for parallel runtime
+  memgraph::query::Expression *parallel_runtime_thread_number_{nullptr};
 
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
@@ -2289,6 +2291,8 @@ struct PreQueryDirectives {
     }
     object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
+    object.parallel_runtime_thread_number_ =
+        parallel_runtime_thread_number_ ? parallel_runtime_thread_number_->Clone(storage) : nullptr;
     return object;
   }
 };

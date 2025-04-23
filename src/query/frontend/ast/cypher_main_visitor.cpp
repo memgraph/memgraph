@@ -334,6 +334,17 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         throw SyntaxException("Hops limit can be set only once in the USING statement.");
       }
       pre_query_directives.hops_limit_ = std::any_cast<Expression *>(pre_query_directive->hopsLimit()->accept(this));
+    } else if (auto *parallel_runtime = pre_query_directive->parallelRuntime()) {
+      auto *number_of_threads = parallel_runtime->numberOfThreads;
+      if (!number_of_threads->numberLiteral()) {
+        throw SyntaxException("Parallel runtime should be a number variable.");
+      }
+      if (!number_of_threads->numberLiteral()->integerLiteral()) {
+        throw SyntaxException("Parallel runtime should be an integer.");
+      }
+
+      pre_query_directives.parallel_runtime_thread_number_ =
+          std::any_cast<Expression *>(number_of_threads->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
