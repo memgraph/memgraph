@@ -47,6 +47,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -541,6 +542,7 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
 template <typename TFunc>
 void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &edges, const uint64_t from_offset,
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
+                      NameIdMapper *name_id_mapper,
                       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
@@ -596,7 +598,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read edge property id!");
-          auto value = snapshot.ReadPropertyValue();
+          auto value = snapshot.ReadPropertyValue(name_id_mapper);
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
         }
@@ -626,7 +628,7 @@ template <typename TLabelFromIdFunc, typename TPropertyFromIdFunc>
 uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<Vertex> &vertices,
                              SharedSchemaTracking *schema_info, const uint64_t from_offset,
                              const uint64_t vertices_count, TLabelFromIdFunc get_label_from_id,
-                             TPropertyFromIdFunc get_property_from_id,
+                             TPropertyFromIdFunc get_property_from_id, NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
@@ -694,7 +696,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-          auto value = snapshot.ReadPropertyValue();
+          auto value = snapshot.ReadPropertyValue(name_id_mapper);
           if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
           read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
         }
@@ -1063,7 +1065,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
               if (!key) throw RecoveryFailure("Couldn't read edge property id!");
-              auto value = snapshot.ReadPropertyValue();
+              auto value = snapshot.ReadPropertyValue(name_id_mapper);
               if (!value) throw RecoveryFailure("Couldn't read edge property value!");
               SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for edge {}.",
                            name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
@@ -1139,7 +1141,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read the vertex property id!");
-          auto value = snapshot.ReadPropertyValue();
+          auto value = snapshot.ReadPropertyValue(name_id_mapper);
           if (!value) throw RecoveryFailure("Couldn't read the vertex property value!");
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
@@ -1521,10 +1523,11 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(
-              path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id, get_property_from_id);
+        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch =
+              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                  get_property_from_id, name_id_mapper);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -1548,9 +1551,9 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
           edge_batches);
     }
@@ -1808,10 +1811,11 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(
-              path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id, get_property_from_id);
+        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch =
+              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                  get_property_from_id, name_id_mapper);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -1835,9 +1839,9 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
           edge_batches);
     }
@@ -2149,10 +2153,11 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(
-              path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id, get_property_from_id);
+        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch =
+              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                  get_property_from_id, name_id_mapper);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -2176,9 +2181,9 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
           edge_batches);
     }
@@ -2573,10 +2578,11 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid, schema_info](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(
-              path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id, get_property_from_id);
+        [path, vertices, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid, schema_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch =
+              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                  get_property_from_id, name_id_mapper);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -2600,9 +2606,9 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
           edge_batches);
     }
@@ -3014,10 +3020,11 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch = LoadPartialVertices(
-              path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id, get_property_from_id);
+        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+          const auto last_vertex_gid_in_batch =
+              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                  get_property_from_id, name_id_mapper);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -3041,9 +3048,9 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                             const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+              const size_t /*batch_index*/, const BatchInfo &batch) {
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
           edge_batches);
     }
@@ -3508,10 +3515,10 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+         &snapshot_info, &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
-                                  get_property_from_id, snapshot_info);
+                                  get_property_from_id, name_id_mapper, snapshot_info);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -3535,9 +3542,10 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
+          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, &name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper,
+                             snapshot_info);
           },
           edge_batches);
     }
@@ -4045,10 +4053,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info, &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
             const auto last_vertex_gid_in_batch =
                 LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
-                                    get_property_from_id, snapshot_info);
+                                    get_property_from_id, name_id_mapper, snapshot_info);
             if (batch_index == vertex_batches.size() - 1) {
               last_vertex_gid = last_vertex_gid_in_batch;
             }
@@ -4074,9 +4082,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info](
+            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, &name_id_mapper](
                 const size_t /*batch_index*/, const BatchInfo &batch) {
-              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
+              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper,
+                               snapshot_info);
             },
             edge_batches);
       }
@@ -4563,13 +4572,13 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles old_snapshot_files, Transaction *transaction,
-                                  utils::FileRetainer *file_retainer) {
+                                  utils::FileRetainer *file_retainer, NameIdMapper *name_id_mapper) {
   std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
-      auto info = ReadWalInfo(item.path());
+      auto info = ReadWalInfo(item.path(), name_id_mapper);
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
@@ -4803,7 +4812,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(edges_snapshot, res.used_ids, item.first);
-          edges_snapshot.WritePropertyValue(item.second);
+          edges_snapshot.WritePropertyValue(item.second, storage->name_id_mapper_.get());
         }
       }
 
@@ -4875,7 +4884,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(vertex_snapshot, res.used_ids, item.first);
-          vertex_snapshot.WritePropertyValue(item.second);
+          vertex_snapshot.WritePropertyValue(item.second, storage->name_id_mapper_.get());
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
         const auto &out_edges = maybe_out_edges.GetValue().edges;
@@ -5303,7 +5312,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, std::move(old_snapshot_files), transaction, file_retainer);
+    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, std::move(old_snapshot_files), transaction, file_retainer,
+                                 storage->name_id_mapper_.get());
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

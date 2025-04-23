@@ -2716,7 +2716,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
       }
     }
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
-    auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
+    auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_, name_id_mapper_.get());
     if (wal_files) {
       for (const auto &wal_file : *wal_files) {
         spdlog::trace("Moving WAL file {}", wal_file.path);

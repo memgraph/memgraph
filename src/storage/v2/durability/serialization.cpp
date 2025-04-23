@@ -471,7 +471,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue(NameIdMapper *name_id_ma
         if (!key) return std::nullopt;
         auto item = ReadPropertyValue(name_id_mapper);
         if (!item) return std::nullopt;
-        value.emplace(name_id_mapper->NameToId(*key), std::move(*item));
+        value.emplace(PropertyId::FromUint(name_id_mapper->NameToId(*key)), std::move(*item));
       }
       return PropertyValue(std::move(value));
     }

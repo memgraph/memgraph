@@ -326,7 +326,7 @@ constexpr bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uin
 
 /// Function used to read information about the WAL file.
 /// @throw RecoveryFailure
-WalInfo ReadWalInfo(const std::filesystem::path &path);
+WalInfo ReadWalInfo(const std::filesystem::path &path, NameIdMapper *name_id_mapper);
 
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.
@@ -337,13 +337,13 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder);
 /// read delta data. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, NameIdMapper *name_id_mapper, uint64_t version = kVersion);
 
 /// Function used to skip the current WAL delta data. The function returns the
 /// skipped delta type. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-bool SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
+bool SkipWalDeltaData(BaseDecoder *decoder, NameIdMapper *name_id_mapper, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,

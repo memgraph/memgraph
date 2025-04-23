@@ -110,7 +110,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
 }
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          const std::string_view uuid,
+                                                          NameIdMapper *name_id_mapper, const std::string_view uuid,
                                                           const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
@@ -128,7 +128,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       continue;
     }
     try {
-      auto info = ReadWalInfo(item.path());
+      auto info = ReadWalInfo(item.path(), name_id_mapper);
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
@@ -516,7 +516,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         continue;
       }
       try {
-        auto info = ReadWalInfo(item.path());
+        auto info = ReadWalInfo(item.path(), name_id_mapper);
         wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
       } catch (const RecoveryFailure &e) {
         continue;
@@ -540,7 +540,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, name_id_mapper, std::string{uuid});
       maybe_wal_files && !maybe_wal_files->empty()) {
     // Array of all discovered WAL files, ordered by sequence number.
     const auto &wal_files = *maybe_wal_files;

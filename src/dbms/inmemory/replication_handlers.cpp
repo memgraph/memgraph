@@ -21,6 +21,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/observer.hpp"
 
@@ -105,8 +106,8 @@ auto ReadDurabilityFiles(
     std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> &maybe_old_snapshot_files,
     std::filesystem::path const &current_snapshot_dir,
     std::optional<std::vector<storage::durability::WalDurabilityInfo>> &maybe_old_wal_files,
-    std::filesystem::path const &current_wal_dir) -> bool {
-  auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_dir);
+    std::filesystem::path const &current_wal_dir, storage::NameIdMapper *name_id_mapper) -> bool {
+  auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_dir, name_id_mapper);
   // If there are 0 WAL files, replica will be recovered.
   if (!maybe_wal_files.has_value()) {
     spdlog::warn("Failed to read current WAL files. Replica won't be recovered.");
@@ -155,11 +156,12 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
 
 constexpr uint32_t kDeltasBatchProgressSize = 100000;
 
-std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
+std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version,
+                                            storage::NameIdMapper *name_id_mapper) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
     spdlog::trace("       Timestamp {}", timestamp);
-    auto delta = ReadWalDeltaData(decoder, version);
+    auto delta = ReadWalDeltaData(decoder, name_id_mapper, version);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
@@ -333,7 +335,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     bool transaction_complete = false;
     while (!transaction_complete) {
       spdlog::info("Skipping delta");
-      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion, storage->name_id_mapper_.get());
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
@@ -402,7 +404,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 
   // Read durability files
   auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
-  auto const maybe_curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
+  auto const maybe_curr_wal_files =
+      storage::durability::GetWalFiles(current_wal_directory, storage->name_id_mapper_.get());
   // If there are 0 WAL files, replica will be recovered.
   if (!maybe_curr_wal_files.has_value()) {
     spdlog::error("Cannot read current WAL files. Replica won't be recovered.");
@@ -549,8 +552,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
-                             current_wal_directory)) {
+    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files, current_wal_directory,
+                             storage->name_id_mapper_.get())) {
       rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
@@ -643,8 +646,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
-                             current_wal_directory)) {
+    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files, current_wal_directory,
+                             storage->name_id_mapper_.get())) {
       rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder,
                              fmt::format("db: {}", storage->name()));
       return;
@@ -699,7 +702,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
   }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
-    auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path);
+    auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path, storage->name_id_mapper_.get());
 
     // We have to check if this is our 1st wal, not what main is sending
     if (storage->wal_seq_num_ == 0) {
@@ -819,7 +822,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
       current_batch_counter = 0;
     }
 
-    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
+    const auto [delta_timestamp, delta] = ReadDelta(decoder, version, storage->name_id_mapper_.get());
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
       prev_printed_timestamp = delta_timestamp;
