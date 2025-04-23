@@ -21,7 +21,6 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/observer.hpp"
 
