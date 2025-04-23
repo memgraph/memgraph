@@ -575,7 +575,7 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipPropertyValue() {
+bool Decoder::SkipPropertyValue(NameIdMapper *name_id_mapper) {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return false;
 
@@ -604,7 +604,7 @@ bool Decoder::SkipPropertyValue() {
       auto size = ReadSize(this);
       if (!size) return false;
       for (uint64_t i = 0; i < *size; ++i) {
-        if (!SkipPropertyValue()) return false;
+        if (!SkipPropertyValue(name_id_mapper)) return false;
       }
       return true;
     }
@@ -615,7 +615,7 @@ bool Decoder::SkipPropertyValue() {
       if (!size) return false;
       for (uint64_t i = 0; i < *size; ++i) {
         if (!SkipString()) return false;
-        if (!SkipPropertyValue()) return false;
+        if (!SkipPropertyValue(name_id_mapper)) return false;
       }
       return true;
     }

@@ -26,7 +26,6 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
@@ -284,7 +283,7 @@ auto Decode(utils::tag_type<PropertyValue> /*unused*/, BaseDecoder *decoder, con
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
     return *std::move(str);
   } else {
-    if (!decoder->SkipPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipPropertyValue(name_id_mapper)) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 

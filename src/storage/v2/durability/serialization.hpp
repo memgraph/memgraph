@@ -108,7 +108,7 @@ class BaseDecoder {
   virtual std::optional<PropertyValue> ReadPropertyValue(NameIdMapper *name_id_mapper) = 0;
 
   virtual bool SkipString() = 0;
-  virtual bool SkipPropertyValue() = 0;
+  virtual bool SkipPropertyValue(NameIdMapper *name_id_mapper) = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -133,7 +133,7 @@ class Decoder final : public BaseDecoder {
   std::optional<Point3d> ReadPoint3dValue() override;
   std::optional<PropertyValue> ReadPropertyValue(NameIdMapper *name_id_mapper) override;
   bool SkipString() override;
-  bool SkipPropertyValue() override;
+  bool SkipPropertyValue(NameIdMapper *name_id_mapper) override;
 
   std::optional<uint64_t> GetSize();
   std::optional<uint64_t> GetPosition();

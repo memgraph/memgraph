@@ -847,18 +847,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         auto property_id = reader->ReadUint(metadata->id_size);
         if (!property_id) return false;
 
-        // Map will be stored as:
-        // Metadata, id: compressed int, value: PropertyValue
-
-        // "key": PropertyValue
-        // PropertyId : PropertyValue
-
-        // "layer1": { "layer2": { "layer3": true } }
-        // prop_id1: { prop_id2: { prop_id2: true } }
-
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
-        map.emplace(PropertyId::FromUint(static_cast<uint32_t>(*property_id)), std::move(item));
+        map.emplace(PropertyId::FromUint(*property_id), std::move(item));
       }
       value = PropertyValue(std::move(map));
       return true;
@@ -957,7 +948,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!property_id) return std::nullopt;
         auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
         if (!item) return std::nullopt;
-        map.emplace(PropertyId::FromUint(static_cast<uint32_t>(*property_id)), *std::move(item));
+        map.emplace(PropertyId::FromUint(*property_id), *std::move(item));
       }
       return std::optional<PropertyValue>{std::in_place, std::move(map)};
     }
@@ -1249,7 +1240,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!metadata) return false;
         auto property_id = reader->ReadUint(metadata->id_size);
         if (!property_id) return false;
-        if (PropertyId::FromUint(static_cast<uint32_t>(*property_id)) != item.first) return false;
+        if (PropertyId::FromUint(*property_id) != item.first) return false;
         if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, item.second)) return false;
       }
       return true;
