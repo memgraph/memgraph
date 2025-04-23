@@ -89,6 +89,18 @@
   [node]
   (str "Node " node " is down"))
 
+(defn server-no-longer-available
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "no longer available")
+)
+
+(defn no-write-server
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Failed to obtain connection towards WRITE server")
+)
+
 (defn query-forbidden-on-main?
   "Accepts exception e as argument."
   [e]
