@@ -29,10 +29,10 @@ struct MetadataDelta {
     LABEL_INDEX_DROP,
     LABEL_INDEX_STATS_SET,
     LABEL_INDEX_STATS_CLEAR,
-    LABEL_PROPERTY_INDEX_CREATE,
-    LABEL_PROPERTY_INDEX_DROP,
-    LABEL_PROPERTY_INDEX_STATS_SET,
-    LABEL_PROPERTY_INDEX_STATS_CLEAR,
+    LABEL_PROPERTIES_INDEX_CREATE,
+    LABEL_PROPERTIES_INDEX_DROP,
+    LABEL_PROPERTIES_INDEX_STATS_SET,
+    LABEL_PROPERTIES_INDEX_STATS_CLEAR,
     EDGE_INDEX_CREATE,
     EDGE_INDEX_DROP,
     EDGE_PROPERTY_INDEX_CREATE,
@@ -124,18 +124,18 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
-      : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
+  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
+      : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
-      : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
+  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
+      : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property,
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
                 LabelPropertyIndexStats const &stats)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, property, stats} {}
+      : action(Action::LABEL_PROPERTIES_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
   MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
+      : action(Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
       : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
@@ -179,10 +179,10 @@ struct MetadataDelta {
       : action(Action::EXISTENCE_CONSTRAINT_DROP), label_property{label, property} {}
 
   MetadataDelta(UniqueConstraintCreate /*tag*/, LabelId label, std::set<PropertyId> properties)
-      : action(Action::UNIQUE_CONSTRAINT_CREATE), label_properties{label, std::move(properties)} {}
+      : action(Action::UNIQUE_CONSTRAINT_CREATE), label_unordered_properties{label, std::move(properties)} {}
 
   MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
-      : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
+      : action(Action::UNIQUE_CONSTRAINT_DROP), label_unordered_properties{label, std::move(properties)} {}
 
   MetadataDelta(TypeConstraintCreate /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
       : action(Action::TYPE_CONSTRAINT_CREATE), label_property_type{label, property, type} {}
@@ -208,38 +208,75 @@ struct MetadataDelta {
       using enum memgraph::storage::MetadataDelta::Action;
       case LABEL_INDEX_CREATE:
       case LABEL_INDEX_DROP:
-      case LABEL_INDEX_STATS_SET:
-      case LABEL_INDEX_STATS_CLEAR:
-      case LABEL_PROPERTY_INDEX_CREATE:
-      case LABEL_PROPERTY_INDEX_DROP:
-      case LABEL_PROPERTY_INDEX_STATS_SET:
-      case LABEL_PROPERTY_INDEX_STATS_CLEAR:
+      case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
+      case LABEL_INDEX_STATS_CLEAR: {
+        std::destroy_at(&label);
+        break;
+      }
+      case LABEL_INDEX_STATS_SET: {
+        std::destroy_at(&label_stats);
+        break;
+      }
       case Action::EDGE_INDEX_CREATE:
-      case Action::EDGE_INDEX_DROP:
+      case Action::EDGE_INDEX_DROP: {
+        std::destroy_at(&edge_type);
+        break;
+      }
       case Action::EDGE_PROPERTY_INDEX_CREATE:
-      case Action::EDGE_PROPERTY_INDEX_DROP:
+      case Action::EDGE_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&edge_type_property);
+        break;
+      }
       case Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
-      case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP:
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&edge_property);
+        break;
+      }
       case EXISTENCE_CONSTRAINT_CREATE:
       case EXISTENCE_CONSTRAINT_DROP:
-      case TYPE_CONSTRAINT_CREATE:
-      case TYPE_CONSTRAINT_DROP:
-      case ENUM_CREATE:
-      case ENUM_ALTER_ADD:
-      case ENUM_ALTER_UPDATE:
       case POINT_INDEX_CREATE:
-      case POINT_INDEX_DROP:
+      case POINT_INDEX_DROP: {
+        std::destroy_at(&label_property);
         break;
-      case VECTOR_INDEX_CREATE:
+      }
+      case TYPE_CONSTRAINT_CREATE:
+      case TYPE_CONSTRAINT_DROP: {
+        std::destroy_at(&label_property_type);
+        break;
+      }
+      case ENUM_CREATE: {
+        std::destroy_at(&enum_create_info);
+        break;
+      }
+      case ENUM_ALTER_ADD: {
+        std::destroy_at(&enum_alter_add_info);
+        break;
+      }
+      case ENUM_ALTER_UPDATE: {
+        std::destroy_at(&enum_alter_update_info);
+        break;
+      }
+
+      case LABEL_PROPERTIES_INDEX_CREATE:
+      case LABEL_PROPERTIES_INDEX_DROP: {
+        std::destroy_at(&label_ordered_properties);
+        break;
+      }
+      case LABEL_PROPERTIES_INDEX_STATS_SET: {
+        std::destroy_at(&label_property_stats);
+        break;
+      }
+      case VECTOR_INDEX_CREATE: {
         std::destroy_at(&vector_index_spec);
         break;
+      }
       case VECTOR_INDEX_DROP: {
         std::destroy_at(&vector_index_name);
         break;
       }
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {
-        std::destroy_at(&label_properties);
+        std::destroy_at(&label_unordered_properties);
         break;
       }
       case TEXT_INDEX_CREATE:
@@ -264,8 +301,13 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
+      std::vector<PropertyId> properties;
+    } label_ordered_properties;
+
+    struct {
+      LabelId label;
       std::set<PropertyId> properties;
-    } label_properties;
+    } label_unordered_properties;
 
     struct {
       LabelId label;
@@ -274,7 +316,7 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      PropertyId property;
+      std::vector<PropertyId> properties;
       LabelPropertyIndexStats stats;
     } label_property_stats;
 

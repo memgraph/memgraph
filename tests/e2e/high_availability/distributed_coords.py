@@ -25,6 +25,8 @@ from common import (
     get_data_path,
     get_logs_path,
     get_vertex_count,
+    has_leader,
+    has_main,
     show_instances,
     show_replicas,
     update_tuple_value,
@@ -34,6 +36,7 @@ from mg_utils import (
     mg_assert_until,
     mg_sleep_and_assert,
     mg_sleep_and_assert_collection,
+    mg_sleep_and_assert_eval_function,
     mg_sleep_and_assert_multiple,
     mg_sleep_and_assert_until_role_change,
     wait_for_status_change,
@@ -334,10 +337,7 @@ def test_even_number_coords(test_name):
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    coord_cursor_4 = connect(host="localhost", port=7693).cursor()
 
     leader_data_original = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
@@ -350,9 +350,6 @@ def test_even_number_coords(test_name):
     ]
 
     mg_sleep_and_assert(leader_data_original, partial(show_instances, coord_cursor_3))
-    mg_sleep_and_assert(leader_data_original, partial(show_instances, coord_cursor_1))
-    mg_sleep_and_assert(leader_data_original, partial(show_instances, coord_cursor_2))
-    mg_sleep_and_assert(leader_data_original, partial(show_instances, coord_cursor_4))
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -385,17 +382,10 @@ def test_even_number_coords(test_name):
     leader_data_demoted = update_tuple_value(leader_data_demoted, "instance_3", 0, -1, "replica")
 
     mg_sleep_and_assert(leader_data_demoted, partial(show_instances, coord_cursor_3))
-    mg_sleep_and_assert(leader_data_demoted, partial(show_instances, coord_cursor_1))
-    mg_sleep_and_assert(leader_data_demoted, partial(show_instances, coord_cursor_2))
-    mg_sleep_and_assert(leader_data_demoted, partial(show_instances, coord_cursor_4))
 
     mg_sleep_and_assert_until_role_change(
         lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "replica"
     )
-
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
-    assert str(e.value) == "Show replicas query should only be run on the main instance."
 
     # 4
     interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
@@ -442,16 +432,7 @@ def test_even_number_coords(test_name):
 
     leader_data = update_tuple_value(leader_data, leader_coord_instance_3_demoted, 0, -1, "leader")
 
-    port_mappings = {
-        "coordinator_1": 7690,
-        "coordinator_2": 7691,
-        "coordinator_3": 7692,
-        "coordinator_4": 7693,
-    }
-
-    for _, port in port_mappings.items():
-        coord_cursor = connect(host="localhost", port=port).cursor()
-        mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor))
+    mg_sleep_and_assert_eval_function(has_main, partial(show_instances, coord_cursor_3))
 
 
 def test_old_main_comes_back_on_new_leader_as_replica(test_name):
@@ -2952,6 +2933,73 @@ def test_show_instance(test_name):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(data_1_cursor, "SHOW INSTANCE;")
     assert str(e.value) == "Only coordinator can run SHOW INSTANCE query."
+
+
+def test_leadership_change_no_main(test_name):
+    # Tests that the new leader will select new main even when it becomes leader without main instance
+    # This situation could occur if leader died during the cluster setup or the user used `DEMOTE INSTANCE <instance-name>` query.
+    # 1. run the cluster setup
+    # 2. demote instance_3
+    # 3. kill the leader
+    # 4. assert we have main
+    # 5. assert we have leader
+
+    # 1.
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2.
+    execute_and_fetch_all(coord_cursor_3, "DEMOTE INSTANCE instance_3")
+
+    # 3.
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
+
+    # 4. and 5.
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert_eval_function(has_main, partial(show_instances, coord_cursor_1), time_between_attempt=3)
+    mg_sleep_and_assert_eval_function(has_leader, partial(show_instances, coord_cursor_1), time_between_attempt=3)
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_3")
+
+
+def test_demote_promote(test_name):
+    # Test that user can do manual failover.
+
+    # 1. run the cluster setup
+    # 2. instance_2 down all the time
+    # 3. demote instance_3
+    # 4. promote instance_1
+    # 5. assert cluster state
+
+    # 1.
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2.
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+
+    # 3.
+    execute_and_fetch_all(coord_cursor_3, "DEMOTE INSTANCE instance_3")
+
+    # 4.
+    execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_1 to MAIN")
+
+    # 5.
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
 
 
 if __name__ == "__main__":

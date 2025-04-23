@@ -21,7 +21,7 @@
 namespace memgraph::query::plan {
 
 PRE_VISIT(CreateNode, RWType::W, true)
-PRE_VISIT(CreateExpand, RWType::R, true)  // ?? RWType::RW
+PRE_VISIT(CreateExpand, RWType::RW, false)
 PRE_VISIT(Delete, RWType::W, true)
 
 PRE_VISIT(SetProperty, RWType::W, true)
@@ -33,9 +33,7 @@ PRE_VISIT(RemoveLabels, RWType::W, true)
 
 PRE_VISIT(ScanAll, RWType::R, true)
 PRE_VISIT(ScanAllByLabel, RWType::R, true)
-PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
+PRE_VISIT(ScanAllByLabelProperties, RWType::R, true)
 PRE_VISIT(ScanAllById, RWType::R, true)
 
 PRE_VISIT(ScanAllByEdge, RWType::R, true)

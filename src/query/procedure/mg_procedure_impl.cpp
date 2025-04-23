@@ -1665,14 +1665,19 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
   return WrapExceptions(
       [res] {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
-        MG_ASSERT(res->signature, "Expected to have a valid signature");
-        res->rows.push_back(mgp_result_record{
-            .signature = res->signature,
-            .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
-            .ignore_deleted_values = !res->is_transactional});
+        res->rows.push_back(
+            mgp_result_record{.signature = &res->signature,
+                              .values =
+                                  memgraph::utils::pmr::vector<memgraph::query::TypedValue>{
+                                      res->signature.size(), memgraph::query::TypedValue(memory), memory},
+                              .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
       result);
+}
+
+mgp_error mgp_result_reserve(mgp_result *res, size_t n) {
+  return WrapExceptions([res, n] { res->rows.reserve(n); });
 }
 
 mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
@@ -1684,16 +1689,18 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
+    auto const field_id = find_it->second.field_id;
     if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
       record->has_deleted_values = true;
       return;
     }
-    const auto *type = find_it->second.first;
-    if (!type->SatisfiesType(*val)) {
+    auto const *field_type = find_it->second.type;
+    if (!field_type->SatisfiesType(*val)) [[unlikely]] {
       throw std::logic_error{
-          fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
+          fmt::format("The type of value doesn't satisfy the type '{}'!", field_type->GetPresentableName())};
     }
-    record->values.emplace(field_name, ToTypedValue(*val, memory));
+
+    record->values[field_id] = ToTypedValue(*val, memory);
   });
 }
 
@@ -2745,14 +2752,14 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-        const auto index_res =
-            std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                                     return impl->CreateIndex(label_id, property_id);
-                                                   },
-                                                   [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                                     return impl->GetAccessor()->CreateIndex(label_id, property_id);
-                                                   }},
-                       graph->impl);
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                          return impl->CreateIndex(label_id, std::vector{property_id});
+                                        },
+                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->CreateIndex(label_id, std::vector{property_id});
+                                        }},
+            graph->impl);
         return index_res.HasError() ? 0 : 1;
       },
       result);
@@ -2764,14 +2771,14 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-        const auto index_res =
-            std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                                     return impl->DropIndex(label_id, property_id);
-                                                   },
-                                                   [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                                     return impl->GetAccessor()->DropIndex(label_id, property_id);
-                                                   }},
-                       graph->impl);
+        const auto index_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                          return impl->DropIndex(label_id, std::vector{property_id});
+                                        },
+                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->DropIndex(label_id, std::vector{property_id});
+                                        }},
+            graph->impl);
         return index_res.HasError() ? 0 : 1;
       },
       result);
@@ -2810,9 +2817,9 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
   return WrapExceptions([graph, memory, result]() {
     const auto index_res =
         std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_property; },
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_properties; },
                        [](memgraph::query::SubgraphDbAccessor *impl) {
-                         return impl->GetAccessor()->ListAllIndices().label_property;
+                         return impl->GetAccessor()->ListAllIndices().label_properties;
                        }},
                    graph->impl);
 
@@ -2820,8 +2827,13 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
     }
 
-    for (const auto &label_property_pair : index_res) {
-      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+    for (const auto &[label, properties] : index_res) {
+      if (properties.size() != 1) {
+        continue;
+      }
+
+      if (const auto err =
+              create_and_append_label_property_to_mgp_list(graph, memory, result, std::pair{label, properties[0]});
           err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error(
             "Listing all label+property indices failed due to failure of appending label+property value");

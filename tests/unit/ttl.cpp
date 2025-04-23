@@ -23,6 +23,7 @@
 #include "query/time_to_live/time_to_live.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
@@ -48,6 +49,11 @@ class TTLFixture : public ::testing::Test {
 
  public:
   bool HasPropOnEdge() const { return PropOnEdge::value; }
+
+  bool RunEdgeTTL() const {
+    return db_->config().salient.items.properties_on_edges &&
+           db_->GetStorageMode() != memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+  }
 
  protected:
   const std::string testSuite = "ttl";
@@ -95,15 +101,7 @@ class TTLFixture : public ::testing::Test {
 
   memgraph::query::ttl::TTL *ttl_{&db_->ttl()};
 
-  void SetUp() override {
-    {
-      auto acc = db_->Access();
-      for (auto v : acc->Vertices(memgraph::storage::View::NEW)) {
-        acc->DetachDeleteVertex({&v});
-      }
-      acc->Commit();
-    }
-  }
+  void SetUp() override {}
 
   void TearDown() override {
     db_->StopAllBackgroundTasks();
@@ -124,21 +122,24 @@ TYPED_TEST(TTLFixture, EnableTest) {
   const memgraph::query::ttl::TtlInfo ttl_info{std::chrono::days(1), std::chrono::system_clock::now()};
   EXPECT_FALSE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
+               memgraph::query::ttl::TtlException);
   this->ttl_->Enable();
   EXPECT_TRUE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Configure({}), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
+               memgraph::query::ttl::TtlException);
   EXPECT_NO_THROW(this->ttl_->Configure(ttl_info));
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
   this->ttl_->Stop();
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
   this->ttl_->Disable();
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
+               memgraph::query::ttl::TtlException);
 }
 
 TYPED_TEST(TTLFixture, Periodic) {
@@ -178,7 +179,7 @@ TYPED_TEST(TTLFixture, Periodic) {
   }
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -236,7 +237,7 @@ TYPED_TEST(TTLFixture, StartTime) {
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(100),
                                                       std::chrono::system_clock::now() + std::chrono::seconds(3)});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   // Shouldn't start still
   for (int i = 0; i < 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -323,7 +324,7 @@ TYPED_TEST(TTLFixture, Edge) {
   }
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -340,7 +341,7 @@ TYPED_TEST(TTLFixture, Edge) {
       }
     }
     EXPECT_EQ(size, 5);
-    if (this->HasPropOnEdge()) {  // edges have properties (edge ttl enabled)
+    if (this->RunEdgeTTL()) {
       EXPECT_EQ(edge_size, 2);
     } else {
       EXPECT_EQ(edge_size, 4);
@@ -362,7 +363,7 @@ TYPED_TEST(TTLFixture, Edge) {
       }
     }
     EXPECT_EQ(size, 4);
-    if (this->HasPropOnEdge()) {  // edges have properties (edge ttl enabled)
+    if (this->RunEdgeTTL()) {
       EXPECT_EQ(edge_size, 1);
     } else {
       EXPECT_EQ(edge_size, 3);
@@ -413,7 +414,7 @@ TYPED_TEST(TTLFixture, Durability) {
       memgraph::query::ttl::TTL ttl(path);
       ttl.Enable();
       ttl.Configure(ttl_info);
-      ttl.Setup(this->db_, &this->interpreter_context_);
+      ttl.Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL());
     }
     {
       memgraph::query::ttl::TTL ttl(path);

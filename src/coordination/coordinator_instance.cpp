@@ -39,15 +39,14 @@
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
-#include "dbms/constants.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
 
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
@@ -145,7 +144,6 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
         spdlog::trace("Stopped state check for instance {} in thread {}.", repl_instance.InstanceName(),
                       std::this_thread::get_id());
       });
-      spdlog::info("Acquiring lock in become follower callback in thread {}.", std::this_thread::get_id());
       auto lock = std::unique_lock{coord_instance_lock_};
       repl_instances_.clear();
     });
@@ -362,7 +360,8 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
         auto expected = CoordinatorStatus::LEADER_NOT_READY;
         if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_READY)) {
           if (expected == CoordinatorStatus::FOLLOWER) {
-            spdlog::trace("Reconcile cluster state finished successfully but coordinator isn't leader anymore.");
+            spdlog::trace(
+                "Reconcile cluster state finished successfully but coordinator in the meantime became follower.");
             metrics::IncrementCounter(metrics::FailedToBecomeLeader);
             return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
           }
@@ -409,7 +408,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     repl_instance.StopStateCheck();
     spdlog::trace("Stopped state check for instance {}.", repl_instance.InstanceName());
   });
-  spdlog::trace("Stopped all state checks and acquiring lock in the thread {}.", std::this_thread::get_id());
   auto lock = std::unique_lock{coord_instance_lock_};
   spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}.", std::this_thread::get_id());
   repl_instances_.clear();
@@ -428,36 +426,43 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   auto current_mains =
-      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto &&instance) {
+      raft_state_data_instances | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto const &instance) {
         return raft_state_ptr->IsCurrentMain(instance.config.instance_name);
       });
 
   auto const num_mains = std::ranges::distance(current_mains);
 
+  if (num_mains > 1) {
+    LOG_FATAL(
+        "Found more than one current main. System cannot operate under this assumption, please contact the support.");
+  }
+
+  std::ranges::for_each(raft_state_data_instances, [this](auto const &data_instance) {
+    auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
+                                                  instance_health_check_frequency_sec_);
+    instance.StartStateCheck();
+  });
+
   if (num_mains == 1) {
     // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
-    // frequent checks and set all appropriate callbacks.
+    // frequent checks.
     auto main_instance = std::ranges::begin(current_mains);
     spdlog::trace("Found main instance {}.", main_instance->config.instance_name);
-    std::ranges::for_each(raft_state_data_instances, [this](auto &&data_instance) {
-      auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
-                                                    instance_health_check_frequency_sec_);
+    for (auto &instance : repl_instances_) {
       instance.StartStateCheck();
-    });
-  } else if (num_mains == 0) {
+    }
+    return ReconcileClusterStateStatus::SUCCESS;
+  }
+
+  if (num_mains == 0) {
     spdlog::trace(
-        "No main can be determined from the current state in logs. Trying to find most up to date instance by doing "
-        "failover.");
+        "No main can be determined from the current state in logs. Trying to find the most up to date instance.");
     switch (TryFailover()) {
       case FailoverStatus::SUCCESS: {
-        spdlog::trace("Failover successful after failing to promote main instance.");
-        std::ranges::for_each(raft_state_data_instances, [this](auto &&data_instance) {
-          auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
-                                                        instance_health_check_frequency_sec_);
+        for (auto &instance : repl_instances_) {
           instance.StartStateCheck();
-        });
-
-        spdlog::trace("Exiting ReconcileClusterState. Cluster is in healthy state.");
+        }
+        spdlog::trace("Exiting ReconcileClusterState_. Cluster is in healthy state.");
         return ReconcileClusterStateStatus::SUCCESS;
       };
       case FailoverStatus::NO_INSTANCE_ALIVE: {
@@ -469,13 +474,9 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
         return ReconcileClusterStateStatus::FAIL;
       };
     };
-  } else {
-    MG_ASSERT(
-        false,
-        "Found more than one current main. System cannot operate under this assumption, please contact the support.");
   }
-  // Shouldn't execute
-  return ReconcileClusterStateStatus::SUCCESS;
+
+  LOG_FATAL("Unreachable code reached when leadership is changed. Num of mains: {}", num_mains);
 }
 
 auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
@@ -494,7 +495,7 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   // TODO: (andi) Remove has replica state.
   spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
 
-  auto const maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(repl_instances_);
+  auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
     metrics::IncrementCounter(metrics::NoAliveInstanceFailedFailovers);
@@ -535,11 +536,13 @@ auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main_name)
     -> SetInstanceToMainCoordinatorStatus {
-  spdlog::trace("Acquiring lock to set replication instance to main in thread {}.", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to set replication instance to main in thread {}.", std::this_thread::get_id());
 
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+  // The coordinator could be in LEADER_NOT_READY state because it restarted and before the restart user called `DEMOTE
+  // instance <instance_name>`. The cluster is without the main instance which will forbid ReconcileClusterState from
+  // succeeding.
+  if (status.load(std::memory_order_acquire) == CoordinatorStatus::FOLLOWER) {
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
@@ -547,7 +550,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
   }
 
-  auto const is_new_main = [new_main_name](auto &&instance) { return instance.InstanceName() == new_main_name; };
+  auto const is_new_main = [new_main_name](auto const &instance) { return instance.InstanceName() == new_main_name; };
   auto new_main = std::ranges::find_if(repl_instances_, is_new_main);
 
   if (new_main == repl_instances_.end()) {
@@ -557,13 +560,11 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
 
   auto const new_main_uuid = utils::UUID{};
 
-  auto const failed_to_swap = [&new_main_uuid](auto &&instance) {
-    return !instance.SendSwapAndUpdateUUID(new_main_uuid);
-  };
-
-  if (std::ranges::any_of(repl_instances_ | ranges::views::filter(std::not_fn(is_new_main)), failed_to_swap)) {
-    spdlog::error("Failed to swap uuid for all currently alive instances.");
-    return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
+  for (auto const &instance : repl_instances_) {
+    if (!is_new_main(instance)) {
+      // Even if swapping doesn't succeed here, we will do it again in the callbacks.
+      instance.SendSwapAndUpdateUUID(new_main_uuid);
+    }
   }
 
   auto repl_clients_info = repl_instances_ | ranges::views::filter(std::not_fn(is_new_main)) |
@@ -715,7 +716,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  spdlog::trace("Acquiring lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 
@@ -1032,104 +1032,143 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
   spdlog::trace("Instance {} finished fail callback.", instance_name);
 }
 
-auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
-    -> std::optional<NewMainRes> {
+auto CoordinatorInstance::ChooseMostUpToDateInstance(
+    std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
+    -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::ChooseMostUpToDateInstance_us};
 
-  std::optional<NewMainRes> new_main_res;
+  // Find the instance with the largest system committed timestamp
+  auto const largest_sys_ts_instance = std::ranges::max_element(instances_info, [](auto const &lhs, auto const &rhs) {
+    return lhs.second.last_committed_system_timestamp < rhs.second.last_committed_system_timestamp;
+  });
 
-  for (auto const &instance_res_pair : instance_database_histories) {
-    const auto &[instance_name, instance_db_histories] = instance_res_pair;
+  if (largest_sys_ts_instance == instances_info.end()) [[unlikely]] {
+    spdlog::error("Couldn't retrieve history for any instance. Failover won't be performed.");
+    return std::nullopt;
+  }
 
-    // Find default db for instance and its history
-    auto default_db_history_data = std::ranges::find_if(
-        instance_db_histories,
-        [default_db = memgraph::dbms::kDefaultDB](auto const &db_history) { return db_history.name == default_db; });
+  spdlog::trace("The instance with the newest system committed timestamp is {}", largest_sys_ts_instance->first);
 
-    std::ranges::for_each(instance_db_histories, [&instance_name](auto &&db_history) {
-      spdlog::debug("Instance {}: db_history_name {}, default db {}.", instance_name, db_history.name,
-                    dbms::kDefaultDB);
-    });
+  // db_uuid -> vector<std::pair<instance_name, latest_durable_timestamp>>
+  std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> dbs_info;
 
-    MG_ASSERT(default_db_history_data != instance_db_histories.end(), "No history for instance");
+  // Use only DBs from the instance with the largest committed system timestamps
+  for (auto const &largest_sys_ts_instance_dbs_info = largest_sys_ts_instance->second.dbs_info;
+       auto const &[db_uuid, _] : largest_sys_ts_instance_dbs_info) {
+    dbs_info.try_emplace(db_uuid);
+  }
 
-    const auto &instance_default_db_history = default_db_history_data->history;
-
-    std::ranges::for_each(instance_default_db_history | ranges::views::reverse,
-                          [&instance_name](auto &&epoch_history_it) {
-                            spdlog::debug("Instance {}: epoch {}, last_durable_timestamp: {}.", instance_name,
-                                          std::get<0>(epoch_history_it), std::get<1>(epoch_history_it));
-                          });
-
-    if (!new_main_res) {
-      const auto &[epoch, latest_commit_timestamp] = *instance_default_db_history.crbegin();
-      new_main_res = std::make_optional<NewMainRes>({instance_name, epoch, latest_commit_timestamp});
-      spdlog::debug("Currently the most up to date instance is {} with epoch {} and latest commit timestamp {}.",
-                    instance_name, epoch, latest_commit_timestamp);
-      continue;
-    }
-
-    bool found_same_point{false};
-    std::string last_most_up_to_date_epoch{new_main_res->latest_epoch};
-    for (auto [epoch, timestamp] : ranges::reverse_view(instance_default_db_history)) {
-      if (new_main_res->latest_commit_timestamp < timestamp) {
-        new_main_res = std::make_optional<NewMainRes>({instance_name, epoch, timestamp});
-        spdlog::trace("Found the new most up to date instance {} with epoch {} and {} latest commit timestamp",
-                      instance_name, epoch, timestamp);
+  // Pre-process received failover data
+  for (auto const &[instance_name, instance_info] : instances_info) {
+    for (auto const &[db_uuid, ldt] : instance_info.dbs_info) {
+      if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
+        db_it->second.emplace_back(instance_name, ldt);
       }
-
-      // we found point at which they were same
-      if (epoch == last_most_up_to_date_epoch) {
-        found_same_point = true;
-        break;
-      }
-    }
-
-    if (!found_same_point) {
-      spdlog::error("Didn't find same history epoch {} for instance {} and instance {}", last_most_up_to_date_epoch,
-                    new_main_res->most_up_to_date_instance, instance_name);
     }
   }
 
-  return new_main_res;
+  // Instance name -> cnt on how many DBs is instance the newest
+  std::map<std::string, uint64_t> total_instances_counter;
+  // Instance name -> sum of timestamps on all DBs
+  std::map<std::string, uint64_t> total_instances_sum;
+
+  auto const find_newest_instances_for_db =
+      [&total_instances_sum](std::vector<std::pair<std::string, uint64_t>> const &db_info)
+      -> std::pair<std::vector<std::string>, uint64_t> {
+    // There could be multiple instances with the same timestamp, that's why we are returning vector
+    std::vector<std::string> newest_db_instances;
+    uint64_t curr_ldt{0};
+    // Loop through instances
+    for (auto const &[instance_name, latest_durable_timestamp] : db_info) {
+      // Sum timestamps for each instance
+      if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, latest_durable_timestamp);
+          !inserted) {
+        instance_it->second += latest_durable_timestamp;
+      }
+
+      // If no new instance exists, or instance has newer timestamp -> do the update
+      if (newest_db_instances.empty() || curr_ldt < latest_durable_timestamp) {
+        newest_db_instances.clear();
+        newest_db_instances.emplace_back(instance_name);
+        curr_ldt = latest_durable_timestamp;
+      } else if (curr_ldt == latest_durable_timestamp) {
+        // Otherwise, we have more instances with the max timestamp, add it to the vector
+        newest_db_instances.emplace_back(instance_name);
+      }
+    }
+    return {newest_db_instances, curr_ldt};
+  };
+
+  auto const update_instances_counter = [&total_instances_counter](
+                                            std::vector<std::string> const &newest_db_instances) {
+    for (auto const &db_newest_instance_name : newest_db_instances) {
+      if (auto [instance_it, inserted] = total_instances_counter.try_emplace(db_newest_instance_name, 1); !inserted) {
+        instance_it->second++;
+      }
+    }
+  };
+
+  // Process each DB
+  for (auto const &[db_uuid, db_info] : dbs_info) {
+    spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
+    if (auto const [newest_db_instances, curr_ldt] = find_newest_instances_for_db(db_info);
+        newest_db_instances.empty()) {
+      spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
+    } else {
+      spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
+                   curr_ldt, db_uuid, fmt::join(newest_db_instances, ", "));
+      update_instances_counter(newest_db_instances);
+    }
+  }
+
+  std::optional<std::pair<std::string, uint64_t>> newest_instance;
+  for (auto const &[instance_name, cnt_newest_dbs] : total_instances_counter) {
+    // If better on more DBs, update currently the best
+    if (!newest_instance.has_value() || newest_instance->second < cnt_newest_dbs) {
+      newest_instance.emplace(instance_name, cnt_newest_dbs);
+    } else if (newest_instance->second == cnt_newest_dbs) {
+      // Instances are the best over the same number of instances, let the sum of timestamps decide
+      spdlog::info("Instances {} and {} are most up to date on the same number of instances.", instance_name,
+                   newest_instance->first);
+      if (total_instances_sum[instance_name] > total_instances_sum[newest_instance->first]) {
+        spdlog::info("Instance {} has the total sum of timestamps larger than {}. It will be considered newer.",
+                     instance_name, newest_instance->first);
+        newest_instance.emplace(instance_name, cnt_newest_dbs);
+      }
+    }
+  }
+  if (newest_instance.has_value()) {
+    spdlog::info("The newest instance is {}", newest_instance->first);
+    return newest_instance->first;
+  }
+  return std::nullopt;
 }
 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
 
-auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
-    -> std::optional<std::string> {
+auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::GetHistories_us};
 
-  if (instances.empty()) {
+  if (repl_instances_.empty()) {
     return std::nullopt;
   }
 
-  spdlog::trace("{} data instances can become new main.", instances.size());
-
-  auto const get_ts = [](auto const &instance) {
-    spdlog::trace("Sending get db histories to {}.", instance.InstanceName());
+  auto const get_instance_info = [](auto const &instance) {
     return instance.GetClient().SendGetDatabaseHistoriesRpc();
   };
 
-  std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>> instance_db_histories;
+  // instance_name -> InstanceInfo
+  std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info;
 
-  for (auto const &instance : instances) {
-    if (auto maybe_history = get_ts(instance); maybe_history.has_value()) {
-      spdlog::trace("Received history for instance {}.", instance.InstanceName());
-      instance_db_histories.emplace_back(instance.InstanceName(), *maybe_history);
+  for (auto const &instance : repl_instances_) {
+    if (auto maybe_instance_info = get_instance_info(instance); maybe_instance_info.has_value()) {
+      instances_info.emplace(instance.InstanceName(), std::move(*maybe_instance_info));
     } else {
-      spdlog::trace("Couldn't receive history for instance {}.", instance.InstanceName());
+      spdlog::error("Couldn't retrieve failover info for instance {}", instance.InstanceName());
     }
   }
 
-  if (auto maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
-      maybe_newest_instance.has_value()) {
-    auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] = *maybe_newest_instance;
-    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
-                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-    return most_up_to_date_instance;
-  }
-  return std::nullopt;
+  return ChooseMostUpToDateInstance(instances_info);
 }
 
 }  // namespace memgraph::coordination

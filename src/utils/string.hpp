@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -165,7 +165,7 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
 /**
  * Join the `strings` collection separated by a given separator.
  */
-inline std::string Join(const std::vector<std::string> &strings, const std::string_view separator) {
+inline std::string Join(std::ranges::forward_range auto const &strings, const std::string_view separator) {
   std::string res;
   Join(&res, strings, separator);
   return res;

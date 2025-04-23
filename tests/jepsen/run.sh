@@ -31,7 +31,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests|process-results [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|unit-tests|process-results [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -120,7 +120,7 @@ PROCESS_ARGS() {
     done
 }
 
-COPY_BINARIES() {
+COPY_FILES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
    # Datasets need to be downloaded only if MT test is being run
@@ -304,7 +304,7 @@ case $1 in
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
         CLUSTER_UP
-        COPY_BINARIES
+        COPY_FILES
     ;;
 
     cluster-refresh)
@@ -324,7 +324,7 @@ case $1 in
     unit-tests)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES
+        COPY_FILES
         docker exec jepsen-control bash -c "cd /jepsen/memgraph && lein test"
         _JEPSEN_RUN_EXIT_STATUS=$?
         if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
@@ -336,7 +336,7 @@ case $1 in
     test)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES "$CONTROL_LEIN_RUN_ARGS"
+        COPY_FILES "$CONTROL_LEIN_RUN_ARGS"
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
         RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"

@@ -64,7 +64,8 @@ namespace memgraph::storage {
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
-      : utils::BasicException("Cannot access storage, unique access query is running. Try again later.") {}
+      : utils::BasicException(
+            "Cannot get shared access storage. Try stopping other queries that are running in parallel.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
 };
 
@@ -76,12 +77,20 @@ class UniqueAccessTimeout : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
 };
 
+class ReadOnlyAccessTimeout : public utils::BasicException {
+ public:
+  ReadOnlyAccessTimeout()
+      : utils::BasicException(
+            "Cannot get read only access to the storage. Try stopping other queries that are running in parallel.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ReadOnlyAccessTimeout)
+};
+
 struct Transaction;
 class EdgeAccessor;
 
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, PropertyId>> label_property;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_properties;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
@@ -193,10 +202,16 @@ class Storage {
     } shared_access;
     static constexpr struct UniqueAccess {
     } unique_access;
+    static constexpr struct ReadOnlyAccess {
+    } read_only_access;
+
+    enum Type { NO_ACCESS, UNIQUE, WRITE, READ, READ_ONLY };
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+             Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+    Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
@@ -206,6 +221,23 @@ class Storage {
 
     virtual ~Accessor() = default;
 
+    Type type() const {
+      if (unique_guard_.owns_lock()) {
+        return UNIQUE;
+      }
+      if (storage_guard_.owns_lock()) {
+        switch (storage_guard_.type()) {
+          case utils::SharedResourceLockGuard::Type::WRITE:
+            return WRITE;
+          case utils::SharedResourceLockGuard::Type::READ:
+            return READ;
+          case utils::SharedResourceLockGuard::Type::READ_ONLY:
+            return READ_ONLY;
+        }
+      }
+      return NO_ACCESS;
+    }
+
     virtual VertexAccessor CreateVertex() = 0;
 
     virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
@@ -214,13 +246,13 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property, View view) = 0;
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+                                      std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
 
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) {
+      return Vertices(label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()),
+                      view);
+    };
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
@@ -241,25 +273,25 @@ class Storage {
     virtual EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
-    virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+    virtual auto DeleteVertex(VertexAccessor *vertex) -> Result<std::optional<VertexAccessor>>;
 
-    virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex);
+    virtual auto DetachDeleteVertex(VertexAccessor *vertex)
+        -> Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>;
 
-    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
+    virtual auto DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach)
+        -> Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>;
 
     virtual uint64_t ApproximateVertexCount() const = 0;
 
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                            std::span<PropertyValue const> values) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                            std::span<PropertyValueRange const> bounds) const = 0;
 
     virtual uint64_t ApproximateEdgeCount() const = 0;
 
@@ -285,18 +317,18 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
-    virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
+    virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
-    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, const storage::PropertyId &property) const = 0;
+    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
+        -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
-    virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+    virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> property,
                                const LabelPropertyIndexStats &stats) = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const storage::LabelId &label) = 0;
+    virtual auto DeleteLabelPropertyIndexStats(const storage::LabelId &label)
+        -> std::vector<std::pair<LabelId, std::vector<PropertyId>>> = 0;
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
@@ -305,11 +337,17 @@ class Storage {
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                                  VertexAccessor *to_vertex) = 0;
 
-    virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
+    virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
+    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> {
+      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+    };
 
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
 
@@ -390,7 +428,8 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
                                                                               bool unique_access_needed = true) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
@@ -402,7 +441,8 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 
@@ -509,7 +549,7 @@ class Storage {
 
    protected:
     Storage *storage_;
-    std::shared_lock<utils::ResourceLock> storage_guard_;
+    utils::SharedResourceLockGuard storage_guard_;
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
     Transaction transaction_;
@@ -573,12 +613,14 @@ class Storage {
     }
   }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+  virtual std::unique_ptr<Accessor> Access(Accessor::Type rw_type,
+                                           std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
   std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(override_isolation_level, std::nullopt);
+    return Access(Accessor::Type::WRITE, override_isolation_level, std::nullopt);
   }
-  std::unique_ptr<Accessor> Access() { return Access({}, std::nullopt); }
+  std::unique_ptr<Accessor> Access(Accessor::Type rw_type) { return Access(rw_type, std::nullopt, std::nullopt); }
+  std::unique_ptr<Accessor> Access() { return Access(Accessor::Type::WRITE, {}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;
@@ -586,6 +628,13 @@ class Storage {
     return UniqueAccess(override_isolation_level, std::nullopt);
   }
   std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess({}, std::nullopt); }
+
+  virtual std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                   std::optional<std::chrono::milliseconds> timeout) = 0;
+  std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level) {
+    return ReadOnlyAccess(override_isolation_level, std::nullopt);
+  }
+  std::unique_ptr<Accessor> ReadOnlyAccess() { return ReadOnlyAccess({}, std::nullopt); }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
