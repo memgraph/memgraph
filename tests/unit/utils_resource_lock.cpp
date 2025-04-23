@@ -13,7 +13,6 @@
 
 #include <gtest/gtest.h>
 #include <future>
-#include <latch>
 #include <shared_mutex>
 #include <thread>
 
@@ -190,4 +189,17 @@ TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
 
   // wait for thread to finish, check result
   ASSERT_EQ(ro_outcome.get(), Outcome::Success);
+}
+
+TEST_F(ResourceLockTest, LockDowngrade) {
+  auto guard_write_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
+  ASSERT_TRUE(guard_write_1.owns_lock());
+  guard_write_1.downgrade_to_read();
+
+  auto guard_read_only = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+  ASSERT_TRUE(guard_read_only.try_lock());
+  guard_read_only.downgrade_to_read();
+
+  auto guard_write_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
+  ASSERT_TRUE(guard_write_2.try_lock());
 }
