@@ -146,7 +146,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult override;
 
-  bool DoToMainPromotion(const utils::UUID &main_uuid, bool force = true);
+  bool DoToMainPromotion(const utils::UUID &new_epoch_id, bool force = true);
 
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> replication_coordination_glue::ReplicationRole override;

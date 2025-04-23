@@ -27,15 +27,14 @@ struct PromoteToMainReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
-  static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteToMainReq *self, slk::Reader *reader);
+  static void Save(const PromoteToMainReq &self, slk::Builder *builder);
 
-  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
-      : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
+  explicit PromoteToMainReq(const utils::UUID &epoch_id, std::vector<ReplicationClientInfo> replication_clients_info)
+      : new_epoch_id(epoch_id), replication_clients_info(std::move(replication_clients_info)) {}
   PromoteToMainReq() = default;
 
-  // get uuid here
-  utils::UUID main_uuid;
+  utils::UUID new_epoch_id;
   std::vector<ReplicationClientInfo> replication_clients_info;
 };
 

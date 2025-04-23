@@ -558,12 +558,13 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  auto const new_main_uuid = utils::UUID{};
+  auto const new_epoch_id = utils::UUID{};
 
   for (auto const &instance : repl_instances_) {
     if (!is_new_main(instance)) {
       // Even if swapping doesn't succeed here, we will do it again in the callbacks.
-      instance.SendSwapAndUpdateUUID(new_main_uuid);
+      // NOLINTNEXTLINE
+      instance.SendSwapAndUpdateUUID(new_epoch_id);
     }
   }
 
@@ -571,7 +572,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
                            ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main->SendRpc<PromoteToMainRpc>(new_main_uuid, std::move(repl_clients_info))) {
+  if (!new_main->SendRpc<PromoteToMainRpc>(new_epoch_id, std::move(repl_clients_info))) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
@@ -586,19 +587,19 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   };
   // replicas already have status replica
   for (auto &data_instance : cluster_state | ranges::views::filter(not_main_raft)) {
-    data_instance.instance_uuid = new_main_uuid;
+    data_instance.instance_uuid = new_epoch_id;
   }
 
   auto main_data_instance = std::ranges::find_if(cluster_state, [new_main_name](auto &&data_instance) {
     return data_instance.config.instance_name == new_main_name;
   });
 
-  main_data_instance->instance_uuid = new_main_uuid;
+  main_data_instance->instance_uuid = new_epoch_id;
   main_data_instance->status = ReplicationRole::MAIN;
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
 
-  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), new_main_uuid)) {
+  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), new_epoch_id)) {
     spdlog::error("Aborting setting instance to main. Writing to Raft failed.");
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
@@ -933,7 +934,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
   instance.OnSuccessPing();
 
-  auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+  auto const curr_epoch_id = raft_state_->GetCurrentMainUUID();
 
   if (raft_state_->IsCurrentMain(instance_name)) {
     // According to raft, this is the current MAIN
@@ -941,18 +942,18 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     //  - instance is actually a replica
     //  - instance is main, but has stale state (missed a failover)
     if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
-        *instance_state->uuid == curr_main_uuid) {
+        *instance_state->uuid == curr_epoch_id) {
       // Promotion not needed
       return;
     }
-    auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
+    auto const is_not_main = [instance_name](auto const &instance) { return instance.InstanceName() != instance_name; };
     auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
                              ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                              ranges::to<ReplicationClientsInfo>();
 
-    if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
+    if (!instance.SendRpc<PromoteToMainRpc>(curr_epoch_id, std::move(repl_clients_info))) {
       spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
-                    std::string{curr_main_uuid});
+                    std::string{curr_epoch_id});
       switch (TryFailover()) {
         case FailoverStatus::SUCCESS: {
           spdlog::trace("Failover successful after failing to promote main instance.");
@@ -980,10 +981,10 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       }
     }
 
-    if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
-      if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+    if (!instance_state->uuid || *instance_state->uuid != curr_epoch_id) {
+      if (!instance.SendSwapAndUpdateUUID(curr_epoch_id)) {
         spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
-                      std::string{curr_main_uuid});
+                      std::string{curr_epoch_id});
         return;
       }
     }

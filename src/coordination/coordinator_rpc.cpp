@@ -209,12 +209,12 @@ void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader 
 }
 
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.new_epoch_id, builder);
   memgraph::slk::Save(self.replication_clients_info, builder);
 }
 
 void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->new_epoch_id, reader);
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 

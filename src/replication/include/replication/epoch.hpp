@@ -14,13 +14,10 @@
 #include <utility>
 
 #include "utils/uuid.hpp"
-
-#include <spdlog/spdlog.h>
-
 namespace memgraph::replication {
 
 struct ReplicationEpoch {
-  ReplicationEpoch() : id_(memgraph::utils::GenerateUUID()) {}
+  ReplicationEpoch() : id_(utils::GenerateUUID()) {}
   explicit ReplicationEpoch(std::string explicit_id) : id_(std::move(explicit_id)) {}
   ReplicationEpoch(ReplicationEpoch const &) = default;  // TODO: passkey idiom
   ReplicationEpoch(ReplicationEpoch &&) = default;

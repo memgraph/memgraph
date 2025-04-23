@@ -60,25 +60,24 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data)) {
     spdlog::trace("Restarted replication uuid for replica");
-    std::get<RoleReplicaData>(replication_data).uuid_.reset();
+    std::get<RoleReplicaData>(replication_data).epoch_.reset();
   }
 #endif
   if (std::holds_alternative<RoleReplicaData>(replication_data)) {
-    auto &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
-    std::string uuid = replica_uuid.has_value() ? std::string(replica_uuid.value()) : "";
-    spdlog::trace("Recovered main's uuid for replica {}", uuid);
+    auto const &epoch = std::get<RoleReplicaData>(replication_data).epoch_;
+    auto const epoch_id = epoch.has_value() ? epoch.value().id_ : "";
+    spdlog::trace("Recovered epoch which replica is listening {}", epoch_id);
   } else {
-    spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
+    spdlog::trace("Recovered main's epoch id {}", std::get<RoleMainData>(replication_data).epoch_.id());
   }
   replication_data_ = std::move(replication_data);
 }
 
-bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config,
-                                             const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config, std::string const &new_epoch_id) {
   if (!HasDurability()) return true;
 
-  auto data =
-      durability::ReplicationRoleEntry{.role = durability::ReplicaRole{.config = config, .main_uuid = main_uuid}};
+  auto data = durability::ReplicationRoleEntry{
+      .role = durability::ReplicaRole{.config = config, .epoch = ReplicationEpoch{new_epoch_id}}};
 
   if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     spdlog::error("Error when saving REPLICA replication role in settings.");
@@ -97,11 +96,10 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
   return true;
 }
 
-bool ReplicationState::TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid) {
+bool ReplicationState::TryPersistRoleMain(std::string const &new_epoch_id) {
   if (!HasDurability()) return true;
 
-  auto data = durability::ReplicationRoleEntry{
-      .role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}, .main_uuid = main_uuid}};
+  auto data = durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{new_epoch_id}}};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
@@ -147,8 +145,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = RoleMainData{std::move(r.epoch), false,
-                                      r.main_uuid.has_value() ? r.main_uuid.value() : utils::UUID{}};
+              auto res = RoleMainData{std::move(r.epoch), false};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
               for (; b != e; ++b) {
@@ -165,7 +162,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                   // Instance clients
                   res.registered_replicas_.emplace_back(data.config);
                   // Bump for each replica uuid
-                  res.registered_replicas_.back().try_set_uuid = !r.main_uuid.has_value();
+                  res.registered_replicas_.back().try_set_uuid = true;
                 } catch (...) {
                   return FetchReplicationError::PARSE_ERROR;
                 }
@@ -175,7 +172,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
               // False positive report for the std::make_unique
               // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), r.main_uuid}};
+              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), r.epoch}};
             },
         },
         std::move(data.role));
@@ -220,7 +217,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       data.version = durability::DurabilityVersion::V3;
       if (std::holds_alternative<durability::MainRole>(data.role)) {
         auto &main = std::get<durability::MainRole>(data.role);
-        main.main_uuid = utils::UUID{};
+        main.epoch = ReplicationEpoch();
       }
       if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
       [[fallthrough]];
@@ -249,18 +246,22 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       // do nothing - add code if V5 ever happens
       break;
     }
+    case durability::DurabilityVersion::V5: {
+      // do nothing - add code if V6 ever happens
+      break;
+    }
   }
   return true;
 }
 
-bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid) {
+bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config,
+                                                   ReplicationEpoch const &epoch) {
   if (!HasDurability()) return true;
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
-    auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
-    if (!TryPersistRoleMain(std::move(epoch_str), main_uuid)) return false;
+    if (!TryPersistRoleMain(std::string(epoch.id()))) return false;
   }
 
   auto data = durability::ReplicationReplicaEntry{.config = config};
@@ -271,26 +272,25 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   return false;
 }
 
-bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
-  auto new_epoch = utils::GenerateUUID();
-
-  if (!TryPersistRoleMain(new_epoch, main_uuid)) {
+// TODO: UUID vs string passing args
+bool ReplicationState::SetReplicationRoleMain(std::string const &new_epoch_id) {
+  if (!TryPersistRoleMain(new_epoch_id)) {
     return false;
   }
 
   // By default, writing on MAIN is disabled until cluster is in healthy state
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, /*is_writing enabled*/ false, main_uuid};
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch_id}, /*is_writing enabled*/ false};
 
   return true;
 }
 
-bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                 const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config, std::string const &epoch_id) {
   // False positive report for the std::make_unique
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-  if (!TryPersistRoleReplica(config, main_uuid)) {
+  if (!TryPersistRoleReplica(config, epoch_id)) {
     return false;
   }
+
   // False positive report for the std::make_unique
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config), std::nullopt};
@@ -325,7 +325,7 @@ utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> ReplicationState:
     }
 
     // Durability
-    if (!TryPersistRegisteredReplica(config, mainData.uuid_)) {
+    if (!TryPersistRegisteredReplica(config, mainData.epoch_)) {
       return RegisterReplicaStatus::COULD_NOT_BE_PERSISTED;
     }
 

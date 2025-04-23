@@ -246,7 +246,7 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
   }
 }
 
-bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool force) {
+bool ReplicationHandler::DoToMainPromotion(const utils::UUID &new_epoch_id, bool force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
@@ -277,13 +277,13 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
 
     // STEP 2) Change to MAIN
     // TODO: restore replication servers if false?
-    if (!locked_repl_state->SetReplicationRoleMain(main_uuid)) {
+    if (!locked_repl_state->SetReplicationRoleMain(new_epoch_id)) {
       // TODO: Handle recovery on failure???
       return false;
     }
 
     // STEP 3) We are now MAIN, update storage local epoch
-    const auto &epoch = std::get<replication::RoleMainData>(locked_repl_state->ReplicationData()).epoch_;
+    const auto &epoch = std::get<RoleMainData>(locked_repl_state->ReplicationData()).epoch_;
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = epoch;

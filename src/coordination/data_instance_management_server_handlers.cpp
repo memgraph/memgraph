@@ -208,7 +208,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues. If I receive request to promote myself to main when I am already main
   // I will do it again, the action is idempotent.
-  if (const bool success = replication_handler.DoToMainPromotion(req.main_uuid); !success) {
+  if (const bool success = replication_handler.DoToMainPromotion(req.new_epoch_id); !success) {
     spdlog::error("Promoting replica to main failed.");
     coordination::PromoteToMainRes const res{false};
     rpc::SendFinalResponse(res, res_builder);
@@ -229,7 +229,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
 
   coordination::PromoteToMainRes const res{true};
   rpc::SendFinalResponse(res, res_builder);
-  spdlog::info("Promoting replica to main finished successfully. New MAIN's uuid: {}", std::string(req.main_uuid));
+  spdlog::info("Promoting replica to main finished successfully. New MAIN's uuid: {}", std::string(req.new_epoch_id));
 }
 
 void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
