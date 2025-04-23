@@ -758,7 +758,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
     const std::filesystem::path &path, utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
     utils::SkipList<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
     const uint64_t vertices_count, const SalientConfig::Items items, const bool snapshot_has_edges,
-    TEdgeTypeFromIdFunc get_edge_type_from_id,
+    TEdgeTypeFromIdFunc get_edge_type_from_id, NameIdMapper *name_id_mapper,
     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
@@ -840,7 +840,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
       for (uint64_t j = 0; j < *props_size; ++j) {
         auto key = snapshot.ReadUint();
         if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-        auto value = snapshot.SkipPropertyValue();
+        auto value = snapshot.SkipPropertyValue(name_id_mapper);
         if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
       }
     }
@@ -1216,7 +1216,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read property key while skipping properties!");
-          auto value = snapshot.SkipPropertyValue();
+          auto value = snapshot.SkipPropertyValue(name_id_mapper);
           if (!value) throw RecoveryFailure("Couldn't read property value while skipping properties!");
         }
       }
@@ -1574,11 +1574,11 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id);
+                                      items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -1862,11 +1862,11 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id);
+                                      items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -2204,11 +2204,11 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id);
+                                      items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -2629,11 +2629,11 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, edge_count, items = config.salient.items, snapshot_has_edges,
-         &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         schema_info](const size_t batch_index, const BatchInfo &batch) {
+         &get_edge_type_from_id, &highest_edge_gid, &recovery_info, schema_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id);
+                                      items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -3071,11 +3071,11 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid,
-         &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id);
+                                      items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -3566,11 +3566,11 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info, &snapshot_info,
+         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
+                                      items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper, snapshot_info);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -4108,11 +4108,11 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-           snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-           &snapshot_info](const size_t batch_index, const BatchInfo &batch) {
-            const auto result =
-                LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset,
-                                        batch.count, items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
+           snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info, &snapshot_info,
+           &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+            const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info,
+                                                        batch.offset, batch.count, items, snapshot_has_edges,
+                                                        get_edge_type_from_id, name_id_mapper, snapshot_info);
             edge_count->fetch_add(result.edge_count);
             auto known_highest_edge_gid = highest_edge_gid.load();
             while (known_highest_edge_gid < result.highest_edge_id) {

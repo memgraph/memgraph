@@ -77,7 +77,7 @@ class Decoder final : public durability::BaseDecoder {
 
   bool SkipString() override;
 
-  bool SkipPropertyValue() override;
+  bool SkipPropertyValue(NameIdMapper *name_id_mapper) override;
 
   /// Read the file and save it inside the specified directory.
   /// @param directory Directory which will contain the read file.

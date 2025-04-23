@@ -188,17 +188,6 @@ inline void Save(const char *obj, Builder *builder) {
   builder->Save(reinterpret_cast<const uint8_t *>(obj), size);
 }
 
-inline void Save(storage::PropertyId obj, Builder *builder) {
-  auto obj_encoded = utils::HostToLittleEndian(obj.AsUint());
-  builder->Save(reinterpret_cast<const uint8_t *>(&obj_encoded), sizeof(storage::PropertyId));
-}
-
-inline void Load(storage::PropertyId *obj, Reader *reader) {
-  uint32_t obj_encoded;
-  reader->Load(reinterpret_cast<uint8_t *>(&obj_encoded), sizeof(storage::PropertyId));
-  *obj = storage::PropertyId::FromUint(utils::LittleEndianToHost(obj_encoded));
-}
-
 inline void Save(const std::string_view obj, Builder *builder) {
   uint64_t size = obj.size();
   Save(size, builder);

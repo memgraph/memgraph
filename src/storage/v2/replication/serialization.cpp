@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 
 namespace memgraph::storage::replication {
 ////// Encoder //////
@@ -52,7 +53,7 @@ void Encoder::WritePoint3d(storage::Point3d value) {
 
 void Encoder::WritePropertyValue(const PropertyValue &value, NameIdMapper *name_id_mapper) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
-  slk::Save(value, builder_);
+  slk::Save(value, builder_, name_id_mapper);
 }
 
 void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
@@ -146,7 +147,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue(NameIdMapper *name_id_ma
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
     return std::nullopt;
   PropertyValue value;
-  slk::Load(&value, reader_);
+  slk::Load(&value, reader_, name_id_mapper);
   return std::move(value);
 }
 
@@ -157,10 +158,10 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipPropertyValue() {
+bool Decoder::SkipPropertyValue(NameIdMapper *name_id_mapper) {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE) return false;
   PropertyValue value;
-  slk::Load(&value, reader_);
+  slk::Load(&value, reader_, name_id_mapper);
   return true;
 }
 

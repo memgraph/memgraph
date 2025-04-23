@@ -39,8 +39,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx,
-                           NameIdMapper *name_id_mapper) override{};
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                           const Transaction &tx) override{};
 
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
