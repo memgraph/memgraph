@@ -774,7 +774,10 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::SUCCESS;
   }
 
-  if (!raft_state_->AppendClusterUpdate(delta_state)) {
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state_revert{.data_instances_ = std::move(old_data_instances)};
+
+  if (!raft_state_->AppendClusterUpdate(delta_state_revert)) {
     LOG_FATAL(
         "Coordinator instances cannot be brought into the consistent state before unregistration started. Please "
         "restart coordinators with fresh data directory and reconnect the cluster. Data on main and replicas will be "
