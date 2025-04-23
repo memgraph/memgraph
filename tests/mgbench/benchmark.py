@@ -645,7 +645,7 @@ def run_isolated_workload_without_authorization(
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    if benchmark_context.vendor_name != "neo4j":
+    if benchmark_context.vendor_name != GraphVendors.NEO4J:
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
         vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")

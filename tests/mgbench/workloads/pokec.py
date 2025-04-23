@@ -12,6 +12,7 @@
 import random
 
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 from workloads.base import Workload
 from workloads.importers.importer_pokec import ImporterPokec
 
@@ -34,9 +35,9 @@ class Pokec(Workload):
     }
 
     URL_INDEX_FILE = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/memgraph.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
-        "falkordb": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/falkordb.cypher",
+        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/memgraph.cypher",
+        GraphVendors.NEO4J: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
+        GraphVendors.FALKORDB: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/falkordb.cypher",
     }
 
     PROPERTIES_ON_EDGES = False
@@ -182,7 +183,7 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor in ["neo4j", "falkordb"]:
+        elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
         raise Exception(f"Unknown vendor type {self._vendor}")
 
@@ -204,7 +205,7 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor in ["neo4j", "falkordb"]:
+        elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
         raise Exception(f"Unknown vendor type {self._vendor}")
 
@@ -224,7 +225,7 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor in ["neo4j", "falkordb"]:
+        elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
         raise Exception(f"Unknown vendor type {self._vendor}")
 
@@ -437,7 +438,7 @@ class Pokec(Workload):
         )
         if self._vendor == "memgraph":
             return memgraph
-        elif self._vendor in ["neo4j", "falkordb"]:
+        elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
         raise Exception(f"Unknown vendor type {self._vendor}")
 

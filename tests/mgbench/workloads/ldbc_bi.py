@@ -16,6 +16,7 @@ from pathlib import Path
 
 import helpers
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 from workloads.base import Workload
 from workloads.importers.importer_ldbc_bi import ImporterLDBCBI
 
@@ -46,9 +47,9 @@ class LDBC_BI(Workload):
     LOCAL_INDEX_FILES = None
 
     URL_INDEX_FILE = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/neo4j_bi_index.cypher",
-        "falkordb": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
+        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
+        GraphVendors.NEO4J: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/neo4j_bi_index.cypher",
+        GraphVendors.FALKORDB: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
     }
 
     QUERY_PARAMETERS = {

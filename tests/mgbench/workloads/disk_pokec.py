@@ -12,6 +12,7 @@
 import random
 
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 from workloads.base import Workload
 from workloads.importers.disk_importer_pokec import DiskImporterPokec
 from workloads.importers.importer_pokec import ImporterPokec
@@ -48,9 +49,9 @@ class Pokec(Workload):
     }
 
     URL_INDEX_FILE = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/memgraph.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
-        "falkordb": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/falkordb.cypher",
+        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/memgraph.cypher",
+        GraphVendors.NEO4J: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
+        GraphVendors.FALKORDB: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/falkordb.cypher",
     }
 
     PROPERTIES_ON_EDGES = False
