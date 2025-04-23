@@ -217,49 +217,56 @@
                      (assoc op :type :info :value "Not data instance."))
 
         :add-nodes (if (hautils/coord-instance? node)
-                     (let [max-idx (atom nil)
-                           bolt-routing-conn (utils/open-bolt-routing node)
-                     ]
-                       (try
-                         (utils/with-session bolt-routing-conn session
-                           ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
-                           ; fail result.
-                           (let [res (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
-                                         (map :id)
-                                         (reduce conj [])
-                                         first)]
-                                      (reset! max-idx local-idx)
-                                      (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx}))]
-                            (dbclient/disconnect bolt-routing-conn)
-                            res))
+                      (let [bolt-conn (utils/open-bolt-connection node)]
+                        (try
+                          (utils/with-session bolt-conn session
+                            (let [instances (reduce conj [] (mgquery/get-all-instances session))
+                                  current-leader (hautils/get-current-leader instances)]
+                              (if (= current-leader node)
+                                (let [bolt-routing-conn (utils/open-bolt-routing node)
+                                      max-idx (atom nil)]
+                                  (try
+                                    (utils/with-session bolt-routing-conn session
+                                      (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size})
+                                                           (map :id)
+                                                           (reduce conj [])
+                                                           first)]
+                                        (reset! max-idx local-idx)
+                                        (dbclient/disconnect bolt-routing-conn)
+                                        (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
+                                    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                                      (dbclient/disconnect bolt-routing-conn)
+                                      (utils/process-service-unavailable-exc op node))
+                                    (catch Exception e
+                                      (dbclient/disconnect bolt-routing-conn)
+                                      (cond
+                                        (utils/server-no-longer-available e)
+                                        (assoc op :type :info :value {:str "Server no longer available."})
 
-                         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                           (dbclient/disconnect bolt-routing-conn)
-                           (utils/process-service-unavailable-exc op node))
+                                        (utils/no-write-server e)
+                                        (assoc op :type :info :value {:str "Failed to obtain connection towards write server."})
 
-                         (catch Exception e
-                           (dbclient/disconnect bolt-routing-conn)
-                           ; Even if sync replica is down, nodes will get created on the main.
-                           (cond
-                                 (utils/sync-replica-down? e)
-                                 (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
+                                        (utils/sync-replica-down? e)
+                                        (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
-                                 (utils/main-became-replica? e)
-                                 (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
+                                        (utils/main-became-replica? e)
+                                        (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
 
-                                 (utils/main-unwriteable? e)
-                                 (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
+                                        (utils/main-unwriteable? e)
+                                        (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
 
-                                 (or (utils/query-forbidden-on-replica? e)
-                                     (utils/query-forbidden-on-main? e))
-                                 (assoc op :type :info :value (str e))
+                                        (or (utils/query-forbidden-on-replica? e)
+                                            (utils/query-forbidden-on-main? e))
+                                        (assoc op :type :info :value (str e))
+                                        :else
+                                        (assoc op :type :fail :value (str e))))))
+                                (assoc op :type :info :value "This coordinator is not the current leader."))))
+                          (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                            (utils/process-service-unavailable-exc op node))
+                          (catch Exception e
+                            (assoc op :type :fail :value (str e)))))
+                      (assoc op :type :info :value "Not coordinator instance."))
 
-                                 :else
-                                 (assoc op :type :fail :value (str e)))))
-
-                     )
-
-                     (assoc op :type :info :value "Not main data instance."))
 
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (hautils/coord-instance? node)
@@ -268,7 +275,8 @@
                                    (let [instances (reduce conj [] (mgquery/get-all-instances session))]
                                      (assoc op
                                             :type :ok
-                                            :value {:instances instances :node node :time (utils/current-local-time-formatted)})))
+                                            :value {:instances instances :node node :time (utils/current-local-time-formatted)})
+                                     ))
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
