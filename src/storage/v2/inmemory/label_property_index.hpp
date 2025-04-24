@@ -205,6 +205,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     return std::make_unique<ActiveIndices>(std::move(active_indices), std::move(reverse_active_indices));
   }
 
+  bool StartPopulatingIndex(LabelId label, std::vector<PropertyId> const &properties,
+                            utils::SkipList<Vertex>::Accessor vertices,
+                            const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                            std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
  private:
   IndexContainer index_;
   ReverseIndexContainer indices_by_property_;

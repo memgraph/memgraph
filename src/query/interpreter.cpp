@@ -871,21 +871,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2460,8 +2453,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
-    -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras,
+                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -3121,11 +3114,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
+  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
+                 [execution_db_accessor](const auto &label_index) {
+                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
+                                                  TypedValue("")};
+                 });
 
   auto prop_to_name = [&](storage::PropertyId prop) { return TypedValue{execution_db_accessor->PropertyToName(prop)}; };
   std::transform(
@@ -3206,7 +3199,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
-
   auto *index_query = utils::Downcast<IndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
@@ -6175,14 +6167,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // TODO: make a better analysis visitor over the `parsed_query.query`
     bool const unique_db_transaction =
         !no_db_required &&  // Short circuit if impossible
-        (utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-         utils::Downcast<VectorIndexQuery>(parsed_query.query) ||
+        (utils::Downcast<EdgeIndexQuery>(parsed_query.query) || utils::Downcast<PointIndexQuery>(parsed_query.query) ||
+         utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<VectorIndexQuery>(parsed_query.query) ||
          utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
          utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
          utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
          utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
          utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query));
+
+    bool const read_only_db_transaction = utils::Downcast<IndexQuery>(parsed_query.query);
 
     bool const read_db_transactions =
         (!no_db_required && !unique_db_transaction) &&  // Short circuit if impossible
@@ -6192,14 +6185,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
          utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
          utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query));
 
-    bool const requires_db_transaction =
-        read_db_transactions || unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
-        utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query);
+    bool const requires_db_transaction = read_db_transactions || unique_db_transaction || read_only_db_transaction ||
+                                         utils::Downcast<CypherQuery>(parsed_query.query) ||
+                                         utils::Downcast<ProfileQuery>(parsed_query.query) ||
+                                         utils::Downcast<TriggerQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       auto acc_type = storage::Storage::Accessor::Type::WRITE;
       if (read_db_transactions) acc_type = storage::Storage::Accessor::Type::READ;
+      if (read_only_db_transaction) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
       if (unique_db_transaction) acc_type = storage::Storage::Accessor::Type::UNIQUE;
       auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
