@@ -2210,12 +2210,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.db_acc = std::move(db_acc);
 }
 
-std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> nnnn,
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  const std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
-  MG_ASSERT(transaction_id.has_value());
-
   if (memory_limit_) {
     auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
     if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
@@ -2259,7 +2256,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     ++i;
   }
 
-  for (; !nnnn || i < nnnn; ++i) {
+  for (; !n || i < n; ++i) {
     if (!pull_result()) {
       break;
     }
@@ -2273,8 +2270,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // we try to pull the next result to see if there is more.
   // If there is additional result, we leave the pulled result in the frame
   // and set the flag to true.
-  // TODO Any way to avoid another pull???
-  has_unsent_results_ = i == nnnn && pull_result();
+  has_unsent_results_ = i == n && pull_result();
 
   execution_time_ += timer.Elapsed();
 
@@ -2563,7 +2559,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                        },
                        rw_type,
                        current_db.db_acc_->get()->name(),
-                       utils::Priority::LOW};
+                       utils::Priority::LOW};  // Default to LOW priority for all Cypher queries
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,

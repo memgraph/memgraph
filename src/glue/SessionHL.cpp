@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <exception>
 #include <optional>
 #include <utility>
 
@@ -22,14 +21,12 @@
 #include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
-#include "glue/query_user.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
-#include "utils/priority_thread_pool.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -40,52 +37,37 @@ extern const Event ActiveBoltSessions;
 namespace {
 
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
-  auto const &as_map = extra.ValueMap();
-
   auto metadata_pv = memgraph::storage::PropertyValue::map_t{};
-
+  auto const &as_map = extra.ValueMap();
+  // user-defined metadata
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {
       metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md, nullptr));
     }
   }
-
+  // timeout
   auto tx_timeout = std::optional<int64_t>{};
   if (auto const it = as_map.find("tx_timeout"); it != as_map.cend() && it->second.IsInt()) {
     tx_timeout = it->second.ValueInt();
   }
-
+  // rw type
   bool is_read = false;
   if (auto const it = as_map.find("mode"); it != as_map.cend() && it->second.IsString()) {
     is_read = it->second.ValueString() == "r";
   }
-
   return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout, is_read};
 }
-
-class TypedValueResultStreamBase {
- public:
-  explicit TypedValueResultStreamBase(memgraph::storage::Storage *storage);
-
-  void DecodeValues(const std::vector<memgraph::query::TypedValue> &values);
-
-  auto AccessValues() const -> std::vector<memgraph::glue::bolt_value_t> const & { return decoded_values_; }
-
- protected:
-  // NOTE: Needed only for ToBoltValue conversions
-  memgraph::storage::Storage *storage_;
-  std::vector<memgraph::glue::bolt_value_t> decoded_values_;
-};
 
 /// Wrapper around TEncoder which converts TypedValue to Value
 /// before forwarding the calls to original TEncoder.
 template <typename TEncoder>
-class TypedValueResultStream : public TypedValueResultStreamBase {
+class TypedValueResultStream {
  public:
   TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
-      : TypedValueResultStreamBase{storage}, encoder_(encoder) {}
+      : storage_{storage}, encoder_(encoder) {}
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
+    // Splitting the MessageRecord allows us to skip vector insertion and just directly encode the value
     encoder_->MessageRecordHeader(values.size());
     for (const auto &v : values) {
       auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
@@ -109,31 +91,10 @@ class TypedValueResultStream : public TypedValueResultStreamBase {
   }
 
  private:
+  // NOTE: Needed only for ToBoltValue conversions
+  memgraph::storage::Storage *storage_;
   TEncoder *encoder_;
 };
-
-void TypedValueResultStreamBase::DecodeValues(const std::vector<memgraph::query::TypedValue> &values) {
-  decoded_values_.reserve(values.size());
-  decoded_values_.clear();
-  for (const auto &v : values) {
-    auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
-          throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
-          throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-          throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
-      }
-    }
-    decoded_values_.emplace_back(std::move(*maybe_value));
-  }
-}
-
-TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
 
 #ifdef MG_ENTERPRISE
 void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view db) {
@@ -194,6 +155,33 @@ std::string SessionHL::GetCurrentDB() const {
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   const auto &name = flags::run_time::GetServerName();
   return name.empty() ? std::nullopt : std::make_optional(name);
+}
+
+utils::Priority SessionHL::ApproximateQueryPriority() const {
+  // Query has been parsed and a priority can be determined
+  if (parsed_res_ && state_ == memgraph::communication::bolt::State::Parsed) {
+    return std::visit(utils::Overloaded{
+                          [](const query::Interpreter::TransactionQuery &) {
+                            // BEGIN; COMMIT; ROLLBACK
+                            return utils::Priority::LOW;
+                          },
+                          [](const query::Interpreter::ParseInfo &parse_info) {
+                            // Many variants of queries
+                            // Cypher -> low
+                            // all others -> high
+                            // TODO low also unique or system queries
+                            return utils::Downcast<query::CypherQuery>(parse_info.parsed_query.query)
+                                       ? utils::Priority::LOW
+                                       : utils::Priority::HIGH;
+                          },
+                          [](const auto &) { MG_ASSERT(false, "Unexpected ParseRes variant!"); },
+                      },
+                      parsed_res_->parsed_query);
+  }
+
+  // Result means query has been prepared and we are pulling
+  return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
+                                                                : utils::Priority::HIGH;
 }
 
 void SessionHL::TryDefaultDB() {
@@ -281,6 +269,8 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   try {
+    using TEncoder =
+        communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     TypedValueResultStream<TEncoder> stream(&encoder_, storage);
@@ -337,8 +327,9 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
 }
 
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
-  // TODO Dont assert
-  MG_ASSERT(parsed_res_, "Trying to prepare a query that was not parsed.");
+  if (!parsed_res_) {
+    throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
+  }
 
   try {
     auto parsed_res = *std::move(parsed_res_);

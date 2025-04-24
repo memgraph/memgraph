@@ -13,14 +13,18 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "communication/bolt/v1/state.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
-#include "utils/priority_thread_pool.hpp"
 
 namespace memgraph::glue {
+
+struct ParseRes {
+  query::Interpreter::ParseRes parsed_query;
+  query::UserParameters_fn get_params_pv;
+  query::QueryExtras extra;
+};
 
 class RunTimeConfig {
  public:
@@ -56,10 +60,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
 
-  void Configure(const bolt_map_t &run_time_info);
+  /// BOLT level API ///
 
-  using TEncoder = memgraph::communication::bolt::Encoder<
-      memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
+  void Configure(const bolt_map_t &run_time_info);
 
   void BeginTransaction(const bolt_map_t &extra);
 
@@ -67,15 +70,18 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void RollbackTransaction();
 
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) {
-    InterpretParse(query, params, extra);
-    return InterpretPrepare();
-  }
-
   void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
 
   std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
+
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
+                                                                    const bolt_map_t &extra) {
+    // Interpret has been split in two (Parse and Prepare)
+    // This allows us to Parse, deduce the priority and then schedule accordingly
+    // Leaving this one-shot version for back-compatiblity
+    InterpretParse(query, params, extra);
+    return InterpretPrepare();
+  }
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, bolt_map_t const &extra)
@@ -88,7 +94,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Abort();
 
-  void TryDefaultDB();
+  /// Server/Session level API ///
 
   // Called during Init
   bool Authenticate(const std::string &username, const std::string &password);
@@ -96,70 +102,37 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // Called during Init
   bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
 
-  std::optional<std::string> GetServerNameForInit();
+  static std::optional<std::string> GetServerNameForInit();
 
-  inline auto ApproximateQueryPriority() const {
-    // Query has been parsed and a proprity can be determined
-    if (parsed_res_ && state_ == memgraph::communication::bolt::State::Parsed) {
-      return std::visit(utils::Overloaded{
-                            [](const query::Interpreter::TransactionQuery &) {
-                              // BEGIN; COMMIT; ROLLBACK
-                              return utils::Priority::LOW;
-                            },
-                            [](const query::Interpreter::ParseInfo &parse_info) {
-                              // Many variants of queries
-                              // Cypher -> low
-                              // all others -> high
-                              // TODO low also unique or system queries
-                              return utils::Downcast<query::CypherQuery>(parse_info.parsed_query.query)
-                                         ? utils::Priority::LOW
-                                         : utils::Priority::HIGH;
-                            },
-                            [](const auto &) { MG_ASSERT(false, "Unexpected ParseRes variant!"); },
-                        },
-                        parsed_res_->parsed_query);
-    }
-
-    // Result means query has been prepared and we are pulling
-    return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
-                                                                  : utils::Priority::HIGH;
-  }
-
-  std::string GetCurrentDB() const;
+  utils::Priority ApproximateQueryPriority() const;
 
   inline bool Execute() { return Execute_(*this); }
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
 
-  /**
-   * @brief Get the user's default database
-   *
-   * @return std::string
-   */
   std::optional<std::string> GetDefaultDB() const;
+
+  void TryDefaultDB();
+
+  std::string GetCurrentDB() const;
 
   std::optional<std::string> GetDefaultUser() const;
 
   std::string GetCurrentUser() const;
 
-  memgraph::query::InterpreterContext *interpreter_context_;
-  memgraph::query::Interpreter interpreter_;
-  std::shared_ptr<query::QueryUserOrRole> user_or_role_;
+  memgraph::query::InterpreterContext *interpreter_context_;  // Global context used by all interpreters
+  memgraph::query::Interpreter interpreter_;                  // Session specific interpreter
+  std::shared_ptr<query::QueryUserOrRole> user_or_role_;      // Connected user/role
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
-  RunTimeConfig runtime_db_;
-  RunTimeConfig runtime_user_;
+  RunTimeConfig runtime_db_;    // Run-time configurable database tarted used by the interpreter
+  RunTimeConfig runtime_user_;  // Run-time configurable user (impersonation)
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
-  std::optional<std::string> implicit_db_;
-  struct ParseRes {
-    query::Interpreter::ParseRes parsed_query;
-    query::UserParameters_fn get_params_pv;
-    query::QueryExtras extra;
-  };
-  std::optional<ParseRes> parsed_res_;
+  std::optional<ParseRes> parsed_res_;  // SessionHL corresponds to a single connection (we do not support out of order
+                                        // execution, so a single query can be prepared/executed)
 };
 
 }  // namespace memgraph::glue

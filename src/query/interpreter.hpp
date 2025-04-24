@@ -302,7 +302,7 @@ class Interpreter final {
   }
 
   utils::Priority ApproximateNextQueryPriority() const {
-    // If in transaction => low, we are deffinetelly in a cypher query situation
+    // If in transaction => low, we are for sure in a cypher query situation
     // If not in transaction, we have to check the last query priority <- there can't be qid, so just check the last
     return in_explicit_transaction_    ? utils::Priority::LOW
            : query_executions_.empty() ? utils::Priority::HIGH
@@ -333,6 +333,9 @@ class Interpreter final {
    */
   Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
                                      QueryExtras const &extras) {
+    // Split Prepare in two (Parse and Prepare)
+    // This allows us to parse, deduce priority and schedule accordingly
+    // Leaving this one-shot version for back-compatiblity
     return Prepare(Parse(query, params_getter, extras), params_getter, extras);
   }
 
@@ -546,19 +549,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             Abort();
             break;
           case QueryHandlerResult::NOTHING: {
-            // TODO Fix in another commit
-            // auto expected = TransactionStatus::ACTIVE;
-            // while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-            //   if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-            //     continue;
-            //   }
-            //   expected = TransactionStatus::ACTIVE;
-            //   std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            // }
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(in_explicit_transaction_ || !current_db_.db_transactional_accessor_);
+            MG_ASSERT(!current_db_.db_transactional_accessor_);
             break;
           }
         }
