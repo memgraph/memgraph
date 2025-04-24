@@ -21,6 +21,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -69,6 +70,8 @@ class DeltaGenerator final {
                                       std::span<mg::PropertyValueRange const> bounds) const override {
         return 0;
       }
+
+      void AbortEntries(mg::LabelPropertyIndex::AbortableInfo const &, uint64_t start_timestamp) override {}
     };
 
     std::unique_ptr<mg::LabelPropertyIndex::ActiveIndices> GetActiveIndices() {
