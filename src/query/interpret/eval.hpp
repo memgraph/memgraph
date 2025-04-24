@@ -943,8 +943,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->name_id_mapper,
-                      ctx_->memory);
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_),
+                      dba_->GetStorageAccessor()->GetNameIdMapper(), ctx_->memory);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override;
