@@ -324,10 +324,9 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyId const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> {
-      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties)
+        const -> std::vector<LabelPropertiesIndicesInfo> {
+      return transaction_.active_indices_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
@@ -477,8 +476,8 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(std::string_view name, std::span<std::string const> values)
-        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+    auto CreateEnum(std::string_view name,
+                    std::span<std::string const> values) -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
@@ -486,8 +485,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterAdd(std::string_view name, std::string_view value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterAdd(std::string_view name,
+                      std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
@@ -495,8 +494,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                         std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
@@ -506,8 +505,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name, std::string_view value) const
-        -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name,
+                      std::string_view value) const -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 

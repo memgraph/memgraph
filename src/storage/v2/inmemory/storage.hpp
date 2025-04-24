@@ -205,7 +205,7 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties);
+      return transaction_.active_indices_->ApproximateVertexCount(label, properties);
     }
 
     /// Return approximate number of vertices with the given label and the given
@@ -213,7 +213,7 @@ class InMemoryStorage final : public Storage {
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
                                     std::span<PropertyValue const> values) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, values);
+      return transaction_.active_indices_->ApproximateVertexCount(label, properties, values);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -221,7 +221,7 @@ class InMemoryStorage final : public Storage {
     /// bounds.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, bounds);
+      return transaction_.active_indices_->ApproximateVertexCount(label, properties, bounds);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
@@ -300,7 +300,7 @@ class InMemoryStorage final : public Storage {
     bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
-      return storage_->indices_.label_property_index_->IndexExists(label, properties);
+      return transaction_.active_indices_->IndexExists(label, properties);
     }
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {
@@ -492,8 +492,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;

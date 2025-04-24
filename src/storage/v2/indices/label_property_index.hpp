@@ -132,15 +132,15 @@ struct PropertiesPermutationHelper {
    * boolean indicating whether the property matches. Otherwise, if the id is
    * not in the index, `std::nullopt` is returned.
    */
-  auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
-      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
+  auto MatchesValue(PropertyId property_id, PropertyValue const &value,
+                    IndexOrderedPropertyValues const &values) const -> std::optional<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element
    * equality.
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
-      -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties,
+                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, property id, and value).
@@ -166,6 +166,32 @@ class LabelPropertyIndex {
 
     friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
+
+  struct ActiveIndices {
+    virtual ~ActiveIndices() = default;
+
+    virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+    virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                     const Transaction &tx) = 0;
+    virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+    virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                                    std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> = 0;
+
+    // Not used for in-memory
+    virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+    virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
+
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
+
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                            std::span<PropertyValue const> values) const = 0;
+
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                            std::span<PropertyValueRange const> bounds) const = 0;
+  };
+
   using AbortableInfo =
       std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
   struct AbortProcessor {
@@ -225,33 +251,11 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-  // Not used for in-memory
-  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-  virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                   const Transaction &tx) = 0;
-
   virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 
   virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
 
-  virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
-
-  virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                                  std::span<PropertyId const> properties) const
-      -> std::vector<LabelPropertiesIndicesInfo> = 0;
-
-  virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                          std::span<PropertyValue const> values) const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                          std::span<PropertyValueRange const> bounds) const = 0;
+  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 
   virtual void DropGraphClearIndices() = 0;
 };

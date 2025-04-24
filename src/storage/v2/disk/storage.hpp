@@ -192,8 +192,7 @@ class DiskStorage final : public Storage {
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_property_index_->IndexExists(label, properties);
+      return transaction_.active_indices_->IndexExists(label, properties);
     }
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
@@ -283,8 +282,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
