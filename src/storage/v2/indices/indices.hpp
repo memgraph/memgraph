@@ -23,6 +23,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace memgraph::storage {
 
@@ -67,7 +68,7 @@ struct Indices {
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
-    void Process(Indices &indices, uint64_t start_timestamp);
+    void Process(Indices &indices, Transaction &tx);
   };
 
   auto GetAbortProcessor() const -> AbortProcessor;
