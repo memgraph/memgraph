@@ -134,20 +134,20 @@ auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceMa
   return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be added since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
 }
 
-auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus {
+auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be unregistered since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
 }
 
-auto CoordinatorState::GetRoutingTable() -> RoutingTable {
+auto CoordinatorState::GetRoutingTable() const -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRoutingTable();
@@ -157,6 +157,12 @@ auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordin
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();
+}
+
+auto CoordinatorState::YieldLeadership() const -> YieldLeadershipStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot yield leadership since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).YieldLeadership();
 }
 
 auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }

@@ -3468,7 +3468,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     ADD_COORDINATOR_INSTANCE,
     REMOVE_COORDINATOR_INSTANCE,
     DEMOTE_INSTANCE,
-    FORCE_RESET_CLUSTER_STATE
+    FORCE_RESET_CLUSTER_STATE,
+    YIELD_LEADERSHIP
   };
 
   enum class SyncMode { SYNC, ASYNC };

@@ -49,6 +49,10 @@ auto CoordinatorHandler::ForceResetClusterState() -> coordination::ReconcileClus
   return coordinator_state_.ReconcileClusterState();
 }
 
+auto CoordinatorHandler::YieldLeadership() const -> coordination::YieldLeadershipStatus {
+  return coordinator_state_.YieldLeadership();
+}
+
 auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {
   return coordinator_state_.ShowInstance();
 }

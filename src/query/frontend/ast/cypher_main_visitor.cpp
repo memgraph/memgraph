@@ -692,6 +692,12 @@ antlrcpp::Any CypherMainVisitor::visitShowInstances(MemgraphCypher::ShowInstance
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitYieldLeadership(MemgraphCypher::YieldLeadershipContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::YIELD_LEADERSHIP;
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;
