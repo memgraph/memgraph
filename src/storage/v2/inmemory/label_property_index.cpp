@@ -218,23 +218,33 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
   for (auto prop : properties) {
     indices_by_property_[prop].insert({label, de});
   }
+  return true;
+}
+
+bool InMemoryLabelPropertyIndex::StartPopulatingIndex(
+    LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto properties_map_it = index_.find(label);
+  auto index_it = properties_map_it->second.find(properties);
+  MG_ASSERT(index_it != properties_map_it->second.end());
+  auto index_ptr = index_it->second;
 
   try {
-    auto &index_skip_list = it2->second->skiplist;
+    auto &index_skip_list = index_it->second->skiplist;
     auto accessor_factory = [&] { return index_skip_list.access(); };
-    auto &props_permutation_helper = it2->second->permutations_helper;
+    auto &props_permutation_helper = index_it->second->permutations_helper;
     auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
       TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
     };
     PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-    index->status.store(IndividualIndex::Status::READY, std::memory_order_release);
+    index_ptr->status.store(IndividualIndex::Status::READY, std::memory_order_release);
+    return true;
   } catch (const utils::OutOfMemoryException &) {
+    properties_map_it->second.erase(index_it);
     utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
-    properties_map.erase(it2);
     throw;
   }
-
-  return true;
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
@@ -381,7 +391,9 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
     auto it = index_container.find(label);
     if (it == index_container.end()) continue;
 
-    for (auto const &props : it->second | std::ranges::views::keys) {
+    for (auto const &[props, index] : it->second) {
+      if (index->status.load(std::memory_order_acquire) != IndividualIndex::Status::READY) continue;
+
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
       for (auto prop : props) {
