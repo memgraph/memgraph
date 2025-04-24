@@ -10,32 +10,23 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <atomic>
-#include <boost/asio/detail/event.hpp>
 #include <condition_variable>
 #include <functional>
-#include <iostream>
-#include <limits>
 #include <mutex>
-#include <optional>
 #include <queue>
-#include <stack>
 #include <thread>
+
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/thread.hpp"
 
 namespace memgraph::utils {
 
 class PriorityThreadPool {
  public:
   using TaskSignature = std::function<void(utils::Priority)>;
-
-  struct Task {
-    mutable TaskSignature task;  // allows moves from priority_queue
-    void operator()(utils::Priority p) const { task(p); }
-  };
+  using TaskID = uint64_t;
 
   PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count);
 
@@ -46,26 +37,35 @@ class PriorityThreadPool {
   PriorityThreadPool &operator=(const PriorityThreadPool &) = delete;
   PriorityThreadPool &operator=(PriorityThreadPool &&) = delete;
 
+  void AwaitShutdown();
+
   void ShutDown();
 
   void ScheduledAddTask(TaskSignature new_task, Priority priority);
 
+  // Single worker implementation
   class Worker {
    public:
+    Worker() = default;
+    ~Worker() = default;
+
+    Worker(const Worker &) = delete;
+    Worker &operator=(const Worker &) = delete;
+    Worker(Worker &&) = delete;
+    Worker &operator=(Worker &&) = delete;
+
     struct Work {
-      uint64_t id;
-      mutable TaskSignature work;
+      TaskID id;                   // ID used to order (issued by the pool)
+      mutable TaskSignature work;  // mutable so it can be moved from the queue
       bool operator<(const Work &other) const { return id < other.id; }
     };
 
-    void push(TaskSignature new_task, uint64_t id);
+    void push(TaskSignature new_task, TaskID id);
 
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(std::vector<Worker *> workers_pool);
-
-    explicit Worker(uint16_t id) : id_{id} {}
+    void operator()(uint16_t worker_id, std::vector<Worker *> workers_pool);
 
    private:
     mutable std::mutex mtx_;
@@ -76,25 +76,21 @@ class PriorityThreadPool {
     std::atomic_bool working_{false};
     std::atomic_bool run_{true};
 
-    uint16_t id_;
-
-    std::atomic<uint64_t> last_task_{0};
+    std::atomic<TaskID> last_task_{0};
 
     friend class PriorityThreadPool;
   };
 
  private:
-  std::vector<Worker *> work_buckets_;
-  std::vector<Worker *> hp_work_buckets_;  // TODO Unify
-  utils::Scheduler monitoring_;
-
-  std::atomic<uint64_t> id_;  // MSB signals high prior
-  std::atomic<uint16_t> tid_;
-  uint16_t max_wakeup_thread_;  // Limit the number of directly used threads when there are more workers than hw
-                                // threads. Gives better overall performance.
-
-  std::vector<std::jthread> pool_;
   std::stop_source pool_stop_source_;
+  std::vector<std::jthread> pool_;  // All available threads
+  utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
+
+  std::vector<Worker *> work_buckets_;     // Mixed work threads
+  std::vector<Worker *> hp_work_buckets_;  // High priority work threads | ideally tasks yield and this isn't needed
+
+  std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
+  std::atomic<uint16_t> last_wid_;  // Used to pick next worker
 };
 
 }  // namespace memgraph::utils

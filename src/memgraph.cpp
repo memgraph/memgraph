@@ -773,10 +773,9 @@ int main(int argc, char **argv) {
     spdlog::info("Running queries from init data file successfully finished.");
   }
 
-  spdlog::info("Memgraph succesfully started!");
+  spdlog::info("Memgraph successfully started!");
 
-  // TODO
-  // worker_pool_.AwaitShutdown();
+  worker_pool_.AwaitShutdown();
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
