@@ -98,6 +98,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
 
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
     IndexContainer index_container;
     ReverseIndexContainer reverse_index_container;
   };
@@ -114,8 +116,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   auto GetAbortProcessor() const -> AbortProcessor;
-
-  void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
   class Iterable {
    public:

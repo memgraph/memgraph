@@ -1315,7 +1315,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_, transaction_.start_timestamp);
+    index_abort_processor.Process(storage_->indices_, transaction_);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();

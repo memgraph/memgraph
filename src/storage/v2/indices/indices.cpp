@@ -137,9 +137,9 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
   property_label_.collect_on_property_change(propId, vertex);
 }
 
-void Indices::AbortProcessor::Process(Indices &indices, uint64_t start_timestamp) {
-  label_.process(*indices.label_index_, start_timestamp);
-  property_label_.process(*indices.label_property_index_, start_timestamp);
-  edge_type_.Process(*indices.edge_type_index_, start_timestamp);
+void Indices::AbortProcessor::Process(Indices &indices, Transaction &tx) {
+  label_.process(*indices.label_index_, tx.start_timestamp);
+  property_label_.process(*indices.label_property_index_, tx);
+  edge_type_.Process(*indices.edge_type_index_, tx.start_timestamp);
 }
 }  // namespace memgraph::storage
