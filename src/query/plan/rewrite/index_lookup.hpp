@@ -877,8 +877,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   using CandidatePointIndices = std::unordered_map<std::pair<LabelIx, PropertyIx>, PointIndexCandidate, HashPair>;
 
-  auto GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
-      -> CandidatePointIndices {
+  auto GetCandidatePointIndices(const Symbol &symbol,
+                                const std::unordered_set<Symbol> &bound_symbols) -> CandidatePointIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
