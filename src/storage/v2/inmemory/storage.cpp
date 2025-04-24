@@ -36,6 +36,7 @@
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
@@ -1762,6 +1763,9 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   uint64_t last_durable_ts = 0;
+
+  std::unique_ptr<LabelPropertyIndex::ActiveIndices> active_indices;
+
   std::optional<PointIndexContext> point_index_context;
   {
     auto guard = std::lock_guard{engine_lock_};
@@ -1771,6 +1775,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts
     last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+
+    active_indices = indices_.label_property_index_->GetActiveIndices();
   }
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1780,6 +1786,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           false,
           !constraints_.empty(),
           *std::move(point_index_context),
+          std::move(active_indices),
           last_durable_ts};
 }
 
@@ -3016,8 +3023,6 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -3028,7 +3033,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto &vector_index = storage_->indices_.vector_index_;
 
   return {mem_label_index->ListIndices(),
-          mem_label_property_index->ListIndices(),
+          transaction_.active_indices_->ListIndices(),
           mem_edge_type_index->ListIndices(),
           mem_edge_type_property_index->ListIndices(),
           mem_edge_property_index->ListIndices(),

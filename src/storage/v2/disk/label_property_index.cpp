@@ -94,7 +94,7 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
       return false;
     }
   }
-  for (const auto &[index_label, index_property] : index_) {
+  for (const auto &[index_label, index_property, status] : index_) {
     if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
       if (!disk_transaction
                ->Put(utils::SerializeVertexAsKeyForLabelPropertyIndex(index_label, index_property, vertex.gid),
@@ -152,68 +152,64 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
   return false;
 }
 
-void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {
-  entries_for_deletion.WithLock([added_label, vertex_after_update, &tx](auto &tx_to_entries_for_deletion) {
-    auto tx_it = tx_to_entries_for_deletion.find(tx.start_timestamp);
-    if (tx_it == tx_to_entries_for_deletion.end()) {
-      return;
-    }
-    auto vertex_label_index_it = tx_it->second.find(vertex_after_update->gid);
-    if (vertex_label_index_it == tx_it->second.end()) {
-      return;
-    }
-    std::erase_if(vertex_label_index_it->second,
-                  [added_label](const std::pair<LabelId, PropertyId> &index) { return index.first == added_label; });
-  });
+void DiskLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
+                                                             const Transaction &tx) {
+  auto tx_it = entries_for_deletion.find(tx.start_timestamp);
+  if (tx_it == entries_for_deletion.end()) {
+    return;
+  }
+  auto vertex_label_index_it = tx_it->second.find(vertex_after_update->gid);
+  if (vertex_label_index_it == tx_it->second.end()) {
+    return;
+  }
+  std::erase_if(vertex_label_index_it->second,
+                [added_label](const std::pair<LabelId, PropertyId> &index) { return index.first == added_label; });
 }
 
-void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
-                                                 const Transaction &tx) {
+void DiskLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
+                                                                Vertex *vertex, const Transaction &tx) {}
+
+void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
+                                                                const Transaction &tx) {
   for (const auto &index_entry : index_) {
-    if (index_entry.first != removed_label) {
+    if (index_entry.label != removed_label) {
       continue;
     }
-    entries_for_deletion.WithLock([&index_entry, &tx, vertex_after_update](auto &tx_to_entries_for_deletion) {
-      const auto &[indexing_label, indexing_property] = index_entry;
-      auto [it, _] = tx_to_entries_for_deletion.emplace(
-          std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp), std::forward_as_tuple());
-      auto &vertex_map_store = it->second;
-      auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
-          std::piecewise_construct, std::forward_as_tuple(vertex_after_update->gid), std::forward_as_tuple());
-      it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
-    });
+    const auto &[indexing_label, indexing_property, status] = index_entry;
+    auto [it, _] = entries_for_deletion.emplace(std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp),
+                                                std::forward_as_tuple());
+    auto &vertex_map_store = it->second;
+    auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
+        std::piecewise_construct, std::forward_as_tuple(vertex_after_update->gid), std::forward_as_tuple());
+    it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
   }
 }
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  return index_.erase({label, properties[0]}) > 0U;
+  return index_.erase({label, properties[0], Status::READY}) > 0U;
 }
 
-bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
-  return utils::Contains(index_, std::make_pair(label, properties[0]));
-}
-
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndices() const {
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ActiveIndices::ListIndices() const {
   auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyId>> {
-    auto [label, property] = index;
+    auto [label, property, status] = index;
     return {label, {property}};
   };
 
   return index_ | ranges::views::transform(convert) | ranges::to_vector;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
-                                                        std::span<PropertyId const> /*properties*/) const {
+uint64_t DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
+    LabelId /*label*/, std::span<PropertyId const> /*properties*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
-                                                        std::span<PropertyValue const> /*values*/) const {
+uint64_t DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
+    LabelId /*label*/, std::span<PropertyId const> /*properties*/, std::span<PropertyValue const> /*values*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> /*properties*/,
-                                                        std::span<PropertyValueRange const> /*bounds*/) const {
+uint64_t DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
+    LabelId label, std::span<PropertyId const> /*properties*/, std::span<PropertyValueRange const> /*bounds*/) const {
   return 10;
 }
 
@@ -226,9 +222,13 @@ void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys)
 
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
-std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
+std::set<DiskLabelPropertyIndex::IndexInformation> DiskLabelPropertyIndex::GetInfo() const { return index_; }
 
-std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(
+bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
+  return utils::Contains(index_, IndexInformation(label, properties[0]));
+}
+
+std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
     std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   // NOTE: only looking for singular property index, as disk does not support composite indices
