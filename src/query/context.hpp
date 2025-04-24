@@ -20,6 +20,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
 
@@ -42,6 +43,11 @@ struct Scope {
 };
 
 struct EvaluationContext {
+  EvaluationContext() = delete;
+
+  // Explicit constructor requiring name_id_mapper
+  explicit EvaluationContext(storage::NameIdMapper *mapper) : name_id_mapper(mapper) {}
+
   /// Memory for allocations during evaluation of a *single* Pull call.
   ///
   /// Although the assigned memory may live longer than the duration of a Pull
@@ -58,7 +64,7 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   Scope scope{};
-  storage::NameIdMapper *name_id_mapper{};
+  storage::NameIdMapper *name_id_mapper;
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);
@@ -66,6 +72,8 @@ std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string
 std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba);
 
 struct ExecutionContext {
+  ExecutionContext(storage::NameIdMapper *name_id_mapper) : evaluation_context(name_id_mapper) {}
+
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
