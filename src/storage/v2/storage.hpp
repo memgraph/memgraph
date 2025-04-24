@@ -514,6 +514,11 @@ class Storage {
       return storage_->enum_store_.ToEnum(enum_str);
     }
 
+    void DowngradeToRead() {
+      MG_ASSERT(storage_guard_.owns_lock());
+      storage_guard_.downgrade_to_read();
+    }
+
     virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                PropertyValue const &point_value, PropertyValue const &boundary_value,
                                PointDistanceCondition condition) -> PointIterable = 0;
