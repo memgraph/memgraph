@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "label_property_index.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -101,6 +102,10 @@ size_t PropertyValueRange::hash() const noexcept {
   boost::hash_combine(seed, prop_value_hash(lower));
   boost::hash_combine(seed, prop_value_hash(upper));
   return seed;
+}
+
+void LabelPropertyIndex::AbortProcessor::process(LabelPropertyIndex &index, Transaction &tx) {
+  tx.active_indices_->AbortEntries(cleanup_collection, tx.start_timestamp);
 }
 
 }  // namespace memgraph::storage

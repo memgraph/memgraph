@@ -61,6 +61,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
                                     std::span<PropertyValueRange const> bounds) const override;
 
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
     std::set<IndexInformation> index_;
     std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>> entries_for_deletion;
   };
@@ -103,8 +105,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     return std::make_unique<ActiveIndices>(index);
   }
-
-  void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
  private:
   // TODO: shouldn't exist
