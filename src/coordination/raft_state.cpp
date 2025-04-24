@@ -365,6 +365,8 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordina
   return LeaderCoordinatorData{.id = leader_id, .bolt_server = leader_data->bolt_server};
 }
 
+auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership(); }
+
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,

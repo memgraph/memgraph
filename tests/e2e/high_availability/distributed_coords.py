@@ -19,27 +19,27 @@ from functools import partial
 import interactive_mg_runner
 import pytest
 from common import (
-    connect,
-    execute_and_fetch_all,
-    find_instance_and_assert_instances,
-    get_data_path,
-    get_logs_path,
-    get_vertex_count,
-    has_leader,
-    has_main,
-    show_instances,
-    show_replicas,
-    update_tuple_value,
-    wait_until_main_writeable_assert_replica_down,
+  connect,
+  execute_and_fetch_all,
+  find_instance_and_assert_instances,
+  get_data_path,
+  get_logs_path,
+  get_vertex_count,
+  has_leader,
+  has_main,
+  show_instances,
+  show_replicas,
+  update_tuple_value,
+  wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
-    mg_assert_until,
-    mg_sleep_and_assert,
-    mg_sleep_and_assert_collection,
-    mg_sleep_and_assert_eval_function,
-    mg_sleep_and_assert_multiple,
-    mg_sleep_and_assert_until_role_change,
-    wait_for_status_change,
+  mg_assert_until,
+  mg_sleep_and_assert,
+  mg_sleep_and_assert_collection,
+  mg_sleep_and_assert_eval_function,
+  mg_sleep_and_assert_multiple,
+  mg_sleep_and_assert_until_role_change,
+  wait_for_status_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -3000,6 +3000,26 @@ def test_demote_promote(test_name):
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
+
+
+def test_yield_leadership(test_name):
+    # Test that user can do manual failover.
+
+    # 1.
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_1, "YIELD LEADERSHIP")
+    assert str(e.value) == "Only the current leader can yield the leadership!"
+
+    # 3.
+    execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
 
 
 if __name__ == "__main__":
