@@ -31,39 +31,6 @@ struct ResourceLock {
  private:
   enum states : uint8_t { UNLOCKED, UNIQUE, SHARED };
 
- public:
-  void lock() {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    cv.wait(lock, [this] { return state == UNLOCKED; });
-    state = UNIQUE;
-  }
-
-  bool try_lock() {
-    auto lock = std::unique_lock{mtx};
-    if (state == UNLOCKED) {
-      state = UNIQUE;
-      return true;
-    }
-    return false;
-  }
-
-  template <class Rep, class Period>
-  bool try_lock_for(const std::chrono::duration<Rep, Period> &timeout_duration) {
-    auto lock = std::unique_lock{mtx};
-    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) return false;
-    state = UNIQUE;
-    return true;
-  }
-
-  void unlock() {
-    {
-      auto lock = std::unique_lock{mtx};
-      state = UNLOCKED;
-    }
-    cv.notify_all();  // multiple lock_shared maybe waiting
-  }
-
   // clang-format off
   template <LockReq Req> bool lock_guard_condition() const;
   template <> bool lock_guard_condition<LockReq::WRITE>() const     { return ro_count == 0 && ro_pending_count == 0; }
@@ -91,13 +58,74 @@ struct ResourceLock {
   template <LockReq Req> void lock_post_state_change(){}
   template <> void lock_post_state_change<LockReq::READ_ONLY>(){ --ro_pending_count; }
 
+  // If upon unlock we could possible unblock another lock then
+  // we would want to notify to make sure we rapidly make progress
+  // WRITE -> If w_count goes down to 0, READ_ONLY and UNIQUE maybe unblocked, hence: Notify All
+  // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked, hence: Notify One
+  // READ_ONLY -> If ro_count goes down to 0, WRITE and  UNIQUE maybe unblocked, hence: Notify All
   enum class NotifyKind : uint8_t { None, One, All };
   template <LockReq Req> NotifyKind unlock_should_notify() const;
   template <> NotifyKind unlock_should_notify<LockReq::WRITE>() const { return w_count == 0 ? NotifyKind::All : NotifyKind::None; }
   template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::One : NotifyKind::None; }
   template <> NotifyKind unlock_should_notify<LockReq::READ_ONLY>() const { return ro_count == 0 ? NotifyKind::All : NotifyKind::None; }
 
+  // A READ_ONLY lock request can block a WRITE lock request, on failure we should notify if ro_pending_count is now 0
+  template <LockReq Req> NotifyKind lock_failed_wait_should_notify() const;
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::WRITE>() const { return NotifyKind::None; }
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ>() const { return NotifyKind::None; }
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
+
   // clang-format on
+
+  template <LockReq Req>
+  void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
+    lock.unlock();
+    switch (kind) {
+      case NotifyKind::One:
+        cv.notify_one();
+        break;
+      case NotifyKind::All:
+        cv.notify_all();
+        break;
+      case NotifyKind::None:
+        break;
+    }
+  }
+
+ public:
+  void lock() {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    cv.wait(lock, [this] { return state == UNLOCKED; });
+    state = UNIQUE;
+  }
+
+  bool try_lock() {
+    auto lock = std::unique_lock{mtx};
+    if (state == UNLOCKED) {
+      state = UNIQUE;
+      return true;
+    }
+    return false;
+  }
+
+  template <class Rep, class Period>
+  bool try_lock_for(const std::chrono::duration<Rep, Period> &timeout_duration) {
+    auto lock = std::unique_lock{mtx};
+    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) {
+      return false;
+    }
+    state = UNIQUE;
+    return true;
+  }
+
+  void unlock() {
+    {
+      auto lock = std::unique_lock{mtx};
+      state = UNLOCKED;
+    }
+    cv.notify_all();  // multiple lock_shared maybe waiting
+  }
 
   template <LockReq Req = LockReq::WRITE>
   void lock_shared() {
@@ -123,9 +151,9 @@ struct ResourceLock {
   template <LockReq Req>
   bool dowgrade_to_read() {
     auto lock = std::unique_lock{mtx};
-    if (state == UNIQUE) return false;
+    if (state != SHARED) return false;
     unlock_state_updater<Req>();
-    lock_pre_state_change<LockReq::READ>();
+    lock_state_updater<LockReq::READ>();
     return true;
   }
 
@@ -135,6 +163,7 @@ struct ResourceLock {
     lock_pre_state_change<Req>();
     if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && lock_guard_condition<Req>(); })) {
       lock_post_state_change<Req>();
+      maybe_notify<Req>(lock, lock_failed_wait_should_notify<Req>());
       return false;
     }
     state = SHARED;
@@ -150,18 +179,7 @@ struct ResourceLock {
     if (unlock_has_fully_unlocked<Req>()) {
       state = UNLOCKED;
     }
-    switch (unlock_should_notify<Req>()) {
-      case NotifyKind::One:
-        lock.unlock();
-        cv.notify_one();
-        break;
-      case NotifyKind::All:
-        lock.unlock();
-        cv.notify_all();
-        break;
-      case NotifyKind::None:
-        break;
-    }
+    maybe_notify<Req>(lock, unlock_should_notify<Req>());
   }
 
  private:
