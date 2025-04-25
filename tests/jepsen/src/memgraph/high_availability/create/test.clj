@@ -21,6 +21,9 @@
 
 (def batch-size 5000)
 
+(def delay-requests-sec 10)
+(def timeout-requests-ms 9000)
+
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
@@ -547,7 +550,7 @@
    (gen/phases
     (gen/once setup-cluster)
     (gen/sleep 5)
-    (gen/delay 2
+    (gen/delay delay-requests-sec
                (gen/mix [show-instances-reads add-nodes])))))
 
 (defn workload
@@ -561,7 +564,7 @@
         license (:license opts)
         recovery-time (:recovery-time opts)
         nemesis-start-sleep (:nemesis-start-sleep opts)]
-    {:client    (Client. nodes-config first-leader first-main license organization)
+    {:client    (jclient/timeout timeout-requests-ms (Client. nodes-config first-leader first-main license organization))
      :checker   (checker/compose
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
