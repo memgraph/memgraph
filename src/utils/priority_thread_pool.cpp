@@ -10,71 +10,25 @@
 // licenses/APL.txt.
 
 #include "utils/priority_thread_pool.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <functional>
 #include <limits>
 #include <mutex>
-#include <random>
 #include <thread>
 
+#include "utils/barrier.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
+#include "utils/yielder.hpp"
 
 namespace {
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMaxLowPriorityId = std::numeric_limits<int64_t>::max();
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMinHighPriorityId = kMaxLowPriorityId;
-
-// std::barrier seems to have a bug which leads to missed notifications, so some threads block forever
-class SimpleBarrier {
- public:
-  explicit SimpleBarrier(size_t n) : phase1_{n}, phase2_{0}, final_{n} {}
-
-  ~SimpleBarrier() { wait(); }
-
-  SimpleBarrier(const SimpleBarrier &) = delete;
-  SimpleBarrier &operator=(const SimpleBarrier &) = delete;
-  SimpleBarrier(SimpleBarrier &&) = delete;
-  SimpleBarrier &operator=(SimpleBarrier &&) = delete;
-
-  void arrive_and_wait() {
-    --phase1_;
-    while (phase1_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    ++phase2_;
-  }
-
-  void wait() {
-    while (phase2_ < final_) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-
- private:
-  std::atomic<size_t> phase1_;
-  std::atomic<size_t> phase2_;
-  size_t final_;
-};
-
-struct yielder {
-  bool operator()(auto &&f) noexcept {
-    count = 0;
-    while (++count < 1024U) {
-      if (f()) return true;
-#if defined(__i386__) || defined(__x86_64__)
-      __builtin_ia32_pause();
-#elif defined(__aarch64__)
-      asm volatile("YIELD");
-#else
-#error("no PAUSE/YIELD instructions for unknown architecture");
-#endif
-    }
-    return false;
-  }
-
- private:
-  uint_fast32_t count{0};
-};
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::array<std::atomic<uint64_t>, 1024U / 64U> hot_threads_{};
@@ -328,8 +282,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id, std::vecto
       const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
       yielder y;  // NOLINT (misc-const-correctness)
       while (std::chrono::steady_clock::now() < end) {
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); })) break;
-        std::this_thread::yield();
+        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
       }
     }
 

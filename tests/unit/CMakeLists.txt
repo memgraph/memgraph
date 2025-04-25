@@ -225,6 +225,10 @@ target_link_libraries(${test_prefix}socket mg-utils mg-io mg-events)
 add_unit_test(utils_algorithm.cpp)
 target_link_libraries(${test_prefix}utils_algorithm mg-utils)
 
+add_unit_test(utils_barrier.cpp)
+target_link_libraries(${test_prefix}utils_barrier mg-utils)
+set_tests_properties(${test_prefix}utils_barrier PROPERTIES TIMEOUT 10)
+
 add_unit_test(utils_exceptions.cpp)
 target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 

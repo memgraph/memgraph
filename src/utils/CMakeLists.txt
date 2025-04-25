@@ -42,6 +42,7 @@ target_sources(mg-utils
     string.hpp
     scheduler.hpp
     priority_thread_pool.hpp
+    barrier.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
