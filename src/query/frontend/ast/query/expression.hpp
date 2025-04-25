@@ -13,7 +13,6 @@
 
 #include "query/frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-// #include "query/typed_value.hpp"
 
 namespace memgraph::query {
 class TypedValue;

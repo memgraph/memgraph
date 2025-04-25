@@ -15,7 +15,6 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/semantic/symbol.hpp"
-#include "query/typed_value.hpp"
 
 namespace memgraph::query {
 class NamedExpression : public memgraph::query::Tree,
@@ -33,15 +32,10 @@ class NamedExpression : public memgraph::query::Tree,
 
   NamedExpression() = default;
 
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      expression_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<void>);
+  DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
   NamedExpression *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();

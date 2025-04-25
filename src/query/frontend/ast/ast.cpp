@@ -393,6 +393,55 @@ DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<void>);
 DEFINE_VISITABLE(Identifier, HierarchicalTreeVisitor);
+
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<void>);
+bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    expression_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
+bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    pattern_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<void>);
+bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (variable_) {
+      variable_->Accept(visitor);
+    }
+    pattern_->Accept(visitor);
+    if (filter_) {
+      filter_->Accept(visitor);
+    }
+    resultExpr_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<void>);
+bool Aggregation::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (expression1_) expression1_->Accept(visitor);
+    if (expression2_) expression2_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
 }  // namespace query
 
 }  // namespace memgraph

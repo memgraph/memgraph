@@ -23,15 +23,11 @@ class Exists : public memgraph::query::Expression {
 
   Exists() = default;
 
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      pattern_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<void>);
+  DECLARE_VISITABLE(HierarchicalTreeVisitor);
+
   Exists *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
     return this;

@@ -26,23 +26,10 @@ class PatternComprehension : public memgraph::query::Expression {
 
   PatternComprehension() = default;
 
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      if (variable_) {
-        variable_->Accept(visitor);
-      }
-      pattern_->Accept(visitor);
-      if (filter_) {
-        filter_->Accept(visitor);
-      }
-      resultExpr_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<void>);
+  DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
   PatternComprehension *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();

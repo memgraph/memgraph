@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "utils/logging.hpp"
+
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <regex>
 
@@ -92,3 +94,15 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) 
 
   return result;
 }
+
+void memgraph::logging::AssertFailed(char const *file_name, int line_num, char const *expr,
+                                     std::string const &message) {
+  spdlog::critical(
+      "\nAssertion failed in file {} at line {}."
+      "\n\tExpression: '{}'"
+      "{}",
+      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
+  std::terminate();
+}
+
+void memgraph::logging::RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }

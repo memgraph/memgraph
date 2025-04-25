@@ -37,16 +37,10 @@ class Aggregation : public memgraph::query::BinaryOperator {
     return op_strings[static_cast<int>(op)];
   }
 
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      if (expression1_) expression1_->Accept(visitor);
-      if (expression2_) expression2_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<void>);
+  DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
   Aggregation *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
