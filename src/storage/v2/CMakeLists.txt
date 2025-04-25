@@ -58,6 +58,7 @@ target_sources(mg-storage-v2
         indices/point_iterator.cpp
         property_value_utils.cpp
         config.cpp
+        id_types.cpp
 
         PUBLIC
         FILE_SET HEADERS

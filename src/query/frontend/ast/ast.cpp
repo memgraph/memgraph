@@ -434,12 +434,21 @@ bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<void>);
+
 bool Aggregation::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     if (expression1_) expression1_->Accept(visitor);
     if (expression2_) expression2_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggregation::Op op, bool distinct)
+    : BinaryOperator(expression1, expression2), op_(op), distinct_(distinct) {
+  // COUNT without expression denotes COUNT(*) in cypher.
+  DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression1");
+  DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP),
+             "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
 }
 
 }  // namespace query

@@ -69,13 +69,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
   /// Aggregation's first expression is the value being aggregated. The second expression is used either as a key in
   /// COLLECT_MAP or for the relationships list in the two-argument overload of PROJECT_PATH; no other aggregate
   /// functions use this parameter.
-  Aggregation(Expression *expression1, Expression *expression2, Op op, bool distinct)
-      : BinaryOperator(expression1, expression2), op_(op), distinct_(distinct) {
-    // COUNT without expression denotes COUNT(*) in cypher.
-    DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression1");
-    DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP),
-               "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
-  }
+  Aggregation(Expression *expression1, Expression *expression2, Op op, bool distinct);
 
  private:
   friend class AstStorage;
