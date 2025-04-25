@@ -149,7 +149,7 @@ struct ResourceLock {
   }
 
   template <LockReq Req>
-  bool dowgrade_to_read() {
+  bool downgrade_to_read() {
     auto lock = std::unique_lock{mtx};
     if (state != SHARED) return false;
     unlock_state_updater<Req>();
@@ -294,14 +294,14 @@ struct SharedResourceLockGuard {
     if (ptr_ && locked_) {
       switch (type_) {
         case WRITE: {
-          auto res = ptr_->dowgrade_to_read<ResourceLock::LockReq::WRITE>();
+          auto res = ptr_->downgrade_to_read<ResourceLock::LockReq::WRITE>();
           if (res) type_ = READ;
           return res;
         }
         case READ:
           return true;  // can't downgrade from read to read
         case READ_ONLY: {
-          auto res = ptr_->dowgrade_to_read<ResourceLock::LockReq::READ_ONLY>();
+          auto res = ptr_->downgrade_to_read<ResourceLock::LockReq::READ_ONLY>();
           if (res) type_ = READ;
           return res;
         }
