@@ -4699,6 +4699,15 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       results.back().emplace_back(std::move(metadata_tv));
     }
   }
+
+  auto const as_uint64_t = [](std::string_view id) -> uint64_t {
+    uint64_t val{0};
+    std::from_chars(id.cbegin(), id.cend(), val);
+    return val;
+  };
+
+  std::ranges::sort(results, {}, [&](auto const &transaction) { return as_uint64_t(transaction[1].ValueString()); });
+
   return results;
 }
 
