@@ -57,6 +57,7 @@ target_sources(mg-storage-v2
         edge_ref.cpp
         indices/point_iterator.cpp
         property_value_utils.cpp
+        config.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -89,6 +90,7 @@ target_sources(mg-storage-v2
         storage.hpp
         inmemory/storage.hpp
         disk/storage.hpp
+        config.hpp
 )
 
 find_package(gflags REQUIRED)

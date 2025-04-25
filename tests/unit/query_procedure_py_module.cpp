@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -316,14 +316,17 @@ TYPED_TEST(PyModule, PyObjectToMgpValue) {
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   // Initialize Python
-  auto *program_name = Py_DecodeLocale(argv[0], nullptr);
-  MG_ASSERT(program_name);
+  PyConfig config;
+  PyConfig_InitIsolatedConfig(&config);
+
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
-  Py_SetProgramName(program_name);
+  auto *program_name = Py_DecodeLocale(argv[0], nullptr);
+  MG_ASSERT(program_name);
+  config.program_name = program_name;
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
-  Py_InitializeEx(0 /* = initsigs */);
-  PyEval_InitThreads();
+  Py_InitializeFromConfig(&config);
+
   int test_result;
   {
     // Setup importing 'mgp' module by adding its directory to `sys.path`.

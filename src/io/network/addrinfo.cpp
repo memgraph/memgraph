@@ -25,8 +25,9 @@ AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.GetAddress(), e
 AddrInfo::AddrInfo(const std::string &non_resolved_addr, uint16_t port) : info_{nullptr, nullptr} {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
-      .ai_family = AF_UNSPEC,     // IPv4 and IPv6
-      .ai_socktype = SOCK_STREAM  // TCP socket
+      .ai_family = AF_UNSPEC,      // IPv4 and IPv6
+      .ai_socktype = SOCK_STREAM,  // TCP socket
+      .ai_protocol = 0,            // any protocol
   };
   addrinfo *info = nullptr;
   auto status = getaddrinfo(non_resolved_addr.c_str(), std::to_string(port).c_str(), &hints, &info);

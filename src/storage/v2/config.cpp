@@ -8,19 +8,3 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#pragma once
-
-#include <cstdint>
-
-#include <nlohmann/json.hpp>
-
-namespace memgraph::replication_coordination_glue {
-
-// TODO: figure out a way of ensuring that usage of this type is never uninitialized/defaulted incorrectly to MAIN
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-
-// TODO: move to cpp
-NLOHMANN_JSON_SERIALIZE_ENUM(ReplicationRole, {{ReplicationRole::MAIN, "main"}, {ReplicationRole::REPLICA, "replica"}})
-
-}  // namespace memgraph::replication_coordination_glue
