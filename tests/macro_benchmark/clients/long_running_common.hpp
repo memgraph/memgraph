@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-#include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"

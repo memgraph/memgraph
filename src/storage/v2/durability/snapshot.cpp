@@ -57,6 +57,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timer.hpp"
 
 using namespace std::chrono_literals;
 namespace {

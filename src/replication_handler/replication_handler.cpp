@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/functional.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timer.hpp"
 
 #include <spdlog/spdlog.h>
 

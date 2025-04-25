@@ -15,7 +15,6 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
-#include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 

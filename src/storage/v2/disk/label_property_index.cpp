@@ -14,6 +14,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
+#include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {

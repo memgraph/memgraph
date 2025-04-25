@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <stdexcept>
 
 namespace memgraph::utils {
 
