@@ -388,4 +388,11 @@ constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
                                                           &query::Query::kType};
 
+namespace query {
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<void>);
+DEFINE_VISITABLE(Identifier, HierarchicalTreeVisitor);
+}  // namespace query
+
 }  // namespace memgraph

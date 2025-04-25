@@ -36,6 +36,7 @@
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "dbms/coordinator_handler.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"

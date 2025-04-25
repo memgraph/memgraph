@@ -14,6 +14,7 @@
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/query.hpp"
 
+#include <unordered_map>
 #include <vector>
 
 namespace memgraph::query {

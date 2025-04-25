@@ -22,10 +22,10 @@ class Identifier : public memgraph::query::Expression {
 
   Identifier() = default;
 
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-  DEFVISITABLE(HierarchicalTreeVisitor);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<void>);
+  DECLARE_VISITABLE(HierarchicalTreeVisitor);
 
   Identifier *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();

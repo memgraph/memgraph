@@ -13,9 +13,11 @@
 
 #include "query/frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "query/typed_value.hpp"
+// #include "query/typed_value.hpp"
 
 namespace memgraph::query {
+class TypedValue;
+
 class Expression : public memgraph::query::Tree,
                    public utils::Visitable<HierarchicalTreeVisitor>,
                    public utils::Visitable<ExpressionVisitor<TypedValue>>,

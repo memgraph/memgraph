@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -268,6 +268,7 @@ class Visitable {
   virtual ~Visitable() = default;
   /// @brief Accept the @c TVisitor instance and call its @c Visit method.
   virtual typename TVisitor::ReturnType Accept(TVisitor &) = 0;
+};
 
 /// Default implementation for @c utils::Visitable::Accept, which works for
 /// visitors of @c TVisitor type. This should be used to implement regular
@@ -277,6 +278,10 @@ class Visitable {
 /// @sa utils::Visitable
 #define DEFVISITABLE(TVisitor) \
   TVisitor::ReturnType Accept(TVisitor &visitor) override { return visitor.Visit(*this); }
-};
+
+#define DEFINE_VISITABLE(AST, TVisitor) \
+  TVisitor::ReturnType AST::Accept(TVisitor &visitor) { return visitor.Visit(*this); }
+
+#define DECLARE_VISITABLE(TVisitor) TVisitor::ReturnType Accept(TVisitor &visitor) override
 
 }  // namespace memgraph::utils
