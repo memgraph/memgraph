@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
 
 namespace memgraph::query {
 

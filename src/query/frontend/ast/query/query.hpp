@@ -11,8 +11,23 @@
 
 #pragma once
 
-#include "query/frontend/ast/query/query.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
+
+#include "query/frontend/ast/ast_storage.hpp"
 
 namespace memgraph::query {
-std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query);
-}
+class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor<void>> {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  using utils::Visitable<QueryVisitor<void>>::Accept;
+
+  Query() = default;
+
+  Query *Clone(AstStorage *storage) const override = 0;
+
+ private:
+  friend class AstStorage;
+};
+}  // namespace memgraph::query

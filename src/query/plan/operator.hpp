@@ -19,7 +19,6 @@
 #include <vector>
 
 #include "query/common.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"

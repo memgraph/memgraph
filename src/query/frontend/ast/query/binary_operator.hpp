@@ -11,15 +11,26 @@
 
 #pragma once
 
-#include <iosfwd>
-
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/query/expression.hpp"
-#include "query/frontend/ast/query/named_expression.hpp"
 
 namespace memgraph::query {
+class BinaryOperator : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-void PrintExpression(Expression *expr, std::ostream *out, const DbAccessor &dba);
-void PrintExpression(NamedExpression *expr, std::ostream *out, const DbAccessor &dba);
+  BinaryOperator() = default;
 
+  memgraph::query::Expression *expression1_{nullptr};
+  memgraph::query::Expression *expression2_{nullptr};
+
+  BinaryOperator *Clone(AstStorage *storage) const override = 0;
+
+ protected:
+  BinaryOperator(Expression *expression1, Expression *expression2)
+      : expression1_(expression1), expression2_(expression2) {}
+
+ private:
+  friend class AstStorage;
+};
 }  // namespace memgraph::query

@@ -24,7 +24,6 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/metadata.hpp"
 #include "query/plan/operator.hpp"

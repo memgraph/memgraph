@@ -17,7 +17,6 @@
 #include <vector>
 
 #include "dbms/constants.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/query_user.hpp"
 #include "storage/v2/id_types.hpp"
 

@@ -10,6 +10,10 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/aggregation.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/exists.hpp"
+#include "query/frontend/ast/query/pattern_comprehension.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "range/v3/all.hpp"

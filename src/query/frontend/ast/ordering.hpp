@@ -11,8 +11,7 @@
 
 #pragma once
 
-#include "query/frontend/ast/query/query.hpp"
-
 namespace memgraph::query {
-std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query);
-}
+/// Defines the order for sorting values (ascending or descending).
+enum class Ordering { ASC, DESC };
+}  // namespace memgraph::query
