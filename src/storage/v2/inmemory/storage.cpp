@@ -102,8 +102,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -2600,10 +2600,18 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return CreateSnapshotError::AbortSnapshot;
   }
 
-  auto snapshot_guard = std::unique_lock(snapshot_lock_, std::try_to_lock);
-  if (!snapshot_guard.owns_lock()) {
+  // Make sure only one create snapshot is running at any moment
+  auto expected = false;
+  auto already_running = !snapshot_running_.compare_exchange_strong(expected, true, std::memory_order_acq_rel);
+  if (already_running) {
     return CreateSnapshotError::AlreadyRunning;
   }
+  auto const clear_snapshot_running_on_exit =
+      utils::OnScopeExit{[&] { snapshot_running_.store(false, std::memory_order_release); }};
+
+  // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication
+  // stuff are mutually exclusive from each other
+  auto const snapshot_guard = std::unique_lock(snapshot_lock_);
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
