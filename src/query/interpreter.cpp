@@ -175,7 +175,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 struct QueryLogWrapper {
   std::string_view query;
-  const memgraph::storage::PropertyValue::StringToPropertyValueMap *metadata;
+  const memgraph::storage::IntermediatePropertyValue::map_t *metadata;
   std::string_view db_name;
 };
 
@@ -4558,9 +4558,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       // Handle user-defined metadata
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
-        auto *name_id_mapper = interpreter->current_db_.db_acc_->get()->storage()->name_id_mapper_.get();
         for (const auto &md : *(interpreter->metadata_)) {
-          metadata_tv.emplace(md.first, TypedValue(md.second, name_id_mapper));
+          metadata_tv.emplace(md.first, TypedValue(md.second));
         }
       }
       results.back().emplace_back(metadata_tv);

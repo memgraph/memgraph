@@ -46,8 +46,10 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -226,7 +228,8 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
   }
 }
 
-std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression, Parameters const &parameters) {
+std::optional<storage::IntermediatePropertyValue> ConstPropertyValue(const Expression *expression,
+                                                                     Parameters const &parameters) {
   if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
     return literal->value_;
   } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
@@ -235,7 +238,8 @@ std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expre
   return std::nullopt;
 }
 
-auto ExpressionRange::ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange> {
+auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
+    -> std::optional<storage::PropertyValueRange> {
   struct UnknownAtPlanTime {};
 
   using obpv = std::optional<utils::Bound<storage::PropertyValue>>;
@@ -244,9 +248,10 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params) const -> std::
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto property_value = ConstPropertyValue(value->value(), params);
-      if (property_value) {
-        return utils::Bound{std::move(*property_value), value->type()};
+      auto intermediate_property_value = ConstPropertyValue(value->value(), params);
+      if (intermediate_property_value) {
+        auto property_value = intermediate_property_value->ToFinalValue(name_id_mapper);
+        return utils::Bound{std::move(property_value), value->type()};
       } else {
         return UnknownAtPlanTime{};
       }

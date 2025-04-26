@@ -106,6 +106,8 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, Identifier *expr);
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value);
 
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::IntermediatePropertyValue &value);
+
 template <typename T>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec);
 
@@ -219,6 +221,54 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, value.ValuePoint2d());
       break;
     case storage::PropertyValue::Type::Point3d:
+      PrintObject(out, value.ValuePoint3d());
+  }
+}
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::IntermediatePropertyValue &value) {
+  switch (value.type()) {
+    case storage::IntermediatePropertyValue::Type::Null:
+      *out << "null";
+      break;
+
+    case storage::IntermediatePropertyValue::Type::String:
+      PrintObject(out, dba, value.ValueString());
+      break;
+
+    case storage::IntermediatePropertyValue::Type::Bool:
+      *out << (value.ValueBool() ? "true" : "false");
+      break;
+
+    case storage::IntermediatePropertyValue::Type::Int:
+      PrintObject(out, dba, value.ValueInt());
+      break;
+
+    case storage::IntermediatePropertyValue::Type::Double:
+      PrintObject(out, dba, value.ValueDouble());
+      break;
+
+    case storage::IntermediatePropertyValue::Type::List:
+      PrintObject(out, dba, value.ValueList());
+      break;
+
+    case storage::IntermediatePropertyValue::Type::Map:
+      PrintObject(out, dba, value.ValueMap());
+      break;
+
+    case storage::IntermediatePropertyValue::Type::TemporalData:
+      PrintObject(out, dba, value.ValueTemporalData());
+      break;
+
+    case storage::IntermediatePropertyValue::Type::ZonedTemporalData:
+      PrintObject(out, dba, value.ValueZonedTemporalData());
+      break;
+    case storage::IntermediatePropertyValue::Type::Enum:
+      PrintObject(out, dba, value.ValueEnum());
+      break;
+    case storage::IntermediatePropertyValue::Type::Point2d:
+      PrintObject(out, value.ValuePoint2d());
+      break;
+    case storage::IntermediatePropertyValue::Type::Point3d:
       PrintObject(out, value.ValuePoint3d());
   }
 }

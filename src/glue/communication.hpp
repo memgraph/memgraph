@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,6 +71,7 @@ query::TypedValue ToTypedValue(const communication::bolt::Value &value, storage:
 
 communication::bolt::Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage);
 
-storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, storage::Storage const *storage);
+storage::IntermediatePropertyValue ToIntermediatePropertyValue(communication::bolt::Value const &value,
+                                                               storage::Storage const *storage);
 
 }  // namespace memgraph::glue

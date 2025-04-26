@@ -16,6 +16,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
@@ -163,8 +164,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if they are literals we can evaluate cardinality properly
 
     auto maybe_propertyvalue_ranges =
-        logical_op.expression_ranges_ |
-        ranges::views::transform([&](ExpressionRange const &er) { return er.ResolveAtPlantime(parameters); }) |
+        logical_op.expression_ranges_ | ranges::views::transform([&](ExpressionRange const &er) {
+          return er.ResolveAtPlantime(parameters, db_accessor_->GetStorageAccessor()->GetNameIdMapper());
+        }) |
         ranges::to_vector;
 
     auto factor = std::invoke([&]() -> double {
@@ -236,15 +238,17 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
     auto edge_type = op.GetEdgeType();
-    auto property_value = ConstPropertyValue(op.expression_);
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
     double factor = 1.0;
-    if (property_value)
+    if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor = db_accessor_->EdgesCount(edge_type, op.property_, property_value.value());
-    else
+      factor = db_accessor_->EdgesCount(
+          edge_type, op.property_,
+          intermediate_property_value->ToFinalValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
       // estimate the influence as ScanAllByEdge(label, property) * filtering
       factor = db_accessor_->EdgesCount(edge_type, op.property_) * CardParam::kFilter;
-
+    }
     cardinality_ *= factor;
 
     // ScanAll performs some work for every element that is produced
@@ -288,15 +292,16 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByEdgePropertyValue &op) override {
-    auto property_value = ConstPropertyValue(op.expression_);
+    auto intermediate_property_value = ConstPropertyValue(op.expression_);
     double factor = 1.0;
-    if (property_value)
+    if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor = db_accessor_->EdgesCount(op.property_, property_value.value());
-    else
+      factor = db_accessor_->EdgesCount(op.property_, intermediate_property_value->ToFinalValue(
+                                                          db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+    } else {
       // estimate the influence as ScanAllByEdge(label, property) * filtering
       factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
-
+    }
     cardinality_ *= factor;
 
     // ScanAll performs some work for every element that is produced
@@ -554,15 +559,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
       std::optional<ScanAllByEdgeTypePropertyRange::Bound> bound) {
     if (bound) {
-      auto property_value = ConstPropertyValue(bound->value());
-      if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
+      auto intermediate_property_value = ConstPropertyValue(bound->value());
+      if (intermediate_property_value)
+        return utils::Bound<storage::PropertyValue>(
+            intermediate_property_value->ToFinalValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()),
+            bound->type());
     }
     return std::nullopt;
   }
 
   // If the expression is a constant property value, it is returned. Otherwise,
   // return nullopt.
-  std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
+  std::optional<storage::IntermediatePropertyValue> ConstPropertyValue(const Expression *expression) {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
     } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {

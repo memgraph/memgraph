@@ -27,6 +27,8 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
@@ -59,7 +61,8 @@ struct ExpressionRange {
   static auto IsNotNull() -> ExpressionRange;
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
-  auto ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
+  auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
+      -> std::optional<storage::PropertyValueRange>;
 
   ExpressionRange(ExpressionRange const &other, AstStorage &storage);
 
