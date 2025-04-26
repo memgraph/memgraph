@@ -19,6 +19,7 @@
 #include "query/query_logger.hpp"
 #include "query/stream.hpp"
 #include "system/transaction.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
