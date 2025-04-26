@@ -24,7 +24,7 @@
 #include <string_view>
 #include <vector>
 
-#include "utils/rw_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
 
@@ -256,22 +256,117 @@ class OutputFile {
   /// Get the size of the file.
   size_t GetSize();
 
+  /// Get the POSIX file handle
   auto fd() const { return fd_; }
 
  private:
-  void FlushBuffer(bool force_flush);
+  void FlushBuffer();
   void FlushBufferInternal();
+  void FlushBufferInternal(size_t to_write);
+
+  size_t SeekFile(Position position, ssize_t offset);
+
+  // put flush lock on its own cacheline
+  alignas(64) utils::RWSpinLock flush_lock_{};
+
+  // ensure the rest start on a new cacheline
+  alignas(64) int fd_{-1};
+  std::atomic<size_t> buffer_position_{0};
+  size_t written_since_last_sync_{0};
+  uint8_t buffer_[kFileBufferSize];
+
+  // Path should be cold data
+  std::filesystem::path path_;
+};
+
+// Like OutputFile but without concurrent access to its buffer
+class NonConcurrentOutputFile {
+ public:
+  enum class Mode {
+    OVERWRITE_EXISTING,
+    APPEND_TO_EXISTING,
+  };
+
+  enum class Position {
+    SET,
+    RELATIVE_TO_CURRENT,
+    RELATIVE_TO_END,
+  };
+
+  NonConcurrentOutputFile() = default;
+  ~NonConcurrentOutputFile();
+
+  NonConcurrentOutputFile(const NonConcurrentOutputFile &) = delete;
+  NonConcurrentOutputFile &operator=(const NonConcurrentOutputFile &) = delete;
+
+  /// This method opens a new file used for writing. If the file doesn't exist
+  /// it is created. The `mode` flags controls whether data is appended to the
+  /// file or the file is wiped on first write. Files are created with a
+  /// restrictive permission mask (0640). On failure and misuse it crashes the
+  /// program.
+  void Open(const std::filesystem::path &path, Mode mode);
+
+  /// Returns a boolean indicating whether a file is opened.
+  bool IsOpen() const;
+
+  /// Returns the path to the currently opened file. If a file isn't opened the
+  /// path is empty.
+  const std::filesystem::path &path() const;
+
+  /// Writes data to the currently opened file. On failure and misuse it crashes
+  /// the program.
+  void Write(const uint8_t *data, size_t size);
+  void Write(const char *data, size_t size);
+  void Write(std::string_view data);
+
+  /// This method gets the current absolute position in the file. On failure and
+  /// misuse it crashes the program.
+  size_t GetPosition();
+
+  /// This method sets the current position in the file and returns the absolute
+  /// set position in the file. The position is set to `offset` with the
+  /// starting point taken from `position`. On failure and misuse it crashes the
+  /// program.
+  size_t SetPosition(Position position, ssize_t offset);
+
+  /// This function tries to acquire a POSIX write lock on the file. The
+  /// acquired lock is valid during the whole lifetime of the process and can't
+  /// be acquired again. The function returns `true` if the lock was required
+  /// successfully, `false` is returned otherwise. On misuse it crashes the
+  /// program.
+  bool AcquireLock();
+
+  /// Syncs currently pending data to the currently opened file. On failure
+  /// and misuse it crashes the program.
+  void Sync();
+
+  /// Closes the currently opened file. It doesn't perform a `Sync` on the
+  /// file. On failure and misuse it crashes the program.
+  void Close() noexcept;
+
+  /// Get the internal buffer with its current size.
+  std::pair<const uint8_t *, size_t> CurrentBuffer() const;
+
+  /// Get the size of the file.
+  size_t GetSize();
+
+  /// Get the POSIX file handle
+  auto fd() const { return fd_; }
+
+ private:
+  void FlushBuffer();
+  void FlushBufferInternal();
+  void FlushBufferInternal(size_t to_write);
 
   size_t SeekFile(Position position, ssize_t offset);
 
   int fd_{-1};
+  size_t buffer_position_{0};
   size_t written_since_last_sync_{0};
-  std::filesystem::path path_;
   uint8_t buffer_[kFileBufferSize];
-  std::atomic<size_t> buffer_position_{0};
 
-  // Flushing buffer should be a higher priority
-  utils::RWLock flush_lock_{RWLock::Priority::WRITE};
+  // Path should be cold data
+  std::filesystem::path path_;
 };
 
 }  // namespace memgraph::utils

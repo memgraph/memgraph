@@ -106,7 +106,13 @@ class InMemoryStorage final : public Storage {
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries, AbortSnapshot };
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    ReachedMaxNumTries,
+    AbortSnapshot,
+    AlreadyRunning,
+    NothingNewToWrite
+  };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
     DisabledForMainWithReplicas,
@@ -604,6 +610,7 @@ class InMemoryStorage final : public Storage {
 
   utils::Scheduler snapshot_runner_;
   std::mutex snapshot_lock_;
+  std::atomic_bool snapshot_running_{false};
   std::atomic_bool abort_snapshot_{false};
 
   std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
@@ -668,6 +675,18 @@ class InMemoryStorage final : public Storage {
 
   // A way to tell async operation to stop
   std::stop_source stop_source;
+
+  // Snapshot digest is the minimal meta info of a snapshot
+  // Used to figure out if the current snapshot should be written or not
+  struct SnapshotDigest {
+    memgraph::replication::ReplicationEpoch epoch_;
+    memgraph::storage::EpochHistory history_;
+    memgraph::utils::UUID storage_uuid_;
+    uint64_t last_durable_ts_;
+
+    friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
+  };
+  std::optional<SnapshotDigest> last_snapshot_digest_;
 
   void Clear();
 };

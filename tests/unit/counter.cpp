@@ -46,7 +46,7 @@ TEST(Counter, RuntimeCounterLarge3) {
 }
 
 TEST(Counter, CompiletimeCounter) {
-  auto cnt = ResettableCounter<2>();
+  auto cnt = ResettableCounter(2);
   ASSERT_FALSE(cnt());
   ASSERT_TRUE(cnt());
   ASSERT_FALSE(cnt());

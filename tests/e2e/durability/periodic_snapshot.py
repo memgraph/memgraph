@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import time
+import threading
 from typing import Any, Dict
 
 import interactive_mg_runner
@@ -100,6 +101,22 @@ def number_of_snapshots(dir):
     except:
         return 0
 
+# Need to constantly make changes to the database to trigger snapshots
+class StoppableThread(threading.Thread):
+    def __init__(self):
+        super().__init__()
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        connection = connect(host="localhost", port=7687)
+        cursor = connection.cursor()
+        while not self._stop_event.is_set():
+            cursor.execute("CREATE ()")
+            time.sleep(0.25)
+
 
 def main_test(snapshots_dir):
     # 1) pause scheduler
@@ -122,6 +139,9 @@ def main_test(snapshots_dir):
     # 3
     execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '*/1 * * * * *';")
 
+    thread = StoppableThread()
+    thread.start()
+
     # 4
     time.sleep(5)
 
@@ -143,6 +163,9 @@ def main_test(snapshots_dir):
 
     execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
     assert len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")) == n_snapshots3  # no next
+
+    thread.stop()
+    thread.join()
 
 
 def main_test_analytical(snapshots_dir, set):
@@ -169,6 +192,9 @@ def main_test_analytical(snapshots_dir, set):
     # 3
     execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
 
+    thread = StoppableThread()
+    thread.start()
+
     # 4
     time.sleep(2)
     assert number_of_snapshots(snapshots_dir) > n_snapshots1, "Didn't get new snapshots even though in transactional"
@@ -180,6 +206,9 @@ def main_test_analytical(snapshots_dir, set):
     n_snapshots2 = number_of_snapshots(snapshots_dir)
     time.sleep(2)
     assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
+
+    thread.stop()
+    thread.join()
 
 
 def test_no_flags():

@@ -102,7 +102,9 @@ def run(args):
                     conn = mg_instance.get_connection()
                     for validation in validation_queries:
                         data = mg_instance.query(validation["query"], conn)[0][0]
-                        assert data == validation["expected"]
+                        assert (
+                            data == validation["expected"]
+                        ), f"Assertion failed: got {data}, expected {validation['expected']} from query `{validation['query']}`"
                     conn.close()
 
             log.info("%s PASSED.", workload_name)
