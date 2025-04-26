@@ -50,7 +50,7 @@ inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
+const std::map<std::string, storage::IntermediatePropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -539,7 +539,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       result.rows.clear();
       interpreter->Abort();
     }};
-
+    const static storage::IntermediatePropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
@@ -548,19 +548,12 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
               ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
+          storage::IntermediatePropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result = interpreter->Prepare(
               query,
-              [&](storage::Storage const *) {
-                storage::PropertyValue::StringToPropertyValueMap params_prop;
-                for (const auto &[key, value] : params_value.ValueMap()) {
-                  params_prop.emplace(
-                      key,
-                      value.ToPropertyValue(interpreter->current_db_.db_acc_->get()->storage()->name_id_mapper_.get()));
-                }
-                return params_prop;
-              },
+              [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
               {});
           if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
             throw StreamsException{

@@ -34,6 +34,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/property_value.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -1387,7 +1388,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 auto is_inside = point_filter.withinbbox_.condition_ == WithinBBoxCondition::INSIDE;
 
                 auto *new_expr = ast_storage_->Create<PrimitiveLiteral>();
-                new_expr->value_ = storage::PropertyValue{is_inside};
+                new_expr->value_ = storage::IntermediatePropertyValue{is_inside};
                 return new_expr;
               }
               // else use provided evaluation time expression

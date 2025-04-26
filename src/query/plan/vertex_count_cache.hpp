@@ -169,6 +169,8 @@ class VertexCountCache {
 
   operator DbAccessor const &() const { return *db_; }
 
+  auto GetStorageAccessor() const -> storage::Storage::Accessor * { return db_->GetStorageAccessor(); }
+
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
   using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
