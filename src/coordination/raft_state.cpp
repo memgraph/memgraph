@@ -197,7 +197,7 @@ auto RaftState::InitRaftServer() -> void {
   // In the meantime, the election timer will trigger and the follower will enter the pre-vote protocol which should
   // fail because the leader is actually alive. So even if rpc listener is created (on follower), the initialization
   // isn't complete until leader sends him append_entries_request.
-  auto maybe_stop = utils::ResettableCounter<1200>();
+  auto maybe_stop = utils::ResettableCounter{1200};
   while (!maybe_stop()) {
     // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
     if (raft_server_->is_initialized()) {
@@ -286,7 +286,7 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
 
   // Waiting for server to join
   constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  auto maybe_stop = utils::ResettableCounter(max_tries);
   std::chrono::milliseconds const waiting_period{200};
   bool removed{false};
   while (!maybe_stop()) {
@@ -326,7 +326,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   }
   // Waiting for server to join
   constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  auto maybe_stop = utils::ResettableCounter(max_tries);
   std::chrono::milliseconds const waiting_period{200};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
