@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "query/path.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/flat_map.hpp"

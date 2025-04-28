@@ -17,7 +17,6 @@
 #include <type_traits>
 
 #include "slk/serialization.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"

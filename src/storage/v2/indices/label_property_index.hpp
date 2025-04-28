@@ -13,7 +13,6 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 

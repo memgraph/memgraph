@@ -19,12 +19,8 @@
 #include <vector>
 
 #include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
