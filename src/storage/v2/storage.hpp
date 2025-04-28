@@ -710,8 +710,8 @@ class Storage {
   utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
   utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
+  std::atomic<uint64_t> vertex_id_{0};  // contains Vertex Gid that has not been used yet
+  std::atomic<uint64_t> edge_id_{0};    // contains Edge Gid that has not been used yet
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;

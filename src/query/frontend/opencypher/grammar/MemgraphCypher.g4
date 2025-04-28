@@ -291,6 +291,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
+                 | yieldLeadership
                  ;
 
 triggerQuery : createTrigger
@@ -528,6 +529,8 @@ demoteInstanceOnCoordinator : DEMOTE INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
+yieldLeadership : YIELD LEADERSHIP ;
+
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
@@ -664,7 +667,7 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex; 
+edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
 
 indexName : symbolicName ;
 

@@ -23,9 +23,74 @@ namespace memgraph::utils {
  * Unlike `std::shared_mutex` it can be locked in one thread
  * and unlocked in another.
  */
+
+/// Priority is given to read-only locks over read and write locks
 struct ResourceLock {
+  enum class LockReq : uint8_t { READ, WRITE, READ_ONLY };
+
  private:
   enum states : uint8_t { UNLOCKED, UNIQUE, SHARED };
+
+  // clang-format off
+  template <LockReq Req> bool lock_guard_condition() const;
+  template <> bool lock_guard_condition<LockReq::WRITE>() const     { return ro_count == 0 && ro_pending_count == 0; }
+  template <> bool lock_guard_condition<LockReq::READ>() const      { return true; }
+  template <> bool lock_guard_condition<LockReq::READ_ONLY>() const { return w_count == 0; }
+
+  template <LockReq Req> void lock_state_updater();
+  template <> void lock_state_updater<LockReq::WRITE>()     { ++w_count; };
+  template <> void lock_state_updater<LockReq::READ>()      { ++r_count; };
+  template <> void lock_state_updater<LockReq::READ_ONLY>() { ++ro_count; }
+
+  template <LockReq Req> void unlock_state_updater();
+  template <> void unlock_state_updater<LockReq::WRITE>()     { --w_count; };
+  template <> void unlock_state_updater<LockReq::READ>()      { --r_count; };
+  template <> void unlock_state_updater<LockReq::READ_ONLY>() { --ro_count; }
+
+  template <LockReq Req> bool unlock_has_fully_unlocked() const;
+  template <> bool unlock_has_fully_unlocked<LockReq::WRITE>() const     { return w_count == 0 && r_count == 0; };
+  template <> bool unlock_has_fully_unlocked<LockReq::READ>() const      { return r_count == 0 && ro_count == 0 && w_count == 0; };
+  template <> bool unlock_has_fully_unlocked<LockReq::READ_ONLY>() const { return ro_count == 0 && r_count == 0; };
+
+  template <LockReq Req> void lock_pre_state_change(){}
+  template <> void lock_pre_state_change<LockReq::READ_ONLY>(){ ++ro_pending_count; }
+
+  template <LockReq Req> void lock_post_state_change(){}
+  template <> void lock_post_state_change<LockReq::READ_ONLY>(){ --ro_pending_count; }
+
+  // If upon unlock we could possible unblock another lock then
+  // we would want to notify to make sure we rapidly make progress
+  // WRITE -> If w_count goes down to 0, READ_ONLY and UNIQUE maybe unblocked, hence: Notify All
+  // READ -> If r_count goes down to 0 (and other counts were already 0), UNIQUE maybe unblocked, hence: Notify One
+  // READ_ONLY -> If ro_count goes down to 0, WRITE and  UNIQUE maybe unblocked, hence: Notify All
+  enum class NotifyKind : uint8_t { None, One, All };
+  template <LockReq Req> NotifyKind unlock_should_notify() const;
+  template <> NotifyKind unlock_should_notify<LockReq::WRITE>() const { return w_count == 0 ? NotifyKind::All : NotifyKind::None; }
+  template <> NotifyKind unlock_should_notify<LockReq::READ>() const { return (r_count == 0 && w_count == 0 && ro_count == 0) ? NotifyKind::One : NotifyKind::None; }
+  template <> NotifyKind unlock_should_notify<LockReq::READ_ONLY>() const { return ro_count == 0 ? NotifyKind::All : NotifyKind::None; }
+
+  // A READ_ONLY lock request can block a WRITE lock request, on failure we should notify if ro_pending_count is now 0
+  template <LockReq Req> NotifyKind lock_failed_wait_should_notify() const;
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::WRITE>() const { return NotifyKind::None; }
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ>() const { return NotifyKind::None; }
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
+
+  // clang-format on
+
+  template <LockReq Req>
+  void maybe_notify(std::unique_lock<std::mutex> &lock, NotifyKind kind) {
+    lock.unlock();
+    switch (kind) {
+      case NotifyKind::One:
+        cv.notify_one();
+        break;
+      case NotifyKind::All:
+        cv.notify_all();
+        break;
+      case NotifyKind::None:
+        break;
+    }
+  }
 
  public:
   void lock() {
@@ -47,7 +112,9 @@ struct ResourceLock {
   template <class Rep, class Period>
   bool try_lock_for(const std::chrono::duration<Rep, Period> &timeout_duration) {
     auto lock = std::unique_lock{mtx};
-    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) return false;
+    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) {
+      return false;
+    }
     state = UNIQUE;
     return true;
   }
@@ -60,124 +127,59 @@ struct ResourceLock {
     cv.notify_all();  // multiple lock_shared maybe waiting
   }
 
-  template <bool Read = false>
+  template <LockReq Req = LockReq::WRITE>
   void lock_shared() {
     auto lock = std::unique_lock{mtx};
-    // block until available
-    cv.wait(lock, [this] { return state != UNIQUE && ro_count == 0; });
+    lock_pre_state_change<Req>();
+    cv.wait(lock, [this] { return state != UNIQUE && lock_guard_condition<Req>(); });
     state = SHARED;
-    ++w_count;
+    lock_state_updater<Req>();
+    lock_post_state_change<Req>();
   }
 
-  template <>
-  void lock_shared<true>() {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    cv.wait(lock, [this] { return state != UNIQUE; });
-    state = SHARED;
-    ++r_count;
-  }
-
-  template <bool Read = false>
+  template <LockReq Req = LockReq::WRITE>
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE && ro_count == 0) {
+    if (state != UNIQUE && lock_guard_condition<Req>()) {
       state = SHARED;
-      ++w_count;
+      lock_state_updater<Req>();
       return true;
     }
     return false;
   }
 
-  template <>
-  bool try_lock_shared<true>() {
+  template <LockReq Req>
+  bool downgrade_to_read() {
     auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE) {
-      state = SHARED;
-      ++r_count;
-      return true;
+    if (state != SHARED) return false;
+    unlock_state_updater<Req>();
+    lock_state_updater<LockReq::READ>();
+    return true;
+  }
+
+  template <typename Rep, typename Period, LockReq Req = LockReq::WRITE>
+  bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
+    auto lock = std::unique_lock{mtx};
+    lock_pre_state_change<Req>();
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && lock_guard_condition<Req>(); })) {
+      lock_post_state_change<Req>();
+      maybe_notify<Req>(lock, lock_failed_wait_should_notify<Req>());
+      return false;
     }
-    return false;
-  }
-
-  template <typename Rep, typename Period, bool Read = false>
-  requires(!Read) bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && ro_count == 0; })) return false;
     state = SHARED;
-    ++w_count;
+    lock_state_updater<Req>();
+    lock_post_state_change<Req>();
     return true;
   }
 
-  template <typename Rep, typename Period, bool Read>
-  requires(Read) bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE; })) return false;
-    state = SHARED;
-    ++r_count;
-    return true;
-  }
-
-  template <bool Read = false>
+  template <LockReq Req = LockReq::WRITE>
   void unlock_shared() {
     auto lock = std::unique_lock{mtx};
-    --w_count;
-    if (w_count + r_count == 0) {
+    unlock_state_updater<Req>();
+    if (unlock_has_fully_unlocked<Req>()) {
       state = UNLOCKED;
-      lock.unlock();
-      cv.notify_all();  // Can have multiple read only waiting
     }
-  }
-
-  template <>
-  void unlock_shared<true>() {
-    auto lock = std::unique_lock{mtx};
-    --r_count;
-    if (r_count == 0 && ro_count == 0 && w_count == 0) {
-      state = UNLOCKED;
-      lock.unlock();
-      cv.notify_one();  // Should only have unique locks waiting
-    }
-  }
-
-  void lock_read_only() {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    cv.wait(lock, [this] { return state != UNIQUE && w_count == 0; });
-    state = SHARED;
-    ++ro_count;
-  }
-
-  bool try_lock_read_only() {
-    auto lock = std::unique_lock{mtx};
-    if (state != UNIQUE && w_count == 0) {
-      state = SHARED;
-      ++ro_count;
-      return true;
-    }
-    return false;
-  }
-
-  template <typename Rep, typename Period>
-  bool try_lock_read_only_for(std::chrono::duration<Rep, Period> const &time) {
-    auto lock = std::unique_lock{mtx};
-    // block until available
-    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE && w_count == 0; })) return false;
-    state = SHARED;
-    ++ro_count;
-    return true;
-  }
-
-  void unlock_read_only() {
-    auto lock = std::unique_lock{mtx};
-    --ro_count;
-    if (ro_count == 0) {
-      if (r_count == 0) state = UNLOCKED;
-      lock.unlock();
-      cv.notify_all();  // allow shared writes to lock
-    }
+    maybe_notify<Req>(lock, unlock_should_notify<Req>());
   }
 
  private:
@@ -185,6 +187,7 @@ struct ResourceLock {
   std::condition_variable cv;
   states state = UNLOCKED;
   uint32_t ro_count = 0;
+  uint32_t ro_pending_count = 0;
   uint32_t w_count = 0;
   uint32_t r_count = 0;
 };
@@ -194,6 +197,9 @@ struct SharedResourceLockGuard {
   enum Type { WRITE, READ, READ_ONLY };
   SharedResourceLockGuard(ResourceLock &l, Type type) : ptr_{&l}, type_{type} { lock(); }
   SharedResourceLockGuard(ResourceLock &l, Type type, std::defer_lock_t /*tag*/) : ptr_{&l}, type_{type} {}
+  SharedResourceLockGuard(ResourceLock &l, Type type, std::try_to_lock_t /*tag*/) : ptr_{&l}, type_{type} {
+    try_lock();
+  }
 
   ~SharedResourceLockGuard() { unlock(); }
 
@@ -218,13 +224,13 @@ struct SharedResourceLockGuard {
     if (ptr_ && !locked_) {
       switch (type_) {
         case WRITE:
-          ptr_->lock_shared<false>();
+          ptr_->lock_shared<ResourceLock::LockReq::WRITE>();
           break;
         case READ:
-          ptr_->lock_shared<true>();
+          ptr_->lock_shared<ResourceLock::LockReq::READ>();
           break;
         case READ_ONLY:
-          ptr_->lock_read_only();
+          ptr_->lock_shared<ResourceLock::LockReq::READ_ONLY>();
           break;
       }
       locked_ = true;
@@ -235,13 +241,14 @@ struct SharedResourceLockGuard {
     if (ptr_ && !locked_) {
       switch (type_) {
         case WRITE:
-          locked_ = ptr_->try_lock_shared<false>();
+          locked_ = ptr_->try_lock_shared<ResourceLock::LockReq::WRITE>();
           break;
         case READ:
-          locked_ = ptr_->try_lock_shared<true>();
+          locked_ = ptr_->try_lock_shared<ResourceLock::LockReq::READ>();
           break;
         case READ_ONLY:
-          locked_ = ptr_->try_lock_read_only();
+          locked_ = ptr_->try_lock_shared<ResourceLock::LockReq::READ_ONLY>();
+          ;
           break;
       }
     }
@@ -253,13 +260,13 @@ struct SharedResourceLockGuard {
     if (ptr_ && !locked_) {
       switch (type_) {
         case WRITE:
-          locked_ = ptr_->try_lock_shared_for<Rep, Period, false>(time);
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, ResourceLock::LockReq::WRITE>(time);
           break;
         case READ:
-          locked_ = ptr_->try_lock_shared_for<Rep, Period, true>(time);
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, ResourceLock::LockReq::READ>(time);
           break;
         case READ_ONLY:
-          locked_ = ptr_->try_lock_read_only_for(time);
+          locked_ = ptr_->try_lock_shared_for<Rep, Period, ResourceLock::LockReq::READ_ONLY>(time);
           break;
       }
     }
@@ -270,17 +277,37 @@ struct SharedResourceLockGuard {
     if (ptr_ && locked_) {
       switch (type_) {
         case WRITE:
-          ptr_->unlock_shared<false>();
+          ptr_->unlock_shared<ResourceLock::LockReq::WRITE>();
           break;
         case READ:
-          ptr_->unlock_shared<true>();
+          ptr_->unlock_shared<ResourceLock::LockReq::READ>();
           break;
         case READ_ONLY:
-          ptr_->unlock_read_only();
+          ptr_->unlock_shared<ResourceLock::LockReq::READ_ONLY>();
           break;
       }
       locked_ = false;
     }
+  }
+
+  bool downgrade_to_read() {
+    if (ptr_ && locked_) {
+      switch (type_) {
+        case WRITE: {
+          auto res = ptr_->downgrade_to_read<ResourceLock::LockReq::WRITE>();
+          if (res) type_ = READ;
+          return res;
+        }
+        case READ:
+          return true;  // can't downgrade from read to read
+        case READ_ONLY: {
+          auto res = ptr_->downgrade_to_read<ResourceLock::LockReq::READ_ONLY>();
+          if (res) type_ = READ;
+          return res;
+        }
+      }
+    }
+    return false;
   }
 
   bool owns_lock() const { return ptr_ && locked_; }

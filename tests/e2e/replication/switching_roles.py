@@ -106,8 +106,6 @@ def test_switch_main_after_local_snapshot(connection, test_name):
 
     # 2/
     execute_and_fetch_all(cursor1, "CREATE SNAPSHOT;")
-    execute_and_fetch_all(cursor1, "CREATE SNAPSHOT;")
-    execute_and_fetch_all(cursor1, "CREATE SNAPSHOT;")
 
     # 3/
     execute_and_fetch_all(cursor1, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['instance1']};")

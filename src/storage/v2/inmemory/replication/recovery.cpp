@@ -61,6 +61,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
+  std::optional<uint64_t> current_wal_timestamp;
   uint64_t last_durable_timestamp{kTimestampInitialId};
 
   std::unique_lock transaction_guard(
@@ -68,7 +69,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   (void)locker_acc.AddPath(main_storage->recovery_.wal_directory_);  // Protect all WALs from being deleted
 
   if (main_storage->wal_file_) {
-    last_durable_timestamp = main_storage->wal_file_->ToTimestamp();
+    current_wal_timestamp.emplace(main_storage->wal_file_->ToTimestamp());
     current_wal_seq_num.emplace(main_storage->wal_file_->SequenceNumber());
     // No need to hold the lock since the current WAL is present
     transaction_guard.unlock();
@@ -202,7 +203,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   }
 
   // If we have a current wal file we need to use it
-  if (current_wal_seq_num) {
+  if (last_durable_timestamp < current_wal_timestamp && current_wal_seq_num) {
     // NOTE: File not handled directly, so no need to lock it
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }

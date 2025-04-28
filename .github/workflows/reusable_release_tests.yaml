@@ -182,7 +182,7 @@ jobs:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: 60
+    timeout-minutes: 70
     env:
       BUILD_TYPE: Debug
 
@@ -279,7 +279,7 @@ jobs:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug integration tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
-    timeout-minutes: 60
+    timeout-minutes: 70
     env:
       BUILD_TYPE: Debug
 

@@ -168,6 +168,14 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
   return raft_state_->GetLeaderCoordinatorData();
 }
 
+auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
+  if (!raft_state_->IsLeader()) {
+    return YieldLeadershipStatus::NOT_LEADER;
+  }
+  raft_state_->YieldLeadership();
+  return YieldLeadershipStatus::SUCCESS;
+}
+
 void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
   auto connectors = coordinator_connectors_.Lock();
 

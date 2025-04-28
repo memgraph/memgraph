@@ -745,13 +745,13 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination,
                                                           query::HopsLimit *hops_limit) const {
-  MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+  DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
 
   /// TODO: (andi) I think that here should be another check:
   /// in memory storage should be checked only if something exists before loading from the disk.
-  if (transaction_->IsDiskStorage()) {
+  if (transaction_->IsDiskStorage()) [[unlikely]] {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
@@ -815,10 +815,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!exists) [[unlikely]]
+    return Error::NONEXISTENT_OBJECT;
+  if (deleted) [[unlikely]]
+    return Error::DELETED_OBJECT;
 
-  if (transaction_->IsDiskStorage()) {
+  if (transaction_->IsDiskStorage()) [[unlikely]] {
     return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(in_edges, disk_edges, view, "IN"),
                                      .expanded_count = expanded_count};
   }
@@ -829,12 +831,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination,
                                                            query::HopsLimit *hops_limit) const {
-  MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+  DMG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
   /// in memory storage should be checked only if something exists before loading from the disk.
   std::vector<EdgeAccessor> disk_edges{};
-  if (transaction_->IsDiskStorage()) {
+  if (transaction_->IsDiskStorage()) [[unlikely]] {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
@@ -899,10 +901,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     }
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!exists) [[unlikely]]
+    return Error::NONEXISTENT_OBJECT;
+  if (deleted) [[unlikely]]
+    return Error::DELETED_OBJECT;
 
-  if (transaction_->IsDiskStorage()) {
+  if (transaction_->IsDiskStorage()) [[unlikely]] {
     return EdgesVertexAccessorResult{.edges = BuildResultWithDisk(out_edges, disk_edges, view, "OUT"),
                                      .expanded_count = expanded_count};
   }
@@ -1025,8 +1029,10 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
 
 int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
                                                          EdgeDirection direction) const {
-  int64_t expanded_count = 0;
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+  if (edges.empty()) return 0;
+
+  int64_t expanded_count = 0;
   if (hops_limit && hops_limit->IsUsed()) {
     if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(edges.size()) > 0) {
       hops_limit->limit_reached = true;
@@ -1046,8 +1052,10 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
                                                       const std::vector<EdgeTypeId> &edge_types,
                                                       const VertexAccessor *destination, query::HopsLimit *hops_limit,
                                                       EdgeDirection direction) const {
-  int64_t expanded_count = 0;
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+  if (edges.empty()) return 0;
+
+  int64_t expanded_count = 0;
   for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
       hops_limit->IncrementHopsCount(1);
