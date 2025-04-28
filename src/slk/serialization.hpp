@@ -28,7 +28,6 @@
 #include <vector>
 
 #include "slk/streams.hpp"
-#include "storage/v2/id_types.hpp"
 #include "utils/cast.hpp"
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"

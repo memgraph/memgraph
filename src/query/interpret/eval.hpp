@@ -201,7 +201,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
-  storage::NameIdMapper *GetNameIdMapper() const { return ctx_->name_id_mapper; }
+  storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
@@ -437,12 +437,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->name_id_mapper, ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->name_id_mapper, ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
     // lhs is Null

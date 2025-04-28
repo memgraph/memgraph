@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/serialization.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 
 namespace memgraph::storage::replication {
 ////// Encoder //////

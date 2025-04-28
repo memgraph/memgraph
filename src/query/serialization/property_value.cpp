@@ -15,7 +15,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include "nlohmann/detail/input/parser.hpp"
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
