@@ -13,7 +13,7 @@
 #include <atomic>
 
 namespace memgraph::utils {
-// std::barrier seems to have a bug which leads to missed notifications, so some threads block forever
+// std::barrier seems to have a bug which leads to missed notifications and some threads block forever
 class SimpleBarrier {
  public:
   explicit SimpleBarrier(size_t n) : phase1_{n}, phase2_{n} {}
@@ -29,25 +29,27 @@ class SimpleBarrier {
     // Phase1 incoming threads decrement and wait for all to arrive
     if (--phase1_ == 0) {
       // All arrived at the barrier
-      phase1_.notify_all();
+      phase1_done_ = true;
+      phase1_done_.notify_all();
     } else {
       // Wait for all to arrive
-      while (phase1_ != 0) phase1_.wait(1);
+      phase1_done_.wait(false);
     }
     // Phase2 decrement and return
     // This guards against the barrier's desctruction while threads are waiting
     if (--phase2_ == 0) {
-      phase2_.notify_all();
+      phase2_done_ = true;
+      phase2_done_.notify_all();
     }
   }
 
-  void wait() {
-    while (phase2_ != 0) phase2_.wait(1);
-  }
+  void wait() { phase2_done_.wait(false); }
 
  private:
   std::atomic<size_t> phase1_;
   std::atomic<size_t> phase2_;
+  std::atomic_bool phase1_done_{false};
+  std::atomic_bool phase2_done_{false};
 };
 
 }  // namespace memgraph::utils
