@@ -231,7 +231,14 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   if (maybe_properties.HasError()) return maybe_properties.GetError();
   bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
+    auto name = db.PropertyToName(prop.first);
+    if (prop.second.IsMap()) {
+      auto pos = name.find_last_of('.');
+      if (pos != std::string::npos) {
+        name = name.substr(pos + 1);
+      }
+    }
+    properties[name] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   auto element_id = std::to_string(id.AsInt());
@@ -389,7 +396,12 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       const auto &map = value.ValueMap();
       bolt_map_t dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(storage.PropertyToName(kv.first), ToBoltValue(kv.second, storage));
+        auto key_name = storage.PropertyToName(kv.first);
+        auto pos = key_name.find_last_of('.');
+        if (pos != std::string::npos) {
+          key_name = key_name.substr(pos + 1);
+        }
+        dv_map.emplace(key_name, ToBoltValue(kv.second, storage));
       }
       return Value(std::move(dv_map));
     }
