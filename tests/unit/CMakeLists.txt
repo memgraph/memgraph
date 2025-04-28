@@ -229,6 +229,9 @@ add_unit_test(utils_barrier.cpp)
 target_link_libraries(${test_prefix}utils_barrier mg-utils)
 set_tests_properties(${test_prefix}utils_barrier PROPERTIES TIMEOUT 10)
 
+add_unit_test(utils_hot_mask.cpp)
+target_link_libraries(${test_prefix}utils_hot_mask mg-utils)
+
 add_unit_test(utils_exceptions.cpp)
 target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 

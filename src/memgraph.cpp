@@ -645,7 +645,7 @@ int main(int argc, char **argv) {
 
   // Global worker pool!
   // Used by sessions to schedule tasks.
-  memgraph::utils::PriorityThreadPool worker_pool_{/* low priority */ static_cast<uint64_t>(FLAGS_bolt_num_workers),
+  memgraph::utils::PriorityThreadPool worker_pool_{/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
                                                    /* high priority */ 1U};
 
   ServerContext context;

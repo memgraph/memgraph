@@ -18,17 +18,50 @@
 #include <queue>
 #include <thread>
 
+#include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
+
+class HotMask {
+ public:
+  static constexpr auto kMaxElements = 1024U;
+
+  explicit HotMask(uint16_t n_elements) : n_elements_{n_elements}, n_groups_{GetNumGroups(n_elements_)} {}
+
+  inline void Set(const uint64_t id) {
+    DMG_ASSERT(id < n_elements_, "Trying to set out-of-bounds");
+    hot_masks_[GetGroup(id)].fetch_or(GroupMask(id), std::memory_order::acq_rel);
+  }
+  inline void Reset(const uint64_t id) {
+    DMG_ASSERT(id < n_elements_, "Trying to reset out-of-bounds");
+    hot_masks_[GetGroup(id)].fetch_and(~GroupMask(id), std::memory_order::acq_rel);
+  }
+  std::optional<uint16_t> GetHotElement();
+
+ private:
+  static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits
+  static constexpr auto kGroupMask = kGroupSize - 1;
+
+  // Get element's group
+  static inline uint16_t GetGroup(const uint64_t id) { return id / kGroupSize; }
+  // Get number of groups
+  static inline uint16_t GetNumGroups(const uint64_t n_elements) { return (n_elements - 1) / kGroupSize + 1; }
+  // Mask as seen by the appropriate group
+  static inline uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
+
+  std::array<std::atomic<uint64_t>, kMaxElements / sizeof(uint64_t)> hot_masks_{};
+  const uint16_t n_elements_;
+  const uint16_t n_groups_;
+};
 
 class PriorityThreadPool {
  public:
   using TaskSignature = std::function<void(utils::Priority)>;
   using TaskID = uint64_t;
 
-  PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count);
+  PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count);
 
   ~PriorityThreadPool();
 
@@ -65,7 +98,7 @@ class PriorityThreadPool {
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(uint16_t worker_id, std::vector<Worker *> workers_pool);
+    void operator()(uint16_t worker_id, std::vector<Worker *> workers_pool, HotMask &hot_threads);
 
    private:
     mutable std::mutex mtx_;
@@ -88,6 +121,7 @@ class PriorityThreadPool {
 
   std::vector<Worker *> work_buckets_;     // Mixed work threads
   std::vector<Worker *> hp_work_buckets_;  // High priority work threads | ideally tasks yield and this isn't needed
+  HotMask hot_threads_;                    // Mask of workers waiting for new work (but still not sleeping)
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
