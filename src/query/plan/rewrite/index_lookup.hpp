@@ -34,7 +34,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/property_value.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 

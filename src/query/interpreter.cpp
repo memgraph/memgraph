@@ -781,7 +781,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #endif
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  EvaluationContext evaluation_context(interpreter.current_db_.db_acc_->get()->storage()->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -1276,7 +1276,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 ) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  EvaluationContext evaluation_context(storage->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -1519,7 +1519,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context(storage->name_id_mapper_.get());
+      EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
       evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -1543,7 +1543,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context(storage->name_id_mapper_.get());
+      EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
       evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -1593,7 +1593,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context(storage->name_id_mapper_.get());
+      EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
       evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -1686,7 +1686,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context(storage->name_id_mapper_.get());
+      EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
       evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -1952,7 +1952,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                            std::shared_ptr<QueryUserOrRole> user_or_role, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  EvaluationContext evaluation_context(db_acc->storage()->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   PrimitiveLiteralExpressionEvaluator evaluator{evaluation_context};
@@ -2124,7 +2124,7 @@ Callback HandleConfigQuery() {
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, storage::Storage *storage) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  EvaluationContext evaluation_context(storage->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -2284,7 +2284,6 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      ctx_(dba->GetStorageAccessor()->GetNameIdMapper()),
       memory_limit_(memory_limit),
       query_logger_(query_logger) {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
@@ -2579,7 +2578,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
-  EvaluationContext evaluation_context(current_db.db_acc_->get()->storage()->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   storage::Storage *storage = current_db.db_acc_->get()->storage();
@@ -2774,7 +2773,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
-  EvaluationContext evaluation_context(current_db.db_acc_->get()->storage()->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -3530,7 +3529,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto *storage = db_acc->storage();
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      EvaluationContext evaluation_context(current_db.db_acc_->get()->storage()->name_id_mapper_.get());
+      EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
       evaluation_context.parameters = parsed_query.parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -3692,7 +3691,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
     case TtlQuery::Type::ENABLE: {
-      EvaluationContext evaluation_context(current_db.db_acc_->get()->storage()->name_id_mapper_.get());
+      EvaluationContext evaluation_context;
       evaluation_context.timestamp = QueryTimestamp();
       evaluation_context.parameters = parsed_query.parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -4528,7 +4527,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
-  EvaluationContext evaluation_context(current_db.db_acc_->get()->storage()->name_id_mapper_.get());
+  EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -4703,10 +4702,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       break;
     }
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
-      // auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
-      EvaluationContext evaluation_context(interpreter_context->dbms_handler->Get()->storage()->name_id_mapper_.get());
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parameters;
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       std::vector<std::string> maybe_kill_transaction_ids;
       std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),

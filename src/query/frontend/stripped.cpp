@@ -21,7 +21,6 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"

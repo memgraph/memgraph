@@ -203,7 +203,7 @@ void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::Me
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
-  ExecutionContext ctx(dba->GetStorageAccessor()->GetNameIdMapper());
+  ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan.symbol_table();
   ctx.evaluation_context.timestamp = QueryTimestamp();

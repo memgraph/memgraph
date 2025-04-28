@@ -25,8 +25,6 @@
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
