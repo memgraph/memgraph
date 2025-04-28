@@ -48,6 +48,11 @@ class CoordinatorHandler {
 
   auto YieldLeadership() const -> coordination::YieldLeadershipStatus;
 
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> coordination::SetCoordinatorSettingStatus;
+
+  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+
   auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
 

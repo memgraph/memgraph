@@ -3469,7 +3469,9 @@ class CoordinatorQuery : public memgraph::query::Query {
     REMOVE_COORDINATOR_INSTANCE,
     DEMOTE_INSTANCE,
     FORCE_RESET_CLUSTER_STATE,
-    YIELD_LEADERSHIP
+    YIELD_LEADERSHIP,
+    SET_COORDINATOR_SETTING,
+    SHOW_COORDINATOR_SETTINGS
   };
 
   enum class SyncMode { SYNC, ASYNC };
@@ -3483,6 +3485,8 @@ class CoordinatorQuery : public memgraph::query::Query {
   std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
   memgraph::query::Expression *coordinator_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
+  memgraph::query::Expression *setting_name_{nullptr};
+  memgraph::query::Expression *setting_value_{nullptr};
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
@@ -3494,6 +3498,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
     }
+    object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
+    object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
 
     return object;
   }

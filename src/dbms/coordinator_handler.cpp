@@ -53,6 +53,16 @@ auto CoordinatorHandler::YieldLeadership() const -> coordination::YieldLeadershi
   return coordinator_state_.YieldLeadership();
 }
 
+auto CoordinatorHandler::SetCoordinatorSetting(std::string_view const setting_name,
+                                               std::string_view const setting_value) const
+    -> coordination::SetCoordinatorSettingStatus {
+  return coordinator_state_.SetCoordinatorSetting(setting_name, setting_value);
+}
+
+auto CoordinatorHandler::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+  return coordinator_state_.ShowCoordinatorSettings();
+}
+
 auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {
   return coordinator_state_.ShowInstance();
 }

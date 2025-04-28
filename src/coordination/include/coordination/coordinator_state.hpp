@@ -56,13 +56,10 @@ class CoordinatorState {
 
   auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
-  auto UpdateReadsOnMainPolicy(bool value) -> UpdateReadsOnMainPolicyStatus;
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> SetCoordinatorSettingStatus;
 
-  auto GetEnabledReadsOnMain() const -> bool;
-
-  auto UpdateReadsOnMainPolicy(bool value) -> UpdateReadsOnMainPolicyStatus;
-
-  auto GetEnabledReadsOnMain() const -> bool;
+  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

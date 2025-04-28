@@ -167,6 +167,14 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
   return raft_state_->GetLeaderCoordinatorData();
 }
 
+auto CoordinatorInstance::YieldLeadership() const -> YieldLeadershipStatus {
+  if (!raft_state_->IsLeader()) {
+    return YieldLeadershipStatus::NOT_LEADER;
+  }
+  raft_state_->YieldLeadership();
+  return YieldLeadershipStatus::SUCCESS;
+}
+
 void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
   auto connectors = coordinator_connectors_.Lock();
 
@@ -921,15 +929,21 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::UpdateReadsOnMainPolicy(bool const enabled_reads_on_main) const
-    -> UpdateReadsOnMainPolicyStatus {
-  // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = enabled_reads_on_main};
-  if (!raft_state_->AppendClusterUpdate(delta_state)) {
-    spdlog::error("Aborting the update of routing policy 'enabled_reads_on_main'. Writing to Raft failed.");
-    return UpdateReadsOnMainPolicyStatus::RAFT_LOG_ERROR;
+auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
+                                                std::string_view const setting_value) const
+    -> SetCoordinatorSettingStatus {
+  if (setting_name != kEnabledReadsOnMain) {
+    return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
-  return UpdateReadsOnMainPolicyStatus::SUCCESS;
+
+  bool const value = utils::ToLowerCase(setting_value) == "true"sv;
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = value};
+  if (!raft_state_->AppendClusterUpdate(delta_state)) {
+    spdlog::error("Aborting the update of coordinator setting {}. Writing to Raft failed.", setting_name);
+    return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
+  }
+  return SetCoordinatorSettingStatus::SUCCESS;
 }
 
 void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
@@ -1192,7 +1206,10 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   return ChooseMostUpToDateInstance(instances_info);
 }
 
-auto CoordinatorInstance::GetEnabledReadsOnMain() const -> bool { return raft_state_->GetEnabledReadsOnMain(); }
-
+auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+  std::vector<std::pair<std::string, std::string>> settings{
+      std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"}};
+  return settings;
+}
 }  // namespace memgraph::coordination
 #endif

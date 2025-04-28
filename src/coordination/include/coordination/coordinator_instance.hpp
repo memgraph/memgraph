@@ -95,7 +95,8 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
-  auto UpdateReadsOnMainPolicy(bool enabled_reads_on_main) const -> UpdateReadsOnMainPolicyStatus;
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> SetCoordinatorSettingStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
@@ -118,7 +119,7 @@ class CoordinatorInstance {
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
-  auto GetEnabledReadsOnMain() const -> bool;
+  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name)

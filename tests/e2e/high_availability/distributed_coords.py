@@ -3032,27 +3032,26 @@ def test_enabled_reads_on_main(test_name):
     for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
-    results = execute_and_fetch_all(coord_cursor_3, "SHOW DATABASE SETTINGS")
+    results = execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS")
     for setting_key, setting_value in results:
         if setting_key == "enabled_reads_on_main":
-            assert setting_value is False
+            assert setting_value == "false"
 
-    execute_and_fetch_all(coord_cursor_3, "SET DATABASE SETTING 'enabled_reads_on_main' to 'true'")
-    assert execute_and_fetch_all(coord_cursor_3, "SHOW DATABASE SETTING 'enabled_reads_on_main'")[0][0] is True
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'true'")
 
     # Check that the value is distributed between all coordinators
-    results = execute_and_fetch_all(coord_cursor_2, "SHOW DATABASE SETTINGS")
+    results = execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS")
     for setting_key, setting_value in results:
         if setting_key == "enabled_reads_on_main":
-            assert setting_value is True
+            assert setting_value == "true"
 
-    execute_and_fetch_all(coord_cursor_2, "SET DATABASE SETTING 'enabled_reads_on_main' to 'false'")
+    execute_and_fetch_all(coord_cursor_2, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'false'")
 
     # Check that the value is distributed between all coordinators
-    results = execute_and_fetch_all(coord_cursor_1, "SHOW DATABASE SETTINGS")
+    results = execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS")
     for setting_key, setting_value in results:
         if setting_key == "enabled_reads_on_main":
-            assert setting_value is False
+            assert setting_value == "false"
 
 
 if __name__ == "__main__":

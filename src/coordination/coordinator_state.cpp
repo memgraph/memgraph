@@ -147,16 +147,18 @@ auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
 }
 
-auto CoordinatorState::UpdateReadsOnMainPolicy(bool const value) -> UpdateReadsOnMainPolicyStatus {
+auto CoordinatorState::SetCoordinatorSetting(std::string_view const setting_name,
+                                             std::string_view const setting_value) const
+    -> SetCoordinatorSettingStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
-            "Routing policy 'enabled_reads_on_main' cannot be updated since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).UpdateReadsOnMainPolicy(value);
+            "Coordinator's settings cannot be updated since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).SetCoordinatorSetting(setting_name, setting_value);
 }
 
-auto CoordinatorState::GetEnabledReadsOnMain() const -> bool {
+auto CoordinatorState::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
-            "Routing policy 'enabled_reads_on_main' cannot be retrieved since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).GetEnabledReadsOnMain();
+            "Coordinator settings cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowCoordinatorSettings();
 }
 
 auto CoordinatorState::GetRoutingTable() const -> RoutingTable {

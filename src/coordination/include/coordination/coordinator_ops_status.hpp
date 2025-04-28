@@ -16,7 +16,7 @@
 namespace memgraph::coordination {
 
 enum class YieldLeadershipStatus { SUCCESS = 0, NOT_LEADER };
-enum class UpdateReadsOnMainPolicyStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR };
+enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
