@@ -463,18 +463,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
       !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
-    storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-      if (auto it = edge_type_indices.find(edge_type); it != edge_type_indices.end()) {
-        const bool this_txn_already_encountered_edge_type =
-            transaction_.introduced_new_edge_type_index_.contains(edge_type);
-        if (!this_txn_already_encountered_edge_type) {
-          ++(it->second);
-        }
-        return;
-      }
-      edge_type_indices.insert({edge_type, 1});
-    });
-    transaction_.introduced_new_edge_type_index_.insert(edge_type);
+    if (!transaction_.introduced_new_edge_type_index_.contains(edge_type)) {
+      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) { ++edge_type_indices[edge_type]; });
+      transaction_.introduced_new_edge_type_index_.insert(edge_type);
+    }
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
@@ -719,15 +711,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-          for (auto &label : label_indices) {
-            --label.second;
+          for (auto label : transaction_.introduced_new_label_index_) {
+            auto it = label_indices.find(label);
+            auto &[_, count] = *it;
+            --count;
             // If there are multiple transactions that would like to create an
             // auto-created index on a specific label, we only build the index
             // when the last one commits.
-            if (label.second == 0) {
+            if (count == 0) {
               // TODO: (andi) Handle auto-creation issue
-              CreateIndex(label.first, false);
-              label_indices.erase(label.first);
+              CreateIndex(label, false);
+              label_indices.erase(it);
             }
           }
         });
@@ -736,15 +730,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // EdgeIndex auto-creation block.
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-          for (auto &edge_type : edge_type_indices) {
-            --edge_type.second;
+          for (auto edge_type : transaction_.introduced_new_edge_type_index_) {
+            auto it = edge_type_indices.find(edge_type);
+            auto &[_, count] = *it;
+            --count;
             // If there are multiple transactions that would like to create an
             // auto-created index on a specific edge-type, we only build the index
             // when the last one commits.
-            if (edge_type.second == 0) {
+            if (count == 0) {
               // TODO: (andi) Handle silent failure
-              CreateIndex(edge_type.first, false);
-              edge_type_indices.erase(edge_type.first);
+              CreateIndex(edge_type, false);
+              edge_type_indices.erase(it);
             }
           }
         });

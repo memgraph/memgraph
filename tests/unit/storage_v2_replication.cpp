@@ -313,14 +313,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.db.ReadOnlyAccess();
     ASSERT_FALSE(
         unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.db.ReadOnlyAccess();
     ASSERT_FALSE(
         unique_acc
             ->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
@@ -425,14 +425,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.db.ReadOnlyAccess();
     ASSERT_FALSE(
         unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
             .HasError());
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.db.ReadOnlyAccess();
     ASSERT_FALSE(
         unique_acc
             ->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),

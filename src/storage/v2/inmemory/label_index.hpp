@@ -119,7 +119,7 @@ class InMemoryLabelIndex : public LabelIndex {
   void DropGraphClearIndices() override;
 
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::map<LabelId, utils::SkipList<Entry>> index_;  // TODO: Auto-index approach means this MUST become synchronised
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
