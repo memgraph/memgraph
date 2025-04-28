@@ -145,9 +145,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->CreateIndex(label_unindexed).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
     {
       // Create label index statistics.
@@ -158,9 +158,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_id}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->CreateIndex(label_indexed, {property_id}).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
@@ -172,9 +172,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+properties index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
     {
       // Create label+properties index statistics.
@@ -317,9 +317,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create label index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_access->CreateIndex(label_unused).HasError());
+      ASSERT_FALSE(read_only_access->Commit().HasError());
     }
     {
       // Create label index statistics.
@@ -330,9 +330,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_count}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_access = store->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_access->CreateIndex(label_indexed, {property_count}).HasError());
+      ASSERT_FALSE(read_only_access->Commit().HasError());
     }
     {
       // Create label+property index statistics.

@@ -2033,9 +2033,9 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
-  if (unique_access_needed) {
-    MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
-  }
+  // if (unique_access_needed) {
+  //   MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
+  // }
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
@@ -2049,7 +2049,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+  // MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");

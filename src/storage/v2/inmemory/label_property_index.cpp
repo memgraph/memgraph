@@ -855,6 +855,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
   auto it2 = it->second.find(properties);
   DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
+  // TODO: active indices
 
   return {it2->second->skiplist.access(),
           std::move(vertices_acc),
