@@ -109,36 +109,36 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->storage->ReadOnlyAccess();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->storage->ReadOnlyAccess();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = this->storage->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = this->storage->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->storage->ReadOnlyAccess();
+    ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->storage->ReadOnlyAccess();
+    ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
 
   {
