@@ -117,7 +117,7 @@ struct PropertiesPermutationHelper {
   /** Rearranges a vector of monotonically ordered properties (as returned
    * by `Extract`) into the index order.
    */
-  auto ApplyPermutation(std::vector<PropertyValue> values) const -> IndexOrderedPropertyValues;
+  auto ApplyPermutation(std::vector<PropertyValue> values) const -> std::vector<PropertyValue>;
 
   /* Extract one or more values from the given property store, returned in
    * increasing `PropertyId` order. Use `ApplyPermutation` to arrange the
@@ -132,22 +132,23 @@ struct PropertiesPermutationHelper {
    * boolean indicating whether the property matches. Otherwise, if the id is
    * not in the index, `std::nullopt` is returned.
    */
-  auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
+  auto MatchesValue(PropertyId property_id, PropertyValue const &value,
+                    std::span<PropertyValue const> index_ordered_values) const
       -> std::optional<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element
    * equality.
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+  auto MatchesValues(PropertyStore const &properties, std::span<PropertyValue const> index_ordered_values) const
       -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, property id, and value).
    */
-  auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
+  auto WithPropertyId(std::span<PropertyValue const> index_ordered_values) const {
     return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
-             return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
+             return std::tuple{p.first, p.second, std::cref(index_ordered_values[position_lookup_[p.first]])};
            });
   }
 
@@ -186,8 +187,8 @@ class LabelPropertyIndex {
         auto current_values = helper->Extract(vertex->properties);
         // Only if current_values has at least one non-null value do we need to cleanup its index entry
         if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
-          cleanup_collection[label][properties].emplace_back(
-              helper->ApplyPermutation(std::move(current_values)).values_, vertex);
+          cleanup_collection[label][properties].emplace_back(helper->ApplyPermutation(std::move(current_values)),
+                                                             vertex);
         }
       }
     }
@@ -202,8 +203,8 @@ class LabelPropertyIndex {
           auto current_values = helper->Extract(vertex->properties);
           // Only if current_values has at least one non-null value do we need to cleanup its index entry
           if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
-            cleanup_collection[label][properties].emplace_back(
-                helper->ApplyPermutation(std::move(current_values)).values_, vertex);
+            cleanup_collection[label][properties].emplace_back(helper->ApplyPermutation(std::move(current_values)),
+                                                               vertex);
           }
         }
       }

@@ -64,7 +64,7 @@ auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const
 }
 
 auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> values) const
-    -> IndexOrderedPropertyValues {
+    -> std::vector<PropertyValue> {
   for (const auto &cycle : cycles_) {
     auto tmp = std::move(values[cycle.front()]);
     for (auto pos : std::span{cycle}.subspan<1>()) {
@@ -73,22 +73,23 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
     values[cycle.front()] = std::move(tmp);
   }
 
-  return {std::move(values)};
+  return values;
 }
 
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
-                                               IndexOrderedPropertyValues const &values) const
+                                               std::span<PropertyValue const> index_ordered_values) const
     -> std::optional<std::pair<std::ptrdiff_t, bool>> {
   auto it = std::ranges::find(sorted_properties_, property_id);
   if (it == sorted_properties_.end()) return std::nullopt;
 
   auto pos = std::distance(sorted_properties_.begin(), it);
-  return std::pair{pos, values.values_[position_lookup_[pos]] == value};
+  return std::pair{pos, index_ordered_values[position_lookup_[pos]] == value};
 }
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
-                                                IndexOrderedPropertyValues const &values) const -> std::vector<bool> {
-  return properties.ArePropertiesEqual(sorted_properties_, values.values_, position_lookup_);
+                                                std::span<PropertyValue const> index_ordered_values) const
+    -> std::vector<bool> {
+  return properties.ArePropertiesEqual(sorted_properties_, index_ordered_values, position_lookup_);
 }
 
 size_t PropertyValueRange::hash() const noexcept {
