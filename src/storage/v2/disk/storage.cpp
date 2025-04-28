@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -2033,9 +2033,10 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
-  // if (unique_access_needed) {
-  //   MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
-  // }
+  // TODO: add back in as READ_ONLY
+  //  if (unique_access_needed) {
+  //    MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
+  //  }
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
@@ -2049,7 +2050,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  // MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+  // TODO: add back in as READ_ONLY
+  MG_ASSERT(type() == READ_ONLY, "Create index requires read-only access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
@@ -2087,7 +2089,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+  // TODO: add back in as READ_ONLY
+  // MG_ASSERT(type() == READ_ONLY, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->DropIndex(label)) {
@@ -2101,7 +2104,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Create index requires read-only access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
@@ -2254,8 +2257,8 @@ std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() c
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/,
-                                              WithinBBoxCondition /*condition*/) -> PointIterable {
+                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
+    -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
