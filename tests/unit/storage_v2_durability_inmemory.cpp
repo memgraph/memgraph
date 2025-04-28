@@ -2196,9 +2196,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &[label, properties] : indices.label_properties) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(label, std::vector(properties)).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = db.ReadOnlyAccess();
+      ASSERT_FALSE(acc->DropIndex(label, std::vector(properties)).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     auto constraints = [&] {
       auto acc = db.Access();

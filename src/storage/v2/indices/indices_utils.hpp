@@ -277,10 +277,10 @@ inline void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &verti
 }
 
 template <typename TSkipListAccessorFactory, typename TFunc>
-inline void PopulateIndex(utils::SkipList<Vertex>::Accessor &vertices, TSkipListAccessorFactory &&accessor_factory,
-                          const TFunc &func,
-                          std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+inline void PopulateIndexHelper(utils::SkipList<Vertex>::Accessor &vertices,
+                                TSkipListAccessorFactory &&accessor_factory, const TFunc &func,
+                                std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
+                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
   if (parallel_exec_info && parallel_exec_info->thread_count > 1) {
     PopulateIndexOnMultipleThreads(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), func,
                                    *parallel_exec_info, snapshot_info);
