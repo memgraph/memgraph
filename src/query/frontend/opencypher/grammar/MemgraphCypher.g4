@@ -292,6 +292,8 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
                  | yieldLeadership
+                 | setCoordinatorSetting
+                 | showCoordinatorSettings
                  ;
 
 triggerQuery : createTrigger
@@ -530,6 +532,10 @@ demoteInstanceOnCoordinator : DEMOTE INSTANCE instanceName ;
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
 yieldLeadership : YIELD LEADERSHIP ;
+
+setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
+
+showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
 coordinatorServerId : literal ;
 

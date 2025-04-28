@@ -163,6 +163,10 @@ class CoordinatorQueryHandler {
   virtual void ForceResetClusterState() = 0;
 
   virtual void YieldLeadership() = 0;
+
+  virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
+
+  virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
 };
 #endif
 

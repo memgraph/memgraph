@@ -14,7 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <spdlog/spdlog.h>
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_log_store.hpp"
@@ -48,7 +48,7 @@ struct SnapshotCtx {
 void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx);
 void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
-class CoordinatorStateMachine : public state_machine {
+class CoordinatorStateMachine final : public state_machine {
  public:
   CoordinatorStateMachine(LoggerWrapper logger, LogStoreDurability log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
@@ -57,13 +57,11 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override = default;
 
-  static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
-                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                          utils::UUID uuid) -> ptr<buffer>;
+  static auto CreateLog(nlohmann::json const &log) -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data)
-      -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID>;
+  static auto SerializeUpdateClusterState(CoordinatorClusterStateDelta const &delta_state) -> ptr<buffer>;
+
+  static auto DecodeLog(buffer &data) -> CoordinatorClusterStateDelta;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -101,6 +99,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

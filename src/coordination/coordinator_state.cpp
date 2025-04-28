@@ -15,7 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -134,7 +134,7 @@ auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceMa
   return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config) const
+auto CoordinatorState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
     -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be added since variant holds wrong alternative");
@@ -145,6 +145,20 @@ auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be unregistered since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
+}
+
+auto CoordinatorState::SetCoordinatorSetting(std::string_view const setting_name,
+                                             std::string_view const setting_value) const
+    -> SetCoordinatorSettingStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator's settings cannot be updated since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).SetCoordinatorSetting(setting_name, setting_value);
+}
+
+auto CoordinatorState::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator settings cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowCoordinatorSettings();
 }
 
 auto CoordinatorState::GetRoutingTable() const -> RoutingTable {

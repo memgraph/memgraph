@@ -15,7 +15,7 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "dbms/coordinator_handler.hpp"
 
 namespace memgraph::dbms {
@@ -51,6 +51,16 @@ auto CoordinatorHandler::ForceResetClusterState() -> coordination::ReconcileClus
 
 auto CoordinatorHandler::YieldLeadership() const -> coordination::YieldLeadershipStatus {
   return coordinator_state_.YieldLeadership();
+}
+
+auto CoordinatorHandler::SetCoordinatorSetting(std::string_view const setting_name,
+                                               std::string_view const setting_value) const
+    -> coordination::SetCoordinatorSettingStatus {
+  return coordinator_state_.SetCoordinatorSetting(setting_name, setting_value);
+}
+
+auto CoordinatorHandler::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
+  return coordinator_state_.ShowCoordinatorSettings();
 }
 
 auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::DataInstanceConfig;
@@ -77,6 +78,12 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
-  auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(*buffer);
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances,
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = UUID{},
+                                                 .enabled_reads_on_main_ = false};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
 }

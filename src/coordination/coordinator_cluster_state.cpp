@@ -12,24 +12,18 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_cluster_state.hpp"
+#include "coordination/constants.hpp"
 #include "utils/logging.hpp"
 
 #include <shared_mutex>
-
-namespace {
-constexpr std::string_view kDataInstances = "data_instances";
-constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
-constexpr std::string_view kMainUUID = "current_main_uuid";
-
-}  // namespace
 
 namespace memgraph::coordination {
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : data_instances_{other.data_instances_},
       coordinator_instances_(other.coordinator_instances_),
-      current_main_uuid_(other.current_main_uuid_) {}
-
+      current_main_uuid_(other.current_main_uuid_),
+      enabled_reads_on_main_(other.enabled_reads_on_main_) {}
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
     return *this;
@@ -37,13 +31,15 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   data_instances_ = other.data_instances_;
   coordinator_instances_ = other.coordinator_instances_;
   current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
   return *this;
 }
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
     : data_instances_{std::move(other.data_instances_)},
       coordinator_instances_{std::move(other.coordinator_instances_)},
-      current_main_uuid_{other.current_main_uuid_} {}
+      current_main_uuid_{other.current_main_uuid_},
+      enabled_reads_on_main_{other.enabled_reads_on_main_} {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -52,19 +48,20 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   data_instances_ = std::move(other.data_instances_);
   coordinator_instances_ = std::move(other.coordinator_instances_);
   current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
   return *this;
 }
 
 auto CoordinatorClusterState::MainExists() const -> bool {
   auto lock = std::shared_lock{app_lock_};
   return std::ranges::any_of(data_instances_,
-                             [](auto &&data_instance) { return data_instance.status == ReplicationRole::MAIN; });
+                             [](auto const &data_instance) { return data_instance.status == ReplicationRole::MAIN; });
 }
 
 // Ideally, we delete this.
 auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{app_lock_};
-  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto &&data_instance) {
+  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
 
@@ -73,20 +70,26 @@ auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const
 
 auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{app_lock_};
-  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto &&data_instance) {
+  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(std::vector<DataInstanceContext> data_instances,
-                                       std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                       utils::UUID main_uuid) -> void {
+auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state) -> void {
   auto lock = std::lock_guard{app_lock_};
-  spdlog::trace("DoAction: update cluster state.");
-  data_instances_ = std::move(data_instances);
-  current_main_uuid_ = main_uuid;
-  coordinator_instances_ = std::move(coordinator_instances);
+  if (delta_state.data_instances_.has_value()) {
+    data_instances_ = std::move(*delta_state.data_instances_);
+  }
+  if (delta_state.coordinator_instances_.has_value()) {
+    coordinator_instances_ = std::move(*delta_state.coordinator_instances_);
+  }
+  if (delta_state.current_main_uuid_.has_value()) {
+    current_main_uuid_ = *delta_state.current_main_uuid_;
+  }
+  if (delta_state.enabled_reads_on_main_.has_value()) {
+    enabled_reads_on_main_ = *delta_state.enabled_reads_on_main_;
+  }
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
@@ -132,6 +135,11 @@ auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID {
   return current_main_uuid_;
 }
 
+auto CoordinatorClusterState::GetEnabledReadsOnMain() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return enabled_reads_on_main_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::unique_lock{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
@@ -147,10 +155,16 @@ void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) 
   current_main_uuid_ = current_main_uuid;
 }
 
+void CoordinatorClusterState::SetEnabledReadsOnMain(bool const enabled_reads_on_main) {
+  auto lock = std::unique_lock{app_lock_};
+  enabled_reads_on_main_ = enabled_reads_on_main;
+}
+
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
-                     {kCoordinatorInstances.data(), state.GetCoordinatorInstancesContext()}};
+                     {kCoordinatorInstances.data(), state.GetCoordinatorInstancesContext()},
+                     {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -158,6 +172,9 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   instance_state.SetCurrentMainUUID(j.at(kMainUUID.data()).get<utils::UUID>());
   instance_state.SetCoordinatorInstances(
       j.at(kCoordinatorInstances.data()).get<std::vector<CoordinatorInstanceContext>>());
+
+  bool const enabled_reads_on_main = j.value(kEnabledReadsOnMain.data(), false);
+  instance_state.SetEnabledReadsOnMain(enabled_reads_on_main);
 }
 
 }  // namespace memgraph::coordination
