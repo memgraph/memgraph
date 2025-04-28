@@ -119,7 +119,8 @@ class TypedValue {
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
-  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper,
+                                         std::string_view previous_map_key = {}) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}

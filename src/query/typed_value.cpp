@@ -683,7 +683,8 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
   }
 }
 
-storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_id_mapper) const {
+storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_id_mapper,
+                                                   std::string_view previous_map_key) const {
   switch (type_) {
     case TypedValue::Type::Null:
       return storage::PropertyValue();
@@ -710,8 +711,12 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       }
       storage::PropertyValue::map_t map;
       for (const auto &kv : map_v) {
-        map.emplace(storage::PropertyId::FromUint(name_id_mapper->NameToId(kv.first)),
-                    kv.second.ToPropertyValue(name_id_mapper));
+        std::string_view key_view = kv.first;
+        if (!previous_map_key.empty()) {
+          key_view = fmt::format("{}.{}", previous_map_key, kv.first);
+        }
+        auto name_id = storage::PropertyId::FromUint(name_id_mapper->NameToId(key_view));
+        map.emplace(name_id, kv.second.ToPropertyValue(name_id_mapper, key_view));
       }
       return storage::PropertyValue(std::move(map));
     }

@@ -12,7 +12,6 @@
 #pragma once
 
 #include <iosfwd>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -1223,7 +1222,8 @@ class IntermediatePropertyValueImpl {
   }
 
   // Conversion to final PropertyValueImpl
-  PropertyValueImpl<Alloc> ToFinalValue(NameIdMapper *mapper, allocator_type const &alloc = {}) const {
+  PropertyValueImpl<Alloc> ToFinalValue(NameIdMapper *mapper, allocator_type const &alloc = {},
+                                        std::string_view previous_map_key = {}) const {
     switch (type_) {
       case Type::Null:
         return PropertyValueImpl<Alloc>(alloc);
@@ -1245,8 +1245,12 @@ class IntermediatePropertyValueImpl {
       case Type::Map: {
         typename PropertyValueImpl<Alloc>::map_t map(alloc);
         for (const auto &[key, val] : map_v.val_) {
-          auto prop_id = PropertyId::FromUint(mapper->NameToId(key));
-          map.emplace(prop_id, val.ToFinalValue(mapper, alloc));
+          std::string_view key_view = key;
+          if (!previous_map_key.empty()) {
+            key_view = fmt::format("{}.{}", previous_map_key, key);
+          }
+          auto prop_id = PropertyId::FromUint(mapper->NameToId(key_view));
+          map.emplace(prop_id, val.ToFinalValue(mapper, alloc, key_view));
         }
         return PropertyValueImpl<Alloc>(std::move(map), alloc);
       }

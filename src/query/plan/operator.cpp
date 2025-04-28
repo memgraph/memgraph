@@ -468,14 +468,15 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       auto typed_value = value_expression->Accept(evaluator);
-      properties.emplace(key,
-                         typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      auto key_name = context.db_accessor->PropertyToName(key);
+      properties.emplace(
+          key, typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper(), key_name));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
       properties.emplace(dba.NameToProperty(key),
-                         value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+                         value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper(), key));
     }
   }
   if (context.evaluation_context.scope.in_merge) {
