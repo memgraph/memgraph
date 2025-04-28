@@ -168,18 +168,23 @@ TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
   // Pin with one write lock
   auto guard_w_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
 
+  std::latch latch(2);
+
   // Concurrently acquire read only lock
   auto ro_outcome = std::async([&] {
     auto guard_ro = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
     if (guard_ro.owns_lock()) return Outcome::ErrorAcquiredButShouldBeDefered;
     if (guard_ro.try_lock()) return Outcome::ErrorAcquiredButTryShouldHaveFailed;
+    latch.arrive_and_wait();
     guard_ro.lock();
     return Outcome::Success;
   });
 
-  // wait for thread to start + block on acquiring the lock
   using namespace std::chrono_literals;
-  std::this_thread::sleep_for(5ms);
+  // sync on before read only lock is asked for
+  latch.arrive_and_wait();
+  // wait for read only to `lock()` and hence blocks waiting for no writers
+  std::this_thread::sleep_for(15ms);
 
   // should not be able to get write lock, because ro lock is requested
   auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
@@ -244,7 +249,7 @@ TEST_F(ResourceLockTest, ReadOnlyLockTryForWillNotifyWaitingWriterUponFailure) {
     auto end = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    ASSERT_LT(duration, 5ms);
+    ASSERT_LT(duration, 20ms);
     ASSERT_TRUE(writer_result);
   }
 

@@ -33,7 +33,7 @@ struct ResourceLock {
 
   // clang-format off
   template <LockReq Req> bool lock_guard_condition() const;
-  template <> bool lock_guard_condition<LockReq::WRITE>() const     { return ro_count == 0 && ro_pending_count == 0; }
+  template <> bool lock_guard_condition<LockReq::WRITE>() const     { return ro_count == 0 && ro_pending_count.load(std::memory_order_acquire) == 0; }
   template <> bool lock_guard_condition<LockReq::READ>() const      { return true; }
   template <> bool lock_guard_condition<LockReq::READ_ONLY>() const { return w_count == 0; }
 
@@ -53,10 +53,10 @@ struct ResourceLock {
   template <> bool unlock_has_fully_unlocked<LockReq::READ_ONLY>() const { return ro_count == 0 && r_count == 0; };
 
   template <LockReq Req> void lock_pre_state_change(){}
-  template <> void lock_pre_state_change<LockReq::READ_ONLY>(){ ++ro_pending_count; }
+  template <> void lock_pre_state_change<LockReq::READ_ONLY>(){ ro_pending_count.fetch_add(1,std::memory_order_acq_rel); }
 
   template <LockReq Req> void lock_post_state_change(){}
-  template <> void lock_post_state_change<LockReq::READ_ONLY>(){ --ro_pending_count; }
+  template <> void lock_post_state_change<LockReq::READ_ONLY>(){ ro_pending_count.fetch_sub(1,std::memory_order_acq_rel); }
 
   // If upon unlock we could possible unblock another lock then
   // we would want to notify to make sure we rapidly make progress
@@ -73,7 +73,7 @@ struct ResourceLock {
   template <LockReq Req> NotifyKind lock_failed_wait_should_notify() const;
   template <> NotifyKind lock_failed_wait_should_notify<LockReq::WRITE>() const { return NotifyKind::None; }
   template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ>() const { return NotifyKind::None; }
-  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count == 0 ? NotifyKind::All : NotifyKind::None; }
+  template <> NotifyKind lock_failed_wait_should_notify<LockReq::READ_ONLY>() const { return ro_pending_count.load(std::memory_order_acquire) == 0 ? NotifyKind::All : NotifyKind::None; }
 
   // clang-format on
 
@@ -187,7 +187,7 @@ struct ResourceLock {
   std::condition_variable cv;
   states state = UNLOCKED;
   uint32_t ro_count = 0;
-  uint32_t ro_pending_count = 0;
+  std::atomic<uint32_t> ro_pending_count = 0;
   uint32_t w_count = 0;
   uint32_t r_count = 0;
 };
