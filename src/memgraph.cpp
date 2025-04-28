@@ -192,17 +192,13 @@ int main(int argc, char **argv) {
   std::set_terminate(&memgraph::utils::TerminateHandler);
 
   // Initialize Python
-  PyConfig config;
-  PyConfig_InitIsolatedConfig(&config);
-
-  // Set program name, so Python can find its way to runtime libraries relative
-  // to executable.
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);
   MG_ASSERT(program_name);
-  config.program_name = program_name;
-
+  // Set program name, so Python can find its way to runtime libraries relative
+  // to executable.
+  Py_SetProgramName(program_name);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
-  Py_InitializeFromConfig(&config);
+  Py_InitializeEx(0 /* = initsigs */);
   Py_BEGIN_ALLOW_THREADS;
 
   // Add our Python modules to sys.path

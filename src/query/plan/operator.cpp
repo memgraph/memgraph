@@ -417,13 +417,13 @@ UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<OnceCursor>(mem);
 }
 
-WITHOUT_SINGLE_INPUT(Once)
+WITHOUT_SINGLE_INPUT(Once);
 
 std::unique_ptr<LogicalOperator> Once::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Once>();
   object->symbols_ = symbols_;
   return object;
-};
+}
 
 void Once::OnceCursor::Shutdown() {}
 
