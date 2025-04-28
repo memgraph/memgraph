@@ -49,10 +49,11 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool const res = mem_label_property_index->CreateIndex(label, {property}, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_label_properties_.insert({label, property});
-  }
+  bool const res = mem_label_property_index->CreateIndex(label, {property});
+  if (!res) return res;
+
+  mem_label_property_index->PopulateIndex(label, {property}, vertices_.access(), parallel_exec_info);
+  scanned_label_properties_.insert({label, property});
   return res;
 }
 

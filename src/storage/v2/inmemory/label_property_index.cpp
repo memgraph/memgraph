@@ -193,12 +193,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
 }
 
-bool InMemoryLabelPropertyIndex::CreateIndex(
-    LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  spdlog::trace("Vertices size when creating index: {}", vertices.size());
-
+bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<PropertyId> const &properties) {
   auto [it1, _] = index_.try_emplace(label);
   auto &properties_map = it1->second;
 
@@ -221,10 +216,11 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
   return true;
 }
 
-bool InMemoryLabelPropertyIndex::StartPopulatingIndex(
+void InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  spdlog::trace("Vertices size when populating index: {}", vertices.size());
   auto properties_map_it = index_.find(label);
   auto index_it = properties_map_it->second.find(properties);
   MG_ASSERT(index_it != properties_map_it->second.end());
@@ -237,10 +233,11 @@ bool InMemoryLabelPropertyIndex::StartPopulatingIndex(
     auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
       TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
     };
-    PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+    PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     index_ptr->status.store(IndividualIndex::Status::READY, std::memory_order_release);
-    return true;
   } catch (const utils::OutOfMemoryException &) {
+    // No need to change the index status, if another txn has shared_ptr to index...the worst
+    // they can do is redundantly insert into it
     properties_map_it->second.erase(index_it);
     utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
     throw;
@@ -355,8 +352,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
 };
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyId const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyId const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
