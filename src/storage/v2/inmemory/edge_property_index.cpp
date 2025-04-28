@@ -91,7 +91,7 @@ std::vector<PropertyId> InMemoryEdgePropertyIndex::ListIndices() const {
 }
 
 void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter(2048);
 
   for (auto &[property_id, index] : index_) {
     if (token.stop_requested()) return;

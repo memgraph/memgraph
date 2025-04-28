@@ -54,13 +54,19 @@ class CoordinatorState {
 
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
-  auto RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
+
+  auto UpdateReadsOnMainPolicy(bool value) -> UpdateReadsOnMainPolicyStatus;
+
+  auto GetEnabledReadsOnMain() const -> bool;
 
   auto UpdateReadsOnMainPolicy(bool value) -> UpdateReadsOnMainPolicyStatus;
 
   auto GetEnabledReadsOnMain() const -> bool;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
+
+  auto YieldLeadership() const -> YieldLeadershipStatus;
 
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;

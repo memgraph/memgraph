@@ -3002,6 +3002,26 @@ def test_demote_promote(test_name):
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_3))
 
 
+def test_yield_leadership(test_name):
+    # Test that user can do manual failover.
+
+    # 1.
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_1, "YIELD LEADERSHIP")
+    assert str(e.value) == "Only the current leader can yield the leadership!"
+
+    # 3.
+    execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
+
+
 def test_enabled_reads_on_main(test_name):
     # 1.
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)

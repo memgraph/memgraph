@@ -549,6 +549,20 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void YieldLeadership() override {
+    switch (auto const status = coordinator_handler_.YieldLeadership()) {
+      case coordination::YieldLeadershipStatus::SUCCESS: {
+        spdlog::info(
+            "The request for yielding leadership was submitted successfully. Please monitor the cluster state with "
+            "'SHOW INSTANCES' to see changes applied.");
+        break;
+      }
+      case coordination::YieldLeadershipStatus::NOT_LEADER: {
+        throw QueryRuntimeException("Only the current leader can yield the leadership!");
+      }
+    };
+  }
+
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                    std::string_view replication_server, std::string_view instance_name,
                                    CoordinatorQuery::SyncMode sync_mode) override {
@@ -1588,7 +1602,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                               bolt_server_it->second, coordinator_query->instance_name_));
       return callback;
     }
-    case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
+    case CoordinatorQuery::Action::UNREGISTER_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can unregister instance!");
       }
@@ -1602,8 +1616,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           fmt::format("Coordinator has unregistered instance {}.", coordinator_query->instance_name_));
 
       return callback;
-
-    case CoordinatorQuery::Action::DEMOTE_INSTANCE:
+    }
+    case CoordinatorQuery::Action::DEMOTE_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can demote instance!");
       }
@@ -1617,8 +1631,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           fmt::format("Coordinator has demoted instance to replica {}.", coordinator_query->instance_name_));
 
       return callback;
-
-    case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE:
+    }
+    case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can force reset cluster!");
       }
@@ -1630,7 +1644,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                   fmt::format("Coordinator has force reset cluster state."));
 
       return callback;
-
+    }
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
@@ -1689,6 +1703,19 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         results.push_back(std::move(instance_result));
         return results;
       };
+      return callback;
+    }
+    case CoordinatorQuery::Action::YIELD_LEADERSHIP: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run YIELD LEADERSHIP query.");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        handler.YieldLeadership();
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::YIELD_LEADERSHIP,
+                                  fmt::format("The coordinator has tried to yield the current leadership."));
+
       return callback;
     }
   }
@@ -4437,6 +4464,10 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
               break;
             case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
               throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
+            case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
+              throw utils::BasicException("Another snapshot creation is already in progress.");
+            case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
+              throw utils::BasicException("Nothing has been written since the last snapshot.");
           }
         }
         return QueryHandlerResult::COMMIT;

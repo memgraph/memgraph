@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,8 @@
 #include "utils/resource_lock.hpp"
 
 #include <gtest/gtest.h>
+#include <future>
+#include <latch>
 #include <shared_mutex>
 #include <thread>
 
@@ -158,4 +160,97 @@ TEST_F(ResourceLockTest, TryLock) {
   lock.unlock_shared();
   ASSERT_TRUE(lock.try_lock());
   lock.unlock();
+}
+
+TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
+  enum class Outcome { Nothing, ErrorAcquiredButShouldBeDefered, ErrorAcquiredButTryShouldHaveFailed, Success };
+
+  // Pin with one write lock
+  auto guard_w_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
+
+  // Concurrently acquire read only lock
+  auto ro_outcome = std::async([&] {
+    auto guard_ro = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+    if (guard_ro.owns_lock()) return Outcome::ErrorAcquiredButShouldBeDefered;
+    if (guard_ro.try_lock()) return Outcome::ErrorAcquiredButTryShouldHaveFailed;
+    guard_ro.lock();
+    return Outcome::Success;
+  });
+
+  // wait for thread to start + block on acquiring the lock
+  using namespace std::chrono_literals;
+  std::this_thread::sleep_for(5ms);
+
+  // should not be able to get write lock, because ro lock is requested
+  auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
+  ASSERT_FALSE(guard_w_2.owns_lock());
+
+  // release write lock that is preventing the read only lock from being acquired
+  guard_w_1.unlock();
+
+  // wait for thread to finish, check result
+  ASSERT_EQ(ro_outcome.get(), Outcome::Success);
+}
+
+TEST_F(ResourceLockTest, LockDowngrade) {
+  auto guard_write_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
+  ASSERT_TRUE(guard_write_1.owns_lock());
+  guard_write_1.downgrade_to_read();
+
+  auto guard_read_only = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+  ASSERT_TRUE(guard_read_only.try_lock());
+  guard_read_only.downgrade_to_read();
+
+  auto guard_write_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
+  ASSERT_TRUE(guard_write_2.try_lock());
+}
+
+TEST_F(ResourceLockTest, ReadOnlyLockTryForWillNotifyWaitingWriterUponFailure) {
+  enum class Outcome { Nothing, ErrorAcquiredButTryShouldHaveFailed, Success };
+  using namespace std::chrono_literals;
+
+  // Pin with one write lock
+  auto guard_write_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
+
+  // Ensure both concurrent workloads start at the same time
+  auto latch1 = std::latch{2};
+
+  // Concurrently try to acquire read only lock
+  auto ro_outcome = std::async([&] {
+    auto guard_ro = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
+    latch1.arrive_and_wait();
+    // expect to timeout and not get lock
+    return !guard_ro.try_lock_for(2ms);
+  });
+
+  auto w2_outcome = std::async([&] {
+    auto guard_write_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
+    latch1.arrive_and_wait();
+    // wait for read only workload to start to try and get the lock
+    std::this_thread::sleep_for(1ms);
+    // expect to get lock
+    return guard_write_2.try_lock_for(100ms);
+  });
+
+  latch1.wait();
+  auto start = std::chrono::steady_clock::now();
+
+  // Ensure that the all wait times will time out
+  std::this_thread::sleep_for(3ms);
+
+  // Check we got the write lock, and did not have to wait for whole 100ms
+  {
+    auto writer_result = w2_outcome.get();
+    auto end = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    ASSERT_LT(duration, 5ms);
+    ASSERT_TRUE(writer_result);
+  }
+
+  // Check we never got the read only lock
+  {
+    auto reader_result = ro_outcome.get();
+    ASSERT_TRUE(reader_result);
+  }
 }

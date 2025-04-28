@@ -107,6 +107,8 @@ class CoordinatorInstance {
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
+  auto YieldLeadership() const -> YieldLeadershipStatus;
+
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();

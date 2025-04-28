@@ -141,7 +141,7 @@ auto CoordinatorState::AddCoordinatorInstance(CoordinatorInstanceConfig const &c
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
 }
 
-auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus {
+auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be unregistered since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
@@ -169,6 +169,12 @@ auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordin
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();
+}
+
+auto CoordinatorState::YieldLeadership() const -> YieldLeadershipStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot yield leadership since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).YieldLeadership();
 }
 
 auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }

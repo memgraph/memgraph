@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -94,10 +94,10 @@ class MemoryTracker final {
     OutOfMemoryExceptionEnabler(OutOfMemoryExceptionEnabler &&) = delete;
     OutOfMemoryExceptionEnabler &operator=(OutOfMemoryExceptionEnabler &&) = delete;
 
-    OutOfMemoryExceptionEnabler();
-    ~OutOfMemoryExceptionEnabler();
+    OutOfMemoryExceptionEnabler() { ++counter_; }
+    ~OutOfMemoryExceptionEnabler() { --counter_; }
 
-    static bool CanThrow();
+    static bool CanThrow() { return counter_ > 0; };
 
    private:
     static thread_local uint64_t counter_;
@@ -113,10 +113,10 @@ class MemoryTracker final {
     OutOfMemoryExceptionBlocker(OutOfMemoryExceptionBlocker &&) = delete;
     OutOfMemoryExceptionBlocker &operator=(OutOfMemoryExceptionBlocker &&) = delete;
 
-    OutOfMemoryExceptionBlocker();
-    ~OutOfMemoryExceptionBlocker();
+    OutOfMemoryExceptionBlocker() { ++counter_; }
+    ~OutOfMemoryExceptionBlocker() { --counter_; }
 
-    static bool IsBlocked();
+    static bool IsBlocked() { return counter_ > 0; };
 
    private:
     static thread_local uint64_t counter_;

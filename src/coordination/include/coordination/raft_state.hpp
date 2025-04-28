@@ -87,6 +87,7 @@ class RaftState {
   auto GetCurrentMainUUID() const -> utils::UUID;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
+  auto YieldLeadership() const -> void;
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
