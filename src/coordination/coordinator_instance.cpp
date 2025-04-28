@@ -1172,6 +1172,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       }
     }
   }
+
   if (newest_instance.has_value()) {
     spdlog::info("The newest instance is {}", newest_instance->first);
     return newest_instance->first;
