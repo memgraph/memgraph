@@ -109,7 +109,7 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
 
     auto entry = log_store.entry_at(1);
 
-    auto const [ds, cs, uuid, enabled_reads_on_main] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
+    CoordinatorStateMachine::DecodeLog(entry->get_buf());
 
     ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
@@ -272,8 +272,8 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto entry1 = log_store1.entry_at(i);
       auto entry2 = log_store2.entry_at(i);
 
-      auto const [ds1, cs1, uuid1, enabled_reads_on_main1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
-      auto const [ds2, cs2, uuid2, enabled_reads_on_main2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+      CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
       ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
@@ -293,8 +293,8 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto entry1 = log_store1.entry_at(i);
       auto entry2 = log_store2.entry_at(i);
 
-      auto const [ds1, cs1, uuid1, enabled_reads_on_main1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
-      auto const [ds2, cs2, uuid2, enabled_reads_on_main2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+      CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
       ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
@@ -340,7 +340,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
   for (int i = 4; i <= 5; ++i) {
     auto entry = log_store.entry_at(i);
     ASSERT_TRUE(entry != nullptr);
-    auto const [ds, cs, uuid, enabled_reads_on_main] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
+    CoordinatorStateMachine::DecodeLog(entry->get_buf());
   }
 
   // Check that logs from 1 to 3 do not exist
