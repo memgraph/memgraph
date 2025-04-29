@@ -66,8 +66,8 @@ struct CoordinatorStateManagerConfig {
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.
 
 struct ReplicationClientInfo {
-  std::string instance_name{};
-  replication_coordination_glue::ReplicationMode replication_mode{};
+  std::string instance_name;
+  replication_coordination_glue::ReplicationMode replication_mode;
   io::network::Endpoint replication_server;
 
   friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
@@ -80,7 +80,7 @@ struct DataInstanceConfig {
     return replication_client_info.replication_server.SocketAddress();
   }
 
-  std::string instance_name{};
+  std::string instance_name;
   io::network::Endpoint mgt_server;
   io::network::Endpoint bolt_server;
   ReplicationClientInfo replication_client_info;
