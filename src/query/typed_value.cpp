@@ -106,6 +106,10 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       for (const auto &kv : map) {
         auto typed_value = TypedValue(kv.second, name_id_mapper, memory_);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
+        auto correct_key = key.find_last_of('.');
+        if (correct_key != std::string::npos) {
+          key = key.substr(correct_key + 1);
+        }
         map_v.emplace(TString(key, memory_), std::move(typed_value));
       }
       return;
@@ -211,9 +215,13 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       if (!name_id_mapper) {
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
       }
-      for (auto &kv : map) {
+      for (const auto &kv : map) {
         auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
+        auto correct_key = key.find_last_of('.');
+        if (correct_key != std::string::npos) {
+          key = key.substr(correct_key + 1);
+        }
         map_v.emplace(TString(key, memory_), std::move(typed_value));
       }
       break;
