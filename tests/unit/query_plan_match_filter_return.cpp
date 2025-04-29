@@ -3086,9 +3086,9 @@ TYPED_TEST(QueryPlan, Distinct) {
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label);
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3148,9 +3148,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3241,9 +3241,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3280,9 +3280,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3313,9 +3313,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3369,9 +3369,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3405,9 +3405,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3438,9 +3438,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3482,9 +3482,9 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   // Make sure there are `vertex_count` vertices
