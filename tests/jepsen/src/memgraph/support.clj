@@ -70,6 +70,7 @@
    :--data-recovery-on-startup
    :--storage-properties-on-edges
    :--telemetry-enabled false
+   :--query-execution-timeout-sec 8
    :--management-port (get node-config :management-port)))
 
 (defn start-memgraph-node!
