@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -23,12 +24,18 @@
 #include "utils/scheduler.hpp"
 
 namespace memgraph::utils {
-
+// Thread-safe mask that returns the position of first set bit
 class HotMask {
  public:
   static constexpr auto kMaxElements = 1024U;
 
-  explicit HotMask(uint16_t n_elements) : n_elements_{n_elements}, n_groups_{GetNumGroups(n_elements_)} {}
+  explicit HotMask(uint16_t n_elements)
+      :
+#ifndef NDEBUG
+        n_elements_{n_elements},
+#endif
+        n_groups_{GetNumGroups(n_elements)} {
+  }
 
   inline void Set(const uint64_t id) {
     DMG_ASSERT(id < n_elements_, "Trying to set out-of-bounds");
@@ -38,6 +45,8 @@ class HotMask {
     DMG_ASSERT(id < n_elements_, "Trying to reset out-of-bounds");
     hot_masks_[GetGroup(id)].fetch_and(~GroupMask(id), std::memory_order::acq_rel);
   }
+
+  // Returns the position of the first set bit and resets it
   std::optional<uint16_t> GetHotElement();
 
  private:
@@ -45,14 +54,16 @@ class HotMask {
   static constexpr auto kGroupMask = kGroupSize - 1;
 
   // Get element's group
-  static inline uint16_t GetGroup(const uint64_t id) { return id / kGroupSize; }
+  static constexpr uint16_t GetGroup(const uint64_t id) { return id / kGroupSize; }
   // Get number of groups
   static inline uint16_t GetNumGroups(const uint64_t n_elements) { return (n_elements - 1) / kGroupSize + 1; }
   // Mask as seen by the appropriate group
-  static inline uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
+  static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
-  std::array<std::atomic<uint64_t>, kMaxElements / sizeof(uint64_t)> hot_masks_{};
+  std::array<std::atomic<uint64_t>, kMaxElements / kGroupSize> hot_masks_{};
+#ifndef NDEBUG
   const uint16_t n_elements_;
+#endif
   const uint16_t n_groups_;
 };
 
@@ -105,10 +116,11 @@ class PriorityThreadPool {
     std::condition_variable cv_;
     std::priority_queue<Work> work_;
 
+    // Stats
     std::atomic_bool has_pending_work_{false};
     std::atomic_bool working_{false};
     std::atomic_bool run_{true};
-
+    // Used by monitor to decide if worker is blocked
     std::atomic<TaskID> last_task_{0};
 
     friend class PriorityThreadPool;

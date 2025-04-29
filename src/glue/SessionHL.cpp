@@ -27,6 +27,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
+#include "utils/priorities.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -169,10 +170,20 @@ utils::Priority SessionHL::ApproximateQueryPriority() const {
                             // Many variants of queries
                             // Cypher -> low
                             // all others -> high
-                            // TODO low also unique or system queries
-                            return utils::Downcast<query::CypherQuery>(parse_info.parsed_query.query)
-                                       ? utils::Priority::LOW
-                                       : utils::Priority::HIGH;
+                            const auto &query = parse_info.parsed_query.query;
+                            // Most often query type
+                            if (utils::Downcast<query::CypherQuery>(query)) [[likely]]
+                              return utils::Priority::LOW;
+                            // For now return HIGH only for hand-picked queries (non-system and non-db queries)
+                            auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
+                                                 utils::Downcast<query::SettingQuery>(query) ||
+                                                 utils::Downcast<query::VersionQuery>(query) ||
+                                                 utils::Downcast<query::TransactionQueueQuery>(query) ||
+                                                 utils::Downcast<query::UseDatabaseQuery>(query) ||
+                                                 utils::Downcast<query::ShowDatabaseQuery>(query) ||
+                                                 utils::Downcast<query::ShowDatabasesQuery>(query) ||
+                                                 utils::Downcast<query::ReplicationInfoQuery>(query);
+                            return high_priority ? utils::Priority::HIGH : utils::Priority::LOW;
                           },
                           [](const auto &) { MG_ASSERT(false, "Unexpected ParseRes variant!"); },
                       },

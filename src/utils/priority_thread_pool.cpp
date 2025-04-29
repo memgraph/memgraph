@@ -36,11 +36,11 @@ constexpr uint16_t kMaxWorkers = memgraph::utils::HotMask::kMaxElements;
 namespace memgraph::utils {
 
 struct TmpHotElement {
-  uint16_t id;
+  uint8_t id;
   uint64_t new_mask;
 
   static inline TmpHotElement Get(uint64_t state) {
-    uint16_t hot_id = std::countr_zero(state);      // Get first hot thread in group
+    uint8_t hot_id = std::countr_zero(state);       // Get first hot thread in group
     uint64_t new_state = state & ~(1UL << hot_id);  // Update group to reflect thread reservation
     return {hot_id, new_state};
   }
@@ -103,46 +103,44 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   barrier.wait();
 
   // Under heavy load a task can get stuck, monitor and move to different thread
-  // TODO only if has more than one thread
   monitoring_.SetInterval(std::chrono::milliseconds(100));
-  monitoring_.Run(
-      "sched_mon", [this, workers_num = work_buckets_.size(), hp_workers_num = hp_work_buckets_.size()]() mutable {
-        // TODO range
-        size_t i = 0;
-        std::array<TaskID, kMaxWorkers> last_task{};
-        for (auto *worker : work_buckets_) {
-          const auto worker_id = i++;
-          auto update = utils::OnScopeExit{[&]() mutable { last_task[worker_id] = worker->last_task_; }};
-          if (last_task[worker_id] == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
-            // worker stuck on a task; move task to a different queue
-            auto l = std::unique_lock{worker->mtx_, std::defer_lock};
-            if (!l.try_lock()) continue;  // Thread is busy...
-            // Recheck under lock
-            if (worker->work_.empty() || last_task[worker_id] != worker->last_task_) continue;
-            // Update flag as soon as possible
-            worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-            Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
-            worker->work_.pop();
-            l.unlock();
+  monitoring_.Run("sched_mon", [this, workers_num = work_buckets_.size(), hp_workers_num = hp_work_buckets_.size(),
+                                last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
+    size_t i = 0;
+    for (auto *worker : work_buckets_) {
+      const auto worker_id = i++;
+      auto &worker_last_task = last_task[worker_id];
+      auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
+      if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
+        // worker stuck on a task; move task to a different queue
+        auto l = std::unique_lock{worker->mtx_, std::defer_lock};
+        if (!l.try_lock()) continue;  // Thread is busy...
+        // Recheck under lock
+        if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
+        // Update flag as soon as possible
+        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+        Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
+        worker->work_.pop();
+        l.unlock();
 
-            auto tid = hot_threads_.GetHotElement();
-            if (!tid) {
-              // No LP threads available; schedule HP work to HP thread
-              if (work.id > kMinHighPriorityId) {
-                static size_t last_hp_thread = 0;
-                auto &hp_worker = hp_work_buckets_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
-                if (!hp_worker->has_pending_work_) {
-                  hp_worker->push(std::move(work.work), work.id);
-                  continue;
-                }
-              }
-              // No hot thread and no low priority work, schedule to the next lp worker
-              tid = (worker_id + 1) % workers_num;
+        auto tid = hot_threads_.GetHotElement();
+        if (!tid) {
+          // No hot LP threads available; schedule HP work to HP thread
+          if (work.id > kMinHighPriorityId) {
+            static size_t last_hp_thread = 0;
+            auto &hp_worker = hp_work_buckets_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+            if (!hp_worker->has_pending_work_) {
+              hp_worker->push(std::move(work.work), work.id);
+              continue;
             }
-            work_buckets_[*tid]->push(std::move(work.work), work.id);
           }
+          // No hot thread and low priority work, schedule to the next lp worker
+          tid = (worker_id + 1) % workers_num;
         }
-      });
+        work_buckets_[*tid]->push(std::move(work.work), work.id);
+      }
+    }
+  });
 }
 
 PriorityThreadPool::~PriorityThreadPool() {
@@ -156,15 +154,12 @@ void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
 void PriorityThreadPool::ShutDown() {
   {
     pool_stop_source_.request_stop();
-
     // Stop monitoring thread before workers
     monitoring_.Stop();
-
     // Mixed work workers
     for (auto *worker : work_buckets_) {
       worker->stop();
     }
-
     // High priority workers
     for (auto *worker : hp_work_buckets_) {
       worker->stop();
@@ -177,7 +172,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     return;
   }
   const auto id = (TaskID(priority == Priority::HIGH) * kMinHighPriorityId) +
-                  --task_id_;  // Way to priorities hp tasks (overflow concerns)
+                  --task_id_;  // Way to priorities hp tasks and older tasks
   auto tid = hot_threads_.GetHotElement();
   if (!tid) {
     // Limit the number of directly used threads when there are more workers than hw threads.
@@ -216,11 +211,22 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id, std::vecto
 
   // Both mixed and high priority worker only steal from mixed worker
   const auto other_workers = std::invoke([workers_pool = std::move(workers_pool), ptr = this]() mutable {
-    workers_pool.erase(std::find(workers_pool.begin(), workers_pool.end(), ptr));
+    // Only mixed work threads can have work stolen, workers_pool will not contain hp threads
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      auto itr = std::find(workers_pool.begin(), workers_pool.end(), ptr);
+      if (itr != workers_pool.end()) workers_pool.erase(itr);
+    }
+    (void)ptr;
     return workers_pool;
   });
 
   std::optional<TaskSignature> task;
+  auto pop_task = [&] {
+    has_pending_work_.store(work_.size() > 1, std::memory_order::release);
+    last_task_.store(work_.top().id, std::memory_order_release);
+    task = std::move(work_.top().work);
+    work_.pop();
+  };
 
   while (run_.load(std::memory_order_acquire)) {
     // Phase 1 get scheduled work <- cold thread???
@@ -238,10 +244,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id, std::vecto
     {
       auto l = std::unique_lock{mtx_};
       if (!work_.empty()) {
-        has_pending_work_.store(work_.size() > 1, std::memory_order::release);
-        last_task_.store(work_.top().id, std::memory_order_release);
-        task = std::move(work_.top().work);
-        work_.pop();
+        pop_task();
         continue;  // Spin to phase 1A
       }
     }
@@ -297,13 +300,21 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id, std::vecto
       }
     }
 
-    // Phase 4 - go to sleep
+    // Phase 4A - reset hot mask
     if constexpr (ThreadPriority != Priority::HIGH) {
       hot_threads.Reset(worker_id);
     }
+    // Phase 4B - check if work available (sleep or spin)
     {
       auto l = std::unique_lock{mtx_};
-      cv_.wait(l, [this] { return !work_.empty() || !run_; });
+      cv_.wait(l, [this, &pop_task] {
+        // Under lock, check if there is work waiting
+        if (!work_.empty()) {
+          pop_task();
+          return true;  // Spin to phase 1A and execute task
+        }
+        return !run_;  // Return and shutdown
+      });
     }
   }
 }
