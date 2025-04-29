@@ -706,20 +706,20 @@ TYPED_TEST(DumpTest, IndicesKeys) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto read_only_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc
+        read_only_acc
             ->CreateIndex(this->db->storage()->NameToLabel("Label1"), {this->db->storage()->NameToProperty("prop")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto read_only_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc
+        read_only_acc
             ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), {this->db->storage()->NameToProperty("prop `")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   {
@@ -749,14 +749,14 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto read_only_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc
+        read_only_acc
             ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
                           {this->db->storage()->NameToProperty("prop_a"), this->db->storage()->NameToProperty("prop_b"),
                            this->db->storage()->NameToProperty("prop_c")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   {
@@ -1151,19 +1151,20 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto read_only_acc = this->db->ReadOnlyAccess();
     ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
+        read_only_acc
+            ->CreateIndex(this->db->storage()->NameToLabel("Person"), {this->db->storage()->NameToProperty("id")})
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    ASSERT_FALSE(read_only_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
                                    {this->db->storage()->NameToProperty("unexisting_property")})
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   const auto &db_initial_state = GetState(this->db->storage());
@@ -1339,20 +1340,20 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
   {
     // Create indices
     {
-      auto unique_acc = this->db->UniqueAccess();
+      auto read_only_acc = this->db->ReadOnlyAccess();
       ASSERT_FALSE(
-          unique_acc
+          read_only_acc
               ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), {this->db->storage()->NameToProperty("name")})
               .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(unique_acc
+      auto read_only_acc = this->db->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc
                        ->CreateIndex(this->db->storage()->NameToLabel("PERSON"),
                                      {this->db->storage()->NameToProperty("surname")})
                        .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
 
     // Create existence constraints
