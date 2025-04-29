@@ -13,6 +13,7 @@
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -39,8 +40,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override{};
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx,
+                           NameIdMapper *name_id_mapper) override{};
 
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 

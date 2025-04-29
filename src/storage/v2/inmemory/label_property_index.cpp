@@ -13,6 +13,7 @@
 
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
@@ -259,25 +260,53 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                                     const Transaction &tx) {
-  auto const it = indices_by_property_.find(property);
-  if (it == indices_by_property_.end()) {
-    return;
+                                                     const Transaction &tx, NameIdMapper *name_id_mapper) {
+  auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
+  auto const has_property = [](const PropertyId &property) {
+    return [=](auto &&each) {
+      auto &ids = *std::get<PropertiesIds const *>(each.second);
+      return r::find(ids, property) != ids.cend();
+    };
+  };
+  auto const relevant_index = [&](const PropertyId &property) {
+    auto property_filter = has_property(property);
+    return [=](auto &&each) { return has_label(each) && property_filter(each); };
+  };
+
+  auto process_index = [&](const auto &map, const PropertyId &property) {
+    for (auto &lookup : map | rv::filter(relevant_index(property))) {
+      auto &[property_ids, index] = lookup.second;
+
+      auto values = index->permutations_helper.Extract(vertex->properties);
+      auto acc = index->skiplist.access();
+      acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
+    }
+  };
+
+  std::map<PropertyId, PropertyValue> map_properties;
+  std::function<void(PropertyValue)> decode_map_property;
+  decode_map_property = [&](const PropertyValue &map_property) {
+    for (const auto &[key, value] : map_property.ValueMap()) {
+      map_properties.emplace(key, value);
+      if (value.IsMap()) {
+        decode_map_property(value);
+      }
+    }
+  };
+  if (value.IsMap()) {
+    // Handle nested index
+    decode_map_property(value);
+    for (auto &[key, value] : map_properties) {
+      auto const it = indices_by_property_.find(key);
+      if (it != indices_by_property_.end()) {
+        process_index(it->second, key);
+      }
+    }
   }
 
-  auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
-  auto const has_property = [&](auto &&each) {
-    auto &ids = *std::get<PropertiesIds const *>(each.second);
-    return r::find(ids, property) != ids.cend();
-  };
-  auto const relevant_index = [&](auto &&each) { return has_label(each) && has_property(each); };
-
-  for (auto &lookup : it->second | rv::filter(relevant_index)) {
-    auto &[property_ids, index] = lookup.second;
-
-    auto values = index->permutations_helper.Extract(vertex->properties);
-    auto acc = index->skiplist.access();
-    acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
+  auto const it = indices_by_property_.find(property);
+  if (it != indices_by_property_.end()) {
+    process_index(it->second, property);
   }
 }
 

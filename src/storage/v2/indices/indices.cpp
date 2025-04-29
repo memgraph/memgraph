@@ -77,8 +77,8 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transacti
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  const Transaction &tx) const {
-  label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+                                  const Transaction &tx, NameIdMapper *name_id_mapper) const {
+  label_property_index_->UpdateOnSetProperty(property, value, vertex, tx, name_id_mapper);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
 }
 
