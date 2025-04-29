@@ -30,6 +30,7 @@
    :--replication-restore-state-on-startup
    :--storage-wal-file-flush-every-n-tx @sync-after-n-txn
    :--telemetry-enabled false
+   :--query-execution-timeout-sec 8
    :--storage-properties-on-edges))
 
 (defn start-coordinator-node!
@@ -50,6 +51,7 @@
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
+   :--query-execution-timeout-sec 8
    :--management-port (get node-config :management-port)))
 
 (defn start-data-node!
