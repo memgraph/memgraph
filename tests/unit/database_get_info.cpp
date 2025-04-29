@@ -152,48 +152,48 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = db_acc->ReadOnlyAccess();
+    ASSERT_FALSE(read_only_acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = db_acc->ReadOnlyAccess();
+    ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = db_acc->ReadOnlyAccess();
+    ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop2}).HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = db_acc->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = db_acc->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
   }
 
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_acc = db_acc->ReadOnlyAccess();
+    ASSERT_FALSE(read_only_acc->DropIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = db_acc->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->DropIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = db_acc->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->DropIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
   }
 
