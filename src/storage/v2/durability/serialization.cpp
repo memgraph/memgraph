@@ -29,41 +29,51 @@ namespace memgraph::storage::durability {
 //////////////////////////
 
 namespace {
-void WriteSize(Encoder *encoder, uint64_t size) {
+template <typename FileType>
+void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
   size = utils::HostToLittleEndian(size);
   encoder->Write(reinterpret_cast<const uint8_t *>(&size), sizeof(size));
 }
 }  // namespace
 
-void Encoder::Initialize(const std::filesystem::path &path) {
-  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+template <typename FileType>
+void Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+  file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
-void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+template <typename FileType>
+void Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
   Initialize(path);
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
 }
 
-void Encoder::OpenExisting(const std::filesystem::path &path) {
-  file_.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+template <typename FileType>
+void Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
+  file_.Open(path, FileType::Mode::APPEND_TO_EXISTING);
 }
 
-void Encoder::Close() {
+template <typename FileType>
+void Encoder<FileType>::Close() {
   if (file_.IsOpen()) {
     file_.Close();
   }
 }
 
-void Encoder::Write(const uint8_t *data, uint64_t size) { file_.Write(data, size); }
+template <typename FileType>
+void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
+  file_.Write(data, size);
+}
 
-void Encoder::WriteMarker(Marker marker) {
+template <typename FileType>
+void Encoder<FileType>::WriteMarker(Marker marker) {
   auto value = static_cast<uint8_t>(marker);
   Write(&value, sizeof(value));
 }
 
-void Encoder::WriteBool(bool value) {
+template <typename FileType>
+void Encoder<FileType>::WriteBool(bool value) {
   WriteMarker(Marker::TYPE_BOOL);
   if (value) {
     WriteMarker(Marker::VALUE_TRUE);
@@ -72,26 +82,30 @@ void Encoder::WriteBool(bool value) {
   }
 }
 
-void Encoder::WriteUint(uint64_t value) {
+template <typename FileType>
+void Encoder<FileType>::WriteUint(uint64_t value) {
   value = utils::HostToLittleEndian(value);
   WriteMarker(Marker::TYPE_INT);
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 }
 
-void Encoder::WriteDouble(double value) {
+template <typename FileType>
+void Encoder<FileType>::WriteDouble(double value) {
   auto value_uint = utils::MemcpyCast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
   WriteMarker(Marker::TYPE_DOUBLE);
   Write(reinterpret_cast<const uint8_t *>(&value_uint), sizeof(value_uint));
 }
 
-void Encoder::WriteString(const std::string_view value) {
+template <typename FileType>
+void Encoder<FileType>::WriteString(const std::string_view value) {
   WriteMarker(Marker::TYPE_STRING);
   WriteSize(this, value.size());
   Write(reinterpret_cast<const uint8_t *>(value.data()), value.size());
 }
 
-void Encoder::WriteEnum(storage::Enum value) {
+template <typename FileType>
+void Encoder<FileType>::WriteEnum(storage::Enum value) {
   WriteMarker(Marker::TYPE_ENUM);
   auto etype = utils::HostToLittleEndian(value.type_id().value_of());
   Write(reinterpret_cast<const uint8_t *>(&etype), sizeof(etype));
@@ -99,14 +113,16 @@ void Encoder::WriteEnum(storage::Enum value) {
   Write(reinterpret_cast<const uint8_t *>(&evalue), sizeof(evalue));
 }
 
-void Encoder::WritePoint2d(storage::Point2d value) {
+template <typename FileType>
+void Encoder<FileType>::WritePoint2d(storage::Point2d value) {
   WriteMarker(Marker::TYPE_POINT_2D);
   WriteUint(CrsToSrid(value.crs()).value_of());
   WriteDouble(value.x());
   WriteDouble(value.y());
 }
 
-void Encoder::WritePoint3d(storage::Point3d value) {
+template <typename FileType>
+void Encoder<FileType>::WritePoint3d(storage::Point3d value) {
   WriteMarker(Marker::TYPE_POINT_3D);
   WriteUint(CrsToSrid(value.crs()).value_of());
   WriteDouble(value.x());
@@ -114,7 +130,8 @@ void Encoder::WritePoint3d(storage::Point3d value) {
   WriteDouble(value.z());
 }
 
-void Encoder::WritePropertyValue(const PropertyValue &value) {
+template <typename FileType>
+void Encoder<FileType>::WritePropertyValue(const PropertyValue &value) {
   WriteMarker(Marker::TYPE_PROPERTY_VALUE);
   switch (value.type()) {
     case PropertyValue::Type::Null: {
@@ -190,26 +207,54 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
   }
 }
 
-uint64_t Encoder::GetPosition() { return file_.GetPosition(); }
+template <typename FileType>
+uint64_t Encoder<FileType>::GetPosition() {
+  return file_.GetPosition();
+}
 
-void Encoder::SetPosition(uint64_t position) { file_.SetPosition(utils::OutputFile::Position::SET, position); }
+template <typename FileType>
+void Encoder<FileType>::SetPosition(uint64_t position) {
+  file_.SetPosition(FileType::Position::SET, position);
+}
 
-void Encoder::Sync() { file_.Sync(); }
+template <typename FileType>
+void Encoder<FileType>::Sync() {
+  file_.Sync();
+}
 
-void Encoder::Finalize() {
+template <typename FileType>
+void Encoder<FileType>::Finalize() {
   file_.Sync();
   file_.Close();
 }
 
-void Encoder::DisableFlushing() { file_.DisableFlushing(); }
+template <typename FileType>
+void Encoder<FileType>::DisableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+  file_.DisableFlushing();
+}
 
-void Encoder::EnableFlushing() { file_.EnableFlushing(); }
+template <typename FileType>
+void Encoder<FileType>::EnableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+  file_.EnableFlushing();
+}
 
-void Encoder::TryFlushing() { file_.TryFlushing(); }
+template <typename FileType>
+void Encoder<FileType>::TryFlushing() requires std::same_as<FileType, utils::OutputFile> {
+  file_.TryFlushing();
+}
 
-std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const { return file_.CurrentBuffer(); }
+template <typename FileType>
+std::pair<const uint8_t *, size_t> Encoder<FileType>::CurrentFileBuffer() const {
+  return file_.CurrentBuffer();
+}
 
-size_t Encoder::GetSize() { return file_.GetSize(); }
+template <typename FileType>
+size_t Encoder<FileType>::GetSize() {
+  return file_.GetSize();
+}
+
+template class Encoder<utils::OutputFile>;
+template class Encoder<utils::NonConcurrentOutputFile>;
 
 //////////////////////////
 // Decoder implementation.

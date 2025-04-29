@@ -692,6 +692,38 @@ antlrcpp::Any CypherMainVisitor::visitShowInstances(MemgraphCypher::ShowInstance
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitYieldLeadership(MemgraphCypher::YieldLeadershipContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::YIELD_LEADERSHIP;
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetCoordinatorSetting(MemgraphCypher::SetCoordinatorSettingContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SET_COORDINATOR_SETTING;
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
+  coordinator_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
+  MG_ASSERT(coordinator_query->setting_name_);
+
+  coordinator_query->setting_value_ = std::any_cast<Expression *>(ctx->settingValue()->accept(this));
+  MG_ASSERT(coordinator_query->setting_value_);
+
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowCoordinatorSettings(MemgraphCypher::ShowCoordinatorSettingsContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS;
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;

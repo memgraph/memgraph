@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,8 @@
 #include <string>
 #include <string_view>
 
+using namespace std::string_view_literals;
+
 namespace memgraph::coordination {
 
 enum class LogStoreVersion : int {
@@ -22,7 +24,7 @@ enum class LogStoreVersion : int {
   // kv3 = 3,  // when new version is added
 };
 
-constexpr LogStoreVersion kActiveVersion = LogStoreVersion::kV2;
+constexpr auto kActiveVersion = LogStoreVersion::kV2;
 
 constexpr std::string_view kLogStoreVersion = "log_store_version";  // top level
 
@@ -45,5 +47,18 @@ constexpr std::string_view kStartIdx = "start_idx";           // top level
 const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
 const std::string kLogEntryValTypeKey = "val_type";
+
+// routing policies
+constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
+
+// cluster state
+constexpr int MAX_SNAPSHOTS = 3;
+constexpr auto kUuid = "uuid"sv;
+constexpr auto kDataInstances =
+    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
+constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
+constexpr std::string_view kMainUUID = "current_main_uuid";
+constexpr std::string_view kConfig{"config"};
+constexpr std::string_view kStatus{"status"};
 
 }  // namespace memgraph::coordination

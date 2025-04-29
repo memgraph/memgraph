@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,12 +16,11 @@ namespace memgraph::storage {
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
                             std::optional<VertexAccessor> *vertex, Storage *storage, Transaction *tx, View view) {
   while (it != end) {
-    if (not VertexAccessor::IsVisible(&*it, tx, view)) {
-      ++it;
-      continue;
+    if (VertexAccessor::IsVisible(&*it, tx, view)) [[likely]] {
+      vertex->emplace(&*it, storage, tx);
+      break;
     }
-    *vertex = VertexAccessor{&*it, storage, tx};
-    break;
+    ++it;
   }
   return it;
 }
@@ -34,8 +33,7 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
 VertexAccessor const &AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
+  it_ = AdvanceToVisibleVertex(std::next(it_), self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
                                self_->transaction_, self_->view_);
   return *this;
 }

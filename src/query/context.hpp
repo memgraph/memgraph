@@ -21,6 +21,7 @@
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
 #include "utils/async_timer.hpp"
+#include "utils/counter.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
@@ -85,6 +86,9 @@ struct ExecutionContext {
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   DatabaseAccessProtector db_acc;
+  utils::ResettableCounter maybe_check_abort_{20};  // Checking abort is a cheap check but is still an atomic
+                                                    //  read. Reducing the frequency should reduce its impact
+                                                    //  on performance for the expected (non-abort) case
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

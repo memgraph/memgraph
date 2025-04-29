@@ -343,6 +343,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowInstances(MemgraphCypher::ShowInstancesContext *ctx) override;
 
   /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitYieldLeadership(MemgraphCypher::YieldLeadershipContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitSetCoordinatorSetting(MemgraphCypher::SetCoordinatorSettingContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowCoordinatorSettings(MemgraphCypher::ShowCoordinatorSettingsContext *ctx) override;
+
+  /**
    * @return LockPathQuery*
    */
   antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;

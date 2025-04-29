@@ -13,7 +13,7 @@
 
 #include "coordination/coordinator_state_machine.hpp"
 
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
@@ -24,15 +24,6 @@
 using nuraft::cluster_config;
 using nuraft::ptr;
 using nuraft::snapshot;
-
-namespace {
-constexpr int MAX_SNAPSHOTS = 3;
-using namespace std::string_view_literals;
-constexpr auto kDataInstances =
-    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
-constexpr auto kCoordInstances = "coordinator_instances"sv;
-constexpr auto kUuid = "uuid"sv;
-}  // namespace
 
 namespace memgraph::coordination {
 void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx) {
@@ -148,7 +139,7 @@ auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const
   return cluster_state_.HasMainState(instance_name);
 }
 
-auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
+auto CoordinatorStateMachine::CreateLog(nlohmann::json const &log) -> ptr<buffer> {
   auto const log_dump = log.dump();
   ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log_dump.size());
   buffer_serializer bs(log_buf);
@@ -156,23 +147,53 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
-                                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                                          utils::UUID uuid) -> ptr<buffer> {
-  return CreateLog({{kDataInstances, data_instances}, {kCoordInstances, coordinator_instances}, {kUuid, uuid}});
+auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStateDelta const &delta_state)
+    -> ptr<buffer> {
+  nlohmann::json delta_state_json;
+
+  auto const add_if_set = [&delta_state_json](std::string_view const key, auto const &opt_value) {
+    if (opt_value.has_value()) {
+      delta_state_json.emplace(key, *opt_value);
+    }
+  };
+
+  add_if_set(kDataInstances, delta_state.data_instances_);
+  add_if_set(kCoordinatorInstances, delta_state.coordinator_instances_);
+  add_if_set(kUuid, delta_state.current_main_uuid_);
+  add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
+
+  return CreateLog(delta_state_json);
 }
 
-auto CoordinatorStateMachine::DecodeLog(buffer &data)
-    -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
+auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterStateDelta {
   buffer_serializer bs(data);
   try {
+    CoordinatorClusterStateDelta delta_state;
     auto const json = nlohmann::json::parse(bs.get_str());
-    auto const data_instances = json.at(kDataInstances.data());
-    auto const uuid = json.at(kUuid.data());
-    auto const coordinator_instances = json.at(kCoordInstances.data());
-    return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
-                           coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(),
-                           uuid.get<utils::UUID>());
+
+    if (json.contains(kDataInstances.data())) {
+      auto const data_instances = json.at(kDataInstances.data());
+      delta_state.data_instances_ = data_instances.get<std::vector<DataInstanceContext>>();
+    }
+
+    if (json.contains(kCoordinatorInstances.data())) {
+      auto const coordinator_instances = json.at(kCoordinatorInstances.data());
+      delta_state.coordinator_instances_ = coordinator_instances.get<std::vector<CoordinatorInstanceContext>>();
+    }
+
+    if (json.contains(kUuid.data())) {
+      auto const uuid = json.at(kUuid.data());
+      delta_state.current_main_uuid_ = uuid.get<utils::UUID>();
+    }
+
+    if (json.contains(kEnabledReadsOnMain.data())) {
+      // enabled_reads_on_main policy is added later, read it optionally, otherwise default it to false
+      auto const enabled_reads_on_main = json.value(kEnabledReadsOnMain.data(), false);
+      delta_state.enabled_reads_on_main_ = enabled_reads_on_main;
+    }
+
+    return delta_state;
+
   } catch (std::exception const &e) {
     LOG_FATAL("Error occurred while decoding log {}.", e.what());
   }
@@ -182,8 +203,7 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto [data_instances, coordinator_instances, main_uuid] = DecodeLog(data);
-  cluster_state_.DoAction(std::move(data_instances), std::move(coordinator_instances), main_uuid);
+  cluster_state_.DoAction(DecodeLog(data));
   durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   last_committed_idx_ = log_idx;
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
@@ -350,5 +370,8 @@ auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) cons
 auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {
   return cluster_state_.TryGetCurrentMainName();
 }
+
+auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return cluster_state_.GetEnabledReadsOnMain(); }
+
 }  // namespace memgraph::coordination
 #endif
