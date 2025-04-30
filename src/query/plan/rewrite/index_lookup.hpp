@@ -998,17 +998,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
     auto or_labels = filters_.FilteredOrLabels(symbol);
-    if (!or_labels.empty()) {
-      for (auto const &label_vec : or_labels) {
-        labelIXs.insert(labelIXs.end(), std::make_move_iterator(label_vec.begin()),
-                        std::make_move_iterator(label_vec.end()));
-      }
+    for (auto const &label_vec : or_labels) {
+      labelIXs.insert(labelIXs.end(), std::make_move_iterator(label_vec.begin()),
+                      std::make_move_iterator(label_vec.end()));
     }
     auto property_filters1 = filters_.PropertyFilters(symbol);
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
     auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
     ranges::stable_sort(property_filters, {}, as_storage_property);
-    auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
+    auto properties = property_filters | rv::transform(as_storage_property) |
+                      r::to_vector;  // TODO: To support nested indices this should be vector of vectors
 
     // TODO: extact as a common util
     auto filters_grouped_by_property = std::map<storage::PropertyId, std::vector<FilterInfo>>{};

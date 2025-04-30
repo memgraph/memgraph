@@ -406,7 +406,7 @@ class PropertyFilter {
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
-  PropertyIx property_;
+  PropertyIx property_;  // TODO: in order to support nested indices, should this be a vector?
   Type type_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
