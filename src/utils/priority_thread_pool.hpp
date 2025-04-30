@@ -109,7 +109,7 @@ class PriorityThreadPool {
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(uint16_t worker_id, std::vector<Worker *> workers_pool, HotMask &hot_threads);
+    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads);
 
    private:
     mutable std::mutex mtx_;
@@ -128,12 +128,14 @@ class PriorityThreadPool {
 
  private:
   std::stop_source pool_stop_source_;
-  std::vector<std::jthread> pool_;  // All available threads
-  utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
-  std::vector<Worker *> work_buckets_;     // Mixed work threads
-  std::vector<Worker *> hp_work_buckets_;  // High priority work threads | ideally tasks yield and this isn't needed
-  HotMask hot_threads_;                    // Mask of workers waiting for new work (but still not sleeping)
+  std::vector<std::unique_ptr<Worker>> workers_;  // Mixed work threads
+  std::vector<std::unique_ptr<Worker>>
+      hp_workers_;       // High priority work threads | ideally tasks yield and this isn't needed
+  HotMask hot_threads_;  // Mask of workers waiting for new work (but still not sleeping)
+
+  std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
+  utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker

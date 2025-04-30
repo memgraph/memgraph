@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -75,28 +76,26 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   MG_ASSERT(high_priority_threads_count > 0, "PriorityThreadPool requires at least one high priority work thread");
 
   pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
-  work_buckets_.resize(mixed_work_threads_count);
-  hp_work_buckets_.resize(high_priority_threads_count);
+  workers_.resize(mixed_work_threads_count);
+  hp_workers_.resize(high_priority_threads_count);
 
   const size_t nthreads = mixed_work_threads_count + high_priority_threads_count;
   SimpleBarrier barrier{nthreads};
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
-      Worker worker;
       // Divide work by each thread
-      work_buckets_[i] = &worker;
+      workers_[i] = std::make_unique<Worker>();
       barrier.arrive_and_wait();
-      worker.operator()<Priority::LOW>(i, work_buckets_, hot_threads_);
+      workers_[i]->operator()<Priority::LOW>(i, workers_, hot_threads_);
     });
   }
 
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
-      Worker worker;
-      hp_work_buckets_[i] = &worker;
+      hp_workers_[i] = std::make_unique<Worker>();
       barrier.arrive_and_wait();
-      worker.operator()<Priority::HIGH>(i, work_buckets_, hot_threads_);
+      hp_workers_[i]->operator()<Priority::HIGH>(i, workers_, hot_threads_);
     });
   }
 
@@ -104,10 +103,10 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
 
   // Under heavy load a task can get stuck, monitor and move to different thread
   monitoring_.SetInterval(std::chrono::milliseconds(100));
-  monitoring_.Run("sched_mon", [this, workers_num = work_buckets_.size(), hp_workers_num = hp_work_buckets_.size(),
+  monitoring_.Run("sched_mon", [this, workers_num = workers_.size(), hp_workers_num = hp_workers_.size(),
                                 last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
     size_t i = 0;
-    for (auto *worker : work_buckets_) {
+    for (auto &worker : workers_) {
       const auto worker_id = i++;
       auto &worker_last_task = last_task[worker_id];
       auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
@@ -128,7 +127,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
           // No hot LP threads available; schedule HP work to HP thread
           if (work.id > kMinHighPriorityId) {
             static size_t last_hp_thread = 0;
-            auto &hp_worker = hp_work_buckets_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
             if (!hp_worker->has_pending_work_) {
               hp_worker->push(std::move(work.work), work.id);
               continue;
@@ -137,7 +136,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
           // No hot thread and low priority work, schedule to the next lp worker
           tid = (worker_id + 1) % workers_num;
         }
-        work_buckets_[*tid]->push(std::move(work.work), work.id);
+        workers_[*tid]->push(std::move(work.work), work.id);
       }
     }
   });
@@ -157,11 +156,11 @@ void PriorityThreadPool::ShutDown() {
     // Stop monitoring thread before workers
     monitoring_.Stop();
     // Mixed work workers
-    for (auto *worker : work_buckets_) {
+    for (auto &worker : workers_) {
       worker->stop();
     }
     // High priority workers
-    for (auto *worker : hp_work_buckets_) {
+    for (auto &worker : hp_workers_) {
       worker->stop();
     }
   }
@@ -178,11 +177,11 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // Limit the number of directly used threads when there are more workers than hw threads.
     // Gives better overall performance.
     static const auto max_wakeup_thread =
-        std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), work_buckets_.size());
+        std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), workers_.size());
     // If no hot thread found, give it to the next thread
     tid = last_wid_++ % max_wakeup_thread;
   }
-  work_buckets_[*tid]->push(std::move(new_task), id);
+  workers_[*tid]->push(std::move(new_task), id);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
 }
@@ -205,19 +204,23 @@ void PriorityThreadPool::Worker::stop() {
 }
 
 template <Priority ThreadPriority>
-void PriorityThreadPool::Worker::operator()(const uint16_t worker_id, std::vector<Worker *> workers_pool,
+void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
+                                            const std::vector<std::unique_ptr<Worker>> &workers_pool,
                                             HotMask &hot_threads) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
-  const auto other_workers = std::invoke([workers_pool = std::move(workers_pool), ptr = this]() mutable {
-    // Only mixed work threads can have work stolen, workers_pool will not contain hp threads
-    if constexpr (ThreadPriority != Priority::HIGH) {
-      auto itr = std::find(workers_pool.begin(), workers_pool.end(), ptr);
-      if (itr != workers_pool.end()) workers_pool.erase(itr);
+  const auto other_workers = std::invoke([&workers_pool, ptr = this]() mutable {
+    std::vector<Worker *> other_workers;
+    for (const auto &worker : workers_pool) {
+      // Only mixed work threads can have work stolen, workers_pool will not contain hp threads
+      if constexpr (ThreadPriority != Priority::HIGH) {
+        if (worker.get() == ptr) continue;
+      }
+      other_workers.push_back(worker.get());
     }
     (void)ptr;
-    return workers_pool;
+    return other_workers;
   });
 
   std::optional<TaskSignature> task;
@@ -322,8 +325,8 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id, std::vecto
 }  // namespace memgraph::utils
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
-    uint16_t worker_id, std::vector<memgraph::utils::PriorityThreadPool::Worker *>,
+    uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
     memgraph::utils::HotMask &hot_threads);
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>(
-    uint16_t worker_id, std::vector<memgraph::utils::PriorityThreadPool::Worker *>,
+    uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
     memgraph::utils::HotMask &hot_threads);

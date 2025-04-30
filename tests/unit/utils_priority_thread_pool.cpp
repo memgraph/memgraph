@@ -12,7 +12,6 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <cstdint>
 #include <thread>
 
 #include <utils/priority_thread_pool.hpp>
@@ -96,8 +95,9 @@ TEST(PriorityThreadPool, Basic2) {
 
 TEST(PriorityThreadPool, LowHigh) {
   using namespace memgraph;
-  std::atomic_bool block{true};
   memgraph::utils::PriorityThreadPool pool{1, 1};
+
+  std::atomic_bool block{true};
   // Block mixed work thread and see if the high priority thread takes over
   pool.ScheduledAddTask(
       [&](auto) {
@@ -131,13 +131,16 @@ TEST(PriorityThreadPool, LowHigh) {
   // Unblock mixed work thread and close
   block = false;
   block.notify_one();
+  pool.ShutDown();
+  pool.AwaitShutdown();
 }
 
 TEST(PriorityThreadPool, MultipleLow) {
   using namespace memgraph;
   constexpr auto kLP = 8;
-  std::atomic_bool block{true};
   memgraph::utils::PriorityThreadPool pool{kLP, 1};
+
+  std::atomic_bool block{true};
   // Block all mixed work thread and see if the high priority thread takes over
   for (int i = 0; i < kLP; ++i) {
     pool.ScheduledAddTask(
@@ -173,4 +176,6 @@ TEST(PriorityThreadPool, MultipleLow) {
   // Unblock mixed work thread and close
   block = false;
   block.notify_one();
+  pool.ShutDown();
+  pool.AwaitShutdown();
 }
