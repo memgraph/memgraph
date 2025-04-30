@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <utility>
 
 #include "utils/exceptions.hpp"
 

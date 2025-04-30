@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"

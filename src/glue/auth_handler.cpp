@@ -21,6 +21,7 @@
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
+#include "query/exceptions.hpp"
 
 namespace {
 

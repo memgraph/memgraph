@@ -33,7 +33,7 @@
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::storage {
 

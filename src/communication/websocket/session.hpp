@@ -22,7 +22,7 @@
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/websocket.hpp>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "communication/context.hpp"
 #include "communication/websocket/auth.hpp"

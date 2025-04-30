@@ -11,14 +11,16 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <map>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::communication {
 
@@ -97,14 +99,7 @@ class BoltMetrics {
     return Metrics(it->second);
   }
 
-  nlohmann::json ToJson() {
-    auto l = std::unique_lock{mtx};
-    auto res = nlohmann::json::array();
-    for (const auto &[_, client_info] : info) {
-      res.push_back(client_info.ToJson());
-    }
-    return res;
-  }
+  nlohmann::json ToJson();
 
  private:
   mutable std::mutex mtx;

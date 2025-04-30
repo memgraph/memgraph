@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,17 +11,14 @@
 
 #pragma once
 
-#include <cassert>
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
-#include <cstdint>
 #include <functional>
-#include <iosfwd>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace memgraph::utils {
 

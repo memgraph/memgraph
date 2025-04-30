@@ -15,18 +15,10 @@
 
 #pragma once
 
-#include <climits>
-#include <cstddef>
-#include <cstdint>
 #include <forward_list>
-#include <list>
 #include <memory>
-#include <mutex>
-#include <new>
 #include <tuple>
-#include <type_traits>
-#include <utility>
-#include <vector>
+
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.

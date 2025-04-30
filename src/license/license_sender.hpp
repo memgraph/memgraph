@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "license/license.hpp"
 #include "utils/scheduler.hpp"

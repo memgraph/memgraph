@@ -103,9 +103,10 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
                                    std::function<std::optional<RetValue>(addrinfo *, uint16_t)> const &processing_fn,
                                    auto family) -> std::optional<RetValue> {
     addrinfo const hints{
-        .ai_flags = AI_PASSIVE,     // fill with IPv4 or IPv6
-        .ai_family = family,        // IPv4 or IPv6
-        .ai_socktype = SOCK_STREAM  // TCP socket
+        .ai_flags = AI_PASSIVE,      // fill with IPv4 or IPv6
+        .ai_family = family,         // IPv4 or IPv6
+        .ai_socktype = SOCK_STREAM,  // TCP socket
+        .ai_protocol = 0,            // any protocol
     };
 
     addrinfo *info{nullptr};
