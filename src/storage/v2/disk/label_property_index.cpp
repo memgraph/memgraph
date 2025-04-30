@@ -185,8 +185,8 @@ void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  return index_.erase({label, properties[0]}) > 0U;
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties) {
+  return index_.erase({label, properties[0][0]}) > 0U;
 }
 
 bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {

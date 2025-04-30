@@ -69,6 +69,14 @@ struct LabelPropKey {
   PropertyId property_;
 };
 
+/**
+ * `PropertyPath` identifies one or more properties for indexing, which may be
+ * either be a single `PropertyId` (for the case of `CREATE INDEX ON L1(a)`), or
+ * an ordered hierarchy of nested `PropertyId` (for the case of
+ * `CREATE INDEX ON :L1(a.b.c.d)`).
+ */
+using PropertyPath = std::vector<PropertyId>;
+
 }  // namespace memgraph::storage
 
 namespace std {

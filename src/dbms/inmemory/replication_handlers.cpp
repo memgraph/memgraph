@@ -1094,7 +1094,16 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
 
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
-          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
+
+          // @TODO for POC, just convert the non-nested properties into nested
+          // by converting each element into a vector.
+          auto non_nested_props = properties |
+                                  r::views::transform([](auto &&composite_index_property) -> storage::PropertyPath {
+                                    return {composite_index_property};
+                                  }) |
+                                  r::to_vector;
+
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(non_nested_props)).HasError())
 
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
                                         properties_stringified);
@@ -1105,7 +1114,16 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
                         properties_stringified);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
-          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {
+
+          // @TODO for POC, just convert the non-nested properties into nested
+          // by converting each element into a vector.
+          auto non_nested_props = properties |
+                                  r::views::transform([](auto &&composite_index_property) -> storage::PropertyPath {
+                                    return {composite_index_property};
+                                  }) |
+                                  r::to_vector;
+
+          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(non_nested_props)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
                                         properties_stringified);
           }

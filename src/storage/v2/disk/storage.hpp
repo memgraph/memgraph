@@ -226,7 +226,7 @@ class DiskStorage final : public Storage {
                                                                       bool unique_access_needed = true) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
@@ -239,7 +239,7 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 

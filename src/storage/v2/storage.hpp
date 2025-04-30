@@ -410,7 +410,7 @@ class Storage {
                                                                               bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
@@ -423,7 +423,7 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 

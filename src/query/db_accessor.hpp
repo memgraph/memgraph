@@ -633,7 +633,7 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
     return accessor_->CreateIndex(label, std::move(properties));
   }
 
@@ -655,7 +655,7 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
     return accessor_->DropIndex(label, std::move(properties));
   }
 
