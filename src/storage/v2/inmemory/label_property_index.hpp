@@ -78,9 +78,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyId const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties)
+        const -> std::vector<LabelPropertiesIndicesInfo> override;
 
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {}
@@ -207,7 +206,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void PopulateIndex(LabelId label, std::vector<PropertyId> const &properties,
                      utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     const Transaction *tx = nullptr);
 
  private:
   IndexContainer index_;
