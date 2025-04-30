@@ -497,10 +497,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     Identifier *ident = nullptr;
     if (auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
         expr && utils::Downcast<PropertyLookup>(expr->expression_) && storage) {
-      std::vector<std::string> prop_names;
+      // Nested property lookups, i.e. n.prop1.prop2
+      std::vector<PropertyIx> nested_properties;
       auto *prev_expr = expr;
       while (expr) {
-        prop_names.push_back(expr->property_.name);
+        nested_properties.push_back(expr->property_);
         prev_expr = expr;
         expr = utils::Downcast<PropertyLookup>(expr->expression_);
       }
@@ -509,15 +510,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return false;
       }
 
-      std::string property_name;
-      if (!prop_names.empty()) {
-        property_name =
-            std::accumulate(std::next(prop_names.rbegin()), prop_names.rend(), prop_names.back(),
-                            [](const std::string &acc, const std::string &part) { return acc + "." + part; });
-        auto property_ix = storage->GetPropertyIx(property_name);
+      if (!nested_properties.empty()) {
         auto filter = make_filter(FilterInfo::Type::Property);
-        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*identifer), property_ix, val_expr,
-                                                PropertyFilter::Type::EQUAL);
+        // filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*identifer), property_ix, val_expr,
+        //                                         PropertyFilter::Type::EQUAL);
         all_filters_.emplace_back(filter);
         return true;
       }
