@@ -215,7 +215,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor, const Transaction *tx) {
+                                          auto &&index_accessor, const Transaction &tx) {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -233,7 +233,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 
   // TODO: I think we have to do this even in READ UNCOMMITED to avoid double insertions
   if (delta) {
-    auto const n_processed = ApplyDeltasForReadBeforeStart(tx, delta, view, [&](const Delta &delta) {
+    auto const n_processed = ApplyDeltasForRead(tx, delta, view, [&](const Delta &delta) {
       // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
           Exists_ActionMethod(exists),
@@ -253,7 +253,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x.
   // TODO: is this still ok... currently it holds that anything after will be > start_timestamp of this transaction
-  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, 0});
+  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<PropertyId> const &properties) {
@@ -297,7 +297,7 @@ void InMemoryLabelPropertyIndex::PopulateIndex(
     auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
       // TODO: I want to invoke this or something but can't make it work
       if (tx) {
-        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor, tx);
+        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor, *tx);
       } else {
         TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
       }
