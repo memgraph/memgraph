@@ -6207,6 +6207,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         }
       }
       bool could_commit = cypher_query != nullptr;
+      // TODO: For Create and Drop index -> SNAPSHOT_ISOLATION needed
       SetupDatabaseTransaction(could_commit, acc_type);
     }
 
