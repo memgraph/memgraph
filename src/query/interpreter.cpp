@@ -3232,9 +3232,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
+
+  // @TODO for now, use only the top-most property in the nested index.
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(storage->NameToProperty(prop.name));
-    properties_string.push_back(prop.name);
+    properties.push_back(storage->NameToProperty(prop[0].name));
+    properties_string.push_back(prop[0].name);
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
