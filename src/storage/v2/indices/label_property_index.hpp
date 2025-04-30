@@ -121,6 +121,8 @@ struct PropertiesPermutationHelper {
    */
   auto ApplyPermutation(std::vector<PropertyValue> values) const -> IndexOrderedPropertyValues;
 
+  auto ApplyPermutation(std::map<PropertyId, PropertyValue> &&values) const -> IndexOrderedPropertyValues;
+
   /* Extract one or more values from the given property store, returned in
    * increasing `PropertyId` order. Use `ApplyPermutation` to arrange the
    * properties into the index order.
@@ -151,6 +153,11 @@ struct PropertiesPermutationHelper {
     return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
              return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
            });
+  }
+
+  auto Contains(std::map<PropertyId, PropertyValue> const &properties) const {
+    return std::all_of(sorted_properties_.begin(), sorted_properties_.end(),
+                       [&](auto const &pair) { return properties.find(pair) != properties.end(); });
   }
 
  private:

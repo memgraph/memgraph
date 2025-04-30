@@ -77,6 +77,16 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
   return {std::move(values)};
 }
 
+auto PropertiesPermutationHelper::ApplyPermutation(std::map<PropertyId, PropertyValue> &&values) const
+    -> IndexOrderedPropertyValues {
+  std::vector<PropertyValue> values_vec;
+  values_vec.reserve(values.size());
+  for (auto &[id, property] : values) {
+    values_vec.emplace_back(std::move(property));
+  }
+  return {std::move(values_vec)};
+}
+
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
     -> std::optional<std::pair<std::ptrdiff_t, bool>> {

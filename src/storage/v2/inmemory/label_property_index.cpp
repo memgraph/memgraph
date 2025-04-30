@@ -177,6 +177,27 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
   return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
+template <typename TCallback>
+inline std::size_t ApplyDeltasForReadBeforeStart(Transaction const *transaction, const Delta *delta, View view,
+                                                 const TCallback &callback) {
+  if (!delta) return 0;
+
+  std::size_t n_processed = 0;
+  while (delta != nullptr) {
+    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts < transaction->start_timestamp) {
+      break;
+    }
+    // This delta must be applied, call the callback.
+    callback(*delta);
+    ++n_processed;
+
+    // Move to the next delta.
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+  return n_processed;
+}
+
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
@@ -191,6 +212,48 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x.
   index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
+}
+
+inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
+                                          auto &&index_accessor, const Transaction *tx) {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  bool has_label = false;
+  std::map<PropertyId, PropertyValue> properties;
+
+  auto view = View::OLD;
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    deleted = vertex.deleted;
+    delta = vertex.delta;
+    has_label = utils::Contains(vertex.labels, label);
+    properties = vertex.properties.Properties();
+  }
+
+  // TODO: I think we have to do this even in READ UNCOMMITED to avoid double insertions
+  if (delta) {
+    auto const n_processed = ApplyDeltasForReadBeforeStart(tx, delta, view, [&](const Delta &delta) {
+      // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          HasLabel_ActionMethod(has_label, label),
+          Properties_ActionMethod(properties)
+        });
+      // clang-format on
+    });
+  }
+
+  // TODO: currently we double check for properties (in return and here)
+  if (!exists || deleted || !has_label ||  props.Contains(properties)) {
+    return;
+  }
+
+  // Using 0 as a timestamp is fine because the index is created at timestamp x
+  // and any query using the index will be > x.
+  // TODO: is this still ok... currently it holds that anything after will be > start_timestamp of this transaction
+  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, 0});
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<PropertyId> const &properties) {
@@ -219,7 +282,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<Property
 void InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, const Transaction *tx) {
   spdlog::trace("Vertices size when populating index: {}", vertices.size());
   auto properties_map_it = index_.find(label);
   auto index_it = properties_map_it->second.find(properties);
@@ -230,8 +293,14 @@ void InMemoryLabelPropertyIndex::PopulateIndex(
     auto &index_skip_list = index_it->second->skiplist;
     auto accessor_factory = [&] { return index_skip_list.access(); };
     auto &props_permutation_helper = index_it->second->permutations_helper;
+
     auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-      TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
+      // TODO: I want to invoke this or something but can't make it work
+      if (tx) {
+        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor, tx);
+      } else {
+        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
+      }
     };
     PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     index_ptr->status.store(IndividualIndex::Status::READY, std::memory_order_release);
@@ -352,8 +421,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
 };
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyId const> properties) const
-    -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels,
+    std::span<PropertyId const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
