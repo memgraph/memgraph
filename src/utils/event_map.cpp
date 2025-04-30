@@ -11,6 +11,8 @@
 
 #include "utils/event_map.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace {
 template <typename T, typename K>
 int NameToId(const T &names, const K &name) {
@@ -56,6 +58,16 @@ bool EventMap::Decrement(const std::string_view event, Count const amount) {
     return true;
   }
   return false;
+}
+
+nlohmann::json EventMap::ToJson() {
+  auto res = nlohmann::json::array();
+  auto const num_counters = kMaxCounters - num_free_counters_;
+  for (size_t i = 0; i < num_counters; ++i) {
+    const auto &event_name = name_to_id_[i];
+    res.push_back({{"name", event_name}, {"count", counters_[i].load()}});
+  }
+  return res;
 }
 
 bool IncrementCounter(const std::string_view event, Count const amount) {

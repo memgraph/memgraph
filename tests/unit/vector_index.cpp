@@ -13,6 +13,7 @@
 #include <string_view>
 #include <thread>
 
+#include "query/exceptions.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"

@@ -19,8 +19,11 @@
 #include <utility>
 #include <vector>
 
+// TODO: remove once ast is split over multiple files
 #include "query/frontend/ast/ast.hpp"
+
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
 

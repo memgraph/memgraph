@@ -14,7 +14,7 @@
 #include <ostream>
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::requests {
 

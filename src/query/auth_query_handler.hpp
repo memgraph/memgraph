@@ -16,7 +16,7 @@
 #include <string_view>
 #include <vector>
 
-#include "query/frontend/ast/ast.hpp"  // overkill
+#include "query/frontend/ast/query/auth_query.hpp"
 #include "query/typed_value.hpp"
 #include "system/system.hpp"
 

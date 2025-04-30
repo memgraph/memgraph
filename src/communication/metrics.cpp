@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "metrics.hpp"
+
+#include <nlohmann/json.hpp>
 
 namespace {
 constexpr auto kName = "name";
@@ -37,6 +39,15 @@ nlohmann::json BoltMetrics::Info::ToJson() const {
                            {ConnectionTypeStr((ConnectionType)1), connection_types[1].load()}};
   res[kSessions] = sessions.load();
   res[kQueries] = queries.load();
+  return res;
+}
+
+nlohmann::json BoltMetrics::ToJson() {
+  auto l = std::unique_lock{mtx};
+  auto res = nlohmann::json::array();
+  for (const auto &[_, client_info] : info) {
+    res.push_back(client_info.ToJson());
+  }
   return res;
 }
 }  // namespace memgraph::communication

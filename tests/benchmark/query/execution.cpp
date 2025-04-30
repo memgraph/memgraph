@@ -12,6 +12,8 @@
 #include <random>
 #include <string>
 
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+
 #include <benchmark/benchmark.h>
 
 //////////////////////////////////////////////////////

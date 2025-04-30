@@ -17,8 +17,9 @@
 #include <vector>
 
 #include "dbms/constants.hpp"
-#include "query/frontend/ast/ast.hpp"
+#include "query/edge_accessor.hpp"
 #include "query/query_user.hpp"
+#include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {

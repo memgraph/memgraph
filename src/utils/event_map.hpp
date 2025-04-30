@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <memory>
+#include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::metrics {
 using Count = uint64_t;
@@ -35,15 +37,7 @@ class EventMap {
 
   bool Decrement(std::string_view event, Count amount = 1);
 
-  nlohmann::json ToJson() {
-    auto res = nlohmann::json::array();
-    auto const num_counters = kMaxCounters - num_free_counters_;
-    for (size_t i = 0; i < num_counters; ++i) {
-      const auto &event_name = name_to_id_[i];
-      res.push_back({{"name", event_name}, {"count", counters_[i].load()}});
-    }
-    return res;
-  }
+  nlohmann::json ToJson();
 
   uint64_t num_free_counters_{kMaxCounters};
   std::array<std::string, kMaxCounters> name_to_id_;

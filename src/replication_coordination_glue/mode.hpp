@@ -22,6 +22,7 @@ namespace memgraph::replication_coordination_glue {
 
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
 
+// TODO: move to cpp
 NLOHMANN_JSON_SERIALIZE_ENUM(ReplicationMode, {
                                                   {ReplicationMode::SYNC, "sync"},
                                                   {ReplicationMode::ASYNC, "async"},

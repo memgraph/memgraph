@@ -21,7 +21,7 @@
 #include "utils/uuid.hpp"
 
 #include <libnuraft/nuraft.hxx>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <range/v3/view.hpp>
 
 #include <string>
