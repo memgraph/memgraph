@@ -81,25 +81,27 @@
 (defn not-main-anymore?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "Cannot commit because instance is not main anymore")
-  )
+  (string/includes? (str e) "Cannot commit because instance is not main anymore"))
 
 (defn node-is-down
   "Log that a node is down"
   [node]
   (str "Node " node " is down"))
 
+(defn txn-asked-to-abort?
+  "Exception as argument. Checks if the txn was asked to abort."
+  [e]
+  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout"))
+
 (defn server-no-longer-available
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "no longer available")
-)
+  (string/includes? (str e) "no longer available"))
 
 (defn no-write-server
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "Failed to obtain connection towards WRITE server")
-)
+  (string/includes? (str e) "Failed to obtain connection towards WRITE server"))
 
 (defn query-forbidden-on-main?
   "Accepts exception e as argument."
