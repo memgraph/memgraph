@@ -375,14 +375,19 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (auto *property_key_name : ctx->propertyKeyName()) {
-    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
-    index_query->properties_.emplace_back(std::move(prop_key));
+  index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
+  for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
+    auto nested_properties = nested_property_key_names->propertyKeyName() |
+                             std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                               return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+                             }) |
+                             ranges::to_vector;
+    index_query->properties_.emplace_back(std::move(nested_properties));
   }
 
+  // @TODO add test for uniqueness of composite nested indices.
   auto const properties_are_unique{
-      std::unordered_set<PropertyIx>{index_query->properties_.begin(), index_query->properties_.end()}.size() ==
+      std::set<std::vector<PropertyIx>>{index_query->properties_.begin(), index_query->properties_.end()}.size() ==
       index_query->properties_.size()};
   if (!properties_are_unique) {
     throw SyntaxException("Properties cannot be repeated in a composite index.");
@@ -395,11 +400,17 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (auto *property_key_name : ctx->propertyKeyName()) {
-    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
-    index_query->properties_.emplace_back(std::move(prop_key));
+  index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
+
+  for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
+    auto nested_properties = nested_property_key_names->propertyKeyName() |
+                             std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                               return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+                             }) |
+                             ranges::to_vector;
+    index_query->properties_.emplace_back(std::move(nested_properties));
   }
+
   return index_query;
 }
 
