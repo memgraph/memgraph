@@ -235,7 +235,7 @@ class LabelPropertyIndex {
 
   virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
+  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) = 0;
 
   virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
 

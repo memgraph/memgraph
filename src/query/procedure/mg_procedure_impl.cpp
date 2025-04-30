@@ -2828,10 +2828,12 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
         const auto index_res = std::visit(
             memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                          return impl->CreateIndex(label_id, std::vector{property_id});
+                                          return impl->CreateIndex(
+                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
                                         },
                                         [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                          return impl->GetAccessor()->CreateIndex(label_id, std::vector{property_id});
+                                          return impl->GetAccessor()->CreateIndex(
+                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
                                         }},
             graph->impl);
         return index_res.HasError() ? 0 : 1;
@@ -2847,10 +2849,12 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
         const auto index_res = std::visit(
             memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                          return impl->DropIndex(label_id, std::vector{property_id});
+                                          return impl->DropIndex(
+                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
                                         },
                                         [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                          return impl->GetAccessor()->DropIndex(label_id, std::vector{property_id});
+                                          return impl->GetAccessor()->DropIndex(
+                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
                                         }},
             graph->impl);
         return index_res.HasError() ? 0 : 1;

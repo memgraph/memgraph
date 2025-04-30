@@ -42,7 +42,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
+  bool CreateIndex(LabelId label, std::vector<PropertyPath> const &properties,
+                   utils::SkipList<Vertex>::Accessor vertices,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &it,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
@@ -55,7 +56,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override;
 
-  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
+  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) override;
 
   bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 

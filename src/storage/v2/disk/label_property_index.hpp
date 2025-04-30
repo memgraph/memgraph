@@ -42,7 +42,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override{};
 
-  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
+  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) override;
 
   bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
