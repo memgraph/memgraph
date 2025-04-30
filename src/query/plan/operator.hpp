@@ -790,7 +790,8 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
-  std::vector<storage::PropertyId> properties_;
+  std::vector<storage::PropertyId>
+      properties_;  // TODO: To make this work with nested indices -> this has to be vector of vectors probably
   std::vector<ExpressionRange> expression_ranges_;
 
   std::string ToString() const override;
