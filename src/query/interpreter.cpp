@@ -3228,15 +3228,20 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
 
-  std::vector<storage::PropertyId> properties;
+  std::vector<storage::PropertyPath> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
 
-  // @TODO for now, use only the top-most property in the nested index.
-  for (const auto &prop : index_query->properties_) {
-    properties.push_back(storage->NameToProperty(prop[0].name));
-    properties_string.push_back(prop[0].name);
+  for (const auto &property_path : index_query->properties_) {
+    auto path = property_path |
+                ranges::views::transform([&](auto &&property) { return storage->NameToProperty(property.name); }) |
+                ranges::to_vector;
+    properties.push_back(std::move(path));
+
+    auto name = property_path | ranges::views::transform(&PropertyIx::name);
+
+    properties_string.push_back(utils::Join(name, "."));
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -3714,8 +3719,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(
-                label, std::vector{prop});  // Only way to fail is to try to create an already existant index
+            (void)dba->CreateIndex(label,
+                                   std::vector<memgraph::storage::PropertyPath>{
+                                       {prop}});  // Only way to fail is to try to create an already existant index
             if (run_edge_ttl) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }
@@ -3737,7 +3743,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        (void)dba->DropIndex(label, std::vector{prop});  // Only way to fail is to try to drop a non-existant index
+        (void)dba->DropIndex(label, std::vector<storage::PropertyPath>{
+                                        {prop}});  // Only way to fail is to try to drop a non-existant index
         if (db_acc->config().salient.items.properties_on_edges) {
           (void)dba->DropGlobalEdgeIndex(prop);  // Only way to fail is to try to drop a non-existant index
         }

@@ -194,10 +194,14 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(
-    LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, std::vector<PropertyPath> const &property_paths, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
+
+  // @TODO Use entire property_path
+  auto properties = property_paths | ranges::views::transform([](auto &&property_path) { return property_path[0]; }) |
+                    ranges::to_vector;
 
   auto [it1, _] = index_.try_emplace(label);
   auto &properties_map = it1->second;
@@ -281,12 +285,18 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   }
 }
 
-bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
+bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &property_paths) {
   // find the primary index
   auto it1 = index_.find(label);
   if (it1 == index_.end()) {
     return false;
   }
+
+  // @TODO Currently, we convert to a non-nested path by extracting only
+  // the head of the nested path. For POC this is fine, but for delivery
+  // we must support nested property paths.
+  auto properties = property_paths | ranges::views::transform([](auto &&property_path) { return property_path[0]; }) |
+                    ranges::to_vector;
 
   auto &properties_map = it1->second;
   auto it2 = properties_map.find(properties);
