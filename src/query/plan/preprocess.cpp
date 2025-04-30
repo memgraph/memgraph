@@ -495,6 +495,30 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
+        expr && utils::Downcast<PropertyLookup>(expr->expression_) && storage) {
+      // Nested property lookups, i.e. n.prop1.prop2
+      std::vector<PropertyIx> nested_properties;
+      auto *prev_expr = expr;
+      while (expr) {
+        nested_properties.push_back(expr->property_);
+        prev_expr = expr;
+        expr = utils::Downcast<PropertyLookup>(expr->expression_);
+      }
+      auto identifer = utils::Downcast<Identifier>(prev_expr->expression_);
+      if (!identifer) {
+        return false;
+      }
+
+      if (!nested_properties.empty()) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        // filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*identifer), property_ix, val_expr,
+        //                                         PropertyFilter::Type::EQUAL);
+        all_filters_.emplace_back(filter);
+        return true;
+      }
+    }
+
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
