@@ -1977,21 +1977,28 @@ class IndexQuery : public memgraph::query::Query {
 
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
-  std::vector<memgraph::query::PropertyIx> properties_;
+  // The outer vector is the composite indices; the inner vector is the nested
+  // indices. So `CREATE INDEX ON ":L1(a, b.c, d.e.f)" will give us:
+  // [[a], [b, c], [d, e, f]]
+  std::vector<std::vector<memgraph::query::PropertyIx>> properties_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
     object->action_ = action_;
     object->label_ = storage->GetLabelIx(label_.name);
-    object->properties_.resize(properties_.size());
-    for (auto i = 0; i < object->properties_.size(); ++i) {
-      object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
+    object->properties_.reserve(properties_.size());
+    for (auto &&nested_properties : properties_) {
+      auto cloned_nested_properties =
+          nested_properties |
+          ranges::views::transform([&](auto &&property) { return storage->GetPropertyIx(property.name); }) |
+          ranges::to_vector;
+      object->properties_.emplace_back(std::move(cloned_nested_properties));
     }
     return object;
   }
 
  protected:
-  IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
+  IndexQuery(Action action, LabelIx label, std::vector<std::vector<PropertyIx>> properties)
       : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
