@@ -2048,21 +2048,24 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
   }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
+  }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->CreateIndex(label, properties[0],
-                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0]))) {
+  if (!disk_label_property_index->CreateIndex(
+          label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties[0]));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -2100,11 +2103,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
+  }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
   }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2113,7 +2119,13 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
+
+  // @TODO need to pass entire path of propertiesm to delta.
+  auto non_nested_properties =
+      properties | ranges::views::transform([](auto &&property_path) { return property_path[0]; }) | ranges::to_vector;
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label,
+                                      std::move(non_nested_properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};

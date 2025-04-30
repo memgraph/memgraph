@@ -202,18 +202,19 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   // Recover label+property indices.
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   {
-    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
-    for (auto const &[label, properties] : indices_metadata.label_properties) {
-      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
-                                                 snapshot_info))
-        throw RecoveryFailure("The label+property index must be created here!");
+    // @TODO put recovery back for nested indices
+    // spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
+    // for (auto const &[label, properties] : indices_metadata.label_properties) {
+    //   if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
+    //                                              snapshot_info))
+    //     throw RecoveryFailure("The label+property index must be created here!");
 
-      auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
-      auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
+    //   auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
+    //   auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
 
-      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                   properties_string);
-    }
+    //   spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+    //                properties_string);
+    // }
     spdlog::info("Label+property indices are recreated.");
   }
 
