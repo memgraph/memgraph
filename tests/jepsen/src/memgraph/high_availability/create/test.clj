@@ -212,10 +212,12 @@
       (case (:f op)
         :get-nodes (if (hautils/data-instance? node)
                      (try
-                       (dbclient/with-transaction bolt-conn txn
-                         (let [indices (->> (mg-get-nodes txn) (map :id) (reduce conj []))]
+                       (utils/with-session bolt-conn session
+                         ((mgquery/set-db-setting "query.timeout" "0") session)  ; 0 means no limit
+                         (let [indices (->> (mg-get-nodes session) (map :id) (reduce conj []))]
                            (assoc op :type :ok :value {:indices indices :node node})))
-                        ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
+
+; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                        (catch Exception e
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
@@ -258,6 +260,9 @@
                                      (utils/main-unwriteable? e)
                                      (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
 
+                                     (utils/txn-asked-to-abort? e)
+                                     (assoc op :type :ok :value {:str "Txn was asked to abort"})
+
                                      (or (utils/query-forbidden-on-replica? e)
                                          (utils/query-forbidden-on-main? e))
                                      (assoc op :type :info :value (str e))
@@ -281,7 +286,13 @@
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
-                                   (assoc op :type :fail :value (str e))))
+                                   (cond
+                                     (utils/txn-asked-to-abort? e)
+                                     (assoc op :type :ok :value {:str "Txn was asked to abort"})
+
+                                     :else
+                                     (assoc op :type :fail :value (str e)))))
+
                                (assoc op :type :info :value "Not coordinator"))
         :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
