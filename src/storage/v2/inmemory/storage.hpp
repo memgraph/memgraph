@@ -355,7 +355,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -396,7 +396,7 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
