@@ -18,4 +18,4 @@ function(add_property_based_test test_cpp)
 endfunction(add_property_based_test)
 
 add_property_based_test(random_graph.cpp)
-target_link_libraries(${test_prefix}random_graph mg-storage-v2)
+target_link_libraries(${test_prefix}random_graph mg::storage)

@@ -7,4 +7,4 @@ add_library(mg-dbms STATIC
         rpc.cpp
 
 )
-target_link_libraries(mg-dbms mg-utils mg-storage-v2 mg-query mg-auth mg-replication mg-coordination)
+target_link_libraries(mg-dbms mg-utils mg::storage mg-query mg-auth mg-replication mg-coordination)
