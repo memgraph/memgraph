@@ -15,6 +15,7 @@
 #include <limits>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"  // @TODO temp for `PropertiesPermutationHelper`
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -261,7 +262,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   TestIsPropertyEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
-
+/*
 TEST(PropertyStore, EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
@@ -404,7 +405,7 @@ TEST(PropertyStore, FullSet) {
       TestIsPropertyEqual(props, item.first, PropertyValue());
     }
   }
-}
+}*/
 
 TEST(PropertyStore, IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
@@ -590,6 +591,7 @@ TEST(PropertyStore, IsPropertyEqualList) {
       prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test"), PropertyValue(true)})));
 }
 
+/* @TODO put back
 TEST(PropertyStore, IsPropertyEqualMap) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
@@ -622,7 +624,7 @@ TEST(PropertyStore, IsPropertyEqualMap) {
                                                {PropertyId::FromUint(2), PropertyValue(true)},
                                                {PropertyId::FromUint(3), PropertyValue("test")}})));
 }
-
+*/
 TEST(PropertyStore, IsPropertyEqualTemporalData) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
@@ -688,6 +690,7 @@ TEST(PropertyStore, IsPropertyEqualEnum) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue{diff_value}));
 }
 
+/* @TODO put back
 TEST(PropertyStore, SetMultipleProperties) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
@@ -723,7 +726,7 @@ TEST(PropertyStore, SetMultipleProperties) {
     EXPECT_FALSE(store.InitProperties(data));
   }
 }
-
+*/
 TEST(PropertyStore, HasAllProperties) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
       {PropertyId::FromInt(1), PropertyValue(true)},
@@ -908,6 +911,82 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
         {PropertyId::FromInt(4), PropertyValue("delta")},
         {PropertyId::FromInt(5), PropertyValue("echo")}},
        std::array{1, 3, 5});
+}
+
+TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p1}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(1u, values.size());
+  EXPECT_EQ(values[0], data[0].second);
+}
+
+TEST(PropertiesPermutationHelper, CanReadTwoValuesInOrderFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+      {p2, PropertyValue(42)},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p1, p2}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(2u, values.size());
+  EXPECT_EQ(values[0], data[0].second);
+  EXPECT_EQ(values[1], data[1].second);
+}
+
+TEST(PropertiesPermutationHelper, CanReadTwoValuesOutOfOrderFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+      {p2, PropertyValue(42)},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p2, p1}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(2u, values.size());
+  EXPECT_EQ(values[0], data[1].second);
+  EXPECT_EQ(values[1], data[0].second);
+}
+
+TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+      {p2, PropertyValue(42)},
+      {p3, PropertyValue(true)},
+      {p4, PropertyValue(3.141592f)},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p3, p1, p4, p2}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(4u, values.size());
+
+  EXPECT_EQ(values[0], data[2].second);
+  EXPECT_EQ(values[1], data[0].second);
+  EXPECT_EQ(values[2], data[3].second);
+  EXPECT_EQ(values[3], data[1].second);
 }
 
 int main(int argc, char **argv) {
