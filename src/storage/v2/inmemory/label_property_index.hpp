@@ -166,13 +166,25 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     using is_transparent = void;
   };
 
+  // @TODO remove old implementation of indices once new_index is complete,
+  // and then remove `nested_` prefix from everything.
   using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, Compare>;
   std::map<LabelId, PropertiesIndices, std::less<>> index_;
+
+  using NestedPropertiesIndices = std::map<NestedPropertiesIds, IndividualIndex, Compare>;
+  std::map<LabelId, NestedPropertiesIndices, std::less<>> nested_index_;
 
   using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;
   using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
   std::unordered_map<PropertyId, PropToIndexLookup> indices_by_property_;
 
+  using NestedEntryDetail = std::tuple<NestedPropertiesIds const *, IndividualIndex *>;
+  using NestedPropToIndexLookup = std::multimap<LabelId, NestedEntryDetail>;
+  // This is keyed on the top-level property of a nested property. So for
+  // nested property `a.b.c`, only a key for the top-most `a` exists.
+  std::unordered_map<PropertyId, NestedPropToIndexLookup> nested_indices_by_property_;
+
+  // @TODO support nested stats too.
   using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
