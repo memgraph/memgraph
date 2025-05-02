@@ -205,10 +205,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
   {
     auto [it1, _] = nested_index_.try_emplace(label);
     auto &properties_map = it1->second;
-    // @TODO for now, create helper with additional member for the full
-    // paths. Once I have confirmed this is basically working, I will
-    // write unit tests to subsume this behaviour into the permutations helper.
-    auto helper = PropertiesPermutationHelper{root_properties};
+    auto helper = PropertiesPermutationHelper{properties};
     auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
     if (!emplaced) {
       // Index already exists.

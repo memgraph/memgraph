@@ -104,7 +104,7 @@ auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const
                 }) |
                 r::to_vector;
 
-  return top_level_values;
+  return values;
 }
 
 auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> values) const
