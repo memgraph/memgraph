@@ -99,7 +99,6 @@ class CoordinatorLogStore final : public log_store {
   std::map<ulong, std::shared_ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_{0};
-  std::atomic<ulong> next_idx_{0};
   std::shared_ptr<kvstore::KVStore> durability_;
   LoggerWrapper logger_;
 };

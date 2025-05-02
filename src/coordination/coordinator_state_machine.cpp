@@ -75,7 +75,11 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
+      auto old = last_committed_idx_.load(std::memory_order_acquire);
+      while (old < parsed_snapshot_id &&
+             !last_committed_idx_.compare_exchange_weak(old, parsed_snapshot_id, std::memory_order_acq_rel,
+                                                        std::memory_order_acquire)) {
+      }
 
       // NOLINTNEXTLINE (misc-const-correctness)
       auto snapshot_ctx = std::make_shared<SnapshotCtx>();
@@ -87,21 +91,24 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
   }
 
-  if (last_committed_idx_ == 0) {
+  auto const last_commit_idx = last_committed_idx_.load(std::memory_order_acquire);
+
+  if (last_commit_idx == 0) {
     logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
     return;
   }
-  cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+  cluster_state_ = snapshots_[last_commit_idx]->cluster_state_;
   logger_.Log(nuraft_log_level::TRACE,
-              fmt::format("Restored cluster state from snapshot with id: {}", last_committed_idx_));
+              fmt::format("Restored cluster state from snapshot with id: {}", last_commit_idx));
 }
 
 // Assumes durability exists
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
   UpdateStateMachineFromSnapshotDurability();
   if constexpr (kActiveVersion == LogStoreVersion::kV2) {
+    auto const last_snapshot_commit_idx = last_committed_idx_.load(std::memory_order_acquire);
     if (stored_version == LogStoreVersion::kV1) {
-      return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+      return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
     }
     if (stored_version == LogStoreVersion::kV2) {
       const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
@@ -110,19 +117,19 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
             nuraft_log_level::ERROR,
             fmt::format(
                 "Failed to retrieve last committed index from disk, using last committed index from snapshot {}.",
-                last_committed_idx_.load()));
-        return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+                last_snapshot_commit_idx));
+        return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
       }
-      const auto last_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
-      if (last_committed_idx_value < last_committed_idx_) {
+      const auto last_durable_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
+      if (last_durable_committed_idx_value < last_snapshot_commit_idx) {
         logger_.Log(nuraft_log_level::ERROR, fmt::format("Last committed index stored in durability is smaller then "
                                                          "one found from snapshots, using one found in snapshots {}.",
-                                                         last_committed_idx_.load()));
-        return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+                                                         last_snapshot_commit_idx));
+        return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
       }
-      last_committed_idx_ = last_committed_idx_value;
+      last_committed_idx_.store(last_durable_committed_idx_value, std::memory_order_release);
       logger_.Log(nuraft_log_level::TRACE,
-                  fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
+                  fmt::format("Restored last committed index from disk: {}", last_durable_committed_idx_value));
       return true;
     }
     throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
@@ -212,8 +219,8 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
   cluster_state_.DoAction(DecodeLog(data));
   durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
-  last_committed_idx_ = log_idx;
-  logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
+  last_committed_idx_.store(log_idx, std::memory_order_release);
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", log_idx));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
   buffer_serializer bs_ret(ret);
   bs_ret.put_u64(log_idx);
@@ -223,7 +230,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
   durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
-  last_committed_idx_ = log_idx;
+  last_committed_idx_.store(log_idx, std::memory_order_release);
 }
 
 auto CoordinatorStateMachine::rollback(ulong const log_idx, buffer &data) -> void {
@@ -322,7 +329,7 @@ auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
 
 auto CoordinatorStateMachine::last_commit_index() -> ulong {
   logger_.Log(nuraft_log_level::TRACE, "Getting last committed index from state machine.");
-  return last_committed_idx_;
+  return last_committed_idx_.load(std::memory_order_acquire);
 }
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
