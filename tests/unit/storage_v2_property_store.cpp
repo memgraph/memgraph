@@ -989,6 +989,81 @@ TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
   EXPECT_EQ(values[3], data[1].second);
 }
 
+TEST(PropertiesPermutationHelper, CanExtractSinglyNestedValuesFromMap) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue{PropertyValue::map_t{{p2, PropertyValue{"test-value"}}}}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p1, p2}}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(1u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"test-value"});
+}
+
+TEST(PropertiesPermutationHelper, CanExtractDeeplyNestedValuesFromMap) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p3, make_map(p1, make_map(p4, make_map(p2, PropertyValue{"test-value"})))}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p3, p1, p4, p2}}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(1u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"test-value"});
+}
+
+TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+  auto const p8 = PropertyId::FromInt(8);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, make_map(p2, make_map(p3, PropertyValue{"apple"}))},
+                                                               {p4, make_map(p5, PropertyValue{"banana"})},
+                                                               {p6, PropertyValue{"cherry"}},
+                                                               {p7, make_map(p8, PropertyValue{"date"})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p7, p8}, PropertyPath{p4, p5},
+                                                                    PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(4u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"date"});
+  EXPECT_EQ(values[1], PropertyValue{"banana"});
+  EXPECT_EQ(values[2], PropertyValue{"apple"});
+  EXPECT_EQ(values[3], PropertyValue{"cherry"});
+}
+
+// @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d)
+
+// @TODO add tests for all methods in `PropertiesPermutationHelper`, such as
+// MatchValue, Matches value, etc
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   int result = RUN_ALL_TESTS();
