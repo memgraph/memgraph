@@ -1053,6 +1053,25 @@ TEST(PropertiesPermutationHelper, CanExtractSinglyNestedValuesFromMap) {
   EXPECT_EQ(values[0], PropertyValue{"test-value"});
 }
 
+TEST(PropertiesPermutationHelper, ExtractWillReturnNullForMissingNestedValues) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue{PropertyValue::map_t{{p2, PropertyValue{"test-value"}}}}}, {p2, PropertyValue{"two"}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  for (auto &&path : {PropertyPath{p1, p3}, PropertyPath{p2, p3}, PropertyPath{p1, p2, p3}}) {
+    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{path}};
+    auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+    ASSERT_EQ(1u, values.size());
+    EXPECT_EQ(values[0], PropertyValue{});
+  };
+}
+
 TEST(PropertiesPermutationHelper, CanExtractDeeplyNestedValuesFromMap) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
