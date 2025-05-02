@@ -133,7 +133,7 @@ TEST_F(CoordinatorClusterStateTest, Coordinators) {
 }
 
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
-  CoordinatorClusterState cluster_state{};
+  CoordinatorClusterState cluster_state;
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -151,21 +151,27 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
+  // by default, it should be true
+  ASSERT_TRUE(cluster_state.GetSyncFailoverOnly());
+
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
                                                  .coordinator_instances_ = coord_instances,
                                                  .current_main_uuid_ = uuid,
-                                                 .enabled_reads_on_main_ = true};
+                                                 .enabled_reads_on_main_ = true,
+                                                 .sync_failover_only_ = false};
   cluster_state.DoAction(delta_state);
 
-  ptr<buffer> data{};
+  ptr<buffer> data;
   cluster_state.Serialize(data);
 
   auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
   ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_TRUE(cluster_state.GetEnabledReadsOnMain());
+  ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
 }
 
-TEST_F(CoordinatorClusterStateTest, EnableReadsOnMainSwitch) {
+TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   CoordinatorClusterState cluster_state;
   std::vector<DataInstanceContext> data_instances;
 
@@ -199,4 +205,6 @@ TEST_F(CoordinatorClusterStateTest, EnableReadsOnMainSwitch) {
   ASSERT_EQ(deserialized_cluster_state.GetCurrentMainUUID(), uuid);
   // by default read false
   ASSERT_FALSE(deserialized_cluster_state.GetEnabledReadsOnMain());
+  // by default read true
+  ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
 }

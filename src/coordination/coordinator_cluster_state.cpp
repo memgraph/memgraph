@@ -23,7 +23,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
     : data_instances_{other.data_instances_},
       coordinator_instances_(other.coordinator_instances_),
       current_main_uuid_(other.current_main_uuid_),
-      enabled_reads_on_main_(other.enabled_reads_on_main_) {}
+      enabled_reads_on_main_(other.enabled_reads_on_main_),
+      sync_failover_only_(other.sync_failover_only_) {}
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
     return *this;
@@ -32,6 +33,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   coordinator_instances_ = other.coordinator_instances_;
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
   return *this;
 }
 
@@ -39,7 +41,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
     : data_instances_{std::move(other.data_instances_)},
       coordinator_instances_{std::move(other.coordinator_instances_)},
       current_main_uuid_{other.current_main_uuid_},
-      enabled_reads_on_main_{other.enabled_reads_on_main_} {}
+      enabled_reads_on_main_{other.enabled_reads_on_main_},
+      sync_failover_only_(other.sync_failover_only_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -49,6 +52,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   coordinator_instances_ = std::move(other.coordinator_instances_);
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
   return *this;
 }
 
@@ -89,6 +93,9 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
   }
   if (delta_state.enabled_reads_on_main_.has_value()) {
     enabled_reads_on_main_ = *delta_state.enabled_reads_on_main_;
+  }
+  if (delta_state.sync_failover_only_.has_value()) {
+    sync_failover_only_ = *delta_state.sync_failover_only_;
   }
 }
 
@@ -140,31 +147,42 @@ auto CoordinatorClusterState::GetEnabledReadsOnMain() const -> bool {
   return enabled_reads_on_main_;
 }
 
+auto CoordinatorClusterState::GetSyncFailoverOnly() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return sync_failover_only_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
-  auto lock = std::unique_lock{app_lock_};
+  auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
 }
 
 void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceContext> data_instances) {
-  auto lock = std::unique_lock{app_lock_};
+  auto lock = std::lock_guard{app_lock_};
   data_instances_ = std::move(data_instances);
 }
 
 void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) {
-  auto lock = std::unique_lock{app_lock_};
+  auto lock = std::lock_guard{app_lock_};
   current_main_uuid_ = current_main_uuid;
 }
 
 void CoordinatorClusterState::SetEnabledReadsOnMain(bool const enabled_reads_on_main) {
-  auto lock = std::unique_lock{app_lock_};
+  auto lock = std::lock_guard{app_lock_};
   enabled_reads_on_main_ = enabled_reads_on_main;
+}
+
+void CoordinatorClusterState::SetSyncFailoverOnly(bool const sync_failover_only) {
+  auto lock = std::lock_guard{app_lock_};
+  sync_failover_only_ = sync_failover_only;
 }
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
                      {kCoordinatorInstances.data(), state.GetCoordinatorInstancesContext()},
-                     {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()}};
+                     {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
+                     {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -175,6 +193,9 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
 
   bool const enabled_reads_on_main = j.value(kEnabledReadsOnMain.data(), false);
   instance_state.SetEnabledReadsOnMain(enabled_reads_on_main);
+
+  bool const sync_failover_only = j.value(kSyncFailoverOnly.data(), true);
+  instance_state.SetSyncFailoverOnly(sync_failover_only);
 }
 
 }  // namespace memgraph::coordination

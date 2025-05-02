@@ -17,7 +17,6 @@
 
 namespace memgraph::replication_coordination_glue {
 
-// TODO: figure out a way of ensuring that usage of this type is never uninitialized/defaulted incorrectly to MAIN
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
 // TODO: move to cpp

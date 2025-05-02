@@ -161,6 +161,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kCoordinatorInstances, delta_state.coordinator_instances_);
   add_if_set(kUuid, delta_state.current_main_uuid_);
   add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
+  add_if_set(kSyncFailoverOnly, delta_state.sync_failover_only_);
 
   return CreateLog(delta_state_json);
 }
@@ -190,6 +191,12 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
       // enabled_reads_on_main policy is added later, read it optionally, otherwise default it to false
       auto const enabled_reads_on_main = json.value(kEnabledReadsOnMain.data(), false);
       delta_state.enabled_reads_on_main_ = enabled_reads_on_main;
+    }
+
+    if (json.contains(kSyncFailoverOnly.data())) {
+      // sync_failover_only policy is added later, read it optionally, otherwise default it to true
+      auto const sync_failover_only = json.value(kSyncFailoverOnly.data(), true);
+      delta_state.sync_failover_only_ = sync_failover_only;
     }
 
     return delta_state;
@@ -372,6 +379,8 @@ auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std
 }
 
 auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return cluster_state_.GetEnabledReadsOnMain(); }
+
+auto CoordinatorStateMachine::GetSyncFailoverOnly() const -> bool { return cluster_state_.GetSyncFailoverOnly(); }
 
 }  // namespace memgraph::coordination
 #endif

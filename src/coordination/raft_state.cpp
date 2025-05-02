@@ -483,6 +483,9 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
 
 auto RaftState::GetEnabledReadsOnMain() const -> bool { return state_machine_->GetEnabledReadsOnMain(); }
+
+auto RaftState::GetSyncFailoverOnly() const -> bool { return state_machine_->GetSyncFailoverOnly(); }
+
 }  // namespace memgraph::coordination
 
 // namespace memgraph::coordination
