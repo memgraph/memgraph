@@ -113,8 +113,16 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
+   * @TODO this remains whilst developing nested indices to ease, but
+   * consider removing it afterwards.
    */
   explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
+
+  /**
+   * @param properties The ids of the nested properties to be read, specified in the
+   *                   required index order.
+   */
+  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
 
   /** Rearranges a vector of monotonically ordered properties (as returned
    * by `Extract`) into the index order.
@@ -148,13 +156,16 @@ struct PropertiesPermutationHelper {
    * element is a tuple comprising: (position, property id, and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
+    // @TODO Currently using only the root top-level property for nested
+    // properties.
+    return ranges::views::enumerate(sorted_properties_roots_) | std::views::transform([&](auto &&p) {
              return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
 
  private:
-  std::vector<PropertyId> sorted_properties_;
+  std::vector<PropertyPath> sorted_properties_;
+  std::vector<PropertyId> sorted_properties_roots_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
 };
