@@ -499,7 +499,6 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
-  // TODO: (andi) Remove has replica state.
   spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
 
   auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
@@ -932,13 +931,21 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  if (setting_name != kEnabledReadsOnMain) {
+  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly};
+
+  if (std::ranges::find(settings, setting_name) == settings.end()) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
   bool const value = utils::ToLowerCase(setting_value) == "true"sv;
-  // NOLINTNEXTLINE
-  CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = value};
+  CoordinatorClusterStateDelta delta_state;
+
+  if (setting_name == kEnabledReadsOnMain) {
+    delta_state.enabled_reads_on_main_ = value;
+  } else {
+    delta_state.sync_failover_only_ = value;
+  }
+
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
     spdlog::error("Aborting the update of coordinator setting {}. Writing to Raft failed.", setting_name);
     return SetCoordinatorSettingStatus::RAFT_LOG_ERROR;
@@ -1196,7 +1203,31 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   // instance_name -> InstanceInfo
   std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info;
 
+  auto const sync_failover_only = raft_state_->GetSyncFailoverOnly();
+  auto const data_instances = raft_state_->GetDataInstancesContext();
+
   for (auto const &instance : repl_instances_) {
+    bool const skip_instance = [instance_name = instance.InstanceName(), sync_failover_only, &data_instances]() {
+      // if sync failover is false then ASYNC instances can also be used for failover
+      if (!sync_failover_only) {
+        return false;
+      }
+      // Since there is only a small number of instances in the cluster, this search is cheap
+      auto const raft_instance = std::ranges::find_if(data_instances, [instance_name](auto const &local_instance) {
+        return local_instance.config.instance_name == instance_name;
+      });
+      MG_ASSERT(raft_instance != data_instances.cend(),
+                "In-memory instance not saved in the Raft. Please submit this bug since this isn't intended state.");
+      return raft_instance->config.replication_client_info.replication_mode !=
+             replication_coordination_glue::ReplicationMode::SYNC;
+    }();
+
+    if (skip_instance) {
+      spdlog::info("Skipping instance {} for a failover since was registered as async replica",
+                   instance.InstanceName());
+      continue;
+    }
+
     if (auto maybe_instance_info = get_instance_info(instance); maybe_instance_info.has_value()) {
       instances_info.emplace(instance.InstanceName(), std::move(*maybe_instance_info));
     } else {
@@ -1209,7 +1240,9 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
 
 auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>> {
   std::vector<std::pair<std::string, std::string>> settings{
-      std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"}};
+      std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
+      std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
+  };
   return settings;
 }
 }  // namespace memgraph::coordination

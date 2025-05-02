@@ -101,6 +101,7 @@ class CoordinatorStateMachine final : public state_machine {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   auto GetEnabledReadsOnMain() const -> bool;
+  auto GetSyncFailoverOnly() const -> bool;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

@@ -97,6 +97,7 @@ class RaftState {
   auto GetMyBoltServer() const -> std::optional<std::string>;
 
   auto GetEnabledReadsOnMain() const -> bool;
+  auto GetSyncFailoverOnly() const -> bool;
 
  private:
   uint16_t coordinator_port_;
