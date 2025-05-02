@@ -1135,7 +1135,6 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);
         if (!key_size) return false;
-        if (!reader->SkipBytes(*key_size)) return false;
         if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
       }
       return true;
