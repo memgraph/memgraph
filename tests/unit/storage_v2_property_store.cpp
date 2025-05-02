@@ -913,6 +913,54 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
        std::array{1, 3, 5});
 }
 
+TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+  auto const p8 = PropertyId::FromInt(7);
+
+  PropertyStore store;
+
+  // Property store can have an empty map
+  store.SetProperty(p1, PropertyValue{PropertyValue::map_t{}});
+  ASSERT_TRUE(store.HasProperty(p1));
+  EXPECT_EQ(store.GetProperty(p1).type(), PropertyValue::Type::Map);
+
+  // Property store can have a map with one level
+  auto map_p2 = PropertyValue{PropertyValue::map_t{
+      {p3, PropertyValue("three")},
+      {p4, PropertyValue("four")},
+  }};
+
+  store.SetProperty(p2, map_p2);
+  ASSERT_TRUE(store.HasProperty(p2));
+  ASSERT_EQ(store.GetProperty(p2).type(), PropertyValue::Type::Map);
+  ASSERT_EQ(store.GetProperty(p2).ValueMap().size(), 2u);
+  EXPECT_EQ(store.GetProperty(p2).ValueMap()[p3], PropertyValue("three"));
+  EXPECT_EQ(store.GetProperty(p2).ValueMap()[p4], PropertyValue("four"));
+
+  // Property store can have a map with multiple levels
+  auto map_p5 = PropertyValue{PropertyValue::map_t{
+      {p6,
+       PropertyValue{PropertyValue::map_t{{p7, PropertyValue{PropertyValue::map_t{{p8, PropertyValue{"eight"}}}}}}}}}};
+
+  store.SetProperty(p5, map_p5);
+  ASSERT_TRUE(store.HasProperty(p5));
+  ASSERT_EQ(store.GetProperty(p5).type(), PropertyValue::Type::Map);
+  ASSERT_EQ(store.GetProperty(p5).ValueMap().size(), 1u);
+  auto val6 = store.GetProperty(p5).ValueMap()[p6];
+  ASSERT_EQ(val6.type(), PropertyValue::Type::Map);
+  ASSERT_EQ(val6.ValueMap().size(), 1u);
+  auto val7 = val6.ValueMap()[p7];
+  ASSERT_EQ(val7.type(), PropertyValue::Type::Map);
+  ASSERT_EQ(val7.ValueMap().size(), 1u);
+  EXPECT_EQ(val7.ValueMap()[p8], PropertyValue("eight"));
+}
+
 TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
   auto const p1 = PropertyId::FromInt(1);
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
@@ -1059,7 +1107,10 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   EXPECT_EQ(values[3], PropertyValue{"cherry"});
 }
 
-// @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d)
+// @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d).
+// Currently, this will not work because we can only read from the `PropertyStore`
+// using monotonically increasing `PropertyId`s. No going back to read the same
+// value (`a` in this case) twice.
 
 // @TODO add tests for all methods in `PropertiesPermutationHelper`, such as
 // MatchValue, Matches value, etc
