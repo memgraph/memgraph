@@ -177,27 +177,6 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
   return std::ranges::equal(std::span{values.values_.begin(), std::min(rhs.size(), values.values_.size())}, rhs);
 }
 
-template <typename TCallback>
-inline std::size_t ApplyDeltasForReadBeforeStart(Transaction const *transaction, const Delta *delta, View view,
-                                                 const TCallback &callback) {
-  if (!delta) return 0;
-
-  std::size_t n_processed = 0;
-  while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts < transaction->start_timestamp) {
-      break;
-    }
-    // This delta must be applied, call the callback.
-    callback(*delta);
-    ++n_processed;
-
-    // Move to the next delta.
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-  return n_processed;
-}
-
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
@@ -231,28 +210,27 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     properties = vertex.properties.Properties();
   }
 
-  // TODO: I think we have to do this even in READ UNCOMMITED to avoid double insertions
+  // Create and drop index will always use snapshot isolation
   if (delta) {
-    auto const n_processed = ApplyDeltasForRead(tx, delta, view, [&](const Delta &delta) {
+    auto const n_processed = ApplyDeltasForRead(&tx, delta, view, [&](const Delta &delta) {
       // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Exists_ActionMethod(exists),
-          Deleted_ActionMethod(deleted),
-          HasLabel_ActionMethod(has_label, label),
-          Properties_ActionMethod(properties)
-        });
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Exists_ActionMethod(exists),
+            Deleted_ActionMethod(deleted),
+            HasLabel_ActionMethod(has_label, label),
+            Properties_ActionMethod(properties)
+          });
       // clang-format on
     });
   }
 
   // TODO: currently we double check for properties (in return and here)
-  if (!exists || deleted || !has_label ||  props.Contains(properties)) {
+  if (!exists || deleted || !has_label || props.Contains(properties)) {
     return;
   }
 
   // Using 0 as a timestamp is fine because the index is created at timestamp x
-  // and any query using the index will be > x.
-  // TODO: is this still ok... currently it holds that anything after will be > start_timestamp of this transaction
+  // and any query using the index will be > x since we wait for all the writers to drain out first.
   index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
 }
 
