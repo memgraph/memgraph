@@ -225,7 +225,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   }
 
   // TODO: currently we double check for properties (in return and here)
-  if (!exists || deleted || !has_label || props.Contains(properties)) {
+  if (!exists || deleted || !has_label || !props.Contains(properties)) {
     return;
   }
 
