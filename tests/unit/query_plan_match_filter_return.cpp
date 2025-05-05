@@ -3136,12 +3136,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1)}),
       memgraph::storage::PropertyValue(
           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2)})};
-
-  {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
   {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3151,6 +3145,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
       ASSERT_TRUE(vertex.SetProperty(prop, value).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3228,13 +3228,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   // compared. On the other hand, equality works fine.
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
-
-  {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-
   {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3245,6 +3238,11 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     ASSERT_TRUE(string_vertex.AddLabel(label).HasValue());
     ASSERT_TRUE(string_vertex.SetProperty(prop, memgraph::storage::PropertyValue("string")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
+  }
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3271,11 +3269,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-  {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (int i = 0; i < 2; ++i) {
@@ -3284,6 +3277,11 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
       ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
+  }
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3304,11 +3302,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-  {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (int i = 0; i < 2; ++i) {
@@ -3317,6 +3310,11 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
       ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
+  }
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3359,11 +3357,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-  {
     // CREATE (:label), (:label {prop: 42})
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3373,6 +3366,11 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
+  }
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3396,11 +3394,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-  {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
@@ -3410,6 +3403,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
+  }
+
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -3430,11 +3429,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-  {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto v = dba.InsertVertex();
@@ -3442,6 +3436,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
+  }
+
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -3470,12 +3470,6 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   const int vertex_count = 300, vertex_prop_count = 50;
   const int prop_value1 = 42, prop_value2 = 69;
 
-  {
-    auto read_only_acc = this->db->ReadOnlyAccess();
-    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
-  }
-
   for (int i = 0; i < vertex_count; ++i) {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3484,6 +3478,12 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(i < vertex_prop_count ? prop_value1 : prop_value2))
                     .HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  {
+    auto read_only_acc = this->db->ReadOnlyAccess();
+    [[maybe_unused]] auto _ = read_only_acc->CreateIndex(label, {prop});
+    ASSERT_FALSE(read_only_acc->Commit().HasError());
   }
 
   // Make sure there are `vertex_count` vertices
