@@ -64,7 +64,7 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       }
 
       uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
-      auto const durable_start_idx_value = std::stoull(maybe_start_idx.value();
+      auto const durable_start_idx_value = std::stoull(maybe_start_idx.value());
       start_idx_.store(durable_start_idx_value, std::memory_order_release);
 
       // Compaction might have happened so we might be missing some logs.
@@ -307,7 +307,7 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   }
 
   auto lock = std::lock_guard{logs_lock_};
-  for (uint64_t ii = ; ii <= last_log_index; ++ii) {
+  for (uint64_t ii = old_start_idx; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
     if (entry == logs_.end()) {
       continue;
