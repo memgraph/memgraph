@@ -6145,6 +6145,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                          utils::Downcast<ProfileQuery>(parsed_query.query) ||
                                          utils::Downcast<TriggerQuery>(parsed_query.query);
 
+    bool const requires_snapshot_isolation = utils::Downcast<IndexQuery>(parsed_query.query);
+
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       auto acc_type = storage::Storage::Accessor::Type::WRITE;
@@ -6162,7 +6164,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         }
       }
       bool could_commit = cypher_query != nullptr;
-      // TODO: For Create and Drop index -> SNAPSHOT_ISOLATION needed
+      if (requires_snapshot_isolation) {
+        // TODO(imilinovic): does this need any locks?
+        SetNextTransactionIsolationLevel(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+      }
       SetupDatabaseTransaction(could_commit, acc_type);
     }
 
