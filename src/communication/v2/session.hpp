@@ -52,6 +52,8 @@
 #include "utils/priority_thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "flags/scheduler.hpp"
+
 namespace memgraph::metrics {
 extern const Event ActiveSessions;
 extern const Event ActiveTCPSessions;
@@ -246,7 +248,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                       if (ec) {
                         return self->OnError(ec);
                       }
-                      self->DoRead();
+                      // Start branch based on the selected scheduler. Each function is self-calling, no need for
+                      // further checks.
+                      switch (GetSchedulerType()) {
+                        using enum SchedulerType;
+                        case ASIO:
+                          self->DoReadAsio();
+                          break;
+                        case PRIORITY_QUEUE_WITH_SIDECAR:
+                          self->DoRead();
+                          break;
+                      }
                     }));
   }
 
@@ -259,6 +271,18 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
+    });
+  }
+
+  void DoReadAsio() {
+    if (!IsConnected()) {
+      return;
+    }
+    ExecuteForSocket([this](auto &socket) {
+      auto buffer = input_buffer_.write_end()->Allocate();
+      socket.async_read_some(
+          boost::asio::buffer(buffer.data, buffer.len),
+          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnReadAsio, shared_from_this())));
     });
   }
 
@@ -289,7 +313,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnFirstRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
-      // TODO Check if client disconnected
       session_.HandleError();
       return OnError(ec);
     }
@@ -309,8 +332,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       DoShutdown();
     }
 
-    // Continue with normal operation
-    OnRead(ec, bytes_transferred);
+    // Start branch based on the selected scheduler. Each function is self-calling, no need for further checks.
+    switch (GetSchedulerType()) {
+      using enum SchedulerType;
+      case ASIO:
+        OnReadAsio(ec, bytes_transferred);
+        break;
+      case PRIORITY_QUEUE_WITH_SIDECAR:
+        OnRead(ec, bytes_transferred);
+        break;
+    }
   }
 
   void HandleException(const std::exception_ptr eptr) {
@@ -337,6 +368,26 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
     DoWork();
+  }
+
+  void OnReadAsio(const boost::system::error_code &ec, const size_t bytes_transferred) {
+    if (ec) {
+      spdlog::trace("OnRead error: {}", ec.message());
+      session_.HandleError();
+      return OnError(ec);
+    }
+
+    input_buffer_.write_end()->Written(bytes_transferred);
+
+    try {
+      // Execute until all data has been read
+      while (session_.Execute()) {
+      }
+      // Handled all data,  async wait for new incoming data
+      DoReadAsio();
+    } catch (const std::exception & /* unused */) {
+      HandleException(std::current_exception());
+    }
   }
 
   void DoWork() {

@@ -13,7 +13,6 @@
 
 #include <boost/system/detail/errc.hpp>
 #include <string>
-#include <thread>
 
 #include <fmt/format.h>
 #include <boost/asio/io_context.hpp>
@@ -25,7 +24,6 @@
 #include "communication/v2/session.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
-#include "utils/priority_thread_pool.hpp"
 
 namespace memgraph::communication::v2 {
 
@@ -70,7 +68,7 @@ class Server final {
    */
 
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         std::string_view service_name);
+         std::string_view service_name, unsigned io_n_threads);
 
   ~Server();
 
@@ -128,12 +126,13 @@ Server<TSession, TSessionContext>::~Server() {
 
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionContext *session_context,
-                                          ServerContext *server_context, const std::string_view service_name)
+                                          ServerContext *server_context, const std::string_view service_name,
+                                          const unsigned io_n_threads)
     : endpoint_{endpoint},
       service_name_{service_name},
       session_context_(session_context),
       server_context_(server_context),
-      io_thread_pool_{1U} {
+      io_thread_pool_{io_n_threads} {
   boost::system::error_code ec;
   // Open the acceptor
   (void)acceptor_.open(endpoint_.protocol(), ec);
