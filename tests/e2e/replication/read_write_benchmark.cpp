@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
     auto start = std::chrono::steady_clock::now();
 
     for (const auto &database_endpoint : database_endpoints) {
+      bool replicated = false;
       auto now = std::chrono::steady_clock::now();
       while (now - start < TIMEOUT) {
         auto client = mg::e2e::replication::Connect(database_endpoint);
@@ -110,11 +111,15 @@ int main(int argc, char **argv) {
         }
 
         if (*maybe_vertex_count == FLAGS_nodes && *maybe_edge_count == FLAGS_edges) {
+          replicated = true;
           break;
         }
 
         std::this_thread::sleep_for(SLEEP_TIME);
         now = std::chrono::steady_clock::now();
+      }
+      if (!replicated) {
+        LOG_FATAL("Failed to replicate writes to {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All nodes and edges were replicated.");
