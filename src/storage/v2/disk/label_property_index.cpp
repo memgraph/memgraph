@@ -229,17 +229,18 @@ RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvsto
 std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
 
 std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   // NOTE: only looking for singular property index, as disk does not support composite indices
-  for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
-    for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
-      if (IndexExists(label, std::array{property})) {
-        // NOLINTNEXTLINE(google-runtime-int)
-        res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)}, label, std::vector{property});
-      }
-    }
-  }
+  // TODO: put back in
+  // for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
+  //   for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
+  //     if (IndexExists(label, std::array{property})) {
+  //       // NOLINTNEXTLINE(google-runtime-int)
+  //       res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)}, label, std::vector{property});
+  //     }
+  //   }
+  // }
   return res;
 }
 
