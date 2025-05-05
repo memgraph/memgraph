@@ -3541,8 +3541,9 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
   } else if (single_filter.type == Type::Pattern) {
     return "Pattern";
   } else if (single_filter.type == Type::Property) {
-    return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
-                       single_filter.property_filter->property_.name);
+    return fmt::format(
+        "{{{}.{}}}", single_filter.property_filter->symbol_.name(),
+        single_filter.property_filter->property_ids_.back().name);  // TODO: fix this -> don't use only last
   } else if (single_filter.type == Type::Point) {
     return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
                        single_filter.point_filter->property_.name);

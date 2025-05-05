@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <range/v3/algorithm/find.hpp>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_constants.hpp"
@@ -419,7 +421,7 @@ bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId
 }
 
 auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                                                    std::span<PropertyId const> properties) const
+                                                                    std::span<PropertyPath const> properties) const
     -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
@@ -447,6 +449,29 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
   //   Expected output (property position vectors):
   //     - For properties (a, b, c): [-1, 1, 0]   // a not found, b at pos 1, c at pos 0
   //     - For properties (b, c, d): [1, 0, -1]   // b at pos 1, c at pos 0, d not found
+
+  for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
+    auto it = nested_index_.find(label);
+    if (it == nested_index_.end()) continue;
+
+    for (const auto &nested_props : it->second | std::views::keys) {
+      bool has_matching_property = false;
+      auto positions = std::vector<int64_t>();
+      for (auto prop_path : nested_props) {
+        auto it = r::find(properties_vec, prop_path);
+        if (it != properties_vec.end()) {
+          auto distance = std::distance(properties_vec.begin(), it);
+          positions.emplace_back(static_cast<int64_t>(ppos_indices[distance]));
+          has_matching_property = true;
+        } else {
+          positions.emplace_back(-1);
+        }
+      }
+      if (has_matching_property) {
+        res.emplace_back(l_pos, std::move(positions), label, nested_props);
+      }
+    }
+  }
 
   // @TODO put this back
   // r::sort(rv::zip(properties_vec, ppos_indices), std::less{},
