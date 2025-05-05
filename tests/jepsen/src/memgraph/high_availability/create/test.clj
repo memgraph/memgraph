@@ -586,7 +586,7 @@
         license (:license opts)
         recovery-time (:recovery-time opts)
         nemesis-start-sleep (:nemesis-start-sleep opts)]
-    {:client    (jclient/timeout timeout-fn (Client. nodes-config first-leader first-main license organization))
+    {:client    (Client. nodes-config first-leader first-main license organization)
      :checker   (checker/compose
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
