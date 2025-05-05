@@ -208,7 +208,7 @@ auto MatchesIdentifier(Identifier *identifier) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
+    : symbol_(symbol), property_ids_({std::move(property)}), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -219,7 +219,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
-      property_(std::move(property)),
+      property_ids_({std::move(property)}),
       type_(Type::RANGE),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
@@ -234,7 +234,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 }
 
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
-    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
+    : symbol_(std::move(symbol)), property_ids_({std::move(property)}), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter

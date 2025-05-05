@@ -654,7 +654,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       auto *join_condition = static_cast<EqualOperator *>(filter.expression);
       auto lhs_symbol = filter.property_filter->symbol_;
-      auto lhs_property = filter.property_filter->property_;
+      auto lhs_property = filter.property_filter->property_ids_[0];  // TODO: should we use whole vector here?
       auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
       auto rhs_property = rhs_lookup->property_;
       filter_exprs_for_removal_.insert(filter.expression);

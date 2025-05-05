@@ -143,7 +143,7 @@ class VertexCountCache {
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
-                                          std::span<storage::PropertyId const> properties) const
+                                          std::span<storage::PropertyPath const> properties) const
       -> std::vector<storage::LabelPropertiesIndicesInfo> {
     return db_->RelevantLabelPropertiesIndicesInfo(labels, properties);
   }

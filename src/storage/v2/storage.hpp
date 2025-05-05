@@ -17,6 +17,7 @@
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -325,7 +326,7 @@ class Storage {
     virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyId const> properties) const
+                                            std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
       return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
