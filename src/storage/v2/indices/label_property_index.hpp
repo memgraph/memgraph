@@ -83,7 +83,7 @@ struct LabelPropertiesIndicesInfo {
   std::size_t label_pos_;
   std::vector<int64_t> properties_pos_;  // -1 means missing
   LabelId label_;
-  std::vector<PropertyId> properties_;
+  std::vector<PropertyPath> properties_;
 };
 
 // @TODO remove old implementation
@@ -254,7 +254,7 @@ class LabelPropertyIndex {
   virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
 
   virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                                  std::span<PropertyId const> properties) const
+                                                  std::span<PropertyPath const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> = 0;
 
   virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;

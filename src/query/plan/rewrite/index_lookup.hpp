@@ -28,6 +28,7 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/ast_storage.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -778,8 +779,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertyIndex {
     LabelIx label;
-    std::vector<storage::PropertyId> properties;  // need props ids to associate
-                                                  // this with the actual index
+    std::vector<storage::PropertyPath> properties;  // need props ids to associate
+                                                    // this with the actual index
     // FilterInfos, each with a PropertyFilter.
     std::vector<FilterInfo> filters;
     int64_t vertex_count;
@@ -953,7 +954,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertiesIndexInfo {
     storage::LabelId label_{};
-    std::vector<storage::PropertyId> properties_{};
+    std::vector<storage::PropertyPath> properties_{};
   };
 
   struct LabelPropertiesIndexCandidate {
@@ -993,8 +994,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       //       remove the need for the filter
       return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
     };
-    auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_; };
-    auto as_storage_property = [&](auto const &filter) { return GetProperty(as_propertyIX(filter)); };
+    auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
+    auto as_storage_property = [&](auto const &filter) {
+      std::vector<storage::PropertyId> storage_property_ids;
+      for (auto const &property : filter.property_filter->property_ids_) {
+        storage_property_ids.push_back(GetProperty(property));
+      }
+      return storage_property_ids;
+    };
 
     auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
     auto or_labels = filters_.FilteredOrLabels(symbol);
@@ -1006,11 +1013,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
     auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
     ranges::stable_sort(property_filters, {}, as_storage_property);
-    auto properties = property_filters | rv::transform(as_storage_property) |
-                      r::to_vector;  // TODO: To support nested indices this should be vector of vectors
+    auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
 
     // TODO: extact as a common util
-    auto filters_grouped_by_property = std::map<storage::PropertyId, std::vector<FilterInfo>>{};
+    auto filters_grouped_by_property = std::map<std::vector<storage::PropertyId>, std::vector<FilterInfo>>{};
     auto grouped = ranges::views::zip(properties, property_filters) |
                    ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
     for (auto &&group : grouped) {
