@@ -16,7 +16,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "license/license.hpp"
-#include "nlohmann/json_fwd.hpp"
+#include "nlohmann/json.hpp"
 
 namespace {
 constexpr auto kPermissions = "permissions";

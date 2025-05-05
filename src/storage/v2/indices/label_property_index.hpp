@@ -17,6 +17,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <cstdint>
+#include <ranges>
 
 namespace memgraph::storage {
 

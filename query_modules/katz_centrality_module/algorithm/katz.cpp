@@ -104,12 +104,18 @@ class KatzCentralityData {
 /// Storage for dynamic algorithm intermediate results
 KatzCentralityData context;
 /// Attenuation factor
-double alpha;
+double alpha{};
 /// Top-k for convergence calculation
-std::uint64_t k;
+std::uint64_t k{};
 /// Tolerance factor for separation calculation
-double epsilon;
+double epsilon{};
 
+///
+///@brief Calculates maximum degree in graph. Degree is denoted by number of edges going from node.
+///
+///@param graph Graph for calculation
+///@return std::uint64_t
+///
 std::uint64_t MaxDegree(const mg_graph::GraphView<> &graph) {
   std::vector<std::size_t> deg_vector;
   // Calculate the vector of graph degrees
@@ -119,6 +125,15 @@ std::uint64_t MaxDegree(const mg_graph::GraphView<> &graph) {
   return deg_max;
 }
 
+///
+///@brief Calculates whether the upper and lower boundaries within the list of active nodes are epsilon-separated.
+///
+///@param active_nodes Active nodes for convergence calculations
+///@param k Factor for sorting only first k
+///@param epsilon Factor of separation/tolerance
+///@return true
+///@return false
+///
 bool Converged(std::set<std::uint64_t> &active_nodes, std::uint64_t k, double epsilon) {
   // Fetch the information about current iteration
   auto centrality = katz_alg::context.centralities[context.iteration];
@@ -167,6 +182,29 @@ bool Converged(std::set<std::uint64_t> &active_nodes, std::uint64_t k, double ep
   return true;
 }
 
+///
+///@brief Wrap the current results and return the last iteration ranking
+///
+///@return std::vector<std::pair<std::uint64_t, double>> Results in format [node, ranking   ]
+///
+std::vector<std::pair<std::uint64_t, double>> WrapResults() {
+  return std::vector<std::pair<std::uint64_t, double>>(
+      katz_alg::context.centralities[katz_alg::context.iteration].begin(),
+      katz_alg::context.centralities[katz_alg::context.iteration].end());
+}
+
+///
+///@brief Running the convergence process of shrinking the upper and lower bound for katz centrality. Updates are stored
+/// in context data structure.
+///
+///@param active_nodes Active nodes - list of nodes in convergence process
+///@param graph Graph for convergence calculation
+///@param alpha Attenuation factor
+///@param k Parameter for keeping the first k node centralities sorted
+///@param epsilon Tolerance factor
+///@param gamma Convergence factor
+///@return std::vector<std::pair<std::uint64_t, double>>
+///
 std::vector<std::pair<std::uint64_t, double>> KatzCentralityLoop(std::set<std::uint64_t> &active_nodes,
                                                                  const mg_graph::GraphView<> &graph, double alpha,
                                                                  std::uint64_t k, double epsilon, double gamma) {
@@ -198,6 +236,17 @@ std::vector<std::pair<std::uint64_t, double>> KatzCentralityLoop(std::set<std::u
   return WrapResults();
 }
 
+///
+///@brief Update the first {0... context.iterations} iterations from static algorithm. This updates data structures
+/// based on the newly created and deleted edges.
+///
+///@param context_new New graph context storing the data for updated graph
+///@param from_nodes Set of updated node centralities
+///@param new_edges List of newly created edges
+///@param deleted_edges List of deleted edges
+///@param new_edge_ids List of ids of created edges
+///@param graph Updated graph for calculation
+///
 void UpdateLevel(KatzCentralityData &context_new, std::set<std::uint64_t> &updated_nodes,
                  const std::vector<std::pair<std::uint64_t, uint64_t>> &new_edges,
                  const std::vector<std::pair<std::uint64_t, uint64_t>> &deleted_edges,
@@ -260,12 +309,13 @@ void UpdateLevel(KatzCentralityData &context_new, std::set<std::uint64_t> &updat
   }
 }
 
-std::vector<std::pair<std::uint64_t, double>> WrapResults() {
-  return std::vector<std::pair<std::uint64_t, double>>(
-      katz_alg::context.centralities[katz_alg::context.iteration].begin(),
-      katz_alg::context.centralities[katz_alg::context.iteration].end());
-}
-
+///
+///@brief Graph is inconsistent if the results are not matching with the current graph state
+///
+///@param graph Graph for consistency check
+///@return true Results are matching
+///@return false There are missing nodes.
+///
 bool IsInconsistent(const mg_graph::GraphView<> &graph) {
   for (auto const [node_id] : graph.Nodes()) {
     auto external_id = graph.GetMemgraphNodeId(node_id);
@@ -303,7 +353,7 @@ std::vector<std::pair<std::uint64_t, double>> GetKatz(const mg_graph::GraphView<
 std::vector<std::pair<std::uint64_t, double>> SetKatz(const mg_graph::GraphView<> &graph, double alpha,
                                                       double epsilon) {
   katz_alg::alpha = alpha;
-  katz_alg::k = k;
+  // katz_alg::k = k;
   katz_alg::epsilon = epsilon;
   katz_alg::context.Init(graph);
 

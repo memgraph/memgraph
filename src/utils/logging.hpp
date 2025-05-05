@@ -30,7 +30,6 @@
 #include <fmt/std.h>
 #endif
 #include <spdlog/fmt/ostr.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <boost/preprocessor/comparison/equal.hpp>
@@ -41,15 +40,7 @@ namespace memgraph::logging {
 
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
-[[noreturn]] inline void AssertFailed(const char *file_name, int line_num, const char *expr,
-                                      const std::string &message) {
-  spdlog::critical(
-      "\nAssertion failed in file {} at line {}."
-      "\n\tExpression: '{}'"
-      "{}",
-      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
-  std::terminate();
-}
+[[noreturn]] void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message);
 
 #define GET_MESSAGE(...) \
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
@@ -92,7 +83,7 @@ void Fatal(const char *msg, const Args &...msg_args) {
   } while (false)
 #endif
 
-inline void RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }
+void RedirectToStderr();
 
 // /// Use it for operations that must successfully finish.
 inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }

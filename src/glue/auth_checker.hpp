@@ -14,7 +14,6 @@
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
 #include "query/auth_checker.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::glue {

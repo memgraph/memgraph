@@ -30,7 +30,7 @@
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/beast/websocket.hpp>
 #include <mgclient.hpp>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "utils/logging.hpp"
 
@@ -50,12 +50,7 @@ struct Credentials {
 
 inline void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
 
-inline std::string GetAuthenticationJSON(const Credentials &creds) {
-  nlohmann::json json_creds;
-  json_creds["username"] = creds.username;
-  json_creds["password"] = creds.passsword;
-  return json_creds.dump();
-}
+std::string GetAuthenticationJSON(const Credentials &creds);
 
 template <bool ssl = false>
 class Session : public std::enable_shared_from_this<Session<ssl>> {
@@ -182,7 +177,7 @@ class Session : public std::enable_shared_from_this<Session<ssl>> {
   std::optional<Credentials> creds_{std::nullopt};
 };
 
-std::unique_ptr<mg::Client> GetBoltClient(const uint16_t bolt_port, const bool use_ssl) {
+inline std::unique_ptr<mg::Client> GetBoltClient(const uint16_t bolt_port, const bool use_ssl) {
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
   MG_ASSERT(client, "Failed to connect!");
 
@@ -217,25 +212,9 @@ inline void RunQueries(std::unique_ptr<mg::Client> &mg_client) {
   CleanDatabase(mg_client);
 }
 
-inline void AssertAuthMessage(auto &json_message, const bool success = true) {
-  MG_ASSERT(json_message.at("message").is_string(), "Event is not a string!");
-  MG_ASSERT(json_message.at("success").is_boolean(), "Success is not a boolean!");
-  MG_ASSERT(json_message.at("success").template get<bool>() == success, "Success does not match expected!");
-}
-
-inline void AssertLogMessage(const std::string &log_message) {
-  const auto json_message = nlohmann::json::parse(log_message);
-  if (json_message.contains("success")) {
-    spdlog::info("Received auth message: {}", json_message.dump());
-    AssertAuthMessage(json_message);
-    return;
-  }
-  MG_ASSERT(json_message.at("event").is_string(), "Event is not a string!");
-  MG_ASSERT(json_message.at("event").get<std::string>() == "log", "Event is not equal to `log`!");
-  MG_ASSERT(json_message.at("level").is_string(), "Level is not a string!");
-  MG_ASSERT(std::ranges::count(kSupportedLogLevels, json_message.at("level")) == 1);
-  MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
-}
+void AssertAuthMessage(nlohmann::json const &json_message, const bool success = true);
+void AssertAuthMessage(std::string const &received_message, bool const success);
+void AssertLogMessage(const std::string &log_message);
 
 template <typename TWebsocketClient>
 void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port) {
@@ -291,13 +270,12 @@ void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client,
 
   websocket_client.Close();
   websocket_client.AwaitClose();
-  const auto received_messages = websocket_client.GetReceivedMessages();
+  std::vector<std::string> received_messages = websocket_client.GetReceivedMessages();
   spdlog::info("Received {} messages.", received_messages.size());
 
   MG_ASSERT(received_messages.size() == 1, "There must be only one message received!");
   if (!received_messages.empty()) {
-    auto json_message = nlohmann::json::parse(received_messages[0]);
-    AssertAuthMessage(json_message, false);
+    AssertAuthMessage(received_messages[0], false);
   }
   spdlog::info("Finishing websocket connection with users but without being authenticated.");
 }

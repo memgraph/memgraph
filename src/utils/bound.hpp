@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <tuple>
+
 namespace memgraph::utils {
 
 /**

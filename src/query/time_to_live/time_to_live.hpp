@@ -18,7 +18,7 @@
 
 #include <fmt/core.h>
 #include <chrono>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 
 #include "kvstore/kvstore.hpp"
