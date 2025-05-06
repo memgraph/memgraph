@@ -107,4 +107,19 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   void UpdateType(RWType op_type);
 };
 
+inline std::ostream &operator<<(std::ostream &os, ReadWriteTypeChecker::RWType type) {
+  switch (type) {
+    using enum ReadWriteTypeChecker::RWType;
+    case NONE:
+      return os << "NONE";
+    case R:
+      return os << "READ";
+    case W:
+      return os << "WRITE";
+    case RW:
+      return os << "READ-WRITE";
+  }
+  return os;
+}
+
 }  // namespace memgraph::query::plan
