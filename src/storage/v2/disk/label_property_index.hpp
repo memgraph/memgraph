@@ -19,13 +19,13 @@ namespace memgraph::storage {
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  enum class Status : uint8_t { POPULATE, READY, DROPPING };
   struct IndexInformation {
     LabelId label;
     PropertyId property;
     Status status;
 
-    IndexInformation(LabelId label, PropertyId property) : label(label), property(property), status(Status::POPULATE) {}
+    IndexInformation(LabelId label, PropertyId property)
+        : label(label), property(property), status(Status::POPULATING) {}
     IndexInformation(LabelId label, PropertyId property, Status status)
         : label(label), property(property), status(status) {}
 
