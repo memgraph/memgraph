@@ -114,7 +114,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
-  std::shared_ptr<query::QueryUserOrRole> user_or_role_;
+  std::shared_ptr<query::QueryUserOrRole> session_user_or_role_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
   RunTimeConfig runtime_db_;
