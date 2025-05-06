@@ -137,24 +137,24 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                   std::span<PropertyValueRange const> bounds) const override;
 
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStats();
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteIndexStats(const storage::LabelId &label);
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> DeleteIndexStats(const storage::LabelId &label);
 
-  void SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  void SetIndexStats(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                      storage::LabelPropertyIndexStats const &stats);
 
   std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-      std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const;
+      std::pair<storage::LabelId, std::span<storage::PropertyPath const>> const &key) const;
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
-                    View view, Storage *storage, Transaction *transaction);
+  // Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+  //                   View view, Storage *storage, Transaction *transaction);
 
-  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
-                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                    Storage *storage, Transaction *transaction);
+  // Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+  //                   memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+  //                   Storage *storage, Transaction *transaction);
 
   Iterable Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> values,
                     View view, Storage *storage, Transaction *transaction);
@@ -195,7 +195,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::unordered_map<PropertyId, NestedPropToIndexLookup> nested_indices_by_property_;
 
   // @TODO support nested stats too.
-  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
+  using PropertiesIndicesStats = std::map<NestedPropertiesIds, storage::LabelPropertyIndexStats, Compare>;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
