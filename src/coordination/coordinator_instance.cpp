@@ -365,7 +365,8 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     switch (auto const result = ReconcileClusterState_()) {
       case (ReconcileClusterStateStatus::SUCCESS): {
         auto expected = CoordinatorStatus::LEADER_NOT_READY;
-        if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_READY)) {
+        if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_READY, std::memory_order_acq_rel,
+                                            std::memory_order_acquire)) {
           if (expected == CoordinatorStatus::FOLLOWER) {
             spdlog::trace(
                 "Reconcile cluster state finished successfully but coordinator in the meantime became follower.");
@@ -490,7 +491,8 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
   // Follows nomenclature from replication handler where Try<> means doing action from the
   // user query.
   auto expected = CoordinatorStatus::LEADER_READY;
-  if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_NOT_READY)) {
+  if (!status.compare_exchange_strong(expected, CoordinatorStatus::LEADER_NOT_READY, std::memory_order_acq_rel,
+                                      std::memory_order_acquire)) {
     return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
   }
   return ReconcileClusterState();
