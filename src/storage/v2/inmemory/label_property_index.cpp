@@ -166,6 +166,14 @@ inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, st
   });
 }
 
+void AddReverseEntries(InMemoryLabelPropertyIndex::ReverseIndexContainer &reverse_index, LabelId const &label,
+                       PropertiesIds const &properties,
+                       std::shared_ptr<InMemoryLabelPropertyIndex::IndividualIndex> const &index) {
+  for (auto prop : properties) {
+    reverse_index[prop].insert({label, InMemoryLabelPropertyIndex::EntryDetail{&properties, index}});
+  }
+}
+
 }  // namespace
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(std::vector<PropertyValue> const &rhs) const {
@@ -247,13 +255,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<Property
   auto helper = PropertiesPermutationHelper{properties};
   auto [it2, emplaced] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
 
-  auto const &properties_key = it2->first;
-  auto &index = it2->second;
-
-  auto de = EntryDetail{&properties_key, index};
-  for (auto prop : properties) {
-    indices_by_property_[prop].insert({label, de});
-  }
+  AddReverseEntries(indices_by_property_, label, it2->first, it2->second);
   return true;
 }
 
@@ -328,7 +330,6 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId
 
   auto const make_props_subspan = [&](std::size_t length) {
     return std::span{properties.cbegin(), properties.cbegin() + length + 1};
-    ;
   };
 
   // For each prefix of properties, compute the number of indices which have the
@@ -399,8 +400,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
 };
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyId const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyId const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
@@ -436,7 +437,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
     if (it == index_container.end()) continue;
 
     for (auto const &[props, index] : it->second) {
-      if (index->status.load(std::memory_order_acquire) != LabelPropertyIndex::Status::READY) continue;
+      if (index->status.load(std::memory_order_acquire) == LabelPropertyIndex::Status::POPULATING) continue;
 
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
@@ -1019,10 +1020,22 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
 
 void InMemoryLabelPropertyIndex::UpdateIndexStatus(UpdateStatus status) {
   auto it = index_.find(status.label);
-  DMG_ASSERT(it != index_.end());
+  if (it == index_.end()) return;
   auto it2 = it->second.find(status.properties);
-  DMG_ASSERT(it2 != it->second.end());
+  if (it2 == it->second.end()) return;
   it2->second->status.store(status.status, std::memory_order_release);
+}
+
+auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> {
+  IndexContainer active_indices = index_;
+  // must build the reverse index from our copy of the index, becasue the reverse index uses pointers
+  ReverseIndexContainer reverse_active_indices;
+  for (auto const &[label, by_properties] : active_indices) {
+    for (auto const &[properties, index] : by_properties) {
+      AddReverseEntries(reverse_active_indices, label, properties, index);
+    }
+  }
+  return std::make_unique<ActiveIndices>(std::move(active_indices), std::move(reverse_active_indices));
 }
 
 }  // namespace memgraph::storage
