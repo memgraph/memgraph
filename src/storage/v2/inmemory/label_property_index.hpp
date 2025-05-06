@@ -45,11 +45,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)), status(Status::POPULATING) {}
 
-    enum class Status : uint8_t { POPULATING = 0, READY = 1, DROPPING = 2 };
     PropertiesPermutationHelper permutations_helper;
     utils::SkipList<Entry> skiplist;
 
-    // TODO: change to commit (ready to use) and drop timestamp
     std::atomic<Status> status;
   };
   struct Compare {
@@ -110,6 +108,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool CreateIndex(LabelId label, std::vector<PropertyId> const &properties);
 
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
+
+  void UpdateIndexStatus(UpdateStatus status);
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -191,7 +191,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     for (auto const &[label, properties] : index_) {
       for (auto const &[properties_ids, index] : properties) {
         // If an index is in populate stage we still need to be able to insert into it
-        if (index->status.load(std::memory_order_acquire) != IndividualIndex::Status::DROPPING) {
+        if (index->status.load(std::memory_order_acquire) != LabelPropertyIndex::Status::DROPPING) {
           active_indices[label].emplace(properties_ids, index);
           auto de = EntryDetail{&properties_ids, index};
           for (auto prop : properties_ids) {

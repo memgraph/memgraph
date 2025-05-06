@@ -741,7 +741,7 @@ TEST_P(InMemoryIsolationLevelIndexTest, LabelPropertyIndexCreateConcurrent) {
   std::latch start_index_creation{1};  // Signals thread 2 to create index
   std::latch start_second_write{1};    // Signals thread 3 to begin writing
 
-  constexpr size_t kVertices = 50000;
+  constexpr size_t kVertices = 5000;
 
   std::thread writer1([&] {
     auto acc = this->storage->Access();

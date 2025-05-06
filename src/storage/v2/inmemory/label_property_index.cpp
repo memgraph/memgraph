@@ -281,7 +281,7 @@ void InMemoryLabelPropertyIndex::PopulateIndex(
       }
     };
     PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-    index_ptr->status.store(IndividualIndex::Status::READY, std::memory_order_release);
+
   } catch (const utils::OutOfMemoryException &) {
     // No need to change the index status, if another txn has shared_ptr to index...the worst
     // they can do is redundantly insert into it
@@ -436,7 +436,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
     if (it == index_container.end()) continue;
 
     for (auto const &[props, index] : it->second) {
-      if (index->status.load(std::memory_order_acquire) != IndividualIndex::Status::READY) continue;
+      if (index->status.load(std::memory_order_acquire) != LabelPropertyIndex::Status::READY) continue;
 
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
@@ -1015,6 +1015,14 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
     auto acc = index->skiplist.access();
     acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
   }
+}
+
+void InMemoryLabelPropertyIndex::UpdateIndexStatus(UpdateStatus status) {
+  auto it = index_.find(status.label);
+  DMG_ASSERT(it != index_.end());
+  auto it2 = it->second.find(status.properties);
+  DMG_ASSERT(it2 != it->second.end());
+  it2->second->status.store(status.status, std::memory_order_release);
 }
 
 }  // namespace memgraph::storage

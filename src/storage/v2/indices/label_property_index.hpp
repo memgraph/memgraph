@@ -224,6 +224,13 @@ class LabelPropertyIndex {
 
     void process(LabelPropertyIndex &index, Transaction &tx);
   };
+
+  enum class Status : uint8_t { POPULATING, READY, DROPPING };
+  struct UpdateStatus {
+    LabelId label;
+    std::vector<PropertyId> properties;
+    Status status;
+  };
   struct ActiveIndices {
     virtual ~ActiveIndices() = default;
 
