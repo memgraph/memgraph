@@ -14,6 +14,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
@@ -189,8 +190,9 @@ bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> 
   return index_.erase({label, properties[0][0]}) > 0U;
 }
 
-bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
-  return utils::Contains(index_, std::make_pair(label, properties[0]));
+bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
+  // return utils::Contains(index_, std::make_pair(label, properties[0]));
+  throw utils::NotYetImplemented("DiskLabelPropertyIndex::IndexExists");
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndices() const {
@@ -203,16 +205,16 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex:
 }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
-                                                        std::span<PropertyId const> /*properties*/) const {
+                                                        std::span<PropertyPath const> /*properties*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                                         std::span<PropertyValue const> /*values*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> /*properties*/,
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyPath const> /*properties*/,
                                                         std::span<PropertyValueRange const> /*bounds*/) const {
   return 10;
 }

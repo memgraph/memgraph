@@ -1692,7 +1692,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 }
 
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
-    LabelId label, std::span<storage::PropertyId const> properties,
+    LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());

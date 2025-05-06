@@ -70,7 +70,7 @@ class DiskStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
@@ -96,16 +96,16 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/) const override {
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                     std::span<PropertyValue const> /*values*/) const override {
       return 10;
     }
 
-    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+    uint64_t ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                     std::span<PropertyValueRange const> /*bounds*/) const override {
       return 10;
     }
@@ -191,7 +191,7 @@ class DiskStorage final : public Storage {
       return disk_storage->indices_.label_index_->IndexExists(label);
     }
 
-    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
       auto *disk_storage = static_cast<DiskStorage *>(storage_);
       return disk_storage->indices_.label_property_index_->IndexExists(label, properties);
     }

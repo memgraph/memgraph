@@ -597,17 +597,18 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                      std::span<storage::PropertyValueRange const> property_ranges,
                                                      View view) {
   if (properties.size() != 1) throw utils::NotYetImplemented("composite index");
 
-  auto const &range{property_ranges.front()};
-  if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    return Vertices(label, properties.front(), view);
-  } else {
-    return Vertices(label, properties.front(), range.lower_, range.upper_, view);
-  }
+  // auto const &range{property_ranges.front()};
+  // if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+  //   return Vertices(label, properties.front(), view);
+  // } else {
+  //   return Vertices(label, properties.front(), range.lower_, range.upper_, view);
+  // }
+  throw utils::NotYetImplemented("nested index");
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
@@ -2306,8 +2307,9 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(Accessor::Type rw_type,
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_, rw_type});
+  // return std::unique_ptr<DiskAccessor>(
+  //     new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_, rw_type});
+  throw utils::NotYetImplemented("Nested index");
 }
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                              std::optional<std::chrono::milliseconds> /*timeout*/) {
@@ -2315,8 +2317,9 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+  // return std::unique_ptr<DiskAccessor>(
+  //     new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+  throw utils::NotYetImplemented("Nested index");
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -2325,8 +2328,9 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+  // return std::unique_ptr<DiskAccessor>(
+  //     new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+  throw utils::NotYetImplemented("Nested index");
 }
 
 bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const {

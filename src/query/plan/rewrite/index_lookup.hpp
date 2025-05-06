@@ -1454,7 +1454,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<LabelIx> labels_to_erase;
         labels_to_erase.reserve(best_group.indices.size());
         std::vector<Expression *> removed_expressions;
-        std::optional<std::vector<storage::PropertyId>>
+        std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
         bool all_property_filters_same =
             true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter

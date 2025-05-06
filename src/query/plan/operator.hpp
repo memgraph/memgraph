@@ -783,14 +783,14 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
    * @param view storage::View used when obtaining vertices.
    */
   ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                           std::vector<storage::PropertyId> properties, std::vector<ExpressionRange> expression_ranges,
-                           storage::View view = storage::View::OLD);
+                           std::vector<storage::PropertyPath> properties,
+                           std::vector<ExpressionRange> expression_ranges, storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
-  std::vector<storage::PropertyId>
+  std::vector<storage::PropertyPath>
       properties_;  // TODO: To make this work with nested indices -> this has to be vector of vectors probably
   std::vector<ExpressionRange> expression_ranges_;
 

@@ -297,7 +297,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, std::span<storage::PropertyId const> properties,
+  VerticesIterable Vertices(storage::View view, storage::LabelId label,
+                            std::span<storage::PropertyPath const> properties,
                             std::span<storage::PropertyValueRange const> property_ranges) {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
   }
@@ -484,7 +485,7 @@ class DbAccessor final {
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->LabelPropertyIndexExists(label, properties);
   }
 
@@ -563,17 +564,17 @@ class DbAccessor final {
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->ApproximateVertexCount(label, properties);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValue const> values) const {
     return accessor_->ApproximateVertexCount(label, properties, values);
   }
 
   // TODO: rename to ApproximateVertexCount?
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) const {
     return accessor_->ApproximateVertexCount(label, properties, bounds);
   }
