@@ -30,7 +30,7 @@ on:
         description: ""
       release:
         description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules)'
-        default: 'core,benchmark,e2e,stress,query_modules'
+        default: 'core,e2e,stress,query_modules'
       malloc_build:
         type: boolean
         default: true
@@ -159,7 +159,7 @@ jobs:
       os: 'ubuntu-24.04'
       toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
-      run_benchmark: 'false'
+      run_benchmark: ${{ needs.DiffSetup.outputs.run_release_core && github.event_name == 'workflow_dispatch' }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
