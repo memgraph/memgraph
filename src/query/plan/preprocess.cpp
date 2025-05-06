@@ -233,6 +233,15 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol,
+                               std::vector<PropertyIx> properties, Expression *value, Type type)
+    : symbol_(symbol), property_ids_(std::move(properties)), type_(type), value_(value) {
+  MG_ASSERT(type != Type::RANGE);
+  UsedSymbolsCollector collector(symbol_table);
+  value->Accept(collector);
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
     : symbol_(std::move(symbol)), property_ids_({std::move(property)}), type_(type) {
   // As this constructor is used for property filters where
@@ -511,9 +520,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       }
 
       if (!nested_properties.empty()) {
+        std::reverse(nested_properties.begin(), nested_properties.end());
         auto filter = make_filter(FilterInfo::Type::Property);
-        // filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*identifer), property_ix, val_expr,
-        //                                         PropertyFilter::Type::EQUAL);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*identifer), nested_properties, val_expr,
+                                                PropertyFilter::Type::EQUAL);
         all_filters_.emplace_back(filter);
         return true;
       }
