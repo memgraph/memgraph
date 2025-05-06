@@ -21,12 +21,10 @@ class DiffSetup:
 
                 # reformat release key
                 inputs = self._get_workflow_dispatch_inputs()
-                print(f"inputs: {inputs}")
                 if inputs:
                     release = inputs.pop("release", "")
                     for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
                         self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
-                    print(f"context: {self._gh_context}")
 
         except FileNotFoundError:
             print(f"Error: file not found {self._gh_context_path}")
@@ -100,7 +98,6 @@ class DiffSetup:
         for build, tests in self._test_suite.items():
             for test in tests.keys():
                 self._test_suite[build][test] = self._check_workflow_input(build, test, workflow_dispatch_inputs)
-                print(f"build: {build}, test: {test}, input: {self._test_suite[build][test]}")
 
     def setup_diff_workflow(self) -> None:
         event_name = self._get_event_name()
