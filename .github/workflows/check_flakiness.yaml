@@ -69,7 +69,9 @@ jobs:
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
       - name: Set up diff execution
         id: setup
-        run: ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+        run: |
+          ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+          cat "$GITHUB_OUTPUT"
       - name: Set up flakiness runs
         id: setup_flakiness
         run: |
@@ -82,7 +84,7 @@ jobs:
             sequence+="${i},"
           done
           echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
-          cat "$GITHUB_OUTPUT"
+
 
   Community:
     needs: DiffSetup
