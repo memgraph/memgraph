@@ -114,13 +114,14 @@ Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(c
   });
 }
 
-Indices::AbortProcessor Indices::GetAbortProcessor() const {
-  return {static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
-          static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->GetAbortProcessor(),
-          static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->GetAbortProcessor(),
-          static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
-          static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
-          vector_index_.Analysis()};
+auto Indices::GetAbortProcessor(Transaction const &transaction) const -> AbortProcessor {
+  return {
+      static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction.active_indices_.get())->GetAbortProcessor(),
+      static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->GetAbortProcessor(),
+      static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
+      static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
+      vector_index_.Analysis()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,

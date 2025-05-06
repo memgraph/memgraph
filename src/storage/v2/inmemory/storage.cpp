@@ -1008,7 +1008,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    auto index_abort_processor = storage_->indices_.GetAbortProcessor();
+    auto index_abort_processor = storage_->indices_.GetAbortProcessor(transaction_);
 
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -1698,10 +1698,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyId const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
+  auto active_indices = static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.get());
+  return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
