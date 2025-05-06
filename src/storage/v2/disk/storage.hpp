@@ -156,7 +156,7 @@ class DiskStorage final : public Storage {
     }
 
     std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/) const override {
+        const storage::LabelId & /*label*/, std::span<storage::PropertyPath const> /*properties*/) const override {
       return {};
     }
 
@@ -165,7 +165,7 @@ class DiskStorage final : public Storage {
     }
 
     auto DeleteLabelPropertyIndexStats(const storage::LabelId & /*labels*/)
-        -> std::vector<std::pair<LabelId, std::vector<PropertyId>>> override {
+        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
@@ -173,7 +173,7 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
-    void SetIndexStats(const storage::LabelId & /*label*/, std::span<storage::PropertyId const> /*properties*/,
+    void SetIndexStats(const storage::LabelId & /*label*/, std::span<storage::PropertyPath const> /*properties*/,
                        const LabelPropertyIndexStats & /*stats*/) override {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }

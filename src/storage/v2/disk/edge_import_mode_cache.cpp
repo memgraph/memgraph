@@ -21,6 +21,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/disk_utils.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
 
@@ -37,11 +38,13 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) const {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, std::array{property},
-                                            std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
-                                            vertices_.access(), view, storage, transaction);
+  // TODO: put back...
+  // auto *mem_label_property_index =
+  //     static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
+  // return mem_label_property_index->Vertices(label, std::array{property},
+  //                                           std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
+  //                                           vertices_.access(), view, storage, transaction);
+  throw utils::NotYetImplemented("nested index");
 }
 
 bool EdgeImportModeCache::CreateIndex(

@@ -234,7 +234,7 @@ std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPro
     std::span<LabelId const> labels, std::span<PropertyPath const> properties) const {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   // NOTE: only looking for singular property index, as disk does not support composite indices
-  // TODO: put back in
+  // TODO: put back
   // for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
   //   for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
   //     if (IndexExists(label, std::array{property})) {
