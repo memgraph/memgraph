@@ -212,73 +212,36 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
 
   auto root_properties = properties | rv::transform([](auto &&path) { return path[0]; }) | r::to_vector;
 
-  // @TODO NEW INDEX CODE
-  {
-    auto [it1, _] = nested_index_.try_emplace(label);
-    auto &properties_map = it1->second;
-    auto helper = PropertiesPermutationHelper{properties};
-    auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
-    if (!emplaced) {
-      // Index already exists.
-      return false;
-    }
-
-    auto const &properties_key = it2->first;
-    auto &index = it2->second;
-
-    auto de = NestedEntryDetail{&properties_key, &index};
-    for (auto &&property_path : properties) {
-      nested_indices_by_property_[property_path[0]].insert({label, de});
-    }
-
-    try {
-      auto &index_skip_list = it2->second.skiplist;
-      auto accessor_factory = [&] { return index_skip_list.access(); };
-      auto &props_permutation_helper = it2->second.permutations_helper;
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
-      };
-      PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-    } catch (const utils::OutOfMemoryException &) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
-      properties_map.erase(it2);
-      throw;
-    }
+  auto [it1, _] = nested_index_.try_emplace(label);
+  auto &properties_map = it1->second;
+  auto helper = PropertiesPermutationHelper{properties};
+  auto [it2, emplaced] = properties_map.try_emplace(properties, std::move(helper));
+  if (!emplaced) {
+    // Index already exists.
+    return false;
   }
 
-  // @TODO OLD INDEX CODE
-  // {
-  //   auto [it1, _] = index_.try_emplace(label);
-  //   auto &properties_map = it1->second;
-  //   auto helper = PropertiesPermutationHelper{root_properties};
-  //   auto [it2, emplaced] = properties_map.try_emplace(root_properties, std::move(helper));
-  //   if (!emplaced) {
-  //     // Index already exists.
-  //     return false;
-  //   }
+  auto const &properties_key = it2->first;
+  auto &index = it2->second;
 
-  //   auto const &properties_key = it2->first;
-  //   auto &index = it2->second;
+  auto de = NestedEntryDetail{&properties_key, &index};
+  for (auto &&property_path : properties) {
+    nested_indices_by_property_[property_path[0]].insert({label, de});
+  }
 
-  //   auto de = EntryDetail{&properties_key, &index};
-  //   for (auto &&property_path : properties) {
-  //     indices_by_property_[property_path[0]].insert({label, de});
-  //   }
-
-  //   try {
-  //     auto &index_skip_list = it2->second.skiplist;
-  //     auto accessor_factory = [&] { return index_skip_list.access(); };
-  //     auto &props_permutation_helper = it2->second.permutations_helper;
-  //     auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-  //       TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
-  //     };
-  //     PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-  //   } catch (const utils::OutOfMemoryException &) {
-  //     utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
-  //     properties_map.erase(it2);
-  //     throw;
-  //   }
-  // }
+  try {
+    auto &index_skip_list = it2->second.skiplist;
+    auto accessor_factory = [&] { return index_skip_list.access(); };
+    auto &props_permutation_helper = it2->second.permutations_helper;
+    auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+      TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
+    };
+    PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+  } catch (const utils::OutOfMemoryException &) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
+    properties_map.erase(it2);
+    throw;
+  }
 
   return true;
 }
