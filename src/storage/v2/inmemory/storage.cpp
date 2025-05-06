@@ -3058,28 +3058,30 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
-                                                      std::span<storage::PropertyId const> properties,
+                                                      std::span<storage::PropertyPath const> properties,
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
-                                      std::vector(properties.begin(), properties.end()), stats);
+  // TODO: put back...
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
+  //                                     std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   auto res = in_mem_label_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
+  // TODO: put back...
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
   return res;
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>>
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>>
 InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto res = in_mem_label_prop_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
+  // TODO: put back...
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
 

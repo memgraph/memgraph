@@ -1836,6 +1836,8 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   friend class AstStorage;
 };
 
+using PropertyPath = std::vector<memgraph::query::PropertyIx>;
+
 struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -1845,7 +1847,7 @@ struct IndexHint {
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::vector<memgraph::query::PropertyIx> property_ixs_;
+  std::vector<PropertyPath> property_ixs_;
 
   IndexHint Clone(AstStorage *storage) const;
 };

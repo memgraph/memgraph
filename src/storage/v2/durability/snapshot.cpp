@@ -5072,21 +5072,22 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
       for (const auto &item : label) {
-        auto stats = inmem_index->GetIndexStats(item);
-        if (stats) {
-          // TODO: should we use write_mapping for the label + properties here?
-          snapshot.WriteUint(item.first.AsUint());
-          snapshot.WriteUint(item.second.size());
-          for (auto const &prop : item.second) {
-            snapshot.WriteUint(prop.AsUint());
-          }
-          snapshot.WriteUint(stats->count);
-          snapshot.WriteUint(stats->distinct_values_count);
-          snapshot.WriteDouble(stats->statistic);
-          snapshot.WriteDouble(stats->avg_group_size);
-          snapshot.WriteDouble(stats->avg_degree);
-          ++i;
-        }
+        // TODO: put back...
+        // auto stats = inmem_index->GetIndexStats(item);
+        // if (stats) {
+        //   // TODO: should we use write_mapping for the label + properties here?
+        //   snapshot.WriteUint(item.first.AsUint());
+        //   snapshot.WriteUint(item.second.size());
+        //   for (auto const &prop : item.second) {
+        //     snapshot.WriteUint(prop.AsUint());
+        //   }
+        //   snapshot.WriteUint(stats->count);
+        //   snapshot.WriteUint(stats->distinct_values_count);
+        //   snapshot.WriteDouble(stats->statistic);
+        //   snapshot.WriteDouble(stats->avg_group_size);
+        //   snapshot.WriteDouble(stats->avg_degree);
+        //   ++i;
+        // }
       }
       if (i != 0) {
         const auto last_pos = snapshot.GetPosition();

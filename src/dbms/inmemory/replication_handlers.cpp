@@ -1138,7 +1138,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
           }
-          transaction->SetIndexStats(label, std::move(properties), stats);
+          // TODO: put back...
+          // transaction->SetIndexStats(label, std::move(properties), stats);
         },
         [&](WalLabelPropertyIndexStatsClear const &data) {
           spdlog::trace("   Delta {}. Clear label-property index statistics on :{}", current_delta_idx, data.label);

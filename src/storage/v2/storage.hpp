@@ -301,16 +301,16 @@ class Storage {
 
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
-    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
+    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
         -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
-    virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> property,
+    virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> property,
                                const LabelPropertyIndexStats &stats) = 0;
 
     virtual auto DeleteLabelPropertyIndexStats(const storage::LabelId &label)
-        -> std::vector<std::pair<LabelId, std::vector<PropertyId>>> = 0;
+        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
