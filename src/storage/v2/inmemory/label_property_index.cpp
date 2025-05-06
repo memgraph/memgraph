@@ -959,11 +959,11 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
 
 auto InMemoryLabelPropertyIndex::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
   AbortProcessor res{};
-  for (const auto &[label, per_properties] : index_) {
+  for (const auto &[label, per_properties] : nested_index_) {
     for (auto const &[props, index] : per_properties) {
       for (auto const &prop : props) {
-        res.l2p[label][prop].emplace_back(&props, nullptr, &index.permutations_helper);
-        res.p2l[prop][label].emplace_back(&props, nullptr, &index.permutations_helper);
+        res.l2p[label][prop[0]].emplace_back(&props, &index.permutations_helper);
+        res.p2l[prop[0]][label].emplace_back(&props, &index.permutations_helper);
       }
     }
   }
@@ -972,8 +972,8 @@ auto InMemoryLabelPropertyIndex::GetAbortProcessor() const -> LabelPropertyIndex
 
 void InMemoryLabelPropertyIndex::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
   for (auto const &[label, by_properties] : info) {
-    auto it = index_.find(label);
-    DMG_ASSERT(it != index_.end());
+    auto it = nested_index_.find(label);
+    DMG_ASSERT(it != nested_index_.end());
     for (auto const &[prop, to_remove] : by_properties) {
       auto it2 = it->second.find(*prop);
       DMG_ASSERT(it2 != it->second.end());

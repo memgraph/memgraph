@@ -174,14 +174,14 @@ class LabelPropertyIndex {
  public:
   // Because of composite index we need to track more info
   struct IndexInfo {
-    PropertiesIds const *properties_;
     NestedPropertiesIds const *new_properties_;
     PropertiesPermutationHelper const *helper_;
 
     friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
   using AbortableInfo =
-      std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+      std::map<LabelId,
+               std::map<NestedPropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
   struct AbortProcessor {
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
@@ -196,7 +196,7 @@ class LabelPropertyIndex {
           dedup.insert(info);
         }
       }
-      for (auto const &[properties, _, helper] : dedup) {
+      for (auto const &[properties, helper] : dedup) {
         auto current_values = helper->Extract(vertex->properties);
         // Only if current_values has at least one non-null value do we need to cleanup its index entry
         if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
@@ -212,7 +212,7 @@ class LabelPropertyIndex {
 
       for (auto const &[label, index_info] : it->second) {
         if (!utils::Contains(vertex->labels, label)) continue;
-        for (auto const &[properties, _, helper] : index_info) {
+        for (auto const &[properties, helper] : index_info) {
           auto current_values = helper->Extract(vertex->properties);
           // Only if current_values has at least one non-null value do we need to cleanup its index entry
           if (ranges::any_of(current_values, [](PropertyValue const &val) { return !val.IsNull(); })) {
