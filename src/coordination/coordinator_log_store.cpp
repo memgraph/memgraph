@@ -292,24 +292,11 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 }
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
+// NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
-
-  auto old_start_idx = start_idx_.load(std::memory_order_acquire);
-  if (old_start_idx > last_log_index) {
-    return true;
-  }
-
-  auto const new_idx = last_log_index + 1;
-  while (
-      !start_idx_.compare_exchange_weak(old_start_idx, new_idx, std::memory_order_acq_rel, std::memory_order_acquire)) {
-    if (old_start_idx > last_log_index) {
-      return true;
-    }
-  }
-
   auto lock = std::lock_guard{logs_lock_};
-  for (uint64_t ii = old_start_idx; ii <= last_log_index; ++ii) {
+  for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
     if (entry == logs_.end()) {
       continue;
@@ -318,8 +305,10 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
   }
 
-  durability_->Put(kStartIdx, std::to_string(new_idx));
-
+  if (start_idx_ <= last_log_index) {
+    start_idx_ = last_log_index + 1;
+    durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
+  }
   return true;
 }
 
