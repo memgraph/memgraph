@@ -116,13 +116,13 @@ struct PropertiesPermutationHelper {
    * @TODO this remains whilst developing nested indices to ease, but
    * consider removing it afterwards.
    */
-  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
+  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
 
   /**
    * @param properties The ids of the nested properties to be read, specified in the
    *                   required index order.
    */
-  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
+  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
 
   /** Rearranges a vector of monotonically ordered properties (as returned
    * by `Extract`) into the index order.
@@ -251,7 +251,7 @@ class LabelPropertyIndex {
 
   virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) = 0;
 
-  virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+  virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
   virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                                   std::span<PropertyPath const> properties) const
@@ -259,12 +259,12 @@ class LabelPropertyIndex {
 
   virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                           std::span<PropertyValue const> values) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                           std::span<PropertyValueRange const> bounds) const = 0;
 
   virtual void DropGraphClearIndices() = 0;

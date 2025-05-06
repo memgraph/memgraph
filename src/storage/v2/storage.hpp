@@ -228,10 +228,10 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
-    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                       std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) {
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()),
                       view);
     };
@@ -267,12 +267,12 @@ class Storage {
 
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                             std::span<PropertyValue const> values) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                             std::span<PropertyValueRange const> bounds) const = 0;
 
     virtual uint64_t ApproximateEdgeCount() const = 0;
@@ -323,7 +323,7 @@ class Storage {
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
