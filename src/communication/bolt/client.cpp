@@ -83,7 +83,7 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
   spdlog::debug("Metadata of init message response: {}", metadata);
 }
 
-QueryData Client::Execute(const std::string &query, const map_t &parameters) {
+QueryData Client::Execute(const std::string &query, const map_t &parameters, const map_t &extra) {
   if (!client_.IsConnected()) {
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
@@ -92,7 +92,7 @@ QueryData Client::Execute(const std::string &query, const map_t &parameters) {
 
   // It is super critical from performance point of view to send the pull message right after the run message. Otherwise
   // the performance will degrade multiple magnitudes.
-  encoder_.MessageRun(query, parameters, {});
+  encoder_.MessageRun(query, parameters, extra);
   encoder_.MessagePull({{"n", Value(-1)}});
 
   spdlog::debug("Reading run message response");

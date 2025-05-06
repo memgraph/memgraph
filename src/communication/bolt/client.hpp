@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -113,7 +113,7 @@ class Client final {
   ///                              executing the query (eg. mistyped query,
   ///                              etc.)
   /// @throws ClientFatalException when we couldn't communicate with the server
-  QueryData Execute(const std::string &query, const map_t &parameters);
+  QueryData Execute(const std::string &query, const map_t &parameters, const map_t &extra = {});
 
   /// Close the active client connection.
   void Close();

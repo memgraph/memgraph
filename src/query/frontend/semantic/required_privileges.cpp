@@ -13,7 +13,6 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
-#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
@@ -38,7 +37,12 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
-  void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
+  void Visit(AuthQuery &query) override {
+    // Special cases
+    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER) return;
+    // Default to AUTH
+    AddPrivilege(AuthQuery::Privilege::AUTH);
+  }
 
   void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 

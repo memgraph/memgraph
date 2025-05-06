@@ -112,7 +112,7 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
   }
   if (!user_or_role) {
     throw memgraph::communication::bolt::ClientError(
-        "No session userYou must be logged-in in order to use the impersonate-user feature.");
+        "No session user. You must be logged-in in order to use the impersonate-user feature.");
   }
   if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy)) {
     throw memgraph::communication::bolt::ClientError(
@@ -127,9 +127,9 @@ namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
 std::optional<std::string> SessionHL::GetDefaultDB() const {
-  if (user_or_role_) {
+  if (interpreter_.user_or_role_) {
     try {
-      return user_or_role_->GetDefaultDB();
+      return interpreter_.user_or_role_->GetDefaultDB();
     } catch (auth::AuthException &) {
       // Support non-db connection
       return {};
@@ -225,8 +225,8 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (user_or_role.has_value()) {
-        user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-        interpreter_.SetUser(user_or_role_);
+        session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+        interpreter_.SetUser(session_user_or_role_);
         interpreter_.SetSessionInfo(
             UUID(),
             interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
@@ -236,8 +236,8 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       }
     } else {
       // No access control -> give empty user
-      user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
-      interpreter_.SetUser(user_or_role_);
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+      interpreter_.SetUser(session_user_or_role_);
       interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
@@ -256,8 +256,8 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
     return false;
   }
 
-  user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-  interpreter_.SetUser(user_or_role_);
+  session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  interpreter_.SetUser(session_user_or_role_);
 
   TryDefaultDB();
   return true;
@@ -304,7 +304,8 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
-    const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
+    const auto &user_or_role = interpreter_.user_or_role_;
+    const auto username = user_or_role ? (user_or_role->username() ? *user_or_role->username() : "") : "";
     audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
                        username, query, params, db ? db->get()->name() : "");
   }
@@ -347,20 +348,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
     parsed_res_.reset();
     auto result =
         interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
-    const std::string db_name = result.db ? *result.db : "";
-    if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name, &query::session_long_policy)) {
-      interpreter_.Abort();
-      if (db_name.empty()) {
-        throw memgraph::communication::bolt::ClientError(
-            "You are not authorized to execute this query! Please contact your database administrator.");
-      }
-      throw memgraph::communication::bolt::ClientError(
-          "You are not authorized to execute this query on database \"{}\"! Please contact your database "
-          "administrator.",
-          db_name);
-    }
+    interpreter_.CheckAuthorized(result.privileges, result.db);
     return {std::move(result.headers), result.qid};
-
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -456,6 +445,8 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
+  // NOTE: Order is important, runtime_user_ must be configured before runtime_db_
+  // because runtime_db_ uses runtime_user_ to check if the user is authorized
   runtime_user_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
   runtime_db_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
 #else
@@ -473,7 +464,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
       runtime_db_{"db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
                   [this](std::optional<std::string> defined_db, bool user_defined) {
                     if (defined_db) {  // Db connection
-                      MultiDatabaseAuth(user_or_role_.get(), *defined_db);
+                      MultiDatabaseAuth(interpreter_.user_or_role_.get(), *defined_db);
                       interpreter_.SetCurrentDB(*defined_db, user_defined);
                     } else {  // Non-db connection
                       interpreter_.ResetDB();
@@ -486,13 +477,20 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
                     },
                     [this](std::optional<std::string> defined_user, bool impersonate_user) {
                       if (impersonate_user) {
-                        ImpersonateUserAuth(user_or_role_.get(), *defined_user);
+                        if (!defined_user) {
+                          throw memgraph::communication::bolt::ClientError("Trying to impersonate an undefined user.");
+                        }
+                        spdlog::trace("Trying to impersonate user '{}'...", *defined_user);
+                        ImpersonateUserAuth(session_user_or_role_.get(), *defined_user);
                         const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
                         if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
                         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
+                        TryDefaultDB();
                       } else {
+                        spdlog::trace("Done impersonating users.");
                         // Set our default user/role
-                        interpreter_.SetUser(user_or_role_);
+                        interpreter_.SetUser(session_user_or_role_);
+                        TryDefaultDB();
                       }
                     }},
 #endif
@@ -501,7 +499,10 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
-  interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_or_role_.get(), db_name); });
+  interpreter_.OnChangeCB([&](std::string_view db_name) {
+    auto &user_or_role = interpreter_.user_or_role_;
+    MultiDatabaseAuth(user_or_role.get(), db_name);
+  });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }
