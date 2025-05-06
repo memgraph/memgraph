@@ -25,7 +25,7 @@ class DiffSetup:
                 if inputs:
                     release = inputs.pop("release", "")
                     for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
-                        self._gh_context["event"]["inputs"][f"release_{test}"] = test in release
+                        self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
                     print(f"context: {self._gh_context}")
 
         except FileNotFoundError:
