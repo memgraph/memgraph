@@ -45,7 +45,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
 
-    PropertiesPermutationHelper permutations_helper;
+    PropertiesPermutationHelper const permutations_helper;
     utils::SkipList<Entry> skiplist{};
     std::atomic<Status> status = Status::POPULATING;
   };
@@ -64,6 +64,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using EntryDetail = std::tuple<PropertiesIds const *, std::shared_ptr<IndividualIndex>>;
   using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
   using ReverseIndexContainer = std::unordered_map<PropertyId, PropToIndexLookup>;
+
+  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
 
   struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
     ActiveIndices(IndexContainer index_container, ReverseIndexContainer reverse_index_container)
@@ -192,10 +194,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                      const Transaction *tx = nullptr);
 
  private:
-  IndexContainer index_;
-  ReverseIndexContainer indices_by_property_;
-
-  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
+  utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
+  utils::Synchronized<ReverseIndexContainer, utils::WritePrioritizedRWLock> indices_by_property_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
