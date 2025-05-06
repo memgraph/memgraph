@@ -63,6 +63,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
@@ -83,6 +84,7 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -2423,8 +2425,7 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   const auto rw_type = plan.rw_type();
   if (rw_type == RWType::W || rw_type == RWType::RW) {
     if (dba.type() != storage::Storage::Accessor::Type::WRITE) {
-      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba.type()),
-                                  static_cast<int>(rw_type));
+      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
   }
 }

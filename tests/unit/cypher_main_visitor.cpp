@@ -3737,7 +3737,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
       check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-      CheckRWType(query, kRead);
+      CheckRWType(query, kWrite);
     }
   }
 }
@@ -3775,6 +3775,45 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
     TestInvalidQueryWithMessage<SemanticException>(
         query_str, ast_generator,
         "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CallProcedureFromSubquery) {
+  auto &ast_generator = *GetParam();
+  static constexpr std::string_view fst{"fst"};
+  static constexpr std::string_view snd{"snd"};
+  const std::vector args{fst, snd};
+
+  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+
+  {
+    SCOPED_TRACE("Read query w read proc");
+    const auto query_str = fmt::format("MATCH(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", read_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kRead);
+  }
+  {
+    SCOPED_TRACE("Write query w read proc");
+    const auto query_str = fmt::format("MERGE(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", read_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kWrite);
+  }
+  {
+    SCOPED_TRACE("Read query w write proc");
+    const auto query_str = fmt::format("MATCH(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", write_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kWrite);
+  }
+  {
+    SCOPED_TRACE("Write query w write proc");
+    const auto query_str = fmt::format("MERGE(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", write_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kWrite);
   }
 }
 

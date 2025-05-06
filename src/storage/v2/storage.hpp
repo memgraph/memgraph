@@ -698,4 +698,21 @@ class Storage {
   SchemaInfo schema_info_;
 };
 
+inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {
+  switch (type) {
+    using enum Storage::Accessor::Type;
+    case NO_ACCESS:
+      return os << "NO_ACCESS";
+    case UNIQUE:
+      return os << "UNIQUE";
+    case WRITE:
+      return os << "WRITE";
+    case READ:
+      return os << "READ";
+    case READ_ONLY:
+      return os << "READ_ONLY";
+  }
+  return os;
+}
+
 }  // namespace memgraph::storage
