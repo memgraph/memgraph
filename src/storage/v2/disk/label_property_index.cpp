@@ -95,7 +95,7 @@ bool DiskLabelPropertyIndex::SyncVertexToLabelPropertyIndexStorage(const Vertex 
       return false;
     }
   }
-  for (const auto &[index_label, index_property, status] : index_) {
+  for (const auto &[index_label, index_property] : index_) {
     if (IsVertexIndexedByLabelProperty(vertex, index_label, index_property)) {
       if (!disk_transaction
                ->Put(utils::SerializeVertexAsKeyForLabelPropertyIndex(index_label, index_property, vertex.gid),
@@ -176,7 +176,7 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
     if (index_entry.label != removed_label) {
       continue;
     }
-    const auto &[indexing_label, indexing_property, status] = index_entry;
+    const auto &[indexing_label, indexing_property] = index_entry;
     auto [it, _] = entries_for_deletion.emplace(std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp),
                                                 std::forward_as_tuple());
     auto &vertex_map_store = it->second;
@@ -187,12 +187,12 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
 }
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  return index_.erase({label, properties[0], Status::READY}) > 0U;
+  return index_.erase({label, properties[0]}) > 0U;
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ActiveIndices::ListIndices() const {
   auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyId>> {
-    auto [label, property, status] = index;
+    auto [label, property] = index;
     return {label, {property}};
   };
 
@@ -224,6 +224,10 @@ void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys)
 RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvstore_.get(); }
 
 std::set<DiskLabelPropertyIndex::IndexInformation> DiskLabelPropertyIndex::GetInfo() const { return index_; }
+
+auto DiskLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> {
+  return std::make_unique<ActiveIndices>(index_);
+}
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
   return utils::Contains(index_, IndexInformation(label, properties[0]));
