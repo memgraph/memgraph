@@ -308,10 +308,6 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     }
   }
 
-  if (old_start_idx > last_log_index) {
-    return true;
-  }
-
   auto lock = std::lock_guard{logs_lock_};
   for (uint64_t ii = old_start_idx; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
