@@ -539,12 +539,12 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label);
   }
 
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                std::span<storage::PropertyId const> properties) const {
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->GetIndexStats(label, properties);
   }
 
-  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> DeleteLabelPropertyIndexStats(
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> DeleteLabelPropertyIndexStats(
       const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
   }
@@ -555,7 +555,7 @@ class DbAccessor final {
     accessor_->SetIndexStats(label, stats);
   }
 
-  void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
+  void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties,
                      const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, properties, stats);
   }
