@@ -918,27 +918,20 @@ void InMemoryLabelPropertyIndex::RunGC() {
   }
 }
 
-InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelId label,
-                                                                          std::span<PropertyId const> properties,
-                                                                          std::span<PropertyValueRange const> ranges,
-                                                                          View view, Storage *storage,
-                                                                          Transaction *transaction) {
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
+    LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> ranges, View view,
+    Storage *storage, Transaction *transaction) {
   DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
              "PropertyLabel index trying to access InMemory vertices from OnDisk!");
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
 
-  // TODO: this should come from ActiveIndices !!!!!!!
-
-  auto it2 = index_.WithReadLock([&](IndexContainer const &index) {
-    auto it = index.find(label);
-    MG_ASSERT(it != index.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-              JoinPropertiesAsString(properties));
-    auto it2 = it->second.find(properties);
-    MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-              JoinPropertiesAsString(properties));
-    return it2;
-  });
+  auto it = index_container.find(label);
+  MG_ASSERT(it != index_container.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
+  auto it2 = it->second.find(properties);
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
 
   return {it2->second->skiplist.access(),
           std::move(vertices_acc),
@@ -951,26 +944,21 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
           transaction};
 }
 
-InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::Vertices(
     LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction) {
-  // TODO: this should come from ActiveIndices !!!!!!!
-
-  auto it2 = index_.WithReadLock([&](IndexContainer const &index) {
-    auto it = index.find(label);
-    MG_ASSERT(it != index.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-              JoinPropertiesAsString(properties));
-    auto it2 = it->second.find(properties);
-    MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-              JoinPropertiesAsString(properties));
-    return it2;
-  });
+  auto it = index_container.find(label);
+  MG_ASSERT(it != index_container.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
+  auto it2 = it->second.find(properties);
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
 
   return {it2->second->skiplist.access(),
           std::move(vertices_acc),
           label,
-          &it2->first,  //<<--- pointer to vector of properties
+          &it2->first,
           &it2->second->permutations_helper,
           std::move(range),
           view,
@@ -979,25 +967,23 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
-  index_.WithLock([](IndexContainer &index) { index.clear(); });
-  indices_by_property_.WithLock([](ReverseIndexContainer &reverse_index) { reverse_index.clear(); });
   stats_->clear();
+  // important to clear reverse index first as it has pointers into index
+  indices_by_property_.WithLock([](ReverseIndexContainer &reverse_index) { reverse_index.clear(); });
+  index_.WithLock([](IndexContainer &index) { index.clear(); });
 }
 
-auto InMemoryLabelPropertyIndex::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
-  // TODO: Get AbortProcessor from the transaction instead of the index
-  return index_.WithReadLock([&](IndexContainer const &index) {
-    AbortProcessor res{};
-    for (const auto &[label, per_properties] : index) {
-      for (auto const &[props, index] : per_properties) {
-        for (auto const &prop : props) {
-          res.l2p[label][prop].emplace_back(&props, &index->permutations_helper);
-          res.p2l[prop][label].emplace_back(&props, &index->permutations_helper);
-        }
+auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
+  AbortProcessor res{};
+  for (const auto &[label, per_properties] : index_container) {
+    for (auto const &[props, index] : per_properties) {
+      for (auto const &prop : props) {
+        res.l2p[label][prop].emplace_back(&props, &index->permutations_helper);
+        res.p2l[prop][label].emplace_back(&props, &index->permutations_helper);
       }
     }
-    return res;
-  });
+  }
+  return res;
 }
 
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {

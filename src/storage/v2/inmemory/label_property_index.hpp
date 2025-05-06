@@ -67,56 +67,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
 
-  struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
-    ActiveIndices(IndexContainer index_container, ReverseIndexContainer reverse_index_container)
-        : index_container(std::move(index_container)), reverse_index_container(std::move(reverse_index_container)) {}
-
-    void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
-    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                             const Transaction &tx) override;
-
-    bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
-
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyId const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> override;
-
-    // Not used for in-memory
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {}
-
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
-
-    /// Supplying a specific value into the count estimation function will return
-    /// an estimated count of nodes which have their property's value set to
-    /// `value`. If the `values` specified are all `Null`, then an average number
-    /// equal elements is returned.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                    std::span<PropertyValue const> values) const override;
-
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                    std::span<PropertyValueRange const> bounds) const override;
-
-    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
-
-    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
-
-    IndexContainer index_container;
-    ReverseIndexContainer reverse_index_container;
-  };
-
-  InMemoryLabelPropertyIndex() = default;
-
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::vector<PropertyId> const &properties);
-
-  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
-
-  void UpdateIndexStatus(UpdateStatus status);
-
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
-
-  auto GetAbortProcessor() const -> AbortProcessor;
-
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
@@ -164,6 +114,63 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Transaction *transaction_;
   };
 
+  struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
+    ActiveIndices(IndexContainer index_container, ReverseIndexContainer reverse_index_container)
+        : index_container(std::move(index_container)), reverse_index_container(std::move(reverse_index_container)) {}
+
+    void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
+    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                             const Transaction &tx) override;
+
+    bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
+
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
+
+    // Not used for in-memory
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {}
+
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
+
+    /// Supplying a specific value into the count estimation function will return
+    /// an estimated count of nodes which have their property's value set to
+    /// `value`. If the `values` specified are all `Null`, then an average number
+    /// equal elements is returned.
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                    std::span<PropertyValue const> values) const override;
+
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                    std::span<PropertyValueRange const> bounds) const override;
+
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
+
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
+    Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+                      View view, Storage *storage, Transaction *transaction);
+
+    Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
+                      memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+                      Storage *storage, Transaction *transaction);
+
+    auto GetAbortProcessor() const -> AbortProcessor;
+
+    IndexContainer index_container;
+    ReverseIndexContainer reverse_index_container;
+  };
+
+  InMemoryLabelPropertyIndex() = default;
+
+  /// @throw std::bad_alloc
+  bool CreateIndex(LabelId label, std::vector<PropertyId> const &properties);
+
+  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
+
+  void UpdateIndexStatus(UpdateStatus status);
+
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStats();
 
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteIndexStats(const storage::LabelId &label);
@@ -175,13 +182,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const;
 
   void RunGC();
-
-  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
-                    View view, Storage *storage, Transaction *transaction);
-
-  Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
-                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                    Storage *storage, Transaction *transaction);
 
   void DropGraphClearIndices() override;
 

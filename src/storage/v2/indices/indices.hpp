@@ -71,7 +71,7 @@ struct Indices {
     void Process(Indices &indices, Transaction &tx);
   };
 
-  auto GetAbortProcessor() const -> AbortProcessor;
+  auto GetAbortProcessor(Transaction const &transaction) const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`
