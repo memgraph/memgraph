@@ -82,6 +82,9 @@ jobs:
             sequence+="${i},"
           done
           echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
+      - name: Print output
+        run: |
+          echo "$GITHUB_OUTPUT"
 
   Community:
     needs: DiffSetup
