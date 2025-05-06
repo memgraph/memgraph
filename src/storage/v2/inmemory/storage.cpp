@@ -36,10 +36,12 @@
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/timer.hpp"
 
@@ -843,6 +845,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           }
         }
       }
+      if (transaction_.index_change_info_) {
+        auto indices = static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+        indices->UpdateIndexStatus(*transaction_.index_change_info_);
+      }
+
     }  // Release engine lock because we don't have to hold it anymore
 
     if (unique_constraint_violation) {
@@ -1402,6 +1409,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt, std::nullopt,
                                           &transaction_);
 
+  // This gets set at commit time
+  transaction_.index_change_info_.emplace(label, properties, LabelPropertyIndex::Status::READY);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1482,6 +1491,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // This gets set at commit time
+  transaction_.index_change_info_.emplace(label, properties, LabelPropertyIndex::Status::DROPPING);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);

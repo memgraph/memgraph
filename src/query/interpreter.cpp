@@ -3231,7 +3231,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
-
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
@@ -3246,7 +3245,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         auto maybe_index_error =
             properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, std::move(properties));
         utils::OnScopeExit invalidator(invalidate_plan_cache);
-
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
