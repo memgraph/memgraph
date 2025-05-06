@@ -136,15 +136,15 @@ struct PropertiesPermutationHelper {
    * boolean indicating whether the property matches. Otherwise, if the id is
    * not in the index, `std::nullopt` is returned.
    */
-  auto MatchesValue(PropertyId property_id, PropertyValue const &value,
-                    IndexOrderedPropertyValues const &values) const -> std::optional<std::pair<std::ptrdiff_t, bool>>;
+  auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
+      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element
    * equality.
    */
-  auto MatchesValues(PropertyStore const &properties,
-                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, property id, and value).
@@ -225,7 +225,7 @@ class LabelPropertyIndex {
     void process(LabelPropertyIndex &index, Transaction &tx);
   };
 
-  enum class Status : uint8_t { POPULATING, READY, DROPPING };
+  enum class Status : uint8_t { POPULATING, READY };
   struct UpdateStatus {
     LabelId label;
     std::vector<PropertyId> properties;

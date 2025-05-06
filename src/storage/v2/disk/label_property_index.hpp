@@ -22,12 +22,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   struct IndexInformation {
     LabelId label;
     PropertyId property;
-    Status status;
 
-    IndexInformation(LabelId label, PropertyId property)
-        : label(label), property(property), status(Status::POPULATING) {}
-    IndexInformation(LabelId label, PropertyId property, Status status)
-        : label(label), property(property), status(status) {}
+    IndexInformation(LabelId label, PropertyId property) : label(label), property(property) {}
 
     friend bool operator<(IndexInformation const &lhs, IndexInformation const &rhs) {
       return std::tie(lhs.label, lhs.property) < std::tie(rhs.label, rhs.property);
@@ -45,8 +41,9 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
 
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
@@ -91,20 +88,9 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   std::set<IndexInformation> GetInfo() const;
 
-  void DropGraphClearIndices() override {};
+  void DropGraphClearIndices() override{};
 
-  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override {
-    std::set<IndexInformation> index;
-    std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> entries_for_deletion;
-
-    for (auto const &[label, property, status] : index_) {
-      if (status != Status::DROPPING) {
-        index.emplace(label, property, status);
-      }
-    }
-
-    return std::make_unique<ActiveIndices>(index);
-  }
+  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 
  private:
   // TODO: shouldn't exist

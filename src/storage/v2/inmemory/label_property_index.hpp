@@ -43,12 +43,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
   struct IndividualIndex {
     IndividualIndex(PropertiesPermutationHelper permutations_helper)
-        : permutations_helper(std::move(permutations_helper)), status(Status::POPULATING) {}
+        : permutations_helper(std::move(permutations_helper)) {}
 
     PropertiesPermutationHelper permutations_helper;
-    utils::SkipList<Entry> skiplist;
-
-    std::atomic<Status> status;
+    utils::SkipList<Entry> skiplist{};
+    std::atomic<Status> status = Status::POPULATING;
   };
   struct Compare {
     template <std::ranges::forward_range T, std::ranges::forward_range U>
@@ -76,8 +75,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
 
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {}
@@ -183,25 +183,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void DropGraphClearIndices() override;
 
-  // TODO: move to .cpp
-  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override {
-    IndexContainer active_indices;
-    ReverseIndexContainer reverse_active_indices;
-
-    for (auto const &[label, properties] : index_) {
-      for (auto const &[properties_ids, index] : properties) {
-        // If an index is in populate stage we still need to be able to insert into it
-        if (index->status.load(std::memory_order_acquire) != LabelPropertyIndex::Status::DROPPING) {
-          active_indices[label].emplace(properties_ids, index);
-          auto de = EntryDetail{&properties_ids, index};
-          for (auto prop : properties_ids) {
-            reverse_active_indices[prop].insert({label, de});
-          }
-        }
-      }
-    }
-    return std::make_unique<ActiveIndices>(std::move(active_indices), std::move(reverse_active_indices));
-  }
+  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 
   void PopulateIndex(LabelId label, std::vector<PropertyId> const &properties,
                      utils::SkipList<Vertex>::Accessor vertices,

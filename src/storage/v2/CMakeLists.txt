@@ -71,6 +71,7 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.hpp
         indices/point_iterator.hpp
         indices/point_index_expensive_header.hpp
+        inmemory/label_property_index.hpp
         indices/vector_index.hpp
         mvcc.hpp
         point.hpp
