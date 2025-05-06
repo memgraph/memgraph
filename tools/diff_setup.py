@@ -18,13 +18,13 @@ class DiffSetup:
                 self._gh_context = json.load(gh_context_file)
                 if not self._get_event_name():
                     raise KeyError
-                
+
                 # reformat release key
                 inputs = self._get_workflow_dispatch_inputs()
                 if inputs:
-                    release = inputs.pop("release","")
-                    for test in ["core","benchmark","e2e","stress","query_modules"]:
-                        self._gh_context["event"]["inputs"][f"release_{test}"] = test in release
+                    release = inputs.pop("release", "")
+                    for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                        self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
 
         except FileNotFoundError:
             print(f"Error: file not found {self._gh_context_path}")
