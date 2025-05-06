@@ -14,13 +14,8 @@
 #if FMT_VERSION > 90000
 #include <fmt/ostream.h>
 
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 
 template <>
-class fmt::formatter<memgraph::storage::PropertyValue> : public fmt::ostream_formatter {};
-template <>
-class fmt::formatter<memgraph::storage::PropertyValue::Type> : public fmt::ostream_formatter {};
-template <>
-class fmt::formatter<memgraph::storage::Storage::Accessor::Type> : public fmt::ostream_formatter {};
+class fmt::formatter<memgraph::query::plan::ReadWriteTypeChecker::RWType> : public fmt::ostream_formatter {};
 #endif
