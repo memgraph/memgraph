@@ -296,10 +296,16 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
 
   auto old_start_idx = start_idx_.load(std::memory_order_acquire);
-  auto new_idx = last_log_index + 1;
+  if (old_start_idx > last_log_index) {
+    return true;
+  }
+
+  auto const new_idx = last_log_index + 1;
   while (
-      old_start_idx <= last_log_index &&
       !start_idx_.compare_exchange_weak(old_start_idx, new_idx, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    if (old_start_idx > last_log_index) {
+      return true;
+    }
   }
 
   if (old_start_idx > last_log_index) {
