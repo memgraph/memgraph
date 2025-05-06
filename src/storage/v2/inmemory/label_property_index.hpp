@@ -58,7 +58,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) override;
 
-  bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
+  bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                           std::span<PropertyPath const> properties) const
@@ -74,9 +74,15 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class Iterable {
    public:
+    // Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor
+    // vertices_accessor,
+    //          LabelId label, PropertiesIds const *properties, PropertiesPermutationHelper const *permutation_helper,
+    //          std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
+
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-             LabelId label, PropertiesIds const *properties, PropertiesPermutationHelper const *permutation_helper,
-             std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
+             LabelId label, NestedPropertiesIds const *properties,
+             PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges,
+             View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
@@ -108,7 +114,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     // These describe the composite index
     LabelId label_;
-    PropertiesIds const *properties_;
+    NestedPropertiesIds const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
@@ -119,16 +125,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Transaction *transaction_;
   };
 
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override;
 
   /// Supplying a specific value into the count estimation function will return
   /// an estimated count of nodes which have their property's value set to
   /// `value`. If the `values` specified are all `Null`, then an average number
   /// equal elements is returned.
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                   std::span<PropertyValue const> values) const override;
 
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                   std::span<PropertyValueRange const> bounds) const override;
 
   std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStats();
@@ -149,6 +155,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   Iterable Vertices(LabelId label, std::span<PropertyId const> properties, std::span<PropertyValueRange const> range,
                     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
                     Storage *storage, Transaction *transaction);
+
+  Iterable Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> values,
+                    View view, Storage *storage, Transaction *transaction);
 
   void DropGraphClearIndices() override;
 
