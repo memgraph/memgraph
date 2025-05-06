@@ -82,8 +82,6 @@ jobs:
             sequence+="${i},"
           done
           echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
-      - name: Print output
-        run: |
           cat "$GITHUB_OUTPUT"
 
   Community:
