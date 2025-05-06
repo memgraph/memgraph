@@ -961,6 +961,52 @@ TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
   EXPECT_EQ(val7.ValueMap()[p8], PropertyValue("eight"));
 }
 
+TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, make_map(p2, make_map(p3, make_map(p4, PropertyValue{"expected"})))}};
+
+  struct Test {
+    PropertyPath path;
+    PropertyValue value;
+    bool result;
+  };
+
+  for (auto &&test : {
+           // clang-format off
+    // Success, where nested property exists and value matches
+    Test{.path = {p1, p2, p3, p4}, .value = PropertyValue{"expected"}, .result = true},
+    // Fails because nested property is a different value
+    Test{.path = {p1, p2, p3, p4}, .value = PropertyValue{"unexpected"}, .result = false},
+    // Fails because nested property is a different type
+    Test{.path = {p1, p2, p3, p4}, .value = PropertyValue{23}, .result = false},
+    // Fails because final part of nested property path doens't exist
+    Test{.path = {p1, p2, p3, p5}, .value = PropertyValue{"expected"}, .result = false},
+    // Fails because intermediate parts of nested property path doens't exist
+    Test{.path = {p1, p2, p5}, .value = PropertyValue{"expected"}, .result = false},
+    Test{.path = {p1, p5}, .value = PropertyValue{"expected"}, .result = false},
+    Test{.path = {p5}, .value = PropertyValue{"expected"}, .result = false}
+           // clang-format on
+       }) {
+    PropertyStore store;
+    store.InitProperties(data);
+    EXPECT_EQ(store.ArePropertiesEqual(std::array{test.path}, std::array{test.value}, std::array<std::size_t, 1>{0}),
+              std::vector{test.result});
+  }
+}
+
+// @TODO test reader leaves read cursor in correct position for reading
+// successive properties.
+
 TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
   auto const p1 = PropertyId::FromInt(1);
   const std::vector<std::pair<PropertyId, PropertyValue>> data{

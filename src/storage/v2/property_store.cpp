@@ -39,6 +39,9 @@ namespace memgraph::storage {
 
 namespace {
 
+namespace r = ranges;
+namespace rv = r::views;
+
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
 // possible types that could be stored as a property value. That causes the
 // object to be 50+ bytes in size. Many use-cases only use primitive property
@@ -1627,6 +1630,53 @@ enum class ExpectedPropertyStatus {
   return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
 }
 
+// Function used to compare a `PropertyValue` with the current property value
+// nested (possible recursively) inside a map inside the byte stream.
+[[nodiscard]] bool CompareExpectedProperty(Reader *reader, PropertyPath const &path, const PropertyValue &value) {
+  DMG_ASSERT(!path.empty(), "path must be at least one `PropertyId` long.");
+
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return false;
+
+  auto const property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return false;
+  if (*property_id != path[0].AsUint()) return false;
+
+  for (auto path_part : path | rv::drop(1) | rv::transform(&PropertyId::AsUint)) {
+    // Because we are looking for a nested property, and this part is not
+    // the final one, it must to be a map in order to look for the next
+    // level of nesting.
+
+    if (metadata->type != Type::MAP) return false;
+
+    auto const map_size = reader->ReadUint(metadata->payload_size);
+    if (!map_size) return false;
+
+    // Advance to the next nested property
+    for (std::size_t i = 0; i < *map_size; ++i) {
+      metadata = reader->ReadMetadata();
+      if (!metadata) return false;
+
+      auto const property_id = reader->ReadUint(metadata->id_size);
+      if (!property_id) return false;
+      auto const cmp = property_id <=> path_part;
+      if (std::is_gt(cmp)) {
+        return false;
+      } else if (std::is_lt(cmp)) {
+        reader->SkipBytes(SizeToByteSize(metadata->payload_size));
+      } else {
+        break;
+      }
+    }
+  }
+
+  // We are now at the final part of the path (i.e., given `a.b.c.d`, we are at
+  // `d`; or given just `e` we are at `e`.) Perform the comparison with the
+  // expected value.
+
+  return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
+}
+
 // Function used to find and (selectively) get the property value of the
 // property whose ID is `property`. It relies on the fact that the properties
 // are sorted (by ID) in the buffer. If the function doesn't find the property,
@@ -2211,6 +2261,38 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyId const> ordered_prope
       if (property_size != 0) {
         auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
         auto cmp_res = CompareExpectedProperty(&prop_reader, property, cmp_val);
+        return std::pair{info.status, std::optional{cmp_res}};
+      } else {
+        return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};
+      }
+    };
+    auto const apply_result = [&](std::optional<bool> extracted_result, PropertyValue const &cmp_val, size_t pos) {
+      result[pos] = extracted_result ? *extracted_result : cmp_val.IsNull();
+    };
+
+    auto safe_reader = SafeReader{reader, get_result, apply_result, std::nullopt};
+    for (auto [pos, property] : ranges::views::enumerate(ordered_properties)) {
+      auto const &value = values[position_lookup[pos]];
+      safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
+    }
+    return result;
+  };
+  return WithReader(properties_are_equal);
+}
+
+auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
+                                       std::span<PropertyValue const> values,
+                                       std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+  auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
+    auto result = std::vector<bool>(ordered_properties.size(), false);
+
+    auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
+      auto const orig_reader = reader;
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, path[0]);
+      auto property_size = info.property_size();
+      if (property_size != 0) {
+        auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
+        auto cmp_res = CompareExpectedProperty(&prop_reader, path, cmp_val);
         return std::pair{info.status, std::optional{cmp_res}};
       } else {
         return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};
