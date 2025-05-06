@@ -6425,6 +6425,20 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   }
 }
 
+void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
+  const std::string db_name = db ? *db : "";
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
+    Abort();
+    if (db_name.empty()) {
+      throw QueryException("You are not authorized to execute this query! Please contact your database administrator.");
+    }
+    throw QueryException(
+        "You are not authorized to execute this query on database \"{}\"! Please contact your database "
+        "administrator.",
+        db_name);
+  }
+}
+
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::Storage::Accessor::Type acc_type) {
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
 }
