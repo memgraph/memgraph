@@ -296,7 +296,8 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
   auto lock = std::lock_guard{logs_lock_};
-  for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
+  auto const old_start_idx = start_idx_.load(std::memory_order_acquire);
+  for (uint64_t ii = old_start_idx; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
     if (entry == logs_.end()) {
       continue;
@@ -305,9 +306,10 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
   }
 
-  if (start_idx_ <= last_log_index) {
-    start_idx_ = last_log_index + 1;
-    durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
+  if (old_start_idx <= last_log_index) {
+    auto const new_idx = last_log_index + 1;
+    start_idx_.store(new_idx, std::memory_order_release);
+    durability_->Put(kStartIdx, std::to_string(new_idx));
   }
   return true;
 }

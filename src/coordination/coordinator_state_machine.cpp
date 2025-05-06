@@ -75,16 +75,11 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      auto old_committed_idx = last_committed_idx_.load(std::memory_order_acquire);
-      if (old_committed_idx >= parsed_snapshot_id) {
-        return;
-      }
-
-      while (!last_committed_idx_.compare_exchange_weak(old_committed_idx, parsed_snapshot_id,
+      uint64_t old_committed_idx = last_committed_idx_.load(std::memory_order_acquire);
+      while (old_committed_idx < parsed_snapshot_id &&
+             !last_committed_idx_.compare_exchange_weak(old_committed_idx, parsed_snapshot_id,
                                                         std::memory_order_acq_rel, std::memory_order_acquire)) {
-        if (old_committed_idx >= parsed_snapshot_id) {
-          return;
-        }
+        // old is updated by compare_exchange_weak
       }
 
       // NOLINTNEXTLINE (misc-const-correctness)
