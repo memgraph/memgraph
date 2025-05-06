@@ -15,6 +15,22 @@
 from neo4j import GraphDatabase, basic_auth
 from neo4j.exceptions import ClientError, TransientError
 
+
+def assert_exception(func):
+    try:
+        func()
+    except:
+        return
+    assert False, "Expected exception not raised"
+
+
+def assert_no_exception(func):
+    try:
+        func()
+    except:
+        assert False, "Exception raised"
+
+
 print("Checking user impersonation...")
 
 # Check user-less state
@@ -35,11 +51,14 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
 # Setup
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
     with driver.session() as session:
-        session.run("CREATE USER admin;").consume()
+        session.run("CREATE USER admin;").consume()  # Has all permissions
         session.run("GRANT IMPERSONATE_USER * TO admin;").consume()
         session.run("CREATE USER user;").consume()
+        session.run("GRANT MATCH, SET, DELETE TO user;").consume()
         session.run("CREATE USER user2;").consume()
+        session.run("GRANT AUTH TO user2;").consume()
         session.run("CREATE USER user3;").consume()
+        session.run("DENY AUTH TO user3;").consume()
 
 
 # Impersonate during a session
@@ -49,6 +68,9 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
 
     with driver.session(impersonated_user="user") as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+        assert_exception(lambda: session.run("CREATE (n:Node)"))
+        assert_exception(lambda: session.run("CREATE USER abc"))
+        assert_no_exception(lambda: session.run("MATCH(n) SET n.p = 1"))
 
     with driver.session() as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "admin"
@@ -73,12 +95,18 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
     try:
         with driver.session(impersonated_user="user") as session:
             assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+            assert_exception(lambda: session.run("CREATE (n:Node)"))
+            assert_exception(lambda: session.run("CREATE USER abc"))
+            assert_no_exception(lambda: session.run("MATCH(n) SET n.p = 2"))
     except:
         failed = True
     assert failed
 
     with driver.session(impersonated_user="user2") as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+        assert_exception(lambda: session.run("CREATE (n:Node)"))
+        assert_no_exception(lambda: session.run("CREATE USER abc"))
+        assert_exception(lambda: session.run("MATCH(n) SET n.p = 3"))
 
 # Try to impersonate a user you are explicitly denied
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
@@ -90,12 +118,18 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
     try:
         with driver.session(impersonated_user="user3") as session:
             assert session.run("SHOW CURRENT USER;").values()[0][0] == "user3"
+            assert_exception(lambda: session.run("CREATE (n:Node)"))
+            assert_exception(lambda: session.run("CREATE USER abc"))
+            assert_exception(lambda: session.run("MATCH(n) SET n.p = 4"))
     except:
         failed = True
     assert failed
 
     with driver.session(impersonated_user="user2") as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+        assert_exception(lambda: session.run("CREATE (n:Node)"))
+        assert_no_exception(lambda: session.run("CREATE USER abc"))
+        assert_exception(lambda: session.run("MATCH(n) SET n.p = 5"))
 
 
 # Try to impersonate a user without the correct permissions
@@ -108,6 +142,9 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
     try:
         with driver.session(impersonated_user="user2") as session:
             assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+            assert_exception(lambda: session.run("CREATE (n:Node)"))
+            assert_no_exception(lambda: session.run("CREATE USER abc"))
+            assert_exception(lambda: session.run("MATCH(n) SET n.p = 6"))
     except:
         failed = True
 
@@ -130,15 +167,106 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
     try:
         with driver.session(impersonated_user="user2") as session:
             assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+            assert_exception(lambda: session.run("CREATE (n:Node)"))
+            assert_exception(lambda: session.run("CREATE USER abc"))
+            assert_exception(lambda: session.run("MATCH(n) SET n.p = 7"))
     except:
         failed = True
-
     assert failed
 
     with driver.session(impersonated_user="user") as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+        assert_exception(lambda: session.run("CREATE (n:Node)"))
+        assert_exception(lambda: session.run("CREATE USER abc"))
+        assert_no_exception(lambda: session.run("MATCH(n) SET n.p = 8"))
     with driver.session(impersonated_user="user3") as session:
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "user3"
+        assert_exception(lambda: session.run("CREATE (n:Node)"))
+        assert_exception(lambda: session.run("CREATE USER abc"))
+        assert_exception(lambda: session.run("MATCH(n) SET n.p = 9"))
+
+print("Checking multi-tenancy and user impersonation...")
+
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        session.run("CREATE DATABASE db1").consume()
+        session.run("CREATE DATABASE db2").consume()
+
+        session.run("GRANT DATABASE memgraph TO user").consume()
+        session.run("GRANT DATABASE db1 TO user").consume()
+        session.run("GRANT DATABASE db2 TO user").consume()
+        session.run("REVOKE DATABASE memgraph FROM user2").consume()
+        session.run("GRANT DATABASE db1 TO user2").consume()
+        session.run("GRANT DATABASE db2 TO user2").consume()
+        session.run("REVOKE DATABASE memgraph FROM user3").consume()
+        session.run("REVOKE DATABASE db1 FROM user3").consume()
+        session.run("GRANT DATABASE db2 TO user3").consume()
+
+        session.run("SET MAIN DATABASE memgraph FOR user").consume()
+        session.run("SET MAIN DATABASE db1 FOR user2").consume()
+        session.run("SET MAIN DATABASE db2 FOR user3").consume()
+
+        session.run("GRANT IMPERSONATE_USER * TO admin;").consume()
+        session.run("GRANT MULTI_DATABASE_USE TO user;").consume()
+        session.run("GRANT MULTI_DATABASE_USE TO user2;").consume()
+        session.run("GRANT MULTI_DATABASE_USE TO user3;").consume()
+
+# Reconnect to update all auth data
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    # land on the default database of the impersonated user
+    with driver.session(impersonated_user="user") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "memgraph"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+        session.run("USE DATABASE db1").consume()
+        assert session.run("SHOW DATABASE").values()[0][0] == "db1"
+        session.run("USE DATABASE db2").consume()
+        assert session.run("SHOW DATABASE").values()[0][0] == "db2"
+    with driver.session(impersonated_user="user2") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db1"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+        assert_exception(lambda: session.run("USE DATABASE memgraph"))
+        session.run("USE DATABASE db2").consume()
+        assert session.run("SHOW DATABASE").values()[0][0] == "db2"
+    with driver.session(impersonated_user="user3") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db2"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user3"
+        assert_exception(lambda: session.run("USE DATABASE memgraph"))
+        assert_exception(lambda: session.run("USE DATABASE db1"))
+
+    # try landing on other dbs
+    with driver.session(impersonated_user="user", database="memgraph") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "memgraph"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+    with driver.session(impersonated_user="user", database="db1") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db1"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+    with driver.session(impersonated_user="user", database="db2") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db2"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user"
+
+    with driver.session(impersonated_user="user2", database="memgraph") as session:
+        assert_exception(lambda: session.run("SHOW DATABASE"))
+    with driver.session(impersonated_user="user2", database="db1") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db1"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+    with driver.session(impersonated_user="user2", database="db2") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db2"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user2"
+
+    with driver.session(impersonated_user="user3", database="memgraph") as session:
+        assert_exception(lambda: session.run("SHOW DATABASE"))
+    with driver.session(impersonated_user="user3", database="db1") as session:
+        assert_exception(lambda: session.run("SHOW DATABASE"))
+    with driver.session(impersonated_user="user3", database="db2") as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "db2"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "user3"
+
+    # check connection user still is correct
+    with driver.session() as session:
+        assert session.run("SHOW DATABASE").values()[0][0] == "memgraph"
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "admin"
+
+print("All ok!")
 
 # Cleanup
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
@@ -147,6 +275,3 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         session.run("DROP USER user;").consume()
         session.run("DROP USER user2;").consume()
         session.run("DROP USER user3;").consume()
-
-
-print("All ok!")

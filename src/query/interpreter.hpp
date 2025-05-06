@@ -287,6 +287,13 @@ class Interpreter final {
   Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
                                      QueryExtras const &extras);
 
+  /**
+   * Checks if the user has the required privileges to execute the query.
+   *
+   * @throw query::QueryException
+   */
+  void CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db = {});
+
 #ifdef MG_ENTERPRISE
   auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
 #endif
