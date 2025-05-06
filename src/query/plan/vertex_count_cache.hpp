@@ -13,12 +13,14 @@
 #pragma once
 
 #include <optional>
+#include <ranges>
 
 #include "query/db_accessor.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::query::plan {
@@ -48,14 +50,14 @@ class VertexCountCache {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) {
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
     auto key = std::make_pair(label, std::vector(properties.begin(), properties.end()));
     if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end())
       label_properties_vertex_count_[key] = db_->VerticesCount(label, properties);
     return label_properties_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) {
     auto key = std::make_tuple(label, std::vector(properties.begin(), properties.end()),
                                std::vector(bounds.begin(), bounds.end()));
@@ -138,7 +140,7 @@ class VertexCountCache {
 
   bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyId const> properties) {
+  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
     return db_->LabelPropertyIndexExists(label, properties);
   }
 
@@ -175,9 +177,9 @@ class VertexCountCache {
 
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
-  using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
+  using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
   using LabelPropertiesRangesKey =
-      std::tuple<storage::LabelId, std::vector<storage::PropertyId>, std::vector<storage::PropertyValueRange>>;
+      std::tuple<storage::LabelId, std::vector<storage::PropertyPath>, std::vector<storage::PropertyValueRange>>;
   using EdgeTypePropertyKey = std::pair<storage::EdgeTypeId, storage::PropertyId>;
 
   struct LabelPropertyHash {
@@ -194,9 +196,9 @@ class VertexCountCache {
     size_t operator()(const LabelPropertiesKey &key) const {
       auto const &[label_id, property_ids] = key;
       std::size_t seed = 0;
+      std::vector<storage::PropertyId> flat{property_ids | std::views::join | ranges::to<std::vector>()};
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
-      boost::hash_combine(seed,
-                          utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(property_ids));
+      boost::hash_combine(seed, utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(flat));
       return seed;
     }
   };
@@ -205,9 +207,9 @@ class VertexCountCache {
     size_t operator()(LabelPropertiesRangesKey const &key) const noexcept {
       auto const &[label_id, property_ids, property_ranges] = key;
       std::size_t seed = 0;
+      std::vector<storage::PropertyId> flat{property_ids | std::views::join | ranges::to<std::vector>()};
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
-      boost::hash_combine(seed,
-                          utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(property_ids));
+      boost::hash_combine(seed, utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(flat));
       boost::hash_combine(seed,
                           utils::FnvCollection<std::vector<storage::PropertyValueRange>, storage::PropertyValueRange>{}(
                               property_ranges));

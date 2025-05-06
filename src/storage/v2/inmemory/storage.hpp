@@ -167,7 +167,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
@@ -204,14 +204,14 @@ class InMemoryStorage final : public Storage {
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override {
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValue const> values) const override {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, values);
     }
@@ -219,7 +219,7 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and value for
     /// the given properties in the range defined by provided upper and lower
     /// bounds.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, bounds);
     }
@@ -299,7 +299,7 @@ class InMemoryStorage final : public Storage {
 
     bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
 
-    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
       return storage_->indices_.label_property_index_->IndexExists(label, properties);
     }
 
