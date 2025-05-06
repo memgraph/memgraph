@@ -88,7 +88,6 @@ class DiffSetup:
                 self._test_suite[build][test] = self._check_pr_label(build, test, pr_labels)
 
     def _check_workflow_input(self, build: str, test: str, workflow_dispatch_inputs: dict) -> bool:
-        print(f"DEBUG: {build} {test} {workflow_dispatch_inputs.get(f'{build}_{test}')}")
         if workflow_dispatch_inputs.get(f"{build}_{test}") == "true":
             return True
         return False
