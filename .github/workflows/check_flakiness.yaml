@@ -28,22 +28,12 @@ on:
         type: boolean
         default: true
         description: ""
-      release_core:
+      release:
+        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules)'
+        default: 'core,benchmark,e2e,stress,query_modules'
+      malloc_build:
         type: boolean
         default: true
-        description: ""
-      release_e2e:
-        type: boolean
-        default: true
-        description: ""
-      release_stress:
-        type: boolean
-        default: true
-        description: ""
-      release_query_modules:
-        type: boolean
-        default: true
-        description: ""
       flakiness_runs:
         type: number
         default: 3
@@ -64,6 +54,7 @@ jobs:
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
       run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
+      run_malloc_build: ${{ steps.setup.outputs.run_malloc_build }}
       runs: ${{ steps.setup_flakiness.outputs.runs }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
@@ -172,5 +163,21 @@ jobs:
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
       run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
+      run_id: "${{ matrix.run_no }}"
+    secrets: inherit
+
+  Malloc:
+    needs: DiffSetup
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
+    uses: ./.github/workflows/diff_malloc.yaml
+    with:
+      arch: 'amd'
+      os: 'ubuntu-24.04'
+      toolchain: 'v6'
+      run_build: ${{ needs.DiffSetup.outputs.run_malloc_build }}
       run_id: "${{ matrix.run_no }}"
     secrets: inherit
