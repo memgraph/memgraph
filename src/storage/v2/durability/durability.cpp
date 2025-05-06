@@ -226,7 +226,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       const auto label_id = item.first;
       const auto &property_ids = item.second.first;
       const auto &stats = item.second.second;
-      mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
+      // TODO: put back...
+      // mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
       auto id_to_name = [&](PropertyId prop) { return name_id_mapper->IdToName(prop.AsUint()); };
       auto const properties_str = utils::Join(property_ids | rv::transform(id_to_name), ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",

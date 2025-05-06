@@ -860,19 +860,20 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::
   return ranges::count_if(acc.sampling_range(), in_bounds_for_all_prefix);
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ClearIndexStats() {
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> deleted_indexes;
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::ClearIndexStats() {
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> deleted_indexes;
   auto locked_stats = stats_.Lock();
 
   auto const num_stats = std::accumulate(locked_stats->cbegin(), locked_stats->cend(), size_t{},
                                          [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
 
   deleted_indexes.reserve(num_stats);
-  for (auto &[label, properties_indices_stats] : *locked_stats) {
-    for (auto const &properties : properties_indices_stats | rv::keys) {
-      deleted_indexes.emplace_back(label, properties);
-    }
-  }
+  // TODO: put back...
+  // for (auto &[label, properties_indices_stats] : *locked_stats) {
+  //   for (auto const &properties : properties_indices_stats | rv::keys) {
+  //     deleted_indexes.emplace_back(label, properties);
+  //   }
+  // }
 
   locked_stats->clear();
 
@@ -881,23 +882,25 @@ std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIn
 
 // TODO(composite-index) Seems suspicious to me that this deletes all stats
 // based on the just the label. Why do properties not matter?
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::DeleteIndexStats(
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> deleted_indexes;
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> deleted_indexes;
   auto locked_stats = stats_.Lock();
 
   auto const it = locked_stats->find(label);
   if (it == locked_stats->cend()) {
     return {};
   }
-  for (auto const &properties : it->second | rv::keys) {
-    deleted_indexes.emplace_back(label, properties);
-  }
+  // TODO: put back...
+  // for (auto const &properties : it->second | rv::keys) {
+  //   deleted_indexes.emplace_back(label, properties);
+  // }
   locked_stats->erase(it);
   return deleted_indexes;
 }
 
-void InMemoryLabelPropertyIndex::SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties,
+void InMemoryLabelPropertyIndex::SetIndexStats(storage::LabelId label,
+                                               std::span<storage::PropertyPath const> properties,
                                                storage::LabelPropertyIndexStats const &stats) {
   auto locked_stats = stats_.Lock();
   auto &inner_map = (*locked_stats)[label];
@@ -910,7 +913,7 @@ void InMemoryLabelPropertyIndex::SetIndexStats(storage::LabelId label, std::span
 }
 
 std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
-    const std::pair<storage::LabelId, std::span<storage::PropertyId const>> &key) const {
+    const std::pair<storage::LabelId, std::span<storage::PropertyPath const>> &key) const {
   auto locked_stats = stats_.ReadLock();
   if (auto it = locked_stats->find(key.first); it != locked_stats->end()) {
     if (auto it2 = it->second.find(key.second); it2 != it->second.end()) {
