@@ -58,17 +58,22 @@ inline bool ConfrontJSON(const nlohmann::json &lhs, const nlohmann::json &rhs) {
  */
 template <typename Accessor>
 std::size_t CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::storage::LabelId label,
-                                  std::span<memgraph::storage::PropertyId const> props,
+                                  std::span<memgraph::storage::PropertyPath const> props,
                                   std::span<memgraph::storage::PropertyValueRange const> ranges,
                                   auto &&props_validator) {
+  // @TODO currently this only validates values against the entire `PropertyValue`
+  // identified by the root of the `PropertyPath`. Given a path, it should
+  // instead extract the nested value and compare that instead. Not an issue
+  // immediately, but we will need this once we begin expanding the
+  // `storage_v2_indices` tests for nested indices.
   auto iterable = acc->Vertices(label, props, ranges, memgraph::storage::View::OLD);
   size_t found_vertices = 0;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     auto vertex = *it;
-    auto results =
-        props |
-        ranges::views::transform([&](auto &&prop) { return *vertex.GetProperty(prop, memgraph::storage::View::OLD); }) |
-        ranges::to_vector;
+    auto results = props | ranges::views::transform([&](auto &&prop) {
+                     return *vertex.GetProperty(prop[0], memgraph::storage::View::OLD);
+                   }) |
+                   ranges::to_vector;
     props_validator(results);
     ++found_vertices;
   }
