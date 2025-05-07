@@ -134,9 +134,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyV
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
                                                 IndexOrderedPropertyValues const &values) const -> std::vector<bool> {
-  // @TODO account for nesting here by using sorted_properties, rather than
-  // just the roots of the nested values.
-  return properties.ArePropertiesEqual(sorted_properties_roots_, values.values_, position_lookup_);
+  return properties.ArePropertiesEqual(sorted_properties_, values.values_, position_lookup_);
 }
 
 size_t PropertyValueRange::hash() const noexcept {
