@@ -2049,7 +2049,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires read-only access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
@@ -2101,7 +2101,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires read-only access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
