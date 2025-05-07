@@ -637,8 +637,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
   {
     auto acc = this->storage->Access();
@@ -653,8 +654,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
@@ -670,9 +672,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id}),
-                                     std::make_pair(this->label2, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}),
+                             std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
@@ -687,8 +690,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
@@ -737,9 +741,10 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label1,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
   {
     auto acc = this->storage->Access();
@@ -758,9 +763,10 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label1,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
 
   {
@@ -780,10 +786,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c}),
-                             std::make_pair(this->label2, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    std::make_pair(this->label1, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
+                                                             PropertyPath{this->prop_c}}),
+                    std::make_pair(this->label2, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
+                                                             PropertyPath{this->prop_c}})));
   }
 
   {
@@ -802,9 +810,10 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label2,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
 
   {

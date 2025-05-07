@@ -599,7 +599,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
       const auto &[label, properties] = label_property[global_index];
-      DumpLabelPropertiesIndex(&os, dba_, label, properties);
+      // @TODO implement this for nested indices
+      // DumpLabelPropertiesIndex(&os, dba_, label, properties);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;
