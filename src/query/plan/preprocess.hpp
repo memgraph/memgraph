@@ -398,7 +398,11 @@ class PropertyFilter {
   /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, const std::optional<Bound> &,
                  const std::optional<Bound> &);
+  /// Construct with Expression being the equality or regex match check used for multiple properties.
   PropertyFilter(const SymbolTable &, const Symbol &, std::vector<PropertyIx>, Expression *, Type);
+  /// Construct the range based filter used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, std::vector<PropertyIx>, const std::optional<Bound> &,
+                 const std::optional<Bound> &);
   /// Construct a filter without an expression that produces a value.
   /// Used for the "PROP IS NOT NULL" filter, and can be used for any
   /// property filter that doesn't need to use an expression to produce
