@@ -130,7 +130,7 @@ class IndexTest : public testing::Test {
     if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
       return this->storage->ReadOnlyAccess();
     } else {
-      return this->storage->Access();
+      return this->storage->UniqueAccess();
     }
   }
 
@@ -813,9 +813,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
@@ -832,9 +832,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
@@ -849,15 +849,15 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
@@ -1027,14 +1027,14 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
   }
 
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_b, this->prop_a, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_b, this->prop_a, this->prop_c}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_c, this->prop_b}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {this->prop_c, this->prop_b}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -1697,9 +1697,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   }
 
   {
-    auto unique_acc = this->CreateIndexAccessor();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto a_values = ranges::views::iota(0, 5) | ranges::views::transform([](int val) { return PropertyValue(val); }) |
