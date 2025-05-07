@@ -57,7 +57,8 @@ template_cluster: &template_cluster
 workloads:
   - name: "Constraints"
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"
-    args: []
+    args:
+     - "--database_endpoints=127.0.0.1:7687,127.0.0.1:7688,127.0.0.1:7689,127.0.0.1:7690"
     <<: *template_cluster
 
   - name: "Read-write benchmark"
