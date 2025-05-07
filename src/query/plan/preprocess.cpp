@@ -271,6 +271,9 @@ PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
   // we may be looking up.
 }
 
+PropertyFilter::PropertyFilter(Symbol symbol, std::vector<PropertyIx> properties, Type type)
+    : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
+
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
     : symbol_(symbol), value_(value) {
   MG_ASSERT(value);
@@ -770,12 +773,14 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     Identifier *ident = nullptr;
     if (is_nested_property_lookup(maybe_lookup)) {
       auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
-      if (ident) {
-        auto filter = make_filter(FilterInfo::Type::Property);
-        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr,
-                                                PropertyFilter::Type::IN);
-        all_filters_.emplace_back(filter);
+      if (!ident) {
+        return false;
       }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr, PropertyFilter::Type::IN);
+      all_filters_.emplace_back(filter);
+      return true;
     }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
@@ -804,15 +809,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
 
-    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
-      return false;
+    if (get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
     }
-
-    auto filter = make_filter(FilterInfo::Type::Property);
-    filter.property_filter =
-        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
-    all_filters_.emplace_back(filter);
-    return true;
+    if (is_nested_property_lookup(maybe_is_null_check->expression_)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_is_null_check->expression_);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), nested_properties, PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+    return false;
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.

@@ -408,6 +408,7 @@ class PropertyFilter {
   /// property filter that doesn't need to use an expression to produce
   /// values that should be filtered further.
   PropertyFilter(Symbol, PropertyIx, Type);
+  PropertyFilter(Symbol, std::vector<PropertyIx>, Type);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
