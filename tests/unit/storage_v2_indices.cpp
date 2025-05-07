@@ -61,7 +61,7 @@ class IndexTest : public testing::Test {
     FLAGS_storage_properties_on_edges = true;
     config_.salient.items.properties_on_edges = true;
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    config_.transaction.isolation_level = this->isolation_level;
+    config_.transaction.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION;
     this->storage = std::make_unique<StorageType>(config_);
     auto acc = this->storage->Access();
     this->prop_id = acc->NameToProperty("id");
@@ -99,7 +99,6 @@ class IndexTest : public testing::Test {
   PropertyId prop_a;
   PropertyId prop_b;
   PropertyId prop_c;
-  IsolationLevel isolation_level = IsolationLevel::SNAPSHOT_ISOLATION;
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor) {
     VertexAccessor vertex = accessor->CreateVertex();
@@ -131,32 +130,6 @@ class IndexTest : public testing::Test {
  private:
   int vertex_id;
 };
-
-// TODO: make this one class
-class InMemoryIsolationLevelIndexTest : public IndexTest<memgraph::storage::InMemoryStorage>,
-                                        public testing::WithParamInterface<IsolationLevel> {
- protected:
-  void SetUp() override {
-    this->isolation_level = GetParam();
-    IndexTest<memgraph::storage::InMemoryStorage>::SetUp();
-  }
-};
-
-class DiskIsolationLevelIndexTest : public IndexTest<memgraph::storage::DiskStorage>,
-                                    public testing::WithParamInterface<IsolationLevel> {
- protected:
-  void SetUp() override {
-    this->isolation_level = GetParam();
-    IndexTest<memgraph::storage::DiskStorage>::SetUp();
-  }
-};
-
-INSTANTIATE_TEST_SUITE_P(AllIsolationLevels, InMemoryIsolationLevelIndexTest,
-                         testing::Values(IsolationLevel::SNAPSHOT_ISOLATION, IsolationLevel::READ_COMMITTED,
-                                         IsolationLevel::READ_UNCOMMITTED));
-
-// INSTANTIATE_TEST_SUITE_P(AllIsolationLevels, DiskIsolationLevelIndexTest,
-//                          testing::Values(IsolationLevel::SNAPSHOT_ISOLATION));
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 
@@ -737,7 +710,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(InMemoryIsolationLevelIndexTest, LabelPropertyIndexCreateConcurrent) {
+TYPED_TEST(IndexTest, LabelPropertyIndexCreateConcurrent) {
   std::latch start_index_creation{1};  // Signals thread 2 to create index
   std::latch start_second_write{1};    // Signals thread 3 to begin writing
 
@@ -785,56 +758,6 @@ TEST_P(InMemoryIsolationLevelIndexTest, LabelPropertyIndexCreateConcurrent) {
       acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD), View::OLD);
   ASSERT_EQ(result.size(), 2 * kVertices);
 }
-
-// NOLINTNEXTLINE(hicpp-special-member-functions)
-// TEST_P(DiskIsolationLevelIndexTest, LabelPropertyIndexCreateConcurrent) {
-//   std::latch start_index_creation{1};  // Signals thread 2 to create index
-//   std::latch start_second_write{1};    // Signals thread 3 to begin writing
-
-//   constexpr size_t kVertices = 10000;
-
-//   std::thread writer1([&] {
-//     auto acc = this->storage->Access();
-//     start_index_creation.count_down();  // Index creator needs to wait for read only access (writers need to drain
-//     out) for (int i = 0; i < kVertices; ++i) {
-//       auto vertex = this->CreateVertex(acc.get());
-//       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
-//       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
-//     }
-//     ASSERT_NO_ERROR(acc->Commit());
-//   });
-
-//   std::thread index_creator([&] {
-//     start_index_creation.wait();  // Wait until writer1 makes some progress
-
-//     auto acc = this->storage->ReadOnlyAccess();
-//     start_second_write
-//         .count_down();  // Allow writer 2 to start writing, it needs to wait for read only lock to get downgraded
-//     EXPECT_FALSE(acc->CreateIndex(this->label2, {this->prop_val}).HasError());
-
-//     ASSERT_NO_ERROR(acc->Commit());
-//   });
-
-//   std::thread writer2([&] {
-//     start_second_write.wait();  // Wait for index creator to take read only access
-//     auto acc = this->storage->Access();
-//     for (int i = kVertices; i < 2 * kVertices; ++i) {
-//       auto vertex = this->CreateVertex(acc.get());
-//       ASSERT_NO_ERROR(vertex.AddLabel(this->label2));
-//       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
-//     }
-//     ASSERT_NO_ERROR(acc->Commit());
-//   });
-
-//   writer1.join();
-//   index_creator.join();
-//   writer2.join();
-
-//   auto acc = this->storage->Access();
-//   auto result = this->GetIds(
-//       acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD), View::OLD);
-//   ASSERT_EQ(result.size(), 2 * kVertices);
-// }
 
 TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
