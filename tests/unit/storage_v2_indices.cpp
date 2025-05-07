@@ -3282,3 +3282,64 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
 
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW), UnorderedElementsAre(1, 2, 3, 4, 5));
 }
+
+// @TODO simple test just to get MVCC passing. Once that is working, replace
+// this with more compelte test
+TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Nested indices currently not supported on disk";
+  }
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(
+        unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc = this->storage->Access();
+    for (int i = 0; i < 20; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 3 < 2 ? this->label1 : this->label2));
+
+      // INDEX: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+      // LABEL: 1 1 2 1 1 2 1 1 2 1  1  2  1  1  2  1  1  2  1  1
+      // c=int: 0 0 0 1 0 0 0 0 1 0  0  0  0  1  0  0  0  0  1  0
+
+      if (i % 5 == 0) {
+        // no `a` property
+      } else if (i % 5 == 1) {
+        // has an `a` property, but it is not a map, but a string
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(std::to_string(i))));
+      } else if (i % 5 == 2) {
+        // has `a.b`, where b is not a map, but a string
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, make_map(this->prop_b, PropertyValue(std::to_string(i)))));
+      } else if (i % 5 == 3) {
+        // has `a.b.c`, where c is an integer
+        ASSERT_NO_ERROR(
+            vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(i)))));
+      } else if (i % 5 == 4) {
+        // has `a.b.c`, where c is a boolean `true`
+        ASSERT_NO_ERROR(
+            vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(true)))));
+      }
+    }
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                   std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                         memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                   View::NEW),
+                     View::NEW),
+        UnorderedElementsAre(3, 13, 18));
+  }
+}
