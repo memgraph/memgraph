@@ -426,11 +426,11 @@ class Memgraph(BaseRunner):
         self._rss = []
 
         # Determine Memgraph version
-        ret = subprocess.run([self._memgraph_binary, "--version"], stdout=subprocess.PIPE, check=True)
-        version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
-        self._memgraph_version = tuple(map(int, version.split(".")))
+        # ret = subprocess.run([self._memgraph_binary, "--version"], stdout=subprocess.PIPE, check=True)
+        # version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
+        # self._memgraph_version = tuple(map(int, version.split(".")))
 
-        atexit.register(self._cleanup)
+        # atexit.register(self._cleanup)
 
     def __del__(self):
         self._cleanup()
@@ -447,20 +447,21 @@ class Memgraph(BaseRunner):
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
     def _start(self, **kwargs):
-        if self._proc_mg is not None:
-            raise Exception("The database process is already running!")
-        args = self._set_args(**kwargs)
-        self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
-        time.sleep(0.2)
-        if self._proc_mg.poll() is not None:
-            self._proc_mg = None
-            raise Exception("The database process died prematurely!")
-        _wait_for_server_socket(self._bolt_port)
-        ret = self._proc_mg.poll()
+        # if self._proc_mg is not None:
+        #     raise Exception("The database process is already running!")
+        # args = self._set_args(**kwargs)
+        # self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
+        # time.sleep(0.2)
+        # if self._proc_mg.poll() is not None:
+        #     self._proc_mg = None
+        #     raise Exception("The database process died prematurely!")
+        # _wait_for_server_socket(self._bolt_port)
+        # ret = self._proc_mg.poll()
+        pass
 
     def _cleanup(self):
         if self._proc_mg is None:
-            return 0
+            return 0, {"memory": 0, "cpu": 0}
         usage = _get_usage(self._proc_mg.pid)
         self._proc_mg.terminate()
         ret = self._proc_mg.wait()
@@ -483,19 +484,21 @@ class Memgraph(BaseRunner):
         return usage
 
     def start_db(self, workload):
-        if self._performance_tracking:
-            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
-            self._stop_event.clear()
-            self._rss.clear()
-            p.start()
-        self._start(data_recovery_on_startup=True, **self._vendor_args)
+        # if self._performance_tracking:
+        #     p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
+        #     self._stop_event.clear()
+        #     self._rss.clear()
+        #     p.start()
+        # self._start(data_recovery_on_startup=True, **self._vendor_args)
+        pass
 
     def stop_db(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        return usage
+        # if self._performance_tracking:
+        #     self._stop_event.set()
+        #     self.dump_rss(workload)
+        # ret, usage = self._cleanup()
+        # return usage
+        return {"memory": 0, "cpu": 0}
 
     def clean_db(self):
         if self._proc_mg is not None:
