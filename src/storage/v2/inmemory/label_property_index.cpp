@@ -933,7 +933,7 @@ std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetI
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  for (auto &per_label : index_ | std::views::values) {
+  for (auto &per_label : nested_index_ | std::views::values) {
     for (auto &per_properties : per_label | std::views::values) {
       per_properties.skiplist.run_gc();
     }
