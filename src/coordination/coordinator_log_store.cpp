@@ -57,9 +57,11 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
         is_first_start = true;
       }
       if (is_first_start) {
-        start_idx_.store(1, std::memory_order_release);
-        durability_->Put(kStartIdx, "1");
-        durability_->Put(kLastLogEntry, "0");
+        start_idx_.store(kInitialStartIdx, std::memory_order_release);
+        std::map<std::string, std::string> batch;
+        batch.emplace(kStartIdx, std::to_string(kInitialStartIdx));
+        batch.emplace(kLastLogEntry, std::to_string(kInitialLastLogEntry));
+        durability_->PutMultiple(batch);
         return true;
       }
 
@@ -297,20 +299,28 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
   auto lock = std::lock_guard{logs_lock_};
   auto const old_start_idx = start_idx_.load(std::memory_order_acquire);
+
+  std::vector<std::string> del_batch;
+
   for (uint64_t ii = old_start_idx; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
     if (entry == logs_.end()) {
       continue;
     }
     logs_.erase(entry);
-    durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
+    del_batch.emplace_back(fmt::format("{}{}", kLogEntryPrefix, ii));
   }
+
+  std::map<std::string, std::string> put_batch;
 
   if (old_start_idx <= last_log_index) {
     auto const new_idx = last_log_index + 1;
     start_idx_.store(new_idx, std::memory_order_release);
-    durability_->Put(kStartIdx, std::to_string(new_idx));
+    put_batch.emplace(kStartIdx, std::to_string(new_idx));
   }
+
+  durability_->PutAndDeleteMultiple(put_batch, del_batch);
+
   return true;
 }
 
@@ -344,13 +354,17 @@ bool CoordinatorLogStore::StoreEntryToDisk(const std::shared_ptr<log_entry> &clo
   auto const log_term_json = nlohmann::json(
       {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_string}, {kLogEntryValTypeKey, clone_val}});
   auto const log_term_str = log_term_json.dump();
-  auto const key = fmt::format("{}{}", kLogEntryPrefix, key_id);
-  durability_->Put(key, log_term_str);
+  auto const log_entry_key = fmt::format("{}{}", kLogEntryPrefix, key_id);
+
+  std::map<std::string, std::string> put_batch;
+  put_batch.emplace(log_entry_key, log_term_str);
 
   if (is_newest_entry) {
     logger_.Log(nuraft_log_level::TRACE, fmt::format("Storing newest entry to disk {}", key_id));
-    durability_->Put(kLastLogEntry, std::to_string(key_id));
+    put_batch.emplace(kLastLogEntry, std::to_string(key_id));
   }
+
+  durability_->PutMultiple(put_batch);
 
   return true;
 }

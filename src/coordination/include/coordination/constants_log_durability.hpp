@@ -41,6 +41,8 @@ constexpr std::string_view kType = "type";
 constexpr std::string_view kLogEntryPrefix = "log_entry_";    // top level
 constexpr std::string_view kLastLogEntry = "last_log_entry";  // top level
 constexpr std::string_view kStartIdx = "start_idx";           // top level
+constexpr int kInitialStartIdx = 1;
+constexpr int kInitialLastLogEntry = 0;
 
 const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
