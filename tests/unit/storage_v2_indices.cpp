@@ -126,6 +126,14 @@ class IndexTest : public testing::Test {
     return ret;
   }
 
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->Access();
+    }
+  }
+
  private:
   int vertex_id;
 };
@@ -622,7 +630,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -641,7 +649,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_TRUE(acc->CreateIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -653,7 +661,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label2, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -671,7 +679,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->DropIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -687,13 +695,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_TRUE(acc->DropIndex(this->label1, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->DropIndex(this->label2, {this->prop_id}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -733,7 +741,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateConcurrent) {
   std::thread index_creator([&] {
     start_index_creation.wait();  // Wait until writer1 makes some progress
 
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     start_second_write
         .count_down();  // Allow writer 2 to start writing, it needs to wait for read only lock to get downgraded
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
@@ -772,7 +780,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -792,7 +800,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -805,7 +813,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -824,7 +832,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -841,13 +849,13 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -870,12 +878,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label2, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -1019,12 +1027,12 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_b, this->prop_a, this->prop_c}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_c, this->prop_b}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -1176,7 +1184,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -1240,7 +1248,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
   }
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -1267,7 +1275,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -1326,7 +1334,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   // properly.
 
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -1415,7 +1423,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(acc->Commit());
     }
@@ -1446,7 +1454,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -1689,7 +1697,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   }
 
   {
-    auto unique_acc = this->storage->ReadOnlyAccess();
+    auto unique_acc = this->CreateIndexAccessor();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -1778,7 +1786,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(acc->Commit());
     }
@@ -1813,7 +1821,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(acc->Commit());
     }
@@ -1847,7 +1855,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(acc->Commit());
     }
@@ -1880,7 +1888,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelPropertyIndex *>(this->storage->indices_.label_property_index_.get());
 
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       EXPECT_FALSE(acc->CreateIndex(this->label1, {this->prop_val}).HasError());
       ASSERT_NO_ERROR(acc->Commit());
     }
