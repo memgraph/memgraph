@@ -59,8 +59,8 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       if (is_first_start) {
         start_idx_.store(kInitialStartIdx, std::memory_order_release);
         std::map<std::string, std::string> batch;
-        batch[kStartIdx.data()] = std::to_string(kInitialStartIdx);
-        batch[kLastLogEntry.data()] = std::to_string(kInitialLastLogEntry);
+        batch.emplace(kStartIdx, std::to_string(kInitialStartIdx));
+        batch.emplace(kLastLogEntry, std::to_string(kInitialLastLogEntry));
         durability_->PutMultiple(batch);
         return true;
       }
@@ -316,7 +316,7 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   if (old_start_idx <= last_log_index) {
     auto const new_idx = last_log_index + 1;
     start_idx_.store(new_idx, std::memory_order_release);
-    put_batch[kStartIdx.data()] = std::to_string(new_idx);
+    put_batch.emplace(kStartIdx, std::to_string(new_idx));
   }
 
   durability_->PutAndDeleteMultiple(put_batch, del_batch);
@@ -357,11 +357,11 @@ bool CoordinatorLogStore::StoreEntryToDisk(const std::shared_ptr<log_entry> &clo
   auto const log_entry_key = fmt::format("{}{}", kLogEntryPrefix, key_id);
 
   std::map<std::string, std::string> put_batch;
-  put_batch[log_entry_key.data()] = log_term_str;
+  put_batch.emplace(log_entry_key, log_term_str);
 
   if (is_newest_entry) {
     logger_.Log(nuraft_log_level::TRACE, fmt::format("Storing newest entry to disk {}", key_id));
-    put_batch[kLastLogEntry.data()] = std::to_string(key_id);
+    put_batch.emplace(kLastLogEntry, std::to_string(key_id));
   }
 
   durability_->PutMultiple(put_batch);
