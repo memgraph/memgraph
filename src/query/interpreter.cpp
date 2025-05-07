@@ -143,6 +143,9 @@ extern const Event ShowSchema;
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
     storage::Storage::Accessor::Type acc_type) {
+  if (!db_acc_) {
+    throw DatabaseContextRequiredException("Database required for the transaction setup.");
+  }
   auto &db_acc = *db_acc_;
   const auto timeout = std::chrono::seconds{FLAGS_storage_access_timeout_sec};
   switch (acc_type) {
@@ -870,14 +873,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2452,8 +2462,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras,
-                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -3102,11 +3112,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto prop_to_name = [&](storage::PropertyId prop) { return TypedValue{execution_db_accessor->PropertyToName(prop)}; };
   std::transform(
@@ -6010,6 +6020,117 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(), false); }
 #endif
 
+struct QueryTransactionRequirements : QueryVisitor<void> {
+  using QueryVisitor<void>::Visit;
+
+  QueryTransactionRequirements(bool is_schema_assert_query, bool is_cypher_read, bool is_in_memory_transactional)
+      : is_schema_assert_query_{is_schema_assert_query},
+        is_cypher_read_{is_cypher_read},
+        is_in_memory_transactional_{is_in_memory_transactional} {}
+
+  // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
+  // case for use database which overwrites the current database)
+
+  // No database access required (and current database is not needed)
+  void Visit(AuthQuery &) override {}
+  void Visit(MultiDatabaseQuery &) override {}
+  void Visit(ReplicationQuery &) override {}
+  void Visit(ShowConfigQuery &) override {}
+  void Visit(SettingQuery &) override {}
+  void Visit(VersionQuery &) override {}
+  void Visit(TransactionQueueQuery &) override {}
+  void Visit(UseDatabaseQuery &) override {}
+  void Visit(ShowDatabaseQuery &) override {}
+  void Visit(ShowDatabasesQuery &) override {}
+  void Visit(ReplicationInfoQuery &) override {}
+  void Visit(CoordinatorQuery &) override {}
+
+  // No database access required (but need current database)
+  void Visit(SystemInfoQuery &info_query) override {}
+  void Visit(LockPathQuery &) override {}
+  void Visit(FreeMemoryQuery &) override {}
+  void Visit(StreamQuery &) override {}
+  void Visit(IsolationLevelQuery &) override {}
+  void Visit(StorageModeQuery &) override {}
+  void Visit(CreateSnapshotQuery &)
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
+  }
+  void Visit(ShowSnapshotsQuery &) override {}
+  void Visit(EdgeImportModeQuery &) override {}
+  void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
+  }
+  void Visit(DropEnumQuery &) override { /* Not implemented yet */
+  }
+  void Visit(SessionTraceQuery &) override {}
+
+  // Some queries require an active transaction in order to be prepared.
+  // Unique access required
+  void Visit(EdgeIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(PointIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(TextIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(VectorIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(ConstraintQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(DropGraphQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(CreateEnumQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(AlterEnumAddValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(TtlQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+
+  // Read access required
+  void Visit(ExplainQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+  void Visit(DumpQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+  void Visit(AnalyzeGraphQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+  void Visit(DatabaseInfoQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+  void Visit(ShowEnumsQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+  void Visit(ShowSchemaInfoQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+
+  // Write access required
+  void Visit(CypherQuery &) override {
+    could_commit_ = true;
+    accessor_type_ = cypher_access_type();
+  }
+  void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
+  void Visit(TriggerQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::WRITE; }
+
+  // Complex access logic
+  void Visit(IndexQuery &index_query) override {
+    if (is_in_memory_transactional_) {
+      if (index_query.properties_.empty()) {
+        // label index
+        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+      } else {
+        // label + properties
+        isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
+        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
+      }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    }
+  }
+
+  // helper methods
+  auto cypher_access_type() const -> storage::Storage::Accessor::Type {
+    using enum storage::Storage::Accessor::Type;
+    if (is_schema_assert_query_) {
+      return UNIQUE;
+    } else if (is_cypher_read_) {
+      return READ;
+    } else {
+      return WRITE;
+    }
+  }
+
+  bool const is_schema_assert_query_;
+  bool const is_cypher_read_;
+  bool const is_in_memory_transactional_;
+
+  bool could_commit_ = false;
+  std::optional<storage::IsolationLevel> isolation_level_override_;
+  std::optional<storage::Storage::Accessor::Type> accessor_type_;
+};
+
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
@@ -6102,71 +6223,20 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       return system_txn;
     });
 
-    // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
-    // case for use database which overwrites the current database)
-    bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
-                          utils::Downcast<SettingQuery>(parsed_query.query) ||
-                          utils::Downcast<VersionQuery>(parsed_query.query) ||
-                          utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
-                          utils::Downcast<UseDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
-                          utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
-    if (!no_db_required && !current_db_.db_acc_) {
-      throw DatabaseContextRequiredException("Database required for the query.");
-    }
-
-    // Some queries require an active transaction in order to be prepared.
-    // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool const unique_db_transaction =
-        !no_db_required &&  // Short circuit if impossible
-        (utils::Downcast<EdgeIndexQuery>(parsed_query.query) || utils::Downcast<PointIndexQuery>(parsed_query.query) ||
-         utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<VectorIndexQuery>(parsed_query.query) ||
-         utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-         utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
-         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
-         utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query));
-
-    bool const read_only_db_transaction = utils::Downcast<IndexQuery>(parsed_query.query);
-
-    bool const read_db_transactions =
-        (!no_db_required && !unique_db_transaction) &&  // Short circuit if impossible
-        (utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-         utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-         utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-         utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
-         utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query));
-
-    bool const requires_db_transaction = read_db_transactions || unique_db_transaction || read_only_db_transaction ||
-                                         utils::Downcast<CypherQuery>(parsed_query.query) ||
-                                         utils::Downcast<ProfileQuery>(parsed_query.query) ||
-                                         utils::Downcast<TriggerQuery>(parsed_query.query);
-
-    bool const requires_snapshot_isolation = utils::Downcast<IndexQuery>(parsed_query.query);
-
-    if (!in_explicit_transaction_ && requires_db_transaction) {
-      // TODO: ATM only a single database, will change when we have multiple database transactions
-      auto acc_type = storage::Storage::Accessor::Type::WRITE;
-      if (read_db_transactions) acc_type = storage::Storage::Accessor::Type::READ;
-      if (read_only_db_transaction) acc_type = storage::Storage::Accessor::Type::READ_ONLY;
-      if (unique_db_transaction) acc_type = storage::Storage::Accessor::Type::UNIQUE;
-      auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-      auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
-      if (cypher_query || profile_query) {
-        if (is_schema_assert_query) {
-          acc_type = storage::Storage::Accessor::Type::UNIQUE;
-        } else {
-          acc_type = parsed_query.is_cypher_read ? storage::Storage::Accessor::Type::READ
-                                                 : storage::Storage::Accessor::Type::WRITE;
+    if (!in_explicit_transaction_) {
+      auto const is_in_memory_transactional = current_db_.db_acc_
+                                                  ? (current_db_.db_acc_.value()->storage()->GetStorageMode() ==
+                                                     storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
+                                                  : false;
+      auto transaction_requirements =
+          QueryTransactionRequirements{is_schema_assert_query, parsed_query.is_cypher_read, is_in_memory_transactional};
+      parsed_query.query->Accept(transaction_requirements);
+      if (transaction_requirements.accessor_type_) {
+        if (transaction_requirements.isolation_level_override_) {
+          SetNextTransactionIsolationLevel(*transaction_requirements.isolation_level_override_);
         }
+        SetupDatabaseTransaction(transaction_requirements.could_commit_, *transaction_requirements.accessor_type_);
       }
-      bool could_commit = cypher_query != nullptr;
-      if (requires_snapshot_isolation) {
-        // TODO(imilinovic): does this need any locks?
-        SetNextTransactionIsolationLevel(storage::IsolationLevel::SNAPSHOT_ISOLATION);
-      }
-      SetupDatabaseTransaction(could_commit, acc_type);
     }
 
     if (current_db_.db_acc_) {
