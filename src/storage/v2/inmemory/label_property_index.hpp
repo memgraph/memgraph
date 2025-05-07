@@ -64,7 +64,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                                           std::span<PropertyPath const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> override;
 
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ListIndices() const override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 

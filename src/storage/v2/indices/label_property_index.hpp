@@ -257,7 +257,7 @@ class LabelPropertyIndex {
                                                   std::span<PropertyPath const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> = 0;
 
-  virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
+  virtual std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ListIndices() const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
 

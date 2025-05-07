@@ -5054,9 +5054,10 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &[label, properties] : label_property) {
         write_mapping(label);
         snapshot.WriteUint(properties.size());
-        for (auto prop : properties) {
-          write_mapping(prop);
-        }
+        // @TODO put back in with support for nested indices
+        // for (auto prop : properties) {
+        //   write_mapping(prop);
+        // }
       }
       if (snapshot_aborted()) {
         return false;

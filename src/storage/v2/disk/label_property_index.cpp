@@ -195,10 +195,10 @@ bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyPath c
   throw utils::NotYetImplemented("DiskLabelPropertyIndex::IndexExists");
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndices() const {
-  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyId>> {
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>> DiskLabelPropertyIndex::ListIndices() const {
+  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
     auto [label, property] = index;
-    return {label, {property}};
+    return {label, {PropertyPath{property}}};
   };
 
   return index_ | ranges::views::transform(convert) | ranges::to_vector;

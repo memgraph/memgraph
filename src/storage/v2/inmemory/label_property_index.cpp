@@ -307,18 +307,12 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
   }
 }
 
-bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &property_paths) {
+bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties) {
   // find the primary index
-  auto it1 = index_.find(label);
-  if (it1 == index_.end()) {
+  auto it1 = nested_index_.find(label);
+  if (it1 == nested_index_.end()) {
     return false;
   }
-
-  // @TODO Currently, we convert to a non-nested path by extracting only
-  // the head of the nested path. For POC this is fine, but for delivery
-  // we must support nested property paths.
-  auto properties = property_paths | ranges::views::transform([](auto &&property_path) { return property_path[0]; }) |
-                    ranges::to_vector;
 
   auto &properties_map = it1->second;
   auto it2 = properties_map.find(properties);
@@ -329,8 +323,8 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
   // cleanup the auxiliary indexes
   // MUST be done before removal of primary index entries
   for (auto prop : properties) {
-    auto it3 = indices_by_property_.find(prop);
-    if (it3 == indices_by_property_.end()) continue;
+    auto it3 = nested_indices_by_property_.find(prop[0]);
+    if (it3 == nested_indices_by_property_.end()) continue;
 
     auto &label_map = it3->second;
     auto [b, e] = label_map.equal_range(label);
@@ -344,7 +338,7 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
       }
     }
     if (label_map.empty()) {
-      indices_by_property_.erase(it3);
+      nested_indices_by_property_.erase(it3);
     }
   }
 
@@ -505,15 +499,14 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
   return res;
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyIndex::ListIndices() const {
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ret;
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelPropertyIndex::ListIndices() const {
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
 
-  auto const num_indexes =
-      std::accumulate(index_.cbegin(), index_.cend(), size_t{},
-                      [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
+  auto const num_indexes = r::accumulate(nested_index_, size_t{},
+                                         [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
 
   ret.reserve(num_indexes);
-  for (auto const &[label, indices] : index_) {
+  for (auto const &[label, indices] : nested_index_) {
     for (auto const &props : indices | std::views::keys) {
       ret.emplace_back(label, props);
     }
