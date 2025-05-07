@@ -21,7 +21,7 @@
 
 (def batch-size 5000)
 
-(def delay-requests-sec 10)
+(def delay-requests-sec 5)
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
@@ -210,7 +210,6 @@
         :get-nodes (if (hautils/data-instance? node)
                      (try
                        (utils/with-session bolt-conn session
-                         ((mgquery/set-db-setting "query.timeout" "0") session)  ; 0 means no limit
                          (let [indices (->> (mg-get-nodes session) (map :id) (reduce conj []))]
                            (assoc op :type :ok :value {:indices indices :node node})))
 
