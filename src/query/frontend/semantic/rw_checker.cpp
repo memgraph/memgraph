@@ -34,7 +34,7 @@ bool RWChecker::PreVisit(Create & /*unused*/) {
 }
 
 bool RWChecker::PreVisit(CallProcedure &call_proc) {
-  is_write_ = call_proc.is_write_;
+  is_write_ |= call_proc.is_write_;
   return !is_write_;
 }
 

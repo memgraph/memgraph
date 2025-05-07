@@ -116,7 +116,6 @@ class CoordinatorStateMachine final : public state_machine {
 
   LoggerWrapper logger_;
   ptr<snapshot> last_snapshot_;
-  std::mutex last_snapshot_lock_;
 
   std::shared_ptr<kvstore::KVStore> durability_;
 };
