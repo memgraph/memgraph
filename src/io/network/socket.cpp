@@ -48,11 +48,7 @@ Socket::~Socket() noexcept { Close(); }
 
 void Socket::Close() noexcept {
   if (socket_ == -1) return;
-  if (close(socket_) != 0) {
-    int err_sc = errno;
-    spdlog::error("Failed to close fd for {}. Closing because 'socket_' is trying to get closed. Errno: {}",
-                  endpoint_.SocketAddress(), err_sc);
-  }
+  Close(socket_, endpoint_.SocketAddress());
   socket_ = -1;
 }
 
@@ -65,6 +61,13 @@ void Socket::Shutdown() {
 
 bool Socket::IsOpen() const { return socket_ != -1; }
 
+void Socket::Close(int const sfd, std::string_view socket_addr) {
+  if (close(sfd) != 0) {
+    int err_sc = errno;
+    spdlog::error("Failed to close fd for {}. Errno: {}", socket_addr, err_sc);
+  }
+}
+
 bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) {
     spdlog::trace("Socket::Connect failed, socket_ not ready!");
@@ -72,36 +75,118 @@ bool Socket::Connect(const Endpoint &endpoint) {
   }
 
   auto const socket_addr = endpoint.SocketAddress();
+  constexpr int timeout_ms = 10000;
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
       utils::MetricsTimer const timer{metrics::SocketConnect_us};
-      int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
+
+      int const sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
         spdlog::trace("Socket creation failed while connecting to {}. File descriptor is -1", socket_addr);
         continue;
       }
-      if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
-        socket_ = sfd;
-        endpoint_ = endpoint;
-        break;
+
+      const int sockfd_flags_orig = fcntl(sfd, F_GETFL, 0);
+      if (sockfd_flags_orig < 0) {
+        spdlog::error("Failed to read file status and file access mode during connect");
+        Close(sfd, socket_addr);
+        continue;
       }
-      int err_sc = errno;
-      spdlog::error("Connect failed, closing fd for {}. Errno: {}", socket_addr, err_sc);
-      // If the connect failed close the file descriptor to prevent file
-      // descriptors being leaked
-      if (close(sfd) != 0) {
-        err_sc = errno;
-        spdlog::error("Failed to close fd for {}. Closing started because 'connect' failed. Errno: {}", socket_addr,
-                      err_sc);
+
+      if (fcntl(sfd, F_SETFL, sockfd_flags_orig | O_NONBLOCK) < 0) {
+        spdlog::error("Failed to set socket to non-blocking mode during connect.");
+        Close(sfd, socket_addr);
+        continue;
       }
+
+      auto async_connect = [&](int const fd, const sockaddr *addr, socklen_t addrlen) -> bool {
+        // if connect succeeded
+        if (connect(fd, addr, addrlen) == 0) {
+          return true;
+        }
+
+        // Failure which we don't handle
+        if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
+          spdlog::error("Failed to connect to socket with err code {}", errno);
+          return false;
+        }
+
+        timespec now{};
+        if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
+          spdlog::error("Failed to get monotonic time from clock_gettime");
+          return false;
+        }
+
+        int64_t const deadline_ns = static_cast<int64_t>(now.tv_sec) * 1'000'000'000 + now.tv_nsec +
+                                    static_cast<int64_t>(timeout_ms) * 1'000'000;
+
+        while (true) {
+          if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
+            spdlog::error("Failed to get monotonic time from clock_gettime");
+            return false;
+          }
+
+          int64_t const now_ns = static_cast<int64_t>(now.tv_sec) * 1'000'000'000 + now.tv_nsec;
+          int const ms_remaining = static_cast<int>((deadline_ns - now_ns) / 1'000'000);
+          if (ms_remaining <= 0) {
+            errno = ETIMEDOUT;
+            return false;
+          }
+
+          pollfd pfds[] = {{.fd = fd, .events = POLLOUT}};
+          int const poll_status = poll(pfds, 1, ms_remaining);
+
+          // Socket is ready, likely writeable
+          if (poll_status > 0) {
+            int error = 0;
+            socklen_t len = sizeof(error);
+
+            // Check if the connection was successful
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+              return true;
+            }
+
+            // Update errno if the connection wasn't successful
+            errno = error;
+            return false;
+          }
+
+          // Poll status of 0 indicated timeout
+          if (poll_status == 0) {
+            errno = ETIMEDOUT;
+            return false;
+          }
+
+          // A signal occurred before any requested event
+          if (errno != EINTR) {
+            return false;
+          }
+        }
+      };
+
+      if (!async_connect(sfd, it.ai_addr, it.ai_addrlen)) {
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      if (fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
+        spdlog::error("Failed to set socket to blocking mode during connect");
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      // Success
+      socket_ = sfd;
+      endpoint_ = endpoint;
+      break;
     }
   } catch (const NetworkError &e) {
     spdlog::trace("Error occurred while connecting to {}. Error: {}", endpoint.SocketAddress(), e.what());
     return false;
   }
 
-  return !(socket_ == -1);
+  return socket_ != -1;
 }
 
 bool Socket::Bind(const Endpoint &endpoint) {
