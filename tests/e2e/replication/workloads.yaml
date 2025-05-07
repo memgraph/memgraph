@@ -62,7 +62,8 @@ workloads:
 
   - name: "Read-write benchmark"
     binary: "tests/e2e/replication/memgraph__e2e__replication__read_write_benchmark"
-    args: []
+    args:
+      - "--database_endpoints=127.0.0.1:7687,127.0.0.1:7688,127.0.0.1:7689,127.0.0.1:7690"
     <<: *template_cluster
 
   - name: "Show"
