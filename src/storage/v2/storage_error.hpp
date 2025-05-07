@@ -11,9 +11,8 @@
 
 #pragma once
 
-#include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
 
-#include <iterator>
 #include <variant>
 
 namespace memgraph::storage {

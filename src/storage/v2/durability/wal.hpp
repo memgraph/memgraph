@@ -52,6 +52,9 @@ struct WalInfo {
 template <auto MIN_VER, typename Type>
 struct VersionDependant {};
 
+template <auto MIN_VER, typename Before, typename After, auto Upgrader>
+struct VersionDependantUpgradable {};
+
 // Common structures used by more than one WAL Delta
 struct VertexOpInfo {
   friend bool operator==(const VertexOpInfo &, const VertexOpInfo &) = default;
@@ -83,8 +86,18 @@ struct LabelPropertyOpInfo {
   std::string label;
   std::string property;
 };
-struct LabelPropertiesOpInfo {
-  friend bool operator==(const LabelPropertiesOpInfo &, const LabelPropertiesOpInfo &) = default;
+struct LabelOrderedPropertiesOpInfo {
+  friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
+  using ctr_types =
+      std::tuple<std::string,
+                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
+                                            [](std::string v) { return std::vector{v}; }>>;
+  std::string label;
+  std::vector<std::string> properties;
+};
+
+struct LabelUnorderedPropertiesOpInfo {
+  friend bool operator==(const LabelUnorderedPropertiesOpInfo &, const LabelUnorderedPropertiesOpInfo &) = default;
   using ctr_types = std::tuple<std::string, std::set<std::string, std::less<>>>;
   std::string label;
   std::set<std::string, std::less<>> properties;
@@ -162,25 +175,29 @@ struct WalLabelIndexStatsSet {
   std::string label;
   std::string json_stats;
 };
-struct WalLabelPropertyIndexCreate : LabelPropertyOpInfo {};
-struct WalLabelPropertyIndexDrop : LabelPropertyOpInfo {};
+struct WalLabelPropertyIndexCreate : LabelOrderedPropertiesOpInfo {};
+struct WalLabelPropertyIndexDrop : LabelOrderedPropertiesOpInfo {};
 struct WalPointIndexCreate : LabelPropertyOpInfo {};
 struct WalPointIndexDrop : LabelPropertyOpInfo {};
 struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
 struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
 struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::string>;
+  using ctr_types =
+      std::tuple<std::string,
+                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
+                                            [](std::string v) { return std::vector{v}; }>,
+                 std::string>;
   std::string label;
-  std::string property;
+  std::vector<std::string> properties;
   std::string json_stats;
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
 struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
 struct WalEdgePropertyIndexCreate : EdgePropertyOpInfo {};
 struct WalEdgePropertyIndexDrop : EdgePropertyOpInfo {};
-struct WalUniqueConstraintCreate : LabelPropertiesOpInfo {};
-struct WalUniqueConstraintDrop : LabelPropertiesOpInfo {};
+struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
+struct WalUniqueConstraintDrop : LabelUnorderedPropertiesOpInfo {};
 struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
 struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
 struct WalTextIndexCreate : TextIndexOpInfo {};
@@ -350,12 +367,14 @@ void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, En
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                           std::vector<PropertyId> const &properties);
+void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties);
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
                           TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
-void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
-                              LabelPropertyIndexStats const &stats);
+void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
@@ -366,11 +385,12 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
-RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-                     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
+std::optional<RecoveryInfo> LoadWal(
+    std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
+    std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

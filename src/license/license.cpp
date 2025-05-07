@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <type_traits>
 #include <unordered_map>
 
 #include "slk/serialization.hpp"
@@ -183,6 +184,12 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
   is_valid_.store(true, std::memory_order_relaxed);
   license_type_ = license_type;
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
+}
+
+void LicenseChecker::DisableTesting() {
+  enterprise_enabled_ = false;
+  is_valid_.store(false, std::memory_order_relaxed);
+  spdlog::info("The license is disabled for testing.");
 }
 
 void LicenseChecker::CheckEnvLicense() {

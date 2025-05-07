@@ -156,7 +156,7 @@ class UserImpersonation {
     friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
   };
   struct GrantAllUsers {};
-  using GrantedUsers = std::variant<GrantAllUsers, std::set<UserId>>;
+  using GrantedUsers = std::variant<std::set<UserId>, GrantAllUsers>;  // Default to no granted user
   using DeniedUsers = std::set<UserId>;
 
   UserImpersonation() = default;
@@ -173,6 +173,9 @@ class UserImpersonation {
 
   bool IsDenied(const User &user) const;
   bool IsGranted(const User &user) const;
+
+  const auto &granted() const { return granted_; }
+  const auto &denied() const { return denied_; }
 
   friend void to_json(nlohmann::json &data, const UserImpersonation &usr_imp);
   friend void from_json(const nlohmann::json &data, UserImpersonation &usr_imp);
@@ -222,8 +225,8 @@ class UserImpersonation {
 #ifdef MG_ENTERPRISE
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions = {},
-                                        const std::optional<uint64_t> &global_permission = std::nullopt);
+  explicit FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions = {},
+                                        std::optional<uint64_t> global_permission = std::nullopt);
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
@@ -434,6 +437,8 @@ class Role {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->Deny(users);
   }
+
+  const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
   nlohmann::json Serialize() const;
@@ -561,6 +566,8 @@ class User final {
     if (!user_impersonation_) user_impersonation_.emplace();
     user_impersonation_->Deny(users);
   }
+
+  const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
   const utils::UUID &uuid() const { return uuid_; }

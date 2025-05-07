@@ -305,10 +305,12 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
   *os << "CREATE GLOBAL EDGE INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
-void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                            storage::PropertyId property) {
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
-      << ");";
+void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+                              std::span<storage::PropertyId const> properties) {
+  auto prop_names =
+      properties | rv::transform([&](auto &&property) { return EscapeName(dba->PropertyToName(property)); });
+
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << utils::Join(prop_names, ", ") << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
@@ -365,12 +367,34 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
     : dba_(dba),
       db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
-      pull_chunks_{// Dump all enums
+      pull_chunks_{/*
+                    * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
+                    * this is so that we have a stable order
+                    */
+
+                   /// User defined Datatype Info
+                   // Dump all enums
                    CreateEnumsPullChunk(),
+
+                   /// Vertices
+                   // Dump all vertices
+                   CreateVertexPullChunk(),
+
+                   /// Edges
+                   // Create internal index for faster edge creation
+                   CreateInternalIndexPullChunk(),
+                   // Dump all edges
+                   CreateEdgePullChunk(),
+                   // Drop the internal index
+                   CreateDropInternalIndexPullChunk(),
+                   // Internal index cleanup
+                   CreateInternalIndexCleanupPullChunk(),
+
+                   /// Indices and constraints (Vertex)
                    // Dump all label indices
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
-                   CreateLabelPropertyIndicesPullChunk(),
+                   CreateLabelPropertiesIndicesPullChunk(),
                    // Dump all text indices
                    CreateTextIndicesPullChunk(),
                    // Dump all point indices
@@ -383,24 +407,17 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateUniqueConstraintsPullChunk(),
                    // Dump all type constraints
                    CreateTypeConstraintsPullChunk(),
-                   // Create internal index for faster edge creation
-                   CreateInternalIndexPullChunk(),
-                   // Dump all vertices
-                   CreateVertexPullChunk(),
-                   // Dump all edges
-                   CreateEdgePullChunk(),
-                   // Drop the internal index
-                   CreateDropInternalIndexPullChunk(),
-                   // Internal index cleanup
-                   CreateInternalIndexCleanupPullChunk(),
-                   // Dump all triggers
-                   CreateTriggersPullChunk(),
+
+                   /// Indices and constraints (Edge)
                    // Dump all edge-type indices
                    CreateEdgeTypeIndicesPullChunk(),
                    // Dump all edge-type property indices
                    CreateEdgeTypePropertyIndicesPullChunk(),
                    // Dump all global edge property indices
-                   CreateEdgePropertyIndicesPullChunk()} {}
+                   CreateEdgePropertyIndicesPullChunk(),
+
+                   // Dump all triggers
+                   CreateTriggersPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -566,19 +583,19 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
   };
 }
 
-PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
+PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
     }
-    const auto &label_property = indices_info_->label_property;
+    const auto &label_property = indices_info_->label_properties;
 
     size_t local_counter = 0;
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      const auto &label_property_index = label_property[global_index];
-      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second);
+      const auto &[label, properties] = label_property[global_index];
+      DumpLabelPropertiesIndex(&os, dba_, label, properties);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;
@@ -881,8 +898,11 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
       std::ostringstream os;
       auto trigger_statement_copy = trigger.statement;
       std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
-      os << "CREATE TRIGGER " << trigger.name << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type)
-         << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
+      os << "CREATE TRIGGER " << trigger.name;
+      if (trigger.event_type != TriggerEventType::ANY) {
+        os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
+      }
+      os << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
       stream->Result({TypedValue(os.str())});
     }
     return 0;

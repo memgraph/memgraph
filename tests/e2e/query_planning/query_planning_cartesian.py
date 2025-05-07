@@ -24,7 +24,7 @@ def test_indexed_join_with_indices(memgraph):
         f" * Produce {{a, b, r}}",
         f" * Filter (b :Node), {{b.id}}",
         f" * Expand (a)-[r:EDGE]-(b)",
-        f" * ScanAllByLabelPropertyValue (a :Node {{id}})",
+        f" * ScanAllByLabelProperties (a :Node {{id}})",
         f" * Once",
     ]
 
@@ -47,7 +47,7 @@ def test_indexed_join_with_indices_and_filter(memgraph):
         f" * Filter Generic {{n1, n2}}",
         f" * IndexedJoin",
         f" |\\ ",
-        f" | * ScanAllByLabelPropertyValue (n2 :Node {{id}})",
+        f" | * ScanAllByLabelProperties (n2 :Node {{id}})",
         f" | * Once",
         f" * ScanAllByLabel (n1 :Node)",
         f" * Once",
@@ -78,7 +78,7 @@ def test_indexed_join_with_indices_split(memgraph):
         " |\\ ",
         " | * Filter (n3 :Label0)",
         " | * Expand (n2)<-[r1]-(n3)",
-        " | * ScanAllByLabelPropertyRange (n2 :Label1 {prop0})",
+        " | * ScanAllByLabelProperties (n2 :Label1 {prop0})",
         " | * Once",
         " * Expand (n0)<-[r0]-(n1)",
         " * ScanAllByLabel (n0 :Label1)",

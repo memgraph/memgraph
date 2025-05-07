@@ -16,8 +16,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/property_constants.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "utils/counter.hpp"
 
 namespace {
@@ -91,7 +91,42 @@ std::vector<PropertyId> InMemoryEdgePropertyIndex::ListIndices() const {
 }
 
 void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  EdgePropertyIndexRemoveObsoleteEntries(index_, oldest_active_start_timestamp, token);
+  auto maybe_stop = utils::ResettableCounter<2048>();
+
+  for (auto &[property_id, index] : index_) {
+    if (token.stop_requested()) return;
+
+    auto edges_acc = index.access();
+    for (auto it = edges_acc.begin(); it != edges_acc.end();) {
+      if (maybe_stop() && token.stop_requested()) return;
+
+      auto next_it = it;
+      ++next_it;
+
+      if (it->timestamp >= oldest_active_start_timestamp) {
+        it = next_it;
+        continue;
+      }
+
+      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
+      const bool edge_deleted = it->edge->deleted;
+      const bool has_next = next_it != edges_acc.end();
+
+      // When we update specific entries in the index, we don't delete the previous entry.
+      // The way they are removed from the index is through this check. The entries should
+      // be right next to each other(in terms of iterator semantics) and the older one
+      // should be removed here.
+      const bool redundant_duplicate = has_next && it->value == next_it->value &&
+                                       it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
+                                       it->edge == next_it->edge;
+      if (redundant_duplicate || vertices_deleted || edge_deleted ||
+          !AnyVersionHasProperty(*it->edge, property_id, it->value, oldest_active_start_timestamp)) {
+        edges_acc.remove(*it);
+      }
+
+      it = next_it;
+    }
+  }
 }
 
 void InMemoryEdgePropertyIndex::AbortEntries(
@@ -211,10 +246,10 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor i
 
   // Set missing bounds.
   if (lower_bound_ && !upper_bound_) {
-    upper_bound_ = MaxBound(lower_bound_->value().type());
+    upper_bound_ = UpperBoundForType(lower_bound_->value().type());
   }
   if (upper_bound_ && !lower_bound_) {
-    lower_bound_ = MinBound(upper_bound_->value().type());
+    lower_bound_ = LowerBoundForType(upper_bound_->value().type());
   }
 }
 
@@ -242,8 +277,8 @@ void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (!IsLowerBound(index_iterator_->value, self_->lower_bound_)) continue;
-    if (!IsUpperBound(index_iterator_->value, self_->upper_bound_)) {
+    if (!IsValueIncludedByLowerBound(index_iterator_->value, self_->lower_bound_)) continue;
+    if (!IsValueIncludedByUpperBound(index_iterator_->value, self_->upper_bound_)) {
       index_iterator_ = self_->index_accessor_.end();
       break;
     }

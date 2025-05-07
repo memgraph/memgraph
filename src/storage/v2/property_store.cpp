@@ -127,7 +127,7 @@ const uint8_t kShiftIdSize = 2;
 //   * NULL
 //     - type; payload size is not used
 //   * BOOL
-//     - type; payload size is used as value
+//     - type; payload size is used as value (INT64 = true, INT8 = false)
 //     - encoded property ID
 //   * INT
 //     - type; payload size is used to indicate whether the value is encoded as
@@ -461,7 +461,20 @@ class Reader {
     return true;
   }
 
+  auto ReadBytesToSpan(uint32_t size) -> std::optional<std::span<uint8_t const>> {
+    if (pos_ + size > size_) return std::nullopt;
+    auto data_view = std::span{data_ + pos_, size};
+    pos_ += size;
+    return data_view;
+  }
+
   bool ReadBytes(char *data, uint32_t size) { return ReadBytes(reinterpret_cast<uint8_t *>(data), size); }
+
+  auto ReadBytesToStringView(uint32_t size) -> std::optional<std::string_view> {
+    auto span = ReadBytesToSpan(size);
+    if (!span) return std::nullopt;
+    return std::string_view{reinterpret_cast<char const *>(span->data()), span->size()};
+  }
 
   bool VerifyBytes(const uint8_t *data, uint32_t size) {
     if (pos_ + size > size_) return false;
@@ -481,6 +494,8 @@ class Reader {
   }
 
   uint32_t GetPosition() const { return pos_; }
+
+  void SetPosition(uint32_t pos) { pos_ = pos; }
 
  private:
   template <typename T>
@@ -878,6 +893,102 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
   }
 }
 
+[[nodiscard]] std::optional<PropertyValue> DecodePropertyValue(Reader *reader, Type type, Size payload_size) {
+  switch (type) {
+    case Type::EMPTY: {
+      return std::nullopt;
+    }
+    case Type::NONE: {
+      return std::optional<PropertyValue>{std::in_place};
+    }
+    case Type::BOOL: {
+      return std::optional<PropertyValue>{std::in_place, payload_size == Size::INT64};
+    }
+    case Type::INT: {
+      auto int_v = reader->ReadInt(payload_size);
+      if (!int_v) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, *int_v};
+    }
+    case Type::DOUBLE: {
+      auto double_v = reader->ReadDouble(payload_size);
+      if (!double_v) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, *double_v};
+    }
+    case Type::STRING: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
+
+      auto sv = reader->ReadBytesToStringView(*size);
+      if (!sv) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, *sv};
+    }
+    case Type::LIST: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
+      std::vector<PropertyValue> list;
+      list.reserve(*size);
+      for (uint32_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return std::nullopt;
+        auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
+        if (!item) return std::nullopt;
+        list.emplace_back(*std::move(item));
+      }
+      return std::optional<PropertyValue>{std::in_place, std::move(list)};
+    }
+    case Type::MAP: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
+      auto map = PropertyValue::map_t{};
+      map.reserve(*size);
+      for (uint32_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return std::nullopt;
+        auto key_size = reader->ReadUint(metadata->id_size);
+        if (!key_size) return std::nullopt;
+        std::string key(*key_size, '\0');
+        if (!reader->ReadBytes(key.data(), *key_size)) return std::nullopt;
+        auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
+        if (!item) return std::nullopt;
+        map.emplace(std::move(key), *std::move(item));
+      }
+      return std::optional<PropertyValue>{std::in_place, std::move(map)};
+    }
+    case Type::TEMPORAL_DATA: {
+      const auto maybe_temporal_data = DecodeTemporalData(*reader);
+      if (!maybe_temporal_data) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, *maybe_temporal_data};
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      const auto maybe_zoned_temporal_data = DecodeZonedTemporalData(*reader);
+      if (!maybe_zoned_temporal_data) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, *maybe_zoned_temporal_data};
+    }
+    case Type::ENUM: {
+      auto e_type = reader->ReadUint(payload_size);
+      if (!e_type) return std::nullopt;
+      auto e_value = reader->ReadUint(payload_size);
+      if (!e_value) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}}};
+    }
+    case Type::POINT: {
+      auto crs = SizeToCrs(payload_size);
+      auto x_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!x_opt) return std::nullopt;
+      auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!y_opt) return std::nullopt;
+      if (valid2d(crs)) {
+        return std::optional<PropertyValue>{std::in_place, Point2d{crs, *x_opt, *y_opt}};
+      } else {
+        auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+        if (!z_opt) return std::nullopt;
+        return std::optional<PropertyValue>{std::in_place, Point3d{crs, *x_opt, *y_opt, *z_opt}};
+      }
+    }
+  }
+}
+
 [[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint32_t &property_size) {
   switch (type) {
     case Type::EMPTY: {
@@ -1226,6 +1337,7 @@ enum class ExpectedPropertyStatus {
 //
 // @sa DecodeAnyProperty
 // @sa CompareExpectedProperty
+// @sa TryDecodeExpectedProperty
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedProperty(Reader *reader, PropertyId expected_property,
                                                             PropertyValue &value) {
   auto metadata = reader->ReadMetadata();
@@ -1243,6 +1355,39 @@ enum class ExpectedPropertyStatus {
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
   return (*property_id < expected_property.AsUint()) ? ExpectedPropertyStatus::SMALLER
                                                      : ExpectedPropertyStatus::GREATER;
+}
+
+// Similar to DecodeExpectedProperty, except that if the `expected_property`
+// would be ordered before the next read property, the reader will not advance
+// over the next property.
+//
+// @sa DecodeExpectedProperty
+// @sa DecodeAnyProperty
+// @sa CompareExpectedProperty
+[[nodiscard]] auto TryDecodeExpectedProperty(Reader *reader, PropertyId expected_property)
+    -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
+  uint32_t const prior_position = reader->GetPosition();
+
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
+
+  if (expected_property.AsUint() < property_id) {
+    reader->SetPosition(prior_position);
+    return {ExpectedPropertyStatus::GREATER, std::nullopt};
+  }
+
+  if (*property_id == expected_property.AsUint()) {
+    auto decoded = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
+    if (!decoded) return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
+    return {ExpectedPropertyStatus::EQUAL, std::move(decoded)};
+  }
+  // Don't load the value if this isn't the expected property.
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size))
+    return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
+  return {ExpectedPropertyStatus::SMALLER, std::nullopt};
 }
 
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertySize(Reader *reader, PropertyId expected_property,
@@ -1500,6 +1645,7 @@ enum class ExpectedPropertyStatus {
 // the `value` won't be updated.
 //
 // @sa FindSpecificPropertyAndBufferInfo
+// @sa MatchSpecificProperty
 [[nodiscard]] ExpectedPropertyStatus FindSpecificProperty(Reader *reader, PropertyId property, PropertyValue &value) {
   while (true) {
     auto ret = DecodeExpectedProperty(reader, property, value);
@@ -1509,6 +1655,26 @@ enum class ExpectedPropertyStatus {
     // than the seeked ID. All other return values (`MISSING_DATA`, `EQUAL` and
     // `GREATER`) terminate the search.
     if (ret != ExpectedPropertyStatus::SMALLER) {
+      return ret;
+    }
+  }
+}
+
+// Similar to FindSpecificProperty, except that the reader will not consume
+// the next property if it is ordered after the requested property.
+//
+// @sa FindSpecificProperty
+// @sa FindSpecificPropertyAndBufferInfo
+[[nodiscard]] auto MatchSpecificProperty(Reader *reader, PropertyId property)
+    -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
+  while (true) {
+    auto ret = TryDecodeExpectedProperty(reader, property);
+    // Because the properties are sorted in the buffer, we only need to
+    // continue searching for the property while this function returns a
+    // `SMALLER` value indicating that the ID of the found property is smaller
+    // than the seeked ID. All other return values (`MISSING_DATA`, `EQUAL` and
+    // `GREATER`) terminate the search.
+    if (ret.first != ExpectedPropertyStatus::SMALLER) {
       return ret;
     }
   }
@@ -1561,6 +1727,7 @@ struct SpecificPropertyAndBufferInfo {
 
 // Struct used to return info about the property position
 struct SpecificPropertyAndBufferInfoMinimal {
+  ExpectedPropertyStatus status;
   uint64_t property_begin;
   uint64_t property_end;
 
@@ -1603,14 +1770,20 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, 
 SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Reader *reader, PropertyId property) {
   uint64_t property_begin = reader->GetPosition();
   while (true) {
-    switch (HasExpectedProperty(reader, property)) {
-      case ExpectedPropertyStatus::MISSING_DATA:
-        [[fallthrough]];
+    auto status = HasExpectedProperty(reader, property);
+    switch (status) {
+      case ExpectedPropertyStatus::MISSING_DATA: {
+        return {status, 0, 0};
+      }
       case ExpectedPropertyStatus::GREATER: {
-        return {0, 0};
+        // Restore the reader position so that the next property isn't skipped.
+        // This allows `FindSpecificPropertyAndBufferInfoMinimal` to be
+        // additional properties to be read from the same reader.
+        reader->SetPosition(property_begin);
+        return {status, 0, 0};
       }
       case ExpectedPropertyStatus::EQUAL: {
-        return {property_begin, reader->GetPosition()};
+        return {status, property_begin, reader->GetPosition()};
       }
       case ExpectedPropertyStatus::SMALLER: {
         property_begin = reader->GetPosition();
@@ -1899,6 +2072,42 @@ auto PropertyStore::WithReader(Func &&func) const {
   return std::forward<Func>(func)(reader);
 }
 
+/// When reading from the reader, once you have hit MISSING_DATA its no longer safe to keep reading
+/// example: reader could be in local buffer with junk data after the EMPTY marker, hence not safe to read that junk
+template <typename GetFunc, typename ApplyFunc, typename MissingValue>
+struct SafeReader {
+  template <typename GetFuncCtr, typename ApplyFuncCtr>
+  SafeReader(Reader &reader, GetFuncCtr &&get_result, ApplyFuncCtr &&apply_result, MissingValue missing_value)
+      : reader_(reader),
+        get_result_(std::forward<GetFunc>(get_result)),
+        apply_result_(std::forward<ApplyFunc>(apply_result)),
+        missing_value_{std::move(missing_value)} {}
+  template <typename... Args, typename... Args2>
+  auto operator()(std::tuple<Args...> args, std::tuple<Args2...> args2) {
+    auto got_result = std::invoke([&]() -> typename std::invoke_result_t<GetFunc, Reader &, Args...>::second_type {
+      if (still_safe_) {
+        auto ret = std::apply(get_result_, std::tuple_cat(std::tuple{std::ref(reader_)}, std::move(args)));
+        if (ret.first != ExpectedPropertyStatus::MISSING_DATA) {
+          return std::move(ret.second);
+        }
+        still_safe_ = false;
+      }
+      return missing_value_;
+    });
+    std::apply(apply_result_, std::tuple_cat(std::tuple{std::move(got_result)}, std::move(args2)));
+  }
+
+ private:
+  Reader &reader_;
+  GetFunc get_result_;
+  ApplyFunc apply_result_;
+  bool still_safe_ = true;
+  MissingValue missing_value_;
+};
+
+template <typename GetFunc, typename ApplyFunc, typename MissingValue>
+SafeReader(Reader &, GetFunc &&, ApplyFunc &&, MissingValue) -> SafeReader<GetFunc, ApplyFunc, MissingValue>;
+
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   auto get_property = [&](Reader &reader) -> PropertyValue {
     PropertyValue value;
@@ -1964,8 +2173,32 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
   return WithReader(get_property);
 }
 
+std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
+    std::span<PropertyId const> ordered_properties) const {
+  auto get_properties = [&](Reader &reader) -> std::vector<PropertyValue> {
+    auto values = std::vector<PropertyValue>{};
+    values.reserve(ordered_properties.size());
+
+    auto const get_value = [](Reader &reader, PropertyId property) { return MatchSpecificProperty(&reader, property); };
+    auto const insert_value = [&](std::optional<PropertyValue> value) {
+      if (value) {
+        values.emplace_back(*std::move(value));
+      } else {
+        values.emplace_back();
+      }
+    };
+
+    auto safe_reader = SafeReader{reader, get_value, insert_value, std::nullopt};
+    for (auto property : ordered_properties) {
+      safe_reader(std::tuple{property}, std::tuple{});
+    }
+    return values;
+  };
+  return WithReader(get_properties);
+}
+
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  auto property_equal = [&](Reader &reader) -> uint32_t {
+  auto property_equal = [&](Reader &reader) -> bool {
     auto const orig_reader = reader;
     auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
     auto property_size = info.property_size();
@@ -1975,6 +2208,38 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
     return prop_reader.GetPosition() == property_size;
   };
   return WithReader(property_equal);
+}
+
+auto PropertyStore::ArePropertiesEqual(std::span<PropertyId const> ordered_properties,
+                                       std::span<PropertyValue const> values,
+                                       std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+  auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
+    auto result = std::vector<bool>(ordered_properties.size(), false);
+
+    auto const get_result = [&](Reader &reader, PropertyId property, PropertyValue const &cmp_val) {
+      auto const orig_reader = reader;
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
+      auto property_size = info.property_size();
+      if (property_size != 0) {
+        auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
+        auto cmp_res = CompareExpectedProperty(&prop_reader, property, cmp_val);
+        return std::pair{info.status, std::optional{cmp_res}};
+      } else {
+        return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};
+      }
+    };
+    auto const apply_result = [&](std::optional<bool> extracted_result, PropertyValue const &cmp_val, size_t pos) {
+      result[pos] = extracted_result ? *extracted_result : cmp_val.IsNull();
+    };
+
+    auto safe_reader = SafeReader{reader, get_result, apply_result, std::nullopt};
+    for (auto [pos, property] : ranges::views::enumerate(ordered_properties)) {
+      auto const &value = values[position_lookup[pos]];
+      safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
+    }
+    return result;
+  };
+  return WithReader(properties_are_equal);
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
@@ -1999,6 +2264,21 @@ std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes(
       auto prop = DecodeAnyExtendedPropertyType(&reader, type);
       if (!prop) break;
       props.emplace(*prop, type);
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
+std::vector<PropertyId> PropertyStore::ExtractPropertyIds() const {
+  auto get_properties = [&](Reader &reader) {
+    std::vector<PropertyId> props;
+    while (true) {
+      // TODO: no need to capture ExtendedPropertyType, make dedicated DecodeAny
+      ExtendedPropertyType type{PropertyValue::Type::Null};
+      auto prop = DecodeAnyExtendedPropertyType(&reader, type);
+      if (!prop) break;
+      props.emplace_back(*prop);
     }
     return props;
   };

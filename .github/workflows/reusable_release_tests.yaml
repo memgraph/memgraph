@@ -5,8 +5,8 @@ on:
     inputs:
       os:
         type: string
-        description: "Target os. Default value is debian-12."
-        default: 'debian-12'
+        description: "Target os. Default value is ubuntu-24.04."
+        default: 'ubuntu-24.04'
       arch:
         type: string
         description: "Target architecture. Default value is amd."
@@ -35,7 +35,10 @@ on:
         type: string
         description: "Run large stress test. Default value is false."
         default: 'false'
-
+    outputs:
+      test_status:
+        description: "Aggregated test status. Will be 'pass' if all tests succeed, or 'fail' otherwise."
+        value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
   TOOLCHAIN: ${{ inputs.toolchain }}
@@ -421,7 +424,6 @@ jobs:
           stop --remove
 
   release_build:
-    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
@@ -751,7 +753,7 @@ jobs:
           stop --remove
 
   release_jepsen_test:
-    if: ${{ inputs.run_release_tests == 'true' && inputs.os == 'debian-12' }}
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
@@ -767,6 +769,14 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set Jepsen OS
+        run: echo "OS=debian-12" >> $GITHUB_ENV
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no 6
 
       - name: Spin up mgbuild container
         run: |
@@ -792,17 +802,59 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --binary
+          copy --binary --dest-dir build
+  
+      - name: Copy libmemgraph_module_support.so
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --libs --dest-dir build/src/query
 
-      - name: Refresh Jepsen Cluster
+      - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen
-          ./run.sh cluster-refresh
+          ./run.sh unit-tests --binary ../../build/memgraph
 
-      - name: Run Jepsen tests
+      - name: Run replication bank test
         run: |
           cd tests/jepsen
-          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
+          ./run.sh test \
+          --binary ../../build/memgraph \
+          --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 5
+
+      - name: Run replication large test
+        run: |
+          cd tests/jepsen
+          ./run.sh test \
+          --binary ../../build/memgraph \
+          --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 5
+
+      - name: Run HA bank test
+        run: |
+          cd tests/jepsen
+          ./run.sh test \
+          --binary ../../build/memgraph \
+          --run-args "--workload habank --nodes-config resources/sync_cluster.edn --time-limit 120 --concurrency 6" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 6 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Process Jepsen results
+        continue-on-error: true
+        if: always()
+        run: |
+          cd tests/jepsen
+          ./run.sh process-results
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v4
@@ -929,3 +981,44 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+  aggregate_results:
+    name: "Aggregate Test Results"
+    runs-on: [self-hosted]
+    needs:
+      - community_build
+      - coverage_build
+      - debug_build
+      - debug_integration_test
+      - malloc_build
+      - release_build
+      - release_benchmark_tests
+      - release_e2e_test
+      - release_durability_stress_tests
+      - release_jepsen_test
+      - release_query_modules_test
+      - stress_test_large
+    if: ${{ always() && inputs.run_release_tests == 'true' }}
+    outputs:
+      test_status: ${{ steps.aggregate.outputs.test_status }}
+    steps:
+      - name: Aggregate test results
+        id: aggregate
+        run: |
+          # Check if any of the dependent jobs failed.
+          if [ "${{ needs.community_build.result }}" == "failure" ] || \
+             [ "${{ needs.coverage_build.result }}" == "failure" ] || \
+             [ "${{ needs.debug_build.result }}" == "failure" ] || \
+             [ "${{ needs.debug_integration_test.result }}" == "failure" ] || \
+             [ "${{ needs.malloc_build.result }}" == "failure" ] || \
+             [ "${{ needs.release_build.result }}" == "failure" ] || \
+             [ "${{ needs.release_benchmark_tests.result }}" == "failure" ] || \
+             [ "${{ needs.release_e2e_test.result }}" == "failure" ] || \
+             [ "${{ needs.release_durability_stress_tests.result }}" == "failure" ] || \
+             [ "${{ needs.release_jepsen_test.result }}" == "failure" ] || \
+             [ "${{ needs.stress_test_large.result }}" == "failure" ] || \
+             [ "${{ needs.release_query_modules_test.result }}" == "failure" ]; then
+            echo "test_status=fail" >> $GITHUB_OUTPUT
+          else
+            echo "test_status=pass" >> $GITHUB_OUTPUT
+          fi

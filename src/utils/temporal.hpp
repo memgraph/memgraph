@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,9 @@
 #include <limits>
 
 #include "utils/exceptions.hpp"
+#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::utils {
 
@@ -584,3 +586,26 @@ LocalDateTime CurrentLocalDateTime();
 ZonedDateTime CurrentZonedDateTime();
 Timezone DefaultTimezone();
 }  // namespace memgraph::utils
+
+namespace std {
+
+template <>
+struct hash<memgraph::utils::Timezone> {
+  size_t operator()(memgraph::utils::Timezone const &tz) const noexcept {
+    auto const &offset{tz.GetOffset()};
+
+    return std::visit(memgraph::utils::Overloaded{
+                          [&](std::chrono::minutes const &minutes) {
+                            return memgraph::utils::HashCombine<size_t, size_t>{}(
+                                std::hash<size_t>{}(offset.index()), std::hash<uint64_t>{}(minutes.count()));
+                          },
+                          [&](std::chrono::time_zone const *time_zone) {
+                            return memgraph::utils::HashCombine<size_t, size_t>{}(
+                                std::hash<size_t>{}(offset.index()), std::hash<std::string_view>{}(time_zone->name()));
+                          },
+                      },
+                      offset);
+  }
+};
+
+}  // namespace std

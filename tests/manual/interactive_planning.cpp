@@ -162,10 +162,23 @@ class InteractiveDbAccessor {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
-    if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end()) {
-      label_property_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
+    if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
+      label_properties_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
     }
-    return label_property_vertex_count_.at(key);
+    return label_properties_vertex_count_.at(key);
+  }
+
+  int64_t VerticesCount(memgraph::storage::LabelId label_id,
+                        std::span<memgraph::storage::PropertyId const> property_id) {
+    auto label = dba_->LabelToName(label_id);
+    auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
+    auto property_names = memgraph::utils::Join(property_id | ranges::views::transform(to_name), ", ");
+    auto key = std::make_pair(label, property_names);
+    if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
+      label_properties_vertex_count_[key] =
+          ReadVertexCount("label '" + label + "' and properties '" + property_names + "'");
+    }
+    return label_properties_vertex_count_.at(key);
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
@@ -201,6 +214,38 @@ class InteractiveDbAccessor {
       range_string << upper->value() << (upper->IsInclusive() ? "]" : ")");
     }
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
+  }
+
+  int64_t VerticesCount(memgraph::storage::LabelId label_id, std::span<memgraph::storage::PropertyId const> properties,
+                        std::span<memgraph::storage::PropertyValueRange const> prop_val_ranges) {
+    auto label = dba_->LabelToName(label_id);
+    auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
+    auto property_names = memgraph::utils::Join(properties | ranges::views::transform(to_name), ", ");
+
+    auto to_range_str = [&](memgraph::storage::PropertyValueRange rng) -> std::string {
+      switch (rng.type_) {
+        case memgraph::storage::PropertyRangeType::BOUNDED: {
+          std::stringstream range_string;
+          if (rng.lower_) {
+            range_string << (rng.lower_->IsInclusive() ? "[" : "(") << rng.lower_->value()
+                         << (rng.upper_ ? "," : ", inf)");
+          } else {
+            range_string << "(-inf, ";
+          }
+          if (rng.upper_) {
+            range_string << rng.upper_->value() << (rng.upper_->IsInclusive() ? "]" : ")");
+          }
+          return range_string.str();
+        }
+        case memgraph::storage::PropertyRangeType::IS_NOT_NULL:
+          return "NOT_NULL";
+        case memgraph::storage::PropertyRangeType::INVALID:
+          return "INVALID";
+      }
+    };
+    auto ranges_str = memgraph::utils::Join(prop_val_ranges | ranges::views::transform(to_range_str), ", ");
+
+    return ReadVertexCount("label '" + label + "' and property '" + property_names + "' in range(s) " + ranges_str);
   }
 
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
@@ -282,6 +327,12 @@ class InteractiveDbAccessor {
 
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
+  auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
+                                          std::span<memgraph::storage::PropertyId const> properties) const
+      -> std::vector<memgraph::storage::LabelPropertiesIndicesInfo> {
+    return dba_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+  }
+
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
@@ -317,7 +368,12 @@ class InteractiveDbAccessor {
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
-    return dba_->GetIndexStats(label, property);
+    return dba_->GetIndexStats(label, std::array{property});
+  }
+
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties) const {
+    return dba_->GetIndexStats(label, properties);
   }
 
   // Save the cached vertex counts to a stream.
@@ -336,7 +392,7 @@ class InteractiveDbAccessor {
     };
     save_label_prop_map("label-property-index-exists", label_property_index_);
     save_label_prop_map("edge-type-property-index-exists", edge_type_property_index_);
-    save_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    save_label_prop_map("label-property-index-count", label_properties_vertex_count_);
     save_label_prop_map("edge-type-property-index-count", edge_type_property_edge_count_);
     out << "label-property-value-index-count " << property_value_vertex_count_.size() << std::endl;
     for (const auto &prop_value_count : property_value_vertex_count_) {
@@ -398,7 +454,7 @@ class InteractiveDbAccessor {
     };
     load_label_prop_map("label-property-index-exists", label_property_index_);
     load_label_prop_map("edge-type-property-index-exists", edge_type_property_index_);
-    load_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    load_label_prop_map("label-property-index-count", label_properties_vertex_count_);
     load_label_prop_map("edge-type-property-index-count", edge_type_property_edge_count_);
     int label_property_value_index_size = load_named_size("label-property-value-index-count");
     for (int i = 0; i < label_property_value_index_size; ++i) {
@@ -452,7 +508,7 @@ class InteractiveDbAccessor {
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
   std::map<std::string, int64_t> edge_type_edge_count_;
-  std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
+  std::map<std::pair<std::string, std::string>, int64_t> label_properties_vertex_count_;
   std::map<std::pair<std::string, std::string>, int64_t> edge_type_property_edge_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
   std::map<std::pair<std::string, std::string>, bool> edge_type_property_index_;

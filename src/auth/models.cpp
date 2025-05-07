@@ -20,6 +20,7 @@
 #include "auth/exceptions.hpp"
 #include "dbms/constants.hpp"
 #include "license/license.hpp"
+#include "nlohmann/detail/exceptions.hpp"
 #include "query/constants.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/cast.hpp"
@@ -41,6 +42,8 @@ constexpr auto kPasswordHash = "password_hash";
 #ifdef MG_ENTERPRISE
 constexpr auto kGlobalPermission = "global_permission";
 constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
+constexpr auto kLabelPermissions = "label_permissions";
+constexpr auto kEdgeTypePermissions = "edge_type_permissions";
 constexpr auto kAllowAll = "allow_all";
 constexpr auto kDefault = "default";
 constexpr auto kDatabases = "databases";
@@ -83,6 +86,24 @@ const std::vector<Permission> kPermissionsAll = {
 };
 
 }  // namespace
+
+#ifdef MG_ENTERPRISE
+void to_json(nlohmann::json &data, const std::optional<UserImpersonation> &usr_imp) {
+  if (usr_imp.has_value()) {
+    data = *usr_imp;
+  } else {
+    data = nlohmann::json();  // null
+  }
+}
+
+void from_json(const nlohmann::json &data, std::optional<UserImpersonation> &usr_imp) {
+  if (data.is_null()) {
+    usr_imp.reset();
+  } else {
+    usr_imp = std::make_optional<UserImpersonation>(data);
+  }
+}
+#endif
 
 std::string PermissionToString(Permission permission) {
   switch (permission) {
@@ -274,7 +295,12 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  if (!data[kGrants].is_number_unsigned() || !data[kDenies].is_number_unsigned()) {
+  auto grants = data.find(kGrants);
+  auto denies = data.find(kDenies);
+  if (grants == data.end() || denies == data.end()) {
+    throw AuthException("Couldn't load permissions data!");
+  }
+  if (!grants->is_number_unsigned() || !denies->is_number_unsigned()) {
     throw AuthException("Couldn't load permissions data!");
   }
   return Permissions{data[kGrants], data[kDenies]};
@@ -290,9 +316,9 @@ bool operator==(const Permissions &first, const Permissions &second) {
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
 #ifdef MG_ENTERPRISE
-FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions,
-                                                           const std::optional<uint64_t> &global_permission)
-    : permissions_(permissions), global_permission_(global_permission) {}
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions,
+                                                           std::optional<uint64_t> global_permission)
+    : permissions_{std::move(permissions)}, global_permission_(global_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const FineGrainedPermission fine_grained_permission) const {
@@ -351,15 +377,20 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
-  std::optional<uint64_t> global_permission;
 
-  if (data[kGlobalPermission].empty() || data[kGlobalPermission] == -1) {
-    global_permission = std::nullopt;
-  } else {
-    global_permission = data[kGlobalPermission];
+  std::unordered_map<std::string, uint64_t> permissions;
+  auto permissions_json = data.find(kPermissions);
+  if (permissions_json != data.end() && permissions_json->is_object()) {
+    permissions = *permissions_json;
   }
 
-  return FineGrainedAccessPermissions(data[kPermissions], global_permission);
+  std::optional<uint64_t> global_permission = std::nullopt;
+  auto global_permissions = data.find(kGlobalPermission);
+  if (global_permissions != data.end() && global_permissions->is_number_integer() && *global_permissions != -1) {
+    global_permission = *global_permissions;
+  }
+
+  return FineGrainedAccessPermissions(std::move(permissions), global_permission);
 }
 
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {
@@ -405,25 +436,31 @@ nlohmann::json FineGrainedAccessHandler::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  data["label_permissions"] = label_permissions_.Serialize();
-  data["edge_type_permissions"] = edge_type_permissions_.Serialize();
+  data[kLabelPermissions] = label_permissions_.Serialize();
+  data[kEdgeTypePermissions] = edge_type_permissions_.Serialize();
   return data;
 }
 
 FineGrainedAccessHandler FineGrainedAccessHandler::Deserialize(const nlohmann::json &data) {
-  if (!data.is_object()) {
-    throw AuthException("Couldn't load role data!");
-  }
-  if (!data["label_permissions"].is_object() || !data["edge_type_permissions"].is_object()) {
-    throw AuthException("Couldn't load label_permissions or edge_type_permissions data!");
-  }
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessHandler{};
   }
-  auto label_permissions = FineGrainedAccessPermissions::Deserialize(data["label_permissions"]);
-  auto edge_type_permissions = FineGrainedAccessPermissions::Deserialize(data["edge_type_permissions"]);
+  if (!data.is_object()) {
+    throw AuthException("Couldn't load fine grained access data!");
+  }
 
-  return FineGrainedAccessHandler(std::move(label_permissions), std::move(edge_type_permissions));
+  auto label_permissions = data.find(kLabelPermissions);
+  if (label_permissions == data.end() || !label_permissions->is_object()) {
+    throw AuthException("Couldn't load fine grained access data!");
+  }
+
+  auto edge_type_permissions = data.find(kEdgeTypePermissions);
+  if (edge_type_permissions == data.end() || !edge_type_permissions->is_object()) {
+    throw AuthException("Couldn't load fine grained access data!");
+  }
+
+  return FineGrainedAccessHandler(FineGrainedAccessPermissions::Deserialize(*label_permissions),
+                                  FineGrainedAccessPermissions::Deserialize(*edge_type_permissions));
 }
 
 bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second) {
@@ -474,14 +511,12 @@ nlohmann::json Role::Serialize() const {
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
     data[kDatabases] = db_access_.Serialize();
+    data[kUserImp] = user_impersonation_;
   } else {
     data[kFineGrainedAccessHandler] = {};
     data[kDatabases] = {};
+    data[kUserImp] = {};
   }
-  if (!user_impersonation_)
-    data[kUserImp] = nlohmann::json();
-  else
-    data[kUserImp] = *user_impersonation_;
 #endif
   return data;
 }
@@ -490,39 +525,46 @@ Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load role data!");
   }
-  if (!data[kRoleName].is_string() || !data[kPermissions].is_object()) {
+  auto role_name_it = data.find(kRoleName);
+  auto permissions_it = data.find(kPermissions);
+  if (role_name_it == data.end() || permissions_it == data.end()) {
     throw AuthException("Couldn't load role data!");
   }
-  auto permissions = Permissions::Deserialize(data[kPermissions]);
+  if (!role_name_it->is_string() || !permissions_it->is_object()) {
+    throw AuthException("Couldn't load role data!");
+  }
+  auto permissions = Permissions::Deserialize(*permissions_it);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     Databases db_access;
-    if (data[kDatabases].is_structured()) {
-      db_access = Databases::Deserialize(data[kDatabases]);
+    auto db_access_it = data.find(kDatabases);
+    if (db_access_it != data.end() && db_access_it->is_structured()) {
+      db_access = Databases::Deserialize(*db_access_it);
     } else {
-      // Back-compatibility
       spdlog::warn("Role without specified database access. Given access to the default database.");
-      db_access.Grant(dbms::kDefaultDB);
-      db_access.SetMain(dbms::kDefaultDB);
     }
-    FineGrainedAccessHandler fine_grained_access_handler;
+
+    FineGrainedAccessHandler fine_grained_access_handler{};
     // We can have an empty fine_grained if the user was created without a valid license
-    if (data[kFineGrainedAccessHandler].is_object()) {
-      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
+    auto fine_grainged_access_it = data.find(kFineGrainedAccessHandler);
+    if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
+      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
+    } else {
+      spdlog::warn("Role without fine grained access. Defaulting to none.");
     }
 
     std::optional<UserImpersonation> usr_imp = std::nullopt;
     auto imp_data = data.find(kUserImp);
     if (imp_data != data.end()) {
-      usr_imp = imp_data.value().is_null() ? std::nullopt : std::make_optional<UserImpersonation>(imp_data.value());
+      usr_imp = imp_data->get<std::optional<UserImpersonation>>();
     } else {
       spdlog::warn("Role without impersonation information; defaulting to no impersonation ability.");
     }
-    return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access),
+    return {*role_name_it, permissions, std::move(fine_grained_access_handler), std::move(db_access),
             std::move(usr_imp)};
   }
 #endif
-  return {data[kRoleName], permissions};
+  return {*role_name_it, permissions};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -610,11 +652,18 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load database data!");
   }
-  if (!data[kGrants].is_structured() || !data[kDenies].is_structured() || !data[kAllowAll].is_boolean() ||
-      !data[kDefault].is_string()) {
+  auto grants_it = data.find(kGrants);
+  auto denies_it = data.find(kDenies);
+  auto allow_all_it = data.find(kAllowAll);
+  auto default_it = data.find(kDefault);
+  if (grants_it == data.end() || denies_it == data.end() || allow_all_it == data.end() || default_it == data.end()) {
     throw AuthException("Couldn't load database data!");
   }
-  return {data[kAllowAll], data[kGrants], data[kDenies], data[kDefault]};
+  if (!grants_it->is_structured() || !denies_it->is_structured() || !allow_all_it->is_boolean() ||
+      !default_it->is_string()) {
+    throw AuthException("Couldn't load database data!");
+  }
+  return {*allow_all_it, *grants_it, *denies_it, *default_it};
 }
 #endif
 
@@ -750,14 +799,12 @@ nlohmann::json User::Serialize() const {
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
     data[kDatabases] = database_access_.Serialize();
+    data[kUserImp] = user_impersonation_;
   } else {
     data[kFineGrainedAccessHandler] = {};
     data[kDatabases] = {};
+    data[kUserImp] = {};
   }
-  if (!user_impersonation_)
-    data[kUserImp] = nlohmann::json();
-  else
-    data[kUserImp] = *user_impersonation_;
 #endif
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
@@ -767,54 +814,67 @@ User User::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user data!");
   }
-  auto password_hash_json = data[kPasswordHash];
-  if (!data[kUsername].is_string() || !(password_hash_json.is_object() || password_hash_json.is_null()) ||
-      !data[kPermissions].is_object()) {
+  auto username_it = data.find(kUsername);
+  auto hash_it = data.find(kPasswordHash);
+  auto permissions_it = data.find(kPermissions);
+  if (username_it == data.end() || hash_it == data.end() || permissions_it == data.end()) {
+    throw AuthException("Couldn't load user data!");
+  }
+  if (!username_it->is_string() || !(hash_it->is_object() || hash_it->is_null()) || !permissions_it->is_object()) {
     throw AuthException("Couldn't load user data!");
   }
 
-  // Version with user UUID
+  // If UUID is not present, default to an auto-generated one
   utils::UUID uuid{};
-  if (data[kUUID].is_array()) uuid = data[kUUID];
+  auto uuid_it = data.find(kUUID);
+  if (uuid_it != data.end() && uuid_it->is_array()) uuid = *uuid_it;
 
   std::optional<HashedPassword> password_hash{};
-  if (password_hash_json.is_object()) {
-    password_hash = password_hash_json.get<HashedPassword>();
+  if (hash_it->is_object()) {
+    try {
+      password_hash = hash_it->get<HashedPassword>();
+    } catch (const nlohmann::detail::exception & /* unused */) {
+      throw AuthException("Failed to read user's password hash.");
+    }
   }
 
-  auto permissions = Permissions::Deserialize(data[kPermissions]);
+  auto permissions = Permissions::Deserialize(*permissions_it);
+
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Set initially to default database access; overwrite if access present in the json
     Databases db_access;
-    if (data[kDatabases].is_structured()) {
-      db_access = Databases::Deserialize(data[kDatabases]);
+    auto db_access_it = data.find(kDatabases);
+    if (db_access_it != data.end() && db_access_it->is_structured()) {
+      db_access = Databases::Deserialize(*db_access_it);
     } else {
-      // Back-compatibility
       spdlog::warn("User without specified database access. Given access to the default database.");
-      db_access.Grant(dbms::kDefaultDB);
-      db_access.SetMain(dbms::kDefaultDB);
     }
-    FineGrainedAccessHandler fine_grained_access_handler;
+
     // We can have an empty fine_grained if the user was created without a valid license
-    if (data[kFineGrainedAccessHandler].is_object()) {
-      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
+    FineGrainedAccessHandler fine_grained_access_handler{};
+    auto fine_grainged_access_it = data.find(kFineGrainedAccessHandler);
+    if (fine_grainged_access_it != data.end() && fine_grainged_access_it->is_object()) {
+      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(*fine_grainged_access_it);
+    } else {
+      spdlog::warn("User without fine grained access. Defaulting to none.");
     }
 
     std::optional<UserImpersonation> usr_imp = std::nullopt;
     auto imp_data = data.find(kUserImp);
     if (imp_data != data.end()) {
-      usr_imp = imp_data.value().is_null() ? std::nullopt : std::make_optional<UserImpersonation>(imp_data.value());
+      usr_imp = imp_data->get<std::optional<UserImpersonation>>();
     } else {
       spdlog::warn("User without impersonation information; defaulting to no impersonation ability.");
     }
 
-    return {data[kUsername],      std::move(password_hash),
+    return {*username_it,         std::move(password_hash),
             permissions,          std::move(fine_grained_access_handler),
             std::move(db_access), uuid,
             std::move(usr_imp)};
   }
 #endif
-  return {data[kUsername], std::move(password_hash), permissions, uuid};
+  return {*username_it, std::move(password_hash), permissions, uuid};
 }
 
 bool operator==(const User &first, const User &second) {
@@ -943,7 +1003,7 @@ void to_json(nlohmann::json &data, const UserImpersonation::UserId &uid) {
 }
 
 void from_json(const nlohmann::json &data, UserImpersonation::UserId &uid) {
-  uid = {data[kUserImpName], data[kUserImpId]};
+  uid = {data.at(kUserImpName), data.at(kUserImpId)};
 }
 
 void to_json(nlohmann::json &data, const UserImpersonation::GrantAllUsers & /* unused */) {
@@ -954,17 +1014,21 @@ void from_json(const nlohmann::json &data, UserImpersonation::GrantAllUsers & /*
   // Empty struct
 }
 
+// Empty object = all users
+// Empty array = no users
+// Array of objects = specific users
 void to_json(nlohmann::json &data, const UserImpersonation &usr_imp) {
   data = nlohmann::json::object();
 
-  std::visit(utils::Overloaded{[&](UserImpersonation::GrantAllUsers obj) { data[kUserImpGranted] = obj; },
-                               [&](std::set<UserImpersonation::UserId> granted) {
+  std::visit(utils::Overloaded{[&](std::set<UserImpersonation::UserId> granted) {
                                  auto res = nlohmann::json::array();
                                  for (const auto &uid : granted) {
                                    res.push_back({{kUserImpId, uid.uuid}, {kUserImpName, uid.name}});
                                  }
+                                 // Empty array if no granted users
                                  data[kUserImpGranted] = std::move(res);
-                               }},
+                               },
+                               [&](UserImpersonation::GrantAllUsers obj) { data[kUserImpGranted] = obj; }},
              usr_imp.granted_);
 
   auto res = nlohmann::json::array();
@@ -978,20 +1042,34 @@ void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user impersonation data!");
   }
-  if (!data[kUserImpGranted].is_object() && !data[kUserImpGranted].is_array()) {
-    throw AuthException("Couldn't load user impersonation data!");
-  }
-  if (!data[kUserImpDenied].is_array()) {
+  auto grants_it = data.find(kUserImpGranted);
+  auto denied_it = data.find(kUserImpDenied);
+  if (grants_it == data.end() || denied_it == data.end()) {
     throw AuthException("Couldn't load user impersonation data!");
   }
 
   UserImpersonation::GrantedUsers granted;
-  if (data[kUserImpGranted].is_object()) {
+  if (grants_it->is_array()) {
+    try {
+      granted = {grants_it->get<std::set<UserImpersonation::UserId>>()};
+    } catch (nlohmann::detail::exception & /* unused */) {
+      throw AuthException("Couldn't load user impersonation data!");
+    }
+  } else if (grants_it->is_object()) {
     granted = UserImpersonation::GrantAllUsers{};
   } else {
-    granted = {data[kUserImpGranted].get<std::set<UserImpersonation::UserId>>()};
+    throw AuthException("Couldn't load user impersonation data!");
   }
-  UserImpersonation::DeniedUsers denied = data[kUserImpDenied];
+
+  UserImpersonation::DeniedUsers denied{};
+  if (!denied_it->is_array()) {
+    throw AuthException("Couldn't load user impersonation data!");
+  }
+  try {
+    denied = *denied_it;
+  } catch (nlohmann::detail::exception & /* unused */) {
+    throw AuthException("Couldn't load user impersonation data!");
+  }
 
   usr_imp = {std::move(granted), std::move(denied)};
 }

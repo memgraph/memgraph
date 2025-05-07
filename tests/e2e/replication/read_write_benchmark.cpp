@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (auto data = client->FetchAll()) {
         auto label_name = (*data)[0][1].ValueString();
-        auto property_name = (*data)[0][2].ValueString();
+        auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
           LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint.SocketAddress());
         }

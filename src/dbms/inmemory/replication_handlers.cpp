@@ -41,6 +41,9 @@ using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
 using namespace std::chrono_literals;
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::dbms {
 
 class SnapshotObserver final : public utils::Observer<void> {
@@ -87,10 +90,10 @@ void MoveDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo
                          std::filesystem::path const &backup_wal_dir, utils::FileRetainer *file_retainer) {
   auto const get_path = [](auto const &durability_info) { return durability_info.path; };
   // Move snapshots
-  auto const snapshots_to_move = snapshot_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+  auto const snapshots_to_move = snapshot_files | rv::transform(get_path) | r::to_vector;
   MoveFiles(snapshots_to_move, backup_snapshot_dir, file_retainer);
   // Move WAL files
-  auto const wal_files_to_move = wal_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+  auto const wal_files_to_move = wal_files | rv::transform(get_path) | r::to_vector;
   MoveFiles(wal_files_to_move, backup_wal_dir, file_retainer);
   // Clean DIR
   RemoveDirIfEmpty(backup_snapshot_dir);
@@ -477,8 +480,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     return snapshot_info.path != recovery_snapshot_path;
   };
 
-  auto snapshots_to_move =
-      curr_snapshot_files | ranges::views::filter(not_recovery_snapshot) | ranges::to<std::vector>();
+  auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
 
   MoveDurabilityFiles(snapshots_to_move, backup_snapshot_dir, curr_wal_files, backup_wal_dir,
                       &(storage->file_retainer_));
@@ -765,21 +767,32 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
-  constexpr bool kUniqueAccess = true;
-  constexpr bool kSharedAccess = false;
+  constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
+  constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
   auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
                                             uint64_t commit_timestamp,
-                                            bool const unique =
+                                            storage::Storage::Accessor::Type acc_type =
                                                 kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
-      if (unique) {
-        acc = storage->UniqueAccess();
-      } else {
-        acc = storage->Access();
+      switch (acc_type) {
+        case storage::Storage::Accessor::Type::READ:
+          [[fallthrough]];
+        case storage::Storage::Accessor::Type::WRITE:
+          acc = storage->Access(acc_type);
+          break;
+        case storage::Storage::Accessor::Type::UNIQUE:
+          acc = storage->UniqueAccess();
+          break;
+        case storage::Storage::Accessor::Type::READ_ONLY:
+          acc = storage->ReadOnlyAccess();
+          break;
+        default:
+          throw utils::BasicException("Replica failed to gain storage access! Unknown accessor type.");
       }
+
       auto const inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
@@ -822,6 +835,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)
+    auto to_propertyid = [&](std::string_view prop_name) { return storage->NameToProperty(prop_name); };
     using namespace memgraph::storage::durability;
     auto delta_apply = utils::Overloaded{
         [&](WalVertexCreate const &data) {
@@ -1001,9 +1015,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
                 throw utils::BasicException("Failed to find from vertex {} when setting edge property.",
                                             from_vertex->gid.AsUint());
 
-              auto found_edge = std::ranges::find_if(
-                  from_vertex->out_edges,
-                  [raw_edge_ref = EdgeRef(&*edge)](auto &in) { return std::get<2>(in) == raw_edge_ref; });
+              auto found_edge = r::find_if(from_vertex->out_edges, [raw_edge_ref = EdgeRef(&*edge)](auto &in) {
+                return std::get<2>(in) == raw_edge_ref;
+              });
               if (found_edge == from_vertex->out_edges.end()) {
                 throw utils::BasicException("Couldn't find edge {} in vertex {}'s out edge collection.", edge_gid,
                                             from_vertex->gid.AsUint());
@@ -1067,21 +1081,26 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           }
         },
         [&](WalLabelPropertyIndexCreate const &data) {
+          auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
-                        data.property);
+                        properties_stringified);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->CreateIndex(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
-                  .HasError())
+
+          auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
+
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
-                                        data.property);
+                                        properties_stringified);
         },
         [&](WalLabelPropertyIndexDrop const &data) {
+          auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
-                        data.property);
+                        properties_stringified);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          if (transaction->DropIndex(storage->NameToLabel(data.label), storage->NameToProperty(data.property))
-                  .HasError()) {
-            throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label, data.property);
+          auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
+          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {
+            throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
+                                        properties_stringified);
           }
         },
         [&](WalLabelPropertyIndexStatsSet const &data) {
@@ -1089,12 +1108,12 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp);
           const auto label = storage->NameToLabel(data.label);
-          const auto property = storage->NameToProperty(data.property);
+          auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           LabelPropertyIndexStats stats{};
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
           }
-          transaction->SetIndexStats(label, property, stats);
+          transaction->SetIndexStats(label, std::move(properties), stats);
         },
         [&](WalLabelPropertyIndexStatsClear const &data) {
           spdlog::trace("   Delta {}. Clear label-property index statistics on :{}", current_delta_idx, data.label);

@@ -161,7 +161,7 @@ def execute_test(memgraph_binary, tester_binary):
         all_queries = mt_queries
         all_queries += mt_queries2
         all_queries += mt_queries3
-        assert queries == all_queries, "Logged queries don't match " "executed queries!"
+        assert queries == all_queries, f"Logged queries:\n{queries}\ndon't match executed queries:\n{all_queries}\n"
     print("\033[1;36m~~ Finished log verification ~~\033[0m\n")
 
 

@@ -264,11 +264,11 @@ void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::R
 // GetDatabaseHistoriesRpc
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.database_histories, builder);
+  memgraph::slk::Save(self.instance_info, builder);
 }
 
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->database_histories, reader);
+  memgraph::slk::Load(&self->instance_info, reader);
 }
 
 // RegisterReplicaOnMainRpc

@@ -35,8 +35,12 @@ void WriteSize(Encoder *encoder, uint64_t size) {
 }
 }  // namespace
 
-void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+void Encoder::Initialize(const std::filesystem::path &path) {
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+}
+
+void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+  Initialize(path);
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
@@ -520,10 +524,10 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_INDEX_DROP:
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
     case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_SET:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_CLEAR:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_CREATE:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_DROP:
     case Marker::DELTA_EDGE_INDEX_CREATE:
     case Marker::DELTA_EDGE_INDEX_DROP:
     case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
@@ -654,10 +658,10 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_INDEX_DROP:
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
     case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_SET:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_CLEAR:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_CREATE:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_DROP:
     case Marker::DELTA_EDGE_INDEX_CREATE:
     case Marker::DELTA_EDGE_INDEX_DROP:
     case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:

@@ -169,8 +169,8 @@ class TTL final {
    * @param interpreter_context
    */
   template <typename TDbAccess>
-  void Setup(TDbAccess db, InterpreterContext *interpreter_context) {
-    Setup_(db, interpreter_context);
+  void Setup(TDbAccess db, InterpreterContext *interpreter_context, bool should_run_edge_ttl) {
+    Setup_(db, interpreter_context, should_run_edge_ttl);
   }
 
   /**
@@ -242,7 +242,7 @@ class TTL final {
   }
 
   template <typename TDbAccess>
-  void Setup_(TDbAccess db, InterpreterContext *interpreter_context);
+  void Setup_(TDbAccess db, InterpreterContext *interpreter_context, bool should_run_edge_ttl);
 
   utils::Scheduler ttl_;      //!< background thread
   TtlInfo info_{};            //!< configuration

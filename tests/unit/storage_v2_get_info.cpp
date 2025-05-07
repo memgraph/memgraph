@@ -64,6 +64,8 @@ TYPED_TEST_SUITE(InfoTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InfoTest, InfoCheck) {
+  constexpr bool is_using_disk_storage = std::is_same_v<TypeParam, memgraph::storage::DiskStorage>;
+
   auto lbl = this->storage->NameToLabel("label");
   auto lbl2 = this->storage->NameToLabel("abc");
   auto lbl3 = this->storage->NameToLabel("3");
@@ -108,17 +110,34 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  if constexpr (!is_using_disk_storage) {
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  if constexpr (!is_using_disk_storage) {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
@@ -154,7 +173,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.disk_usage, 1000'000);
   ASSERT_EQ(info.label_indices, 1);
-  ASSERT_EQ(info.label_property_indices, 1);
+  ASSERT_EQ(info.label_property_indices, is_using_disk_storage ? 1 : 2);
   ASSERT_EQ(info.text_indices, 0);
   ASSERT_EQ(info.existence_constraints, 0);
   ASSERT_EQ(info.unique_constraints, 2);

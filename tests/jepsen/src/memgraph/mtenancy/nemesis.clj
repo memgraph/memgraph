@@ -126,7 +126,7 @@
 
 (defn choose-node-to-kill
   [ns]
-  (let [coordinators ["n3" "n4" "n5"]
+  (let [coordinators ["n4" "n5" "n6"]
         chooser (partial choose-node-to-kill-on-coord ns)]
     (or
      (some chooser coordinators)

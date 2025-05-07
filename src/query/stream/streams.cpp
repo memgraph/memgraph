@@ -59,8 +59,9 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
-    const std::string_view stream_name) {
+    const utils::pmr::vector<TypedValue> &values,
+    const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> &signature,
+    const std::string_view transformation_name, const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
@@ -68,12 +69,12 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
   }
 
   auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
-    auto it = values.find(field_name);
-    if (it == values.end()) {
+    auto it = signature.find(field_name);
+    if (it == signature.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
                              transformation_name, stream_name, field_name};
     };
-    return it->second;
+    return values[it->second.field_id];
   };
 
   const auto &query_value = get_value(query_param_name);
@@ -102,11 +103,16 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     mgp_memory memory{&memory_resource};
     result.rows.clear();
     result.error_msg.reset();
-    result.signature = &trans.results;
 
-    MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
-    MG_ASSERT(result.signature->contains(query_param_name));
-    MG_ASSERT(result.signature->contains(params_param_name));
+    auto signature_query_it = trans.results.find(query_param_name);
+    MG_ASSERT(signature_query_it != trans.results.end());
+    result.signature.emplace(query_param_name,
+                             ResultsMetadata{signature_query_it->second.first, signature_query_it->second.second, 0});
+
+    auto signature_params_it = trans.results.find(params_param_name);
+    MG_ASSERT(signature_params_it != trans.results.end());
+    result.signature.emplace(params_param_name,
+                             ResultsMetadata{signature_params_it->second.first, signature_params_it->second.second, 1});
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
     trans.cb(&mgp_messages, &graph, &result, &memory);
@@ -504,7 +510,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto consumer_function = [interpreter_context, memory_resource, stream_name,
                             transformation_name = stream_info.common_info.transformation_name, owner = std::move(owner),
                             interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
-                            result = mgp_result{nullptr, memory_resource},
+                            result = mgp_result{memory_resource},
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
@@ -540,7 +546,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+          auto [query_value, params_value] =
+              ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
           storage::PropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
@@ -819,7 +826,7 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
         locked_streams.reset();
 
         auto *memory_resource = utils::NewDeleteResource();
-        mgp_result result{nullptr, memory_resource};
+        mgp_result result{memory_resource};
         TransformationResult test_result;
 
         auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
@@ -833,7 +840,8 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
           auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
           std::transform(
               result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
-                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+                auto [query, parameters] =
+                    ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
 
                 return std::map<std::string, TypedValue>{{"query", std::move(query)},
                                                          {"parameters", std::move(parameters)}};

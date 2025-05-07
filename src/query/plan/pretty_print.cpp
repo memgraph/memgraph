@@ -51,21 +51,7 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
-  op.dba_ = dba_;
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.dba_ = nullptr;
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperty &op) {
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperties &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
@@ -496,6 +482,37 @@ json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
 
   return json;
 }
+
+nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor &dba) {
+  json result;
+  switch (expression_range.type_) {
+    case PropertyFilter::Type::EQUAL: {
+      result["type"] = "Equal";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
+    case PropertyFilter::Type::REGEX_MATCH: {
+      result["type"] = "Regex";
+      break;
+    }
+    case PropertyFilter::Type::RANGE: {
+      result["type"] = "Range";
+      result["lower_bound"] = expression_range.lower_ ? ToJson(*expression_range.lower_, dba) : json();
+      result["upper_bound"] = expression_range.upper_ ? ToJson(*expression_range.upper_, dba) : json();
+      break;
+    }
+    case PropertyFilter::Type::IN: {
+      result["type"] = "In";
+      result["expression"] = ToJson(expression_range.lower_->value(), dba);
+      break;
+    }
+    case PropertyFilter::Type::IS_NOT_NULL: {
+      result["type"] = "IsNotNull";
+      break;
+    }
+  }
+  return result;
+}
 ////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
 
 bool PlanToJsonVisitor::Visit(Once &) {
@@ -531,42 +548,12 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabel &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyRange &op) {
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperties &op) {
   json self;
-  self["name"] = "ScanAllByLabelPropertyRange";
+  self["name"] = "ScanAllByLabelProperties";
   self["label"] = ToJson(op.label_, *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
-  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
-  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
-  self["output_symbol"] = ToJson(op.output_symbol_);
-
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-
-  output_ = std::move(self);
-  return false;
-}
-
-bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
-  json self;
-  self["name"] = "ScanAllByLabelPropertyValue";
-  self["label"] = ToJson(op.label_, *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
-  self["expression"] = ToJson(op.expression_, *dba_);
-  self["output_symbol"] = ToJson(op.output_symbol_);
-
-  op.input_->Accept(*this);
-  self["input"] = PopOutput();
-
-  output_ = std::move(self);
-  return false;
-}
-
-bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperty &op) {
-  json self;
-  self["name"] = "ScanAllByLabelProperty";
-  self["label"] = ToJson(op.label_, *dba_);
-  self["property"] = ToJson(op.property_, *dba_);
+  self["properties"] = ToJson(op.properties_, *dba_);
+  self["expression_ranges"] = ToJson(op.expression_ranges_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

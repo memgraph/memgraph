@@ -143,7 +143,7 @@ def test_ttl_replication(connection, test_name):
         assert index_info[0][3] > 0
         assert index_info[1][0] == "label+property"
         assert index_info[1][1] == "TTL"
-        assert index_info[1][2] == "ttl"
+        assert index_info[1][2] == ["ttl"]
         assert index_info[1][3] > 0
 
     check_index(cursor)

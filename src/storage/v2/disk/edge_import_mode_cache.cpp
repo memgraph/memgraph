@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,8 +39,9 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     Transaction *transaction) const {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, property, vertices_.access(), lower_bound, upper_bound, view,
-                                            storage, transaction);
+  return mem_label_property_index->Vertices(label, std::array{property},
+                                            std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
+                                            vertices_.access(), view, storage, transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(
@@ -48,7 +49,7 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool res = mem_label_property_index->CreateIndex(label, property, vertices_.access(), parallel_exec_info);
+  bool const res = mem_label_property_index->CreateIndex(label, {property}, vertices_.access(), parallel_exec_info);
   if (res) {
     scanned_label_properties_.insert({label, property});
   }
