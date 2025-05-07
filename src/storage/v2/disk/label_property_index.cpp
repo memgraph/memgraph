@@ -191,8 +191,7 @@ bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> 
 }
 
 bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
-  // return utils::Contains(index_, std::make_pair(label, properties[0]));
-  throw utils::NotYetImplemented("DiskLabelPropertyIndex::IndexExists");
+  return utils::Contains(index_, std::make_pair(label, properties[0][0]));
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyPath>>> DiskLabelPropertyIndex::ListIndices() const {
