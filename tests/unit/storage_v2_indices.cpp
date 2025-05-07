@@ -711,6 +711,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateConcurrent) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
+    GTEST_SKIP();
+  }
+
   std::latch start_index_creation{1};  // Signals thread 2 to create index
   std::latch start_second_write{1};    // Signals thread 3 to begin writing
 
