@@ -156,7 +156,7 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
 /// Helper function for label-properties index garbage collection. Returns true if
 /// there is a reachable version of the vertex that has the given label and
 /// properties values.
-inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, std::span<PropertyId const> key,
+inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, std::span<PropertyPath const> key,
                                          PropertiesPermutationHelper const &helper,
                                          IndexOrderedPropertyValues const &values, uint64_t timestamp) {
   Delta const *delta;
@@ -533,8 +533,8 @@ std::vector<std::pair<LabelId, std::vector<PropertyPath>>> InMemoryLabelProperty
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
-  for (auto &[label_id, by_properties] : index_) {
-    for (auto &[property_ids, index] : by_properties) {
+  for (auto &[label_id, by_properties] : nested_index_) {
+    for (auto &[property_paths, index] : by_properties) {
       // before starting index, check if stop_requested
       if (token.stop_requested()) return;
 
@@ -553,8 +553,8 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
         if (it->timestamp < oldest_active_start_timestamp) {
           bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
           if (redundant_duplicate ||
-              !AnyVersionHasLabelProperties(*it->vertex, label_id, property_ids, index.permutations_helper, it->values,
-                                            oldest_active_start_timestamp)) {
+              !AnyVersionHasLabelProperties(*it->vertex, label_id, property_paths, index.permutations_helper,
+                                            it->values, oldest_active_start_timestamp)) {
             index_acc.remove(*it);
           }
         }
@@ -967,8 +967,8 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
-  index_.clear();
-  indices_by_property_.clear();
+  nested_index_.clear();
+  nested_indices_by_property_.clear();
   stats_->clear();
 }
 
