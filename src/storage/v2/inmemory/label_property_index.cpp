@@ -397,11 +397,11 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
   //   }
   // });
 
-  // // Do the actual removal from the primary index
-  // properties_map.erase(it2);
-  // if (properties_map.empty()) {
-  //   index_.erase(it1);
-  // }
+  // Do the actual removal from the primary index
+  properties_map.erase(it2);
+  if (properties_map.empty()) {
+    nested_index_.erase(it1);
+  }
 
   return true;
 }
