@@ -22,9 +22,6 @@
 (def batch-size 5000)
 
 (def delay-requests-sec 10)
-(def timeout-requests-ms 9000)
-(def timeout-get-nodes-ms Long/MAX_VALUE)
-
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
@@ -564,16 +561,6 @@
     (gen/sleep 5)
     (gen/delay delay-requests-sec
                (gen/mix [show-instances-reads add-nodes])))))
-
-(defn timeout-fn
-  "Timeout fn. All operations have a timeout of 10s except get-nodes which is not bounded in time since it depends on the num of nodes in the db."
-  [op]
-  (cond
-    (= (:f op) :setup-cluster) timeout-requests-ms
-    (= (:f op) :add-nodes) timeout-requests-ms
-    (= (:f op) :show-instances-read) timeout-requests-ms
-    (= (:f op) :get-nodes) timeout-get-nodes-ms
-    :else (throw (ex-info (str "Unknown operation: " op) {:op op}))))
 
 (defn workload
   "Basic HA workload."
