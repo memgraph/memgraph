@@ -6132,7 +6132,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(TtlQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(IndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
 
   // Read access required
   void Visit(ExplainQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
@@ -6149,6 +6148,23 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   }
   void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
   void Visit(TriggerQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::WRITE; }
+
+  // Complex access logic
+  void Visit(IndexQuery &index_query) override {
+    if (is_in_memory_transactional_) {
+      if (index_query.properties_.empty()) {
+        // label index
+        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+      } else {
+        // label + properties
+        isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
+        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
+      }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    }
+  }
 
   // helper methods
   auto cypher_access_type() const -> storage::Storage::Accessor::Type {
