@@ -2839,7 +2839,10 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
+  using LPIndex =
+      std::pair<storage::LabelId, std::vector<storage::PropertyId>>;  // @TODO: maybe we don't need `LPIndex` type once
+                                                                      // nested indices are fully implemented.
+  using LPNestedIndex = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -2895,10 +2898,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   };
 
   auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
-    std::map<LPIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
-    std::map<LPIndex, uint64_t> vertex_degree_counter;
+    std::map<LPNestedIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
+    std::map<LPNestedIndex, uint64_t> vertex_degree_counter;
 
-    auto const count_vertex_prop_info = [&](LPIndex const &key) {
+    auto const count_vertex_prop_info = [&](LPNestedIndex const &key) {
       struct StatsByPrefix {
         std::map<std::vector<storage::PropertyValue>, int64_t> *properties_value_counter;
         uint64_t *vertex_degree_counter;
@@ -3014,7 +3017,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   erase_not_specified_label_indices(label_indices_info);
   auto label_stats = populate_label_stats(label_indices_info);
 
-  std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
+  std::vector<LPNestedIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 
@@ -4794,8 +4797,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
         for (const auto &[label, properties] : info.label_properties) {
           auto to_name = [&](storage::PropertyId prop) { return TypedValue{storage->PropertyToName(prop)}; };
-          auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
           // TODO: put back...
+          // auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
           // results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
           //                    TypedValue(std::move(props)),
           //                    TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
@@ -5871,8 +5874,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property indices
       for (const auto &[label_id, properties] : index_info.label_properties) {
         auto to_name = [&](storage::PropertyId prop) { return storage->PropertyToName(prop); };
-        auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
         // TODO: put back...
+        // auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
         // node_indexes.push_back(nlohmann::json::object({
         //     {"labels", {storage->LabelToName(label_id)}},
         //     {"properties", props},
