@@ -15,6 +15,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
@@ -240,9 +241,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double factor = 1.0;
     if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor = db_accessor_->EdgesCount(
-          edge_type, op.property_,
-          intermediate_property_value->ToFinalValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+      factor =
+          db_accessor_->EdgesCount(edge_type, op.property_,
+                                   storage::ToPropertyValue(*intermediate_property_value,
+                                                            db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {
       // estimate the influence as ScanAllByEdge(label, property) * filtering
       factor = db_accessor_->EdgesCount(edge_type, op.property_) * CardParam::kFilter;
@@ -294,8 +296,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double factor = 1.0;
     if (intermediate_property_value) {
       // get the exact influence based on ScanAllByEdge(label, property, value)
-      factor = db_accessor_->EdgesCount(op.property_, intermediate_property_value->ToFinalValue(
-                                                          db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+      factor = db_accessor_->EdgesCount(
+          op.property_, storage::ToPropertyValue(*intermediate_property_value,
+                                                 db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
     } else {
       // estimate the influence as ScanAllByEdge(label, property) * filtering
       factor = db_accessor_->EdgesCount(op.property_) * CardParam::kFilter;
@@ -560,7 +563,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       auto intermediate_property_value = ConstPropertyValue(bound->value());
       if (intermediate_property_value)
         return utils::Bound<storage::PropertyValue>(
-            intermediate_property_value->ToFinalValue(db_accessor_->GetStorageAccessor()->GetNameIdMapper()),
+            storage::ToPropertyValue(*intermediate_property_value,
+                                     db_accessor_->GetStorageAccessor()->GetNameIdMapper()),
             bound->type());
     }
     return std::nullopt;

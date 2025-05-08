@@ -250,7 +250,7 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
     } else {
       auto intermediate_property_value = ConstPropertyValue(value->value(), params);
       if (intermediate_property_value) {
-        auto property_value = intermediate_property_value->ToFinalValue(name_id_mapper);
+        auto property_value = storage::ToPropertyValue(*intermediate_property_value, name_id_mapper);
         return utils::Bound{std::move(property_value), value->type()};
       } else {
         return UnknownAtPlanTime{};

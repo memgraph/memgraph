@@ -51,9 +51,9 @@ nlohmann::json SerializeIntermediatePropertyValue(const storage::IntermediatePro
     case Type::String:
       return property_value.ValueString();
     case Type::List:
-      return SerializeIntermediatePropertyValue(property_value.ValueList(), storage_acc);
+      return SerializeIntermediatePropertyValueVector(property_value.ValueList(), storage_acc);
     case Type::Map:
-      return SerializeIntermediatePropertyValue(property_value.ValueMap(), storage_acc);
+      return SerializeIntermediatePropertyValueMap(property_value.ValueMap(), storage_acc);
     case Type::TemporalData: {
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
