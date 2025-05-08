@@ -117,11 +117,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         arch: [amd, arm]
-        build_type: [Release]
-        include: # Add RelwithDebInfo build for amd docker image
-          - os: ubuntu-24.04
-            arch: amd
-            build_type: RelWithDebInfo
+        build_type: [Release, RelWithDebInfo]
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
@@ -135,4 +131,3 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
     secrets: inherit
-
