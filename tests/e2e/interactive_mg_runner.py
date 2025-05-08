@@ -42,10 +42,10 @@ from inspect import signature
 import yaml
 
 from memgraph import (
-    MemgraphInstanceRunner,
-    connectable_port,
-    extract_bolt_port,
-    extract_management_port,
+  MemgraphInstanceRunner,
+  connectable_port,
+  extract_bolt_port,
+  extract_management_port,
 )
 
 log = logging.getLogger("memgraph.tests.e2e")
@@ -81,7 +81,7 @@ MEMGRAPH_INSTANCES = {}
 ACTIONS = {
     "info": lambda context: info(context),
     "stop": lambda context, name: stop(context, name),
-    "start": lambda context, name: start(context, name),
+    "start": lambda context, name: start_wrapper(context, name),
     "sleep": lambda _, delta: time.sleep(float(delta)),
     "exit": lambda _: sys.exit(1),
     "quit": lambda _: sys.exit(1),
@@ -203,6 +203,13 @@ def kill(context, name, keep_directories=True):
             continue
         MEMGRAPH_INSTANCES[name].kill(keep_directories)
         MEMGRAPH_INSTANCES.pop(name)
+
+
+def start_wrapper(context, name, procdir=""):
+    if name == "all":
+        start_all(context, procdir)
+    else:
+        start(context, name, procdir)
 
 
 def start(context, name, procdir=""):
