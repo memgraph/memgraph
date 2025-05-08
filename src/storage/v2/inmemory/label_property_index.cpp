@@ -140,6 +140,12 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       cache.StoreExists(view, &vertex, exists);
       cache.StoreDeleted(view, &vertex, deleted);
       cache.StoreHasLabel(view, &vertex, label, has_label);
+
+      // @TODO currently, incorrect. When we iterate over the helper
+      // properties, if the value is a nested index we've lost the rest of the
+      // map `PropertyValue`'s items,. For example, if we index on `a.b.c`,
+      // and have a vertex with prop `a: {b: {c: 42, d: '43' }}` we have the
+      // value of `c`, `42`, but not of `d`, not the parent `b` and `a`.
       for (auto [pos, property, value] : helper.WithPropertyId(values)) {
         if (current_values_equal_to_value[pos]) {
           cache.StoreProperty(view, &vertex, property, value.get());
