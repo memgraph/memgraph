@@ -21,11 +21,14 @@
 #include "storage/v2/storage.hpp"
 #include "utils/scheduler.hpp"
 
+#include "filesystem_helpers.hpp"
+
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 using memgraph::replication_coordination_glue::ReplicationRole;
+
 constexpr auto testSuite = "storage_v2_get_info";
-const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
+const auto storage_directory = tests::generate_unique_temp_directory(testSuite);
 
 template <typename StorageType>
 class InfoTest : public testing::Test {
