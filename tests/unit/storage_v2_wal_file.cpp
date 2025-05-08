@@ -32,6 +32,8 @@
 static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
 
+memgraph::storage::NameIdMapper name_id_mapper;
+
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
  public:
@@ -65,7 +67,7 @@ class DeltaGenerator final {
     }
 
     void AddLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
-      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
+      auto label_id = memgraph::storage::LabelId::FromUint(name_id_mapper.NameToId(label));
       vertex->labels.push_back(label_id);
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::RemoveLabelTag(),
                                             label_id);
@@ -74,7 +76,7 @@ class DeltaGenerator final {
     }
 
     void RemoveLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
-      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
+      auto label_id = memgraph::storage::LabelId::FromUint(name_id_mapper.NameToId(label));
       vertex->labels.erase(std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::AddLabelTag(), label_id);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
@@ -83,7 +85,7 @@ class DeltaGenerator final {
 
     void SetProperty(memgraph::storage::Vertex *vertex, const std::string &property,
                      const memgraph::storage::PropertyValue &value) {
-      auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
+      auto property_id = memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId(property));
       auto &props = vertex->properties;
       auto old_value = props.GetProperty(property_id);
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::SetPropertyTag(),
@@ -127,7 +129,7 @@ class DeltaGenerator final {
               auto vertex = std::find(gen_->vertices_.begin(), gen_->vertices_.end(), set_property->gid);
               ASSERT_NE(vertex, gen_->vertices_.end());
               auto property_id =
-                  memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(set_property->property));
+                  memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId(set_property->property));
               set_property->value = vertex->properties.GetProperty(property_id);
             }
             gen_->data_.emplace_back(commit_timestamp, data);
@@ -162,8 +164,8 @@ class DeltaGenerator final {
                  memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
       : epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
-        wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
-                  &file_retainer_),
+        wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &name_id_mapper,
+                  seq_num, &file_retainer_),
         storage_mode_(storage_mode) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
@@ -180,10 +182,10 @@ class DeltaGenerator final {
                        std::string const &enum_val = {}, const std::string &enum_type = {},
                        const std::string &vector_index_name = {}, std::uint16_t vector_dimension = 2,
                        std::size_t vector_capacity = 100) {
-    auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
+    auto label_id = memgraph::storage::LabelId::FromUint(name_id_mapper.NameToId(label));
     std::vector<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {
-      property_ids.emplace_back(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
+      property_ids.emplace_back(memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId(property)));
     }
     memgraph::storage::LabelIndexStats l_stats{};
     memgraph::storage::LabelPropertyIndexStats lp_stats{};
@@ -199,7 +201,7 @@ class DeltaGenerator final {
     }
     std::optional<memgraph::storage::EdgeTypeId> edge_type_id;
     if (!edge_type.empty()) {
-      edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper_.NameToId(edge_type));
+      edge_type_id = memgraph::storage::EdgeTypeId::FromUint(name_id_mapper.NameToId(edge_type));
     }
 
     std::optional<memgraph::storage::EnumTypeId> enum_type_id;
@@ -238,20 +240,20 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, mapper_, label_id);
+          EncodeLabel(encoder, name_id_mapper, label_id);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, mapper_, label_id);
+          EncodeLabel(encoder, name_id_mapper, label_id);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder, mapper_, label_id, property_ids, lp_stats);
+          EncodeLabelPropertyStats(encoder, name_id_mapper, label_id, property_ids, lp_stats);
         });
         break;
       }
@@ -259,7 +261,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_DROP: {
         ASSERT_TRUE(edge_type_id.has_value());
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, mapper_, *edge_type_id);
+          EncodeEdgeTypeIndex(encoder, name_id_mapper, *edge_type_id);
         });
         break;
       }
@@ -267,21 +269,21 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_DROP: {
         ASSERT_TRUE(edge_type_id.has_value());
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder, mapper_, *edge_type_id, *property_ids.begin());
+          EncodeEdgeTypePropertyIndex(encoder, name_id_mapper, *edge_type_id, *property_ids.begin());
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, mapper_, *property_ids.begin());
+          EncodeEdgePropertyIndex(encoder, name_id_mapper, *property_ids.begin());
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTIES_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, mapper_, label_id, property_ids);
+          EncodeLabelProperties(encoder, name_id_mapper, label_id, property_ids);
         });
         break;
       }
@@ -290,26 +292,26 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, mapper_, label_id, *property_ids.begin());
+          EncodeLabelProperty(encoder, name_id_mapper, label_id, *property_ids.begin());
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeLabelStats(encoder, mapper_, label_id, l_stats);
+          EncodeLabelStats(encoder, name_id_mapper, label_id, l_stats);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, mapper_, name, label_id);
+          EncodeTextIndex(encoder, name_id_mapper, name, label_id);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_CREATE:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeVectorIndexSpec(encoder, mapper_, *vector_index_spec);
+          EncodeVectorIndexSpec(encoder, name_id_mapper, *vector_index_spec);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_DROP:
@@ -321,14 +323,14 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           auto as_set = std::set(property_ids.begin(), property_ids.end());
-          EncodeLabelProperties(encoder, mapper_, label_id, as_set);
+          EncodeLabelProperties(encoder, name_id_mapper, label_id, as_set);
         });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTypeConstraint(encoder, mapper_, label_id, *property_ids.begin(),
+          EncodeTypeConstraint(encoder, name_id_mapper, label_id, *property_ids.begin(),
                                memgraph::storage::TypeConstraintKind::STRING);
         });
       }
@@ -461,7 +463,6 @@ class DeltaGenerator final {
   uint64_t timestamp_{memgraph::storage::kTimestampInitialId};
   uint64_t vertices_count_{0};
   std::list<memgraph::storage::Vertex> vertices_;
-  memgraph::storage::NameIdMapper mapper_;
   memgraph::storage::EnumStore enum_store_;
 
   memgraph::storage::durability::WalFile wal_file_;
@@ -508,14 +509,14 @@ void AssertWalInfoEqual(const memgraph::storage::durability::WalInfo &a,
 }
 
 void AssertWalDataEqual(const DeltaGenerator::DataT &data, const std::filesystem::path &path) {
-  auto info = memgraph::storage::durability::ReadWalInfo(path);
+  auto info = memgraph::storage::durability::ReadWalInfo(path, &name_id_mapper);
   memgraph::storage::durability::Decoder wal;
   wal.Initialize(path, memgraph::storage::durability::kWalMagic);
   wal.SetPosition(info.offset_deltas);
   DeltaGenerator::DataT current;
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     auto timestamp = memgraph::storage::durability::ReadWalDeltaHeader(&wal);
-    current.emplace_back(timestamp, memgraph::storage::durability::ReadWalDeltaData(&wal));
+    current.emplace_back(timestamp, memgraph::storage::durability::ReadWalDeltaData(&wal, &name_id_mapper));
   }
   ASSERT_EQ(data.size(), current.size());
   ASSERT_EQ(data, current);
@@ -559,28 +560,28 @@ TEST_P(WalFileTest, EmptyFile) {
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_SIMPLE_TEST(name, ops)                                                        \
-  TEST_P(WalFileTest, name) {                                                                  \
-    memgraph::storage::durability::WalInfo info;                                               \
-    DeltaGenerator::DataT data;                                                                \
-                                                                                               \
-    {                                                                                          \
-      DeltaGenerator gen(storage_directory, GetParam(), 5);                                    \
-      ops;                                                                                     \
-      info = gen.GetInfo();                                                                    \
-      data = gen.GetData();                                                                    \
-    }                                                                                          \
-                                                                                               \
-    auto wal_files = GetFilesList();                                                           \
-    ASSERT_EQ(wal_files.size(), 1);                                                            \
-                                                                                               \
-    if (info.num_deltas == 0) {                                                                \
-      ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(wal_files.front()),              \
-                   memgraph::storage::durability::RecoveryFailure);                            \
-    } else {                                                                                   \
-      AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front())); \
-      AssertWalDataEqual(data, wal_files.front());                                             \
-    }                                                                                          \
+#define GENERATE_SIMPLE_TEST(name, ops)                                                                         \
+  TEST_P(WalFileTest, name) {                                                                                   \
+    memgraph::storage::durability::WalInfo info;                                                                \
+    DeltaGenerator::DataT data;                                                                                 \
+                                                                                                                \
+    {                                                                                                           \
+      DeltaGenerator gen(storage_directory, GetParam(), 5);                                                     \
+      ops;                                                                                                      \
+      info = gen.GetInfo();                                                                                     \
+      data = gen.GetData();                                                                                     \
+    }                                                                                                           \
+                                                                                                                \
+    auto wal_files = GetFilesList();                                                                            \
+    ASSERT_EQ(wal_files.size(), 1);                                                                             \
+                                                                                                                \
+    if (info.num_deltas == 0) {                                                                                 \
+      ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(wal_files.front(), &name_id_mapper),              \
+                   memgraph::storage::durability::RecoveryFailure);                                             \
+    } else {                                                                                                    \
+      AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front(), &name_id_mapper)); \
+      AssertWalDataEqual(data, wal_files.front());                                                              \
+    }                                                                                                           \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -784,7 +785,7 @@ TEST_P(WalFileTest, InvalidMarker) {
   ASSERT_EQ(wal_files.size(), 1);
   const auto &wal_file = wal_files.front();
 
-  auto final_info = memgraph::storage::durability::ReadWalInfo(wal_file);
+  auto final_info = memgraph::storage::durability::ReadWalInfo(wal_file, &name_id_mapper);
   AssertWalInfoEqual(info, final_info);
 
   size_t i = 0;
@@ -799,7 +800,7 @@ TEST_P(WalFileTest, InvalidMarker) {
     file.Write(&value, sizeof(value));
     file.Sync();
     file.Close();
-    ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file),
+    ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file, &name_id_mapper),
                  memgraph::storage::durability::RecoveryFailure);
     ++i;
   }
@@ -838,7 +839,7 @@ TEST_P(WalFileTest, PartialData) {
   ASSERT_EQ(wal_files.size(), 1);
   const auto &wal_file = wal_files.front();
 
-  AssertWalInfoEqual(infos.back().second, memgraph::storage::durability::ReadWalInfo(wal_file));
+  AssertWalInfoEqual(infos.back().second, memgraph::storage::durability::ReadWalInfo(wal_file, &name_id_mapper));
 
   auto current_file = storage_directory / "temporary";
   memgraph::utils::InputFile infile;
@@ -847,11 +848,11 @@ TEST_P(WalFileTest, PartialData) {
   uint64_t pos = 0;
   for (size_t i = 0; i < infile.GetSize(); ++i) {
     if (i < infos.front().first) {
-      ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file),
+      ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file, &name_id_mapper),
                    memgraph::storage::durability::RecoveryFailure);
     } else {
       if (i >= infos[pos + 1].first) ++pos;
-      AssertWalInfoEqual(infos[pos].second, memgraph::storage::durability::ReadWalInfo(current_file));
+      AssertWalInfoEqual(infos[pos].second, memgraph::storage::durability::ReadWalInfo(current_file, &name_id_mapper));
     }
     {
       memgraph::utils::OutputFile outfile;
@@ -864,7 +865,8 @@ TEST_P(WalFileTest, PartialData) {
     }
   }
   ASSERT_EQ(pos, infos.size() - 2);
-  AssertWalInfoEqual(infos[infos.size() - 1].second, memgraph::storage::durability::ReadWalInfo(current_file));
+  AssertWalInfoEqual(infos[infos.size() - 1].second,
+                     memgraph::storage::durability::ReadWalInfo(current_file, &name_id_mapper));
 }
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
