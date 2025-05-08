@@ -202,8 +202,8 @@ add_compile_options(
         -Werror=switch-bool
         -Werror=return-type
         -Werror=return-stack-address
+        -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
         -Wno-c99-designator
-        -Wmissing-field-initializers
         -Werror=implicit-fallthrough
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )

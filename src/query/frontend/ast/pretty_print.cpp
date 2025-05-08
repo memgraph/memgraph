@@ -11,6 +11,10 @@
 
 #include "query/frontend/ast/pretty_print.hpp"
 
+#include "query/frontend/ast/query/aggregation.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/pattern_comprehension.hpp"
+
 #include <type_traits>
 
 #include "query/db_accessor.hpp"

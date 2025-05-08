@@ -13,7 +13,7 @@
 
 #include "coordination/coordinator_state_machine.hpp"
 
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
@@ -24,15 +24,6 @@
 using nuraft::cluster_config;
 using nuraft::ptr;
 using nuraft::snapshot;
-
-namespace {
-constexpr int MAX_SNAPSHOTS = 3;
-using namespace std::string_view_literals;
-constexpr auto kDataInstances =
-    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
-constexpr auto kCoordInstances = "coordinator_instances"sv;
-constexpr auto kUuid = "uuid"sv;
-}  // namespace
 
 namespace memgraph::coordination {
 void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx) {
@@ -84,7 +75,12 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
+      uint64_t old_committed_idx = last_committed_idx_.load(std::memory_order_acquire);
+      while (old_committed_idx < parsed_snapshot_id &&
+             !last_committed_idx_.compare_exchange_weak(old_committed_idx, parsed_snapshot_id,
+                                                        std::memory_order_acq_rel, std::memory_order_acquire)) {
+        // old is updated by compare_exchange_weak
+      }
 
       // NOLINTNEXTLINE (misc-const-correctness)
       auto snapshot_ctx = std::make_shared<SnapshotCtx>();
@@ -96,21 +92,24 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
   }
 
-  if (last_committed_idx_ == 0) {
+  auto const last_commit_idx = last_committed_idx_.load(std::memory_order_acquire);
+
+  if (last_commit_idx == 0) {
     logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
     return;
   }
-  cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+  cluster_state_ = snapshots_[last_commit_idx]->cluster_state_;
   logger_.Log(nuraft_log_level::TRACE,
-              fmt::format("Restored cluster state from snapshot with id: {}", last_committed_idx_));
+              fmt::format("Restored cluster state from snapshot with id: {}", last_commit_idx));
 }
 
 // Assumes durability exists
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
   UpdateStateMachineFromSnapshotDurability();
   if constexpr (kActiveVersion == LogStoreVersion::kV2) {
+    auto const last_snapshot_commit_idx = last_committed_idx_.load(std::memory_order_acquire);
     if (stored_version == LogStoreVersion::kV1) {
-      return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+      return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
     }
     if (stored_version == LogStoreVersion::kV2) {
       const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
@@ -119,19 +118,19 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
             nuraft_log_level::ERROR,
             fmt::format(
                 "Failed to retrieve last committed index from disk, using last committed index from snapshot {}.",
-                last_committed_idx_.load()));
-        return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+                last_snapshot_commit_idx));
+        return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
       }
-      const auto last_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
-      if (last_committed_idx_value < last_committed_idx_) {
+      const auto last_durable_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
+      if (last_durable_committed_idx_value < last_snapshot_commit_idx) {
         logger_.Log(nuraft_log_level::ERROR, fmt::format("Last committed index stored in durability is smaller then "
                                                          "one found from snapshots, using one found in snapshots {}.",
-                                                         last_committed_idx_.load()));
-        return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+                                                         last_snapshot_commit_idx));
+        return durability_->Put(kLastCommitedIdx, std::to_string(last_snapshot_commit_idx));
       }
-      last_committed_idx_ = last_committed_idx_value;
+      last_committed_idx_.store(last_durable_committed_idx_value, std::memory_order_release);
       logger_.Log(nuraft_log_level::TRACE,
-                  fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
+                  fmt::format("Restored last committed index from disk: {}", last_durable_committed_idx_value));
       return true;
     }
     throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
@@ -148,7 +147,7 @@ auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const
   return cluster_state_.HasMainState(instance_name);
 }
 
-auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
+auto CoordinatorStateMachine::CreateLog(nlohmann::json const &log) -> ptr<buffer> {
   auto const log_dump = log.dump();
   ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log_dump.size());
   buffer_serializer bs(log_buf);
@@ -156,23 +155,60 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
-                                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                                          utils::UUID uuid) -> ptr<buffer> {
-  return CreateLog({{kDataInstances, data_instances}, {kCoordInstances, coordinator_instances}, {kUuid, uuid}});
+auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStateDelta const &delta_state)
+    -> ptr<buffer> {
+  nlohmann::json delta_state_json;
+
+  auto const add_if_set = [&delta_state_json](std::string_view const key, auto const &opt_value) {
+    if (opt_value.has_value()) {
+      delta_state_json.emplace(key, *opt_value);
+    }
+  };
+
+  add_if_set(kDataInstances, delta_state.data_instances_);
+  add_if_set(kCoordinatorInstances, delta_state.coordinator_instances_);
+  add_if_set(kUuid, delta_state.current_main_uuid_);
+  add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
+  add_if_set(kSyncFailoverOnly, delta_state.sync_failover_only_);
+
+  return CreateLog(delta_state_json);
 }
 
-auto CoordinatorStateMachine::DecodeLog(buffer &data)
-    -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
+auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterStateDelta {
   buffer_serializer bs(data);
   try {
+    CoordinatorClusterStateDelta delta_state;
     auto const json = nlohmann::json::parse(bs.get_str());
-    auto const data_instances = json.at(kDataInstances.data());
-    auto const uuid = json.at(kUuid.data());
-    auto const coordinator_instances = json.at(kCoordInstances.data());
-    return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
-                           coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(),
-                           uuid.get<utils::UUID>());
+
+    if (json.contains(kDataInstances.data())) {
+      auto const data_instances = json.at(kDataInstances.data());
+      delta_state.data_instances_ = data_instances.get<std::vector<DataInstanceContext>>();
+    }
+
+    if (json.contains(kCoordinatorInstances.data())) {
+      auto const coordinator_instances = json.at(kCoordinatorInstances.data());
+      delta_state.coordinator_instances_ = coordinator_instances.get<std::vector<CoordinatorInstanceContext>>();
+    }
+
+    if (json.contains(kUuid.data())) {
+      auto const uuid = json.at(kUuid.data());
+      delta_state.current_main_uuid_ = uuid.get<utils::UUID>();
+    }
+
+    if (json.contains(kEnabledReadsOnMain.data())) {
+      // enabled_reads_on_main policy is added later, read it optionally, otherwise default it to false
+      auto const enabled_reads_on_main = json.value(kEnabledReadsOnMain.data(), false);
+      delta_state.enabled_reads_on_main_ = enabled_reads_on_main;
+    }
+
+    if (json.contains(kSyncFailoverOnly.data())) {
+      // sync_failover_only policy is added later, read it optionally, otherwise default it to true
+      auto const sync_failover_only = json.value(kSyncFailoverOnly.data(), true);
+      delta_state.sync_failover_only_ = sync_failover_only;
+    }
+
+    return delta_state;
+
   } catch (std::exception const &e) {
     LOG_FATAL("Error occurred while decoding log {}.", e.what());
   }
@@ -182,11 +218,10 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto [data_instances, coordinator_instances, main_uuid] = DecodeLog(data);
-  cluster_state_.DoAction(std::move(data_instances), std::move(coordinator_instances), main_uuid);
+  cluster_state_.DoAction(DecodeLog(data));
   durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
-  last_committed_idx_ = log_idx;
-  logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
+  last_committed_idx_.store(log_idx, std::memory_order_release);
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", log_idx));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
   buffer_serializer bs_ret(ret);
   bs_ret.put_u64(log_idx);
@@ -196,7 +231,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
   durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
-  last_committed_idx_ = log_idx;
+  last_committed_idx_.store(log_idx, std::memory_order_release);
 }
 
 auto CoordinatorStateMachine::rollback(ulong const log_idx, buffer &data) -> void {
@@ -295,7 +330,7 @@ auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
 
 auto CoordinatorStateMachine::last_commit_index() -> ulong {
   logger_.Log(nuraft_log_level::TRACE, "Getting last committed index from state machine.");
-  return last_committed_idx_;
+  return last_committed_idx_.load(std::memory_order_acquire);
 }
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
@@ -350,5 +385,10 @@ auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) cons
 auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {
   return cluster_state_.TryGetCurrentMainName();
 }
+
+auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return cluster_state_.GetEnabledReadsOnMain(); }
+
+auto CoordinatorStateMachine::GetSyncFailoverOnly() const -> bool { return cluster_state_.GetSyncFailoverOnly(); }
+
 }  // namespace memgraph::coordination
 #endif

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,21 +11,9 @@
 
 #pragma once
 
-#include <charconv>
-#include <cstdint>
-#include <iomanip>
-#include <iterator>
-#include <numeric>
-#include <string>
-#include <string_view>
-
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/id_types.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
-#include "storage/v2/vertex_accessor.hpp"
-#include "utils/exceptions.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::utils {
 

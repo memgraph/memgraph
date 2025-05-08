@@ -19,6 +19,10 @@ RUN pip3 install --break-system-packages  numpy==1.26.4 scipy==1.13.0 networkx==
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 
+# fix `memgraph` UID and GID for compatibility with previous Debian releases
+RUN groupadd -g 103 memgraph && \
+    useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
+
 # Install memgraph package
 RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"
 

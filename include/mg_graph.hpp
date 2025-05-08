@@ -109,14 +109,14 @@ class Graph : public GraphView<TSize> {
   /// @param[in] node_id target node id
   ///
   /// @return vector of neighbours
-  const std::vector<TNeighbour> &OutNeighbours(TSize node_id) const { return Neighbours(node_id); }
+  const std::vector<TNeighbour> &OutNeighbours(TSize node_id) const override { return Neighbours(node_id); }
 
   /// Gets in-neighbour nodes.
   ///
   /// @param[in] node_id target node id
   ///
   /// @return vector of neighbours
-  const std::vector<TNeighbour> &InNeighbours(TSize node_id) const {
+  const std::vector<TNeighbour> &InNeighbours(TSize node_id) const override {
     if (node_id >= nodes_.size()) {
       throw mg_exception::InvalidIDException();
     }

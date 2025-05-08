@@ -22,10 +22,10 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_connector.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
@@ -95,6 +95,9 @@ class CoordinatorInstance {
 
   auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> SetCoordinatorSettingStatus;
+
   auto GetRoutingTable() const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
@@ -115,6 +118,8 @@ class CoordinatorInstance {
   void InstanceFailCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
+
+  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name)

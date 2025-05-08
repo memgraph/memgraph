@@ -20,6 +20,8 @@
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace {
 using namespace std::literals;
 

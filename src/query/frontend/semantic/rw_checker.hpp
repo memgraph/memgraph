@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 
 namespace memgraph::query {
 

@@ -92,14 +92,16 @@ class CoordinatorLogStore final : public log_store {
    */
   auto GetNextSlot() const -> ulong;
 
+  // Must be called under the logs_lock_
   auto FindOrDefault_(ulong index) const -> std::shared_ptr<log_entry>;
 
   bool HandleVersionMigration(LogStoreVersion stored_version);
 
   std::map<ulong, std::shared_ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
+  // Atomic as suggested by NuRaft. Changes in HandleVersionMigration shouldn't be a concurrent issue because they
+  // happen in the constructor
   std::atomic<ulong> start_idx_{0};
-  std::atomic<ulong> next_idx_{0};
   std::shared_ptr<kvstore::KVStore> durability_;
   LoggerWrapper logger_;
 };

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "query/exceptions.hpp"
+// TODO: remove once ast has been split
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 

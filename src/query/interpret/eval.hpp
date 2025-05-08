@@ -25,7 +25,6 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"

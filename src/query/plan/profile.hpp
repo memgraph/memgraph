@@ -11,10 +11,11 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "query/typed_value.hpp"
 

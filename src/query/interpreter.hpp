@@ -11,43 +11,21 @@
 
 #pragma once
 
-#include <string_view>
-#include <unordered_set>
-
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
-#include "memory/query_memory_control.hpp"
-#include "query/auth_checker.hpp"
-#include "query/auth_query_handler.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/metadata.hpp"
-#include "query/plan/operator.hpp"
-#include "query/plan/read_write_type_checker.hpp"
 #include "query/query_logger.hpp"
 #include "query/stream.hpp"
-#include "query/stream/streams.hpp"
-#include "query/trigger.hpp"
-#include "query/typed_value.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
+#include "system/transaction.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
-#include "utils/logging.hpp"
 #include "utils/memory.hpp"
-#include "utils/skip_list.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
+#include "coordination/raft_state.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -164,6 +142,10 @@ class CoordinatorQueryHandler {
   virtual void ForceResetClusterState() = 0;
 
   virtual void YieldLeadership() = 0;
+
+  virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
+
+  virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
 };
 #endif
 
@@ -304,6 +286,13 @@ class Interpreter final {
    */
   Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
                                      QueryExtras const &extras);
+
+  /**
+   * Checks if the user has the required privileges to execute the query.
+   *
+   * @throw query::QueryException
+   */
+  void CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db = {});
 
 #ifdef MG_ENTERPRISE
   auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;

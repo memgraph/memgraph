@@ -17,7 +17,7 @@
 #include <string>
 #include <variant>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"

@@ -13,6 +13,9 @@
 
 #include "coordination/coordinator_instance_context.hpp"
 
+#include <filesystem>
+#include <nlohmann/json.hpp>
+
 using memgraph::coordination::CoordinatorInstanceContext;
 
 class CoordinatorInstanceContextTest : public ::testing::Test {

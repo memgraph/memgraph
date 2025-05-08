@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <filesystem>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::telemetry {
 

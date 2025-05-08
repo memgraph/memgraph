@@ -14,6 +14,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 
+#include <algorithm>
 #include <map>
 #include <vector>
 

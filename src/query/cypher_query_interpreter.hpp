@@ -13,7 +13,7 @@
 
 #include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"

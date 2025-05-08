@@ -87,6 +87,17 @@ target_sources(mg-query
     edge_accessor.hpp
     procedure/cypher_types.hpp
     vertex_accessor.hpp
+    frontend/ast/ast.hpp
+    frontend/ast/query/aggregation.hpp
+    frontend/ast/query/auth_query.hpp
+    frontend/ast/query/binary_operator.hpp
+    frontend/ast/query/exists.hpp
+    frontend/ast/query/expression.hpp
+    frontend/ast/query/identifier.hpp
+    frontend/ast/query/named_expression.hpp
+    frontend/ast/query/pattern.hpp
+    frontend/ast/query/pattern_comprehension.hpp
+    frontend/ast/query/query.hpp
 )
 
 

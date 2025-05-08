@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,11 @@
 #include <map>
 #include <string>
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/aggregation.hpp"
+#include "query/frontend/ast/query/exists.hpp"
+#include "query/frontend/ast/query/identifier.hpp"
+#include "query/frontend/ast/query/named_expression.hpp"
+#include "query/frontend/ast/query/pattern_comprehension.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 

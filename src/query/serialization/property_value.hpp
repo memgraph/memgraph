@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"

@@ -46,7 +46,7 @@ on:
 
 jobs:
   PackageAndUpload:
-    runs-on: ${{ (inputs.arch == 'arm') && 'ubuntu-large-arm' || fromJSON(inputs.os == 'centos-10' && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON(inputs.os == 'centos-10' && '["self-hosted", "DockerMgBuild", "X64", "x86-64-v3"]' || '["self-hosted", "DockerMgBuild", "X64"]') }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
       mgdeps_cache_host: "${{ inputs.arch == 'arm' && 'false' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN

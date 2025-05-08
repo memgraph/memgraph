@@ -400,7 +400,8 @@ TYPED_TEST(SmallVectorCommon, CopyAssign) {
 TYPED_TEST(SmallVectorCommon, CopySelfAssign) {
   for (auto src_size : rv::iota(0, 10)) {
     auto src = make_seq<TypeParam>(this, src_size);
-    src = src;  // copy assign
+    auto &self = src;
+    self = src;  // copy assign
     EXPECT_EQ(src.size(), src_size);
   }
 }
@@ -440,8 +441,8 @@ TYPED_TEST(SmallVectorCommon, AtOutOfBounds) {
 
   // immutable at
   auto const &const_sut = sut;
-  EXPECT_NO_THROW(auto x = const_sut.at(2));
-  EXPECT_THROW(auto x = const_sut.at(3), std::out_of_range);
+  EXPECT_NO_THROW([[maybe_unused]] auto x = const_sut.at(2));
+  EXPECT_THROW([[maybe_unused]] auto x = const_sut.at(3), std::out_of_range);
 }
 
 TYPED_TEST(SmallVectorCommon, PopBackWhenEmpty) {
