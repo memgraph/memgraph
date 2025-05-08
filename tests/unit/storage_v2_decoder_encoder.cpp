@@ -16,6 +16,9 @@
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -28,7 +31,10 @@ static const uint64_t kTestVersion{1};
 template <typename T>
 class DecoderEncoderTest : public ::testing::Test {
  public:
-  void SetUp() override { Clear(); }
+  void SetUp() override {
+    Clear();
+    this->storage = std::make_unique<memgraph::storage::InMemoryStorage>();
+  }
 
   void TearDown() override { Clear(); }
 
@@ -37,6 +43,12 @@ class DecoderEncoderTest : public ::testing::Test {
 
   std::filesystem::path alternate_file{std::filesystem::temp_directory_path() /
                                        "MG_test_unit_storage_v2_decoder_encoder_alternate.bin"};
+
+  memgraph::storage::NameIdMapper *GetNameIdMapper() { return this->storage->name_id_mapper_.get(); }
+
+  memgraph::storage::PropertyId GetPropertyId(std::string_view name) {
+    return memgraph::storage::PropertyId::FromUint(this->storage->name_id_mapper_->NameToId(name));
+  }
 
  private:
   void Clear() {
@@ -47,6 +59,7 @@ class DecoderEncoderTest : public ::testing::Test {
       std::filesystem::remove(alternate_file);
     }
   }
+  std::unique_ptr<memgraph::storage::Storage> storage;
 };
 
 using FileTypes = testing::Types<memgraph::utils::OutputFile, memgraph::utils::NonConcurrentOutputFile>;
@@ -132,31 +145,61 @@ GENERATE_READ_TEST(Double, double, 1.123, 3.1415926535, 0, -505.505, std::numeri
 GENERATE_READ_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(),
                    std::string(100000, 'a'));
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_READ_TEST(
-    PropertyValue, memgraph::storage::PropertyValue, memgraph::storage::PropertyValue(),
-    memgraph::storage::PropertyValue(false), memgraph::storage::PropertyValue(true),
-    memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-    memgraph::storage::PropertyValue("nandare"),
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
-        {"nandare", memgraph::storage::PropertyValue(123)}}),
-    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-    memgraph::storage::PropertyValue(
-        memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
-                                             memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-    memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-        memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-        memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d,
-                                                                1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{
-        memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d,
-                                                                1.0, 2.0, 3.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{
-        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+TYPED_TEST(DecoderEncoderTest, ReadPropertyValue) {
+  std::vector<memgraph::storage::PropertyValue> vec = {
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue(false),
+      memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123L),
+      memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+          memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
+      memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
+          {this->GetPropertyId("nandare"), memgraph::storage::PropertyValue(123)}}),
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
+          memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}),
+  };
+  {
+    memgraph::storage::durability::Encoder<TypeParam> encoder;
+    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    for (const auto &item : vec) {
+      encoder.WritePropertyValue(item, this->GetNameIdMapper());
+    }
+    uint8_t invalid = 1;
+    encoder.Write(&invalid, sizeof(invalid));
+    encoder.Finalize();
+  }
+  {
+    memgraph::storage::durability::Decoder decoder;
+    auto version = decoder.Initialize(this->storage_file, kTestMagic);
+    ASSERT_TRUE(version);
+    ASSERT_EQ(*version, kTestVersion);
+    for (const auto &item : vec) {
+      auto decoded = decoder.ReadPropertyValue(this->GetNameIdMapper());
+      ASSERT_TRUE(decoded);
+      ASSERT_EQ(*decoded, item);
+    }
+    ASSERT_FALSE(decoder.ReadPropertyValue(this->GetNameIdMapper()));
+    ASSERT_FALSE(decoder.ReadPropertyValue(this->GetNameIdMapper()));
+    auto pos = decoder.GetPosition();
+    ASSERT_TRUE(pos);
+    ASSERT_EQ(pos, decoder.GetSize());
+  }
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SKIP_TEST(name, type, ...)                              \
@@ -193,31 +236,59 @@ GENERATE_READ_TEST(
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SKIP_TEST(String, std::string, "hello", "world", "nandare", "haihaihai", std::string(500000, 'a'));
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_SKIP_TEST(
-    PropertyValue, memgraph::storage::PropertyValue, memgraph::storage::PropertyValue(),
-    memgraph::storage::PropertyValue(false), memgraph::storage::PropertyValue(true),
-    memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-    memgraph::storage::PropertyValue("nandare"),
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
-        {"nandare", memgraph::storage::PropertyValue(123)}}),
-    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-    memgraph::storage::PropertyValue(
-        memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
-                                             memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-    memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-        memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-        memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d,
-                                                                1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point2d{
-        memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d,
-                                                                1.0, 2.0, 3.0}),
-    memgraph::storage::PropertyValue(memgraph::storage::Point3d{
-        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
+TYPED_TEST(DecoderEncoderTest, SkipPropertyValue) {
+  std::vector<memgraph::storage::PropertyValue> vec = {
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue(false),
+      memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123L),
+      memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+          memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
+      memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
+          {this->GetPropertyId("nandare"), memgraph::storage::PropertyValue(123)}}),
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
+          memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem ::WGS84_2d, 1.0, 2.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point2d{memgraph ::storage ::CoordinateReferenceSystem ::Cartesian_2d, 1.0, 2.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point3d{memgraph ::storage ::CoordinateReferenceSystem ::WGS84_3d, 1.0, 2.0, 3.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point3d{memgraph ::storage ::CoordinateReferenceSystem ::Cartesian_3d, 1.0, 2.0, 3.0}),
+  };
+  {
+    memgraph::storage::durability::Encoder<TypeParam> encoder;
+    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    for (const auto &item : vec) {
+      encoder.WritePropertyValue(item, this->GetNameIdMapper());
+    }
+    uint8_t invalid = 1;
+    encoder.Write(&invalid, sizeof(invalid));
+    encoder.Finalize();
+  }
+  {
+    memgraph::storage::durability::Decoder decoder;
+    auto version = decoder.Initialize(this->storage_file, kTestMagic);
+    ASSERT_TRUE(version);
+    ASSERT_EQ(*version, kTestVersion);
+    for (auto it = vec.begin(); it != vec.end(); ++it) {
+      ASSERT_TRUE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
+    }
+    ASSERT_FALSE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
+    ASSERT_FALSE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
+    auto pos = decoder.GetPosition();
+    ASSERT_TRUE(pos);
+    ASSERT_EQ(pos, decoder.GetSize());
+  }
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                                \
@@ -275,30 +346,65 @@ GENERATE_PARTIAL_READ_TEST(Double, 3.1415926535);
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_PARTIAL_READ_TEST(String, "nandare");
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_PARTIAL_READ_TEST(
-    PropertyValue,
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
-        memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-        memgraph::storage::PropertyValue("nandare"),
-        memgraph::storage::PropertyValue{
-            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
-        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-        memgraph::storage::PropertyValue(
-            memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
-                                                 memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-        memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-            memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-            memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
-            memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
-            memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
-            memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
-            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
+TYPED_TEST(DecoderEncoderTest, PartialReadPropertyValue) {
+  memgraph::storage::PropertyValue value(std::vector<memgraph::storage::PropertyValue>{
+      memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue{memgraph::storage::PropertyValue::map_t{
+          {this->GetPropertyId("nandare"), memgraph::storage::PropertyValue()}}},
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph ::storage ::PropertyValue(memgraph ::storage ::ZonedTemporalData(
+          memgraph ::storage ::ZonedTemporalType ::ZonedDateTime, memgraph ::utils ::AsSysTime(23),
+          memgraph ::utils ::Timezone(std ::chrono ::minutes{-60}))),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point2d{memgraph ::storage ::CoordinateReferenceSystem ::WGS84_2d, 1.0, 2.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point2d{memgraph ::storage ::CoordinateReferenceSystem ::Cartesian_2d, 1.0, 2.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point3d{memgraph ::storage ::CoordinateReferenceSystem ::WGS84_3d, 1.0, 2.0, 3.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point3d{memgraph ::storage ::CoordinateReferenceSystem ::Cartesian_3d, 1.0, 2.0, 3.0})});
+  {
+    memgraph::storage::durability::Encoder<TypeParam> encoder;
+    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    encoder.WritePropertyValue(value, this->GetNameIdMapper());
+    encoder.Finalize();
+  }
+  {
+    memgraph::utils::InputFile ifile;
+    memgraph::utils::OutputFile ofile;
+    ASSERT_TRUE(ifile.Open(this->storage_file));
+    ofile.Open(this->alternate_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    auto size = ifile.GetSize();
+    for (size_t i = 0; i <= size; ++i) {
+      if (i != 0) {
+        uint8_t byte;
+        ASSERT_TRUE(ifile.Read(&byte, sizeof(byte)));
+        ofile.Write(&byte, sizeof(byte));
+        ofile.Sync();
+      }
+      memgraph::storage::durability::Decoder decoder;
+      auto version = decoder.Initialize(this->alternate_file, kTestMagic);
+      if (i < kTestMagic.size() + sizeof(kTestVersion)) {
+        ASSERT_FALSE(version);
+      } else {
+        ASSERT_TRUE(version);
+        ASSERT_EQ(*version, kTestVersion);
+      }
+      if (i != size) {
+        ASSERT_FALSE(decoder.ReadPropertyValue(this->GetNameIdMapper()));
+      } else {
+        auto decoded = decoder.ReadPropertyValue(this->GetNameIdMapper());
+        ASSERT_TRUE(decoded);
+        ASSERT_EQ(*decoded, value);
+      }
+    }
+  }
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                                \
@@ -342,36 +448,71 @@ GENERATE_PARTIAL_READ_TEST(
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_PARTIAL_SKIP_TEST(String, "nandare");
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
-GENERATE_PARTIAL_SKIP_TEST(
-    PropertyValue,
-    memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-        memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
-        memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
-        memgraph::storage::PropertyValue("nandare"),
-        memgraph::storage::StringToPropertyValueMap{{"haihai", memgraph::storage::PropertyValue()}},
-        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-        memgraph::storage::PropertyValue(
-            memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
-                                                 memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
-        memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-            memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-            memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
-            memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
-            memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
-            memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
-        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
-            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
+TYPED_TEST(DecoderEncoderTest, PartialSkipPropertyValue) {
+  memgraph::storage::PropertyValue value(std::vector<memgraph::storage::PropertyValue>{
+      memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue{memgraph::storage::PropertyValue::map_t{
+          {this->GetPropertyId("nandare"), memgraph::storage::PropertyValue()}}},
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph ::storage ::PropertyValue(memgraph ::storage ::ZonedTemporalData(
+          memgraph ::storage ::ZonedTemporalType ::ZonedDateTime, memgraph ::utils ::AsSysTime(23),
+          memgraph ::utils ::Timezone(std ::chrono ::minutes{-60}))),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point2d{memgraph ::storage ::CoordinateReferenceSystem ::WGS84_2d, 1.0, 2.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point2d{memgraph ::storage ::CoordinateReferenceSystem ::Cartesian_2d, 1.0, 2.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point3d{memgraph ::storage ::CoordinateReferenceSystem ::WGS84_3d, 1.0, 2.0, 3.0}),
+      memgraph ::storage ::PropertyValue(
+          memgraph ::storage ::Point3d{memgraph ::storage ::CoordinateReferenceSystem ::Cartesian_3d, 1.0, 2.0, 3.0})});
+
+  {
+    memgraph::storage::durability::Encoder<TypeParam> encoder;
+    encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
+    encoder.WritePropertyValue(value, this->GetNameIdMapper());
+    encoder.Finalize();
+  }
+  {
+    memgraph::utils::InputFile ifile;
+    memgraph::utils::OutputFile ofile;
+    ASSERT_TRUE(ifile.Open(this->storage_file));
+    ofile.Open(this->alternate_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    auto size = ifile.GetSize();
+    for (size_t i = 0; i <= size; ++i) {
+      if (i != 0) {
+        uint8_t byte;
+        ASSERT_TRUE(ifile.Read(&byte, sizeof(byte)));
+        ofile.Write(&byte, sizeof(byte));
+        ofile.Sync();
+      }
+      memgraph::storage::durability::Decoder decoder;
+      auto version = decoder.Initialize(this->alternate_file, kTestMagic);
+      if (i < kTestMagic.size() + sizeof(kTestVersion)) {
+        ASSERT_FALSE(version);
+      } else {
+        ASSERT_TRUE(version);
+        ASSERT_EQ(*version, kTestVersion);
+      }
+      if (i != size) {
+        ASSERT_FALSE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
+      } else {
+        ASSERT_TRUE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
+      }
+    }
+  }
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
   {
     memgraph::storage::durability::Encoder<TypeParam> encoder;
     encoder.Initialize(this->storage_file, kTestMagic, kTestVersion);
-    encoder.WritePropertyValue(memgraph::storage::PropertyValue(123L));
+    encoder.WritePropertyValue(memgraph::storage::PropertyValue(123L), this->GetNameIdMapper());
     encoder.Finalize();
   }
   {
@@ -464,14 +605,14 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.SkipPropertyValue());
+        ASSERT_FALSE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
       }
       {
         memgraph::storage::durability::Decoder decoder;
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.ReadPropertyValue());
+        ASSERT_FALSE(decoder.ReadPropertyValue(this->GetNameIdMapper()));
       }
     }
     {
@@ -487,14 +628,14 @@ TYPED_TEST(DecoderEncoderTest, PropertyValueInvalidMarker) {
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.SkipPropertyValue());
+        ASSERT_FALSE(decoder.SkipPropertyValue(this->GetNameIdMapper()));
       }
       {
         memgraph::storage::durability::Decoder decoder;
         auto version = decoder.Initialize(this->storage_file, kTestMagic);
         ASSERT_TRUE(version);
         ASSERT_EQ(*version, kTestVersion);
-        ASSERT_FALSE(decoder.ReadPropertyValue());
+        ASSERT_FALSE(decoder.ReadPropertyValue(this->GetNameIdMapper()));
       }
     }
   }
