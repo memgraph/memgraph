@@ -73,9 +73,6 @@ class PropertyValueImpl {
   using Type = PropertyValueType;
 
   using string_t = std::basic_string<char, std::char_traits<char>, typename alloc_trait::template rebind_alloc<char>>;
-
-  // using KeyType = typename PropertyValueTraits<KeyType>::KeyType;
-
   using map_t = boost::container::flat_map<
       KeyType, PropertyValueImpl, std::less<>,
       typename alloc_trait::template rebind_alloc<std::pair<KeyType const, PropertyValueImpl>>>;

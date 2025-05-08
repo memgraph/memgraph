@@ -14,6 +14,8 @@
 #include <memory_resource>
 #include <sstream>
 
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -29,7 +31,8 @@ using enum CoordinateReferenceSystem;
 ///!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 // helpers
-bool IsOnlyOneType(PropertyValue const &pv) {
+template <typename Alloc, typename KeyType>
+bool IsOnlyOneType(const PropertyValueImpl<Alloc, KeyType> &pv) {
   auto count = pv.IsNull() + pv.IsBool() + pv.IsInt() + pv.IsDouble() + pv.IsString() + pv.IsList() + pv.IsMap() +
                pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d();
   return count == 1;
@@ -473,13 +476,13 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  StringToPropertyValueMap map{{"nandare", PropertyValue(123)}};
-  PropertyValue pv(map);
+  IntermediatePropertyValue::map_t map{{"nandare", IntermediatePropertyValue(123)}};
+  IntermediatePropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);
   ASSERT_EQ(map.at("nandare").ValueInt(), 123);
 
-  ASSERT_EQ(pv.type(), PropertyValue::Type::Map);
+  ASSERT_EQ(pv.type(), IntermediatePropertyValue::Type::Map);
 
   ASSERT_TRUE(pv.IsMap());
   ASSERT_TRUE(IsOnlyOneType(pv));
@@ -528,12 +531,12 @@ TEST(PropertyValue, MapCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapMove) {
-  PropertyValue::map_t map{{"nandare", PropertyValue(123)}};
-  PropertyValue pv(std::move(map));
+  IntermediatePropertyValue::map_t map{{"nandare", IntermediatePropertyValue(123)}};
+  IntermediatePropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
 
-  ASSERT_EQ(pv.type(), PropertyValue::Type::Map);
+  ASSERT_EQ(pv.type(), IntermediatePropertyValue::Type::Map);
 
   ASSERT_TRUE(pv.IsMap());
   ASSERT_TRUE(IsOnlyOneType(pv));
@@ -671,7 +674,7 @@ TEST(PropertyValue, Point3d) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyConstructor) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -739,7 +742,7 @@ TEST(PropertyValue, CopyConstructor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveConstructor) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -808,7 +811,7 @@ TEST(PropertyValue, MoveConstructor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignment) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -877,7 +880,7 @@ TEST(PropertyValue, CopyAssignment) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignment) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -969,7 +972,7 @@ TEST(PropertyValue, MoveAssignmentSelf) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Equal) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  auto map = PropertyValue::map_t{{"nandare", PropertyValue(false)}};
+  auto map = PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -996,8 +999,8 @@ TEST(PropertyValue, Equal) {
 
 TEST(PropertyValue, EqualMap) {
   auto a = PropertyValue(PropertyValue::map_t());
-  auto b = PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}});
-  auto c = PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}});
+  auto b = PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}});
+  auto c = PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}});
 
   ASSERT_EQ(a, a);
   ASSERT_EQ(b, b);
@@ -1014,7 +1017,7 @@ TEST(PropertyValue, EqualMap) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Less) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  auto map = PropertyValue::map_t{{"nandare", PropertyValue(false)}};
+  auto map = PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -1023,7 +1026,7 @@ TEST(PropertyValue, Less) {
       PropertyValue(123.5),
       PropertyValue("nandare"),
       PropertyValue(vec),
-      PropertyValue(map),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}}),
       PropertyValue{enum_val},
       PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
@@ -1090,21 +1093,11 @@ TEST(PMRPropertyValue, GivenNullAllocatorFailsIfTriesToAllocate) {
 
   auto test_number = sut_t{42, std::pmr::new_delete_resource()};
 
-  auto test_string = sut_t::string_t{"long long long long long string", std::pmr::new_delete_resource()};
-  EXPECT_THROW(sut_t(test_string, nmr), std::bad_alloc);
-
   auto test_list = sut_t::list_t{{test_number}, std::pmr::new_delete_resource()};
   EXPECT_THROW(sut_t(test_list, nmr), std::bad_alloc);
 
-  auto test_map = sut_t::map_t{{std::pair(test_string, test_number)}, std::pmr::new_delete_resource()};
+  auto test_map = sut_t::map_t{{std::pair(PropertyId::FromInt(1), test_number)}, std::pmr::new_delete_resource()};
   EXPECT_THROW(sut_t(test_map, nmr), std::bad_alloc);
-
-  {
-    auto sut = sut_t{std::pmr::polymorphic_allocator<>(nmr)};
-    auto string_cpy = sut_t(test_string, std::pmr::new_delete_resource());
-    EXPECT_THROW((sut = string_cpy), std::bad_alloc);
-    EXPECT_THROW((sut = std::move(string_cpy)), std::bad_alloc);
-  }
 
   {
     auto sut = sut_t{std::pmr::polymorphic_allocator<>(nmr)};
@@ -1130,7 +1123,8 @@ TEST(PMRPropertyValue, InteropWithPropertyValue) {
   auto const test_string = sut_t{raw_test_string};
   auto const test_number = sut_t{raw_test_int};
   auto const test_list = sut_t{sut_t::list_t{test_number, test_number}};
-  auto const test_map = sut_t{sut_t::map_t{std::pair{raw_test_string, test_number}}};
+  auto const property_id = PropertyId::FromUint(1);
+  auto const test_map = sut_t{sut_t::map_t{std::pair{property_id, test_number}}};
 
   {
     /// String -> pmr to regular
@@ -1160,13 +1154,13 @@ TEST(PMRPropertyValue, InteropWithPropertyValue) {
     /// Map -> pmr to regular
     auto const as_pv = memgraph::storage::PropertyValue(test_map);
     ASSERT_EQ(as_pv.ValueMap().size(), 1);
-    ASSERT_TRUE(as_pv.ValueMap().contains(raw_test_string));
-    ASSERT_EQ(as_pv.ValueMap().at(raw_test_string).ValueInt(), raw_test_int);
+    ASSERT_TRUE(as_pv.ValueMap().contains(property_id));
+    ASSERT_EQ(as_pv.ValueMap().at(property_id).ValueInt(), raw_test_int);
 
     /// Map -> regular to pmr
     auto const as_pmr_pv = sut_t{as_pv};
     ASSERT_EQ(as_pmr_pv.ValueMap().size(), 1);
-    ASSERT_TRUE(as_pmr_pv.ValueMap().contains(raw_test_string));
-    ASSERT_EQ(as_pmr_pv.ValueMap().at(raw_test_string).ValueInt(), raw_test_int);
+    ASSERT_TRUE(as_pmr_pv.ValueMap().contains(property_id));
+    ASSERT_EQ(as_pmr_pv.ValueMap().at(property_id).ValueInt(), raw_test_int);
   }
 }
