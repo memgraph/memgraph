@@ -25,7 +25,7 @@
 #include "utils/metrics_timer.hpp"
 
 namespace {
-constexpr int timeout_ms = 5000;
+constexpr uint32_t timeout_ms = 5000;
 }  // namespace
 
 namespace memgraph::metrics {
