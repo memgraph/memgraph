@@ -49,6 +49,14 @@ class InfoTest : public testing::Test {
     this->storage.reset(nullptr);
   }
 
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
   memgraph::storage::Config config_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state_{
       storage_directory};
@@ -109,34 +117,34 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->CreateIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
-      auto acc = this->storage->ReadOnlyAccess();
+      auto acc = this->CreateIndexAccessor();
       ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
       ASSERT_FALSE(acc->Commit().HasError());
     }
   }
   {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
-    auto acc = this->storage->ReadOnlyAccess();
+    auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }

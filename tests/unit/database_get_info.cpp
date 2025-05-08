@@ -73,6 +73,14 @@ class InfoTest : public testing::Test {
     std::filesystem::remove_all(storage_directory);
   }
 
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
+      return (*this->db_acc_)->ReadOnlyAccess();
+    } else {
+      return (*this->db_acc_)->UniqueAccess();
+    }
+  }
+
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
@@ -152,48 +160,48 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto read_only_acc = db_acc->ReadOnlyAccess();
-    ASSERT_FALSE(read_only_acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
+    auto acc = db_acc->UniqueAccess();
+    ASSERT_FALSE(acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto read_only_acc = db_acc->ReadOnlyAccess();
-    ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto read_only_acc = db_acc->ReadOnlyAccess();
-    ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop2}).HasError());
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto read_only_acc = db_acc->ReadOnlyAccess();
-      ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(read_only_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
-      auto read_only_acc = db_acc->ReadOnlyAccess();
-      ASSERT_FALSE(read_only_acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(read_only_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
   }
 
   {
-    auto read_only_acc = db_acc->ReadOnlyAccess();
-    ASSERT_FALSE(read_only_acc->DropIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(read_only_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto read_only_acc = db_acc->ReadOnlyAccess();
-      ASSERT_FALSE(read_only_acc->DropIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(read_only_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
-      auto read_only_acc = db_acc->ReadOnlyAccess();
-      ASSERT_FALSE(read_only_acc->DropIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(read_only_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->DropIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
   }
 
