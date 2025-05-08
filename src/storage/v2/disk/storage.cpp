@@ -2048,7 +2048,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyId> &&properties, std::function<bool()> cancel_check) {
   MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
