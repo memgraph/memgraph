@@ -1096,7 +1096,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
               get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO: problem if mixed with data deltas*/);
 
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
-          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties), []() { return false; })
+                  .HasError())
 
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
                                         properties_stringified);

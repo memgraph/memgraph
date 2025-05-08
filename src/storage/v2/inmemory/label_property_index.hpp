@@ -187,11 +187,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 
-  void PopulateIndex(LabelId label, std::vector<PropertyId> const &properties,
+  auto PopulateIndex(LabelId label, std::vector<PropertyId> const &properties,
                      utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                     std::function<bool()> cancel_check,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     const Transaction *tx = nullptr);
+                     const Transaction *tx = nullptr) -> bool;
 
  private:
   utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;

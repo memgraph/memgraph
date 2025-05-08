@@ -2827,12 +2827,13 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
         const auto index_res = std::visit(
-            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                          return impl->CreateIndex(label_id, std::vector{property_id});
-                                        },
-                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                          return impl->GetAccessor()->CreateIndex(label_id, std::vector{property_id});
-                                        }},
+            memgraph::utils::Overloaded{
+                [label_id, property_id](memgraph::query::DbAccessor *impl) {
+                  return impl->CreateIndex(label_id, std::vector{property_id}, []() { return false; });
+                },
+                [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                  return impl->GetAccessor()->CreateIndex(label_id, std::vector{property_id}, []() { return false; });
+                }},
             graph->impl);
         return index_res.HasError() ? 0 : 1;
       },
@@ -4160,8 +4161,8 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_t
 
 int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
-  static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
-  auto const reason = memgraph::query::MustAbort(*graph->ctx);
+  static_assert(noexcept(graph->ctx->stopping_context.MustAbort()));
+  auto const reason = graph->ctx->stopping_context.MustAbort();
   // NOTE: deliberately decoupled to avoid accidental ABI breaks
   switch (reason) {
     case memgraph::query::AbortReason::TERMINATED:

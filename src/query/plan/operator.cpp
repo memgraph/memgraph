@@ -358,8 +358,8 @@ uint64_t ComputeProfilingKey(const T *obj) {
 }
 
 inline void AbortCheck(ExecutionContext const &context) {
-  if (!context.maybe_check_abort_()) return;
-  if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
+  if (auto const reason = context.stopping_context.MaybeMustAbort(); reason != AbortReason::NO_ABORT)
+    throw HintedAbortError(reason);
 }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
