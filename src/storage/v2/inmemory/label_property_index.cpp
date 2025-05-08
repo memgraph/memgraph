@@ -45,9 +45,7 @@ auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermuta
                                      IndexOrderedPropertyValues const &values) {
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
-    auto const res = helper.MatchesValue(delta.property.key, *delta.property.value, values);
-    if (res) {
-      auto [pos, matches] = *res;
+    for (auto &&[pos, matches] : helper.MatchesValue(delta.property.key, *delta.property.value, values)) {
       match[pos] = matches;
     }
   });

@@ -3332,14 +3332,49 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
     ASSERT_NO_ERROR(acc->Commit());
   }
 
-  {
-    auto acc = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
-                                   std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
-                                                         memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
-                                   View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(3, 13, 18));
+  auto acc = this->storage->Access();
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(3, 13, 18));
+
+  // Remove a.b.c from vertex 13 and set a.b.c to 15 on vertex 15
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id == 13) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{}));
+    } else if (id == 15) {
+      ASSERT_NO_ERROR(
+          vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(15)))));
+    }
   }
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(3, 13, 18));
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(3, 15, 18));
+
+  acc->AdvanceCommand();
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(3, 15, 18));
 }
