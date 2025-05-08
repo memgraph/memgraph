@@ -1397,7 +1397,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyId> &&properties, std::function<bool()> cancel_check) {
   MG_ASSERT(type() == READ_ONLY, "Creating label-property index requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1406,8 +1406,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   DowngradeToRead();
-  mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt, std::nullopt,
-                                          &transaction_);
+  auto res = mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
+                                                     std::move(cancel_check), std::nullopt, &transaction_);
+  if (!res) {
+    return StorageIndexDefinitionError{IndexPopulationError{}};  // TODO: better error info
+  }
 
   // This gets set at commit time
   transaction_.index_change_info_.emplace(label, properties, LabelPropertyIndex::Status::READY);
