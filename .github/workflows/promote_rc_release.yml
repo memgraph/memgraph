@@ -153,7 +153,7 @@ jobs:
           if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${os_x86}/${package} &> /dev/null; then
             echo "RC package for ${os_x86} does not exist at s3://${rc_bucket}/${rc_dir}/${os_x86}/${package}"
             exit 1
-          elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${os_arm}-aarch64/${package} &> /dev/null; then
+          elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${os_arm}/${package} &> /dev/null; then
             echo "RC package for ${os_arm} does not exist at s3://${rc_bucket}/${rc_dir}/${os_arm}/${package}"
             exit 1
           fi
