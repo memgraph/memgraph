@@ -19,11 +19,11 @@
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
-#include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -1428,8 +1428,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
       PropertyValue(std::vector<PropertyValue>{PropertyValue(2)}),
       PropertyValue(PropertyValue::map_t()),
-      PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-      PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}}),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
+      PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}}),
       PropertyValue(temporals[0]),
       PropertyValue(temporals[1]),
       PropertyValue(temporals[2]),
@@ -1521,20 +1521,28 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
          memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-          PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-          PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundExclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundExclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundExclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundInclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundInclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundExclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
+          PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundInclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundInclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
+          PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
 
   verify(memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[0])),
          memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::Date, 200})),
@@ -1583,13 +1591,16 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
   verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
          {PropertyValue(std::vector<PropertyValue>()), PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
-  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(false)}})),
+  verify(memgraph::utils::MakeBoundInclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}})),
          std::nullopt,
-         {PropertyValue(StringToPropertyValueMap{{"id", PropertyValue(5)}}),
-          PropertyValue(StringToPropertyValueMap{{"id", PropertyValue(10)}})});
+         {PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}}),
+          PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(10)}})});
   verify(std::nullopt,
-         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(7.5)}})),
-         {PropertyValue(PropertyValue::map_t()), PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}})});
+         memgraph::utils::MakeBoundExclusive(
+             PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(7.5)}})),
+         {PropertyValue(PropertyValue::map_t()),
+          PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(5)}})});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::Date, 10))), std::nullopt,
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
   verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
