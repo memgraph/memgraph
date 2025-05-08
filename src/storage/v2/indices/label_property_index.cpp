@@ -122,14 +122,38 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
 
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
-    -> std::optional<std::pair<std::ptrdiff_t, bool>> {
-  // @TODO account for nesting here by using sorted_properties_ rather
-  // than just the roots
-  auto it = std::ranges::find(sorted_properties_roots_, property_id);
-  if (it == sorted_properties_roots_.end()) return std::nullopt;
+    -> std::vector<std::pair<std::ptrdiff_t, bool>> {
+  auto const compare_nested_value = [](PropertyValue const &outer, PropertyValue const &value,
+                                       PropertyPath const &path) {
+    PropertyValue const *value_ptr = &outer;
+    auto path_it = std::next(path.cbegin());
 
-  auto pos = std::distance(sorted_properties_roots_.begin(), it);
-  return std::pair{pos, values.values_[position_lookup_[pos]] == value};
+    // Traverse the nested map of property values until we have found the single
+    // nested property we compare against.
+    while (std::distance(path_it, path.cend()) != 0) {
+      if (!value_ptr->IsMap()) {
+        return false;
+      }
+
+      auto &map = value_ptr->ValueMap();
+      auto map_it = map.find(*path_it++);
+      if (map_it == map.end()) {
+        // subkey doesn't exist
+        return false;
+      }
+
+      value_ptr = &map_it->second;
+    }
+
+    return *value_ptr == value;
+  };
+
+  return rv::enumerate(sorted_properties_) | rv::filter([&](auto &&el) { return std::get<1>(el)[0] == property_id; }) |
+         rv::transform([&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
+           auto &&[index, path] = el;
+           return {index, compare_nested_value(value, values.values_[index], path)};
+         }) |
+         r::to_vector;
 }
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
