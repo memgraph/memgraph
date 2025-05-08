@@ -187,6 +187,8 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor) {
+  // This is used at recovery time, not other txns, hence no deltas, read object as it is
+
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
@@ -203,6 +205,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor, const Transaction &tx) {
+  // This is used during txn, hence deltas, read object with correct MVCC snapshot isolation
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -262,10 +265,13 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<Property
   });
 }
 
-void InMemoryLabelPropertyIndex::PopulateIndex(
+struct PopulateCancel : std::exception {};
+
+bool InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, const Transaction *tx) {
+    std::function<bool()> cancel_check, std::optional<SnapshotObserverInfo> const &snapshot_info,
+    const Transaction *tx) {
   spdlog::trace("Vertices size when populating index: {}", vertices.size());
 
   auto index_ptr = index_.WithReadLock([&](IndexContainer const &index) -> std::shared_ptr<IndividualIndex> {
@@ -281,25 +287,9 @@ void InMemoryLabelPropertyIndex::PopulateIndex(
   });
 
   // If the index is not found, it means that the index was dropped before we started to populating it.
-  if (!index_ptr) return;
+  if (!index_ptr) return false;  // TODO: Better communication of why we didn't populate
 
-  try {
-    auto &index_skip_list = index_ptr->skiplist;
-    auto accessor_factory = [&] { return index_skip_list.access(); };
-    auto const &props_permutation_helper = index_ptr->permutations_helper;
-
-    auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-      // TODO: I want to invoke this or something but can't make it work
-      if (tx) {
-        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor, *tx);
-      } else {
-        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
-      }
-    };
-    PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-
-  } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
+  auto const remove_index_on_population_failure = [&]() {
     index_.WithLock([&](IndexContainer &index) {
       auto it = index.find(label);
       if (it == index.end()) {
@@ -315,8 +305,39 @@ void InMemoryLabelPropertyIndex::PopulateIndex(
         index.erase(it);
       }
     });
+  };
+
+  try {
+    auto &index_skip_list = index_ptr->skiplist;
+    auto accessor_factory = [&] { return index_skip_list.access(); };
+    auto const &props_permutation_helper = index_ptr->permutations_helper;
+
+    if (tx) {
+      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
+        }
+        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor, *tx);
+      };
+      PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+    } else {
+      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
+        }
+        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
+      };
+      PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+    }
+
+  } catch (const PopulateCancel &) {
+    remove_index_on_population_failure();
+    return false;  // TODO: Better communication of why we stopped
+  } catch (const utils::OutOfMemoryException &) {
+    remove_index_on_population_failure();
     throw;
   }
+  return true;
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
