@@ -6360,6 +6360,7 @@ class CallProcedureCursor : public Cursor {
 
   void Reset() override {
     result_.rows.clear();
+    result_row_it_ = result_.rows.begin();
     if (cleanup_) {
       cleanup_.value()();
     }
