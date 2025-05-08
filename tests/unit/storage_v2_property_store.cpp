@@ -1172,6 +1172,124 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   EXPECT_EQ(values[3], PropertyValue{"cherry"});
 }
 
+TEST(PropertiesPermutationHelper, MatchesValue_ProducesVectorOfPositionsAndComparisons) {
+  using Match = std::pair<std::ptrdiff_t, bool>;
+
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+
+  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4},
+                                                     PropertyPath{p5, p6}, PropertyPath{p7}}};
+
+  IndexOrderedPropertyValues const baseline{{
+      PropertyValue("apple"),
+      PropertyValue("banana"),
+      PropertyValue("cherry"),
+      PropertyValue("date"),
+      PropertyValue("eggplant"),
+  }};
+
+  // No root properties for `p6`
+  EXPECT_THAT(prop_reader.MatchesValue(p6, PropertyValue("eggplant"), baseline), UnorderedElementsAre());
+
+  // Three root properties for `p1`, match all values
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p2, PropertyValue("apple")},
+                                           {p3, PropertyValue("banana")},
+                                           {p4, PropertyValue("cherry")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, true), Match(1, true), Match(2, true)));
+
+  // Three root properties for `p1`, fails to match values because value is not a map
+  EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue("grapefruit"), baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, false), Match(2, false)));
+
+  // Three root properties for `p1`, fails to match values because nested values are missing
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p5, PropertyValue("grapefruit")},
+                                           {p6, PropertyValue("honeydew melon")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, false), Match(2, false)));
+
+  // Three root properties for `p1`, match no values because they are different
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p2, PropertyValue("banana")},
+                                           {p3, PropertyValue("apple")},
+                                           {p4, PropertyValue("apple")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, false), Match(2, false)));
+
+  // Three root properties for `p1`, match just one value as others missing
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p3, PropertyValue("banana")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, true), Match(2, false)));
+
+  // Three root properties for `p1`, match just one value as others different
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p2, PropertyValue("apple")},
+                                           {p3, PropertyValue("grapefruit")},
+                                           {p4, PropertyValue("honeydew melon")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, true), Match(1, false), Match(2, false)));
+
+  // Test positively against non-nested property p7
+  EXPECT_THAT(prop_reader.MatchesValue(p7, PropertyValue("eggplant"), baseline), UnorderedElementsAre(Match(4, true)));
+
+  // Test negatively against non-nested property p7
+  EXPECT_THAT(prop_reader.MatchesValue(p7, PropertyValue("grapefruit"), baseline),
+              UnorderedElementsAre(Match(4, false)));
+}
+
+TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
+  using Match = std::pair<std::ptrdiff_t, bool>;
+
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  PropertiesPermutationHelper prop_reader{std::array{
+      PropertyPath{p3, p4},
+      PropertyPath{p1, p2},
+  }};
+
+  IndexOrderedPropertyValues const baseline{{
+      PropertyValue("apple"),
+      PropertyValue("banana"),
+  }};
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
+      UnorderedElementsAre(Match(0, false)));
+
+  EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("apple")}}), baseline),
+              UnorderedElementsAre(Match(0, true)));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
+      UnorderedElementsAre(Match(1, false)));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("banana")}}), baseline),
+      UnorderedElementsAre(Match(1, true)));
+}
+
 // @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d).
 // Currently, this will not work because we can only read from the `PropertyStore`
 // using monotonically increasing `PropertyId`s. No going back to read the same
