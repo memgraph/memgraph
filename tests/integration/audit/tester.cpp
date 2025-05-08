@@ -14,8 +14,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include "bolt/v1/value.hpp"
 #include "communication/bolt/client.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
 
