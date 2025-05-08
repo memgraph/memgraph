@@ -24,6 +24,10 @@
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
 
+namespace {
+constexpr int timeout_ms = 5000;
+}  // namespace
+
 namespace memgraph::metrics {
 extern const Event SocketConnect_us;
 }  // namespace memgraph::metrics
@@ -75,7 +79,6 @@ bool Socket::Connect(const Endpoint &endpoint) {
   }
 
   auto const socket_addr = endpoint.SocketAddress();
-  constexpr int timeout_ms = 10000;
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
