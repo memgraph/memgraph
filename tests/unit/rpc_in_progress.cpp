@@ -94,7 +94,7 @@ TEST(RpcInProgress, SingleProgress) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Sum>(2, 3);
-  auto reply = stream.AwaitResponseWhileInProgress();
+  auto reply = stream.SendAndWaitProgress();
   EXPECT_EQ(reply.sum, 5);
 }
 
@@ -146,7 +146,7 @@ TEST(RpcInProgress, MultipleProgresses) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Sum>(2, 3);
-  auto reply = stream.AwaitResponseWhileInProgress();
+  auto reply = stream.SendAndWaitProgress();
   EXPECT_EQ(reply.sum, 5);
 }
 
@@ -187,7 +187,7 @@ TEST(RpcInProgress, Timeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Sum>(2, 3);
-  EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
 }
 
 TEST(RpcInProgress, NoTimeout) {
@@ -219,5 +219,5 @@ TEST(RpcInProgress, NoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<Sum>(2, 3);
-  EXPECT_NO_THROW(stream.AwaitResponseWhileInProgress());
+  EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }

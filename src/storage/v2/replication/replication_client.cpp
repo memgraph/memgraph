@@ -76,7 +76,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, main_storage->uuid(),
                                                                            replStorageState.last_durable_timestamp_,
                                                                            std::string{replStorageState.epoch_.id()});
-    return hb_stream.AwaitResponse();
+    return hb_stream.SendAndWait();
   });
 
   if (heartbeat_res.success) {
@@ -565,6 +565,6 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
 
 replication::AppendDeltasRes ReplicaStream::Finalize() {
   utils::MetricsTimer const timer{metrics::AppendDeltasRpc_us};
-  return stream_.AwaitResponseWhileInProgress();
+  return stream_.SendAndWaitProgress();
 }
 }  // namespace memgraph::storage

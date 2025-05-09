@@ -25,11 +25,12 @@ namespace memgraph::rpc {
 
 constexpr auto kBufferRetainLimit = 4 * 1024 * 1024;  // 4MiB
 
-Session::Session(Server *server, io::network::Endpoint endpoint, communication::InputStream *input_stream,
-                 communication::OutputStream *output_stream)
-    : server_(server), endpoint_(std::move(endpoint)), input_stream_(input_stream), output_stream_(output_stream) {}
+RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint const & /*endpoint*/,
+                                         communication::InputStream *input_stream,
+                                         communication::OutputStream *output_stream)
+    : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
-void Session::Execute() {
+void RpcMessageDeliverer::Execute() const {
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");

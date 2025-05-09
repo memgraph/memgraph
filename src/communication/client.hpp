@@ -21,7 +21,6 @@
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
-#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 

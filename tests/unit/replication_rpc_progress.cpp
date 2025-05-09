@@ -207,7 +207,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
 
   auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_NO_THROW(stream.AwaitResponseWhileInProgress());
+  EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
 // First send progress, then timeout
@@ -243,7 +243,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
 
   auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
 
-  EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
 }
 
 // First send progress, then timeout
@@ -273,7 +273,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-  EXPECT_NO_THROW(stream.AwaitResponseWhileInProgress());
+  EXPECT_NO_THROW(stream.SendAndWaitProgress());
 }
 
 // First send progress, then timeout
@@ -308,7 +308,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-  EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
+  EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
 }
 
 // Timeout immediately
@@ -348,11 +348,11 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
 
   {
     auto stream = client.Stream<CurrentWalRpc>(UUID{}, main_storage.uuid(), false);
-    EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
+    EXPECT_THROW(stream.SendAndWaitProgress(), GenericRpcFailedException);
   }
 
   {
     auto wal_files_stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(1, UUID{}, UUID{}, false);
-    EXPECT_NO_THROW(wal_files_stream.AwaitResponseWhileInProgress());
+    EXPECT_NO_THROW(wal_files_stream.SendAndWaitProgress());
   }
 }

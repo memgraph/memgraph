@@ -229,7 +229,7 @@ TEST(Rpc, Stream) {
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>("hello");
   memgraph::slk::Save("world", stream.GetBuilder());
-  auto echo = stream.AwaitResponse();
+  auto echo = stream.SendAndWait();
   EXPECT_EQ(echo.data, "helloworld");
 
   server.Shutdown();
@@ -257,7 +257,7 @@ TEST(Rpc, StreamLarge) {
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>(testdata1);
   memgraph::slk::Save(testdata2, stream.GetBuilder());
-  auto echo = stream.AwaitResponse();
+  auto echo = stream.SendAndWait();
   EXPECT_EQ(echo.data, testdata1 + testdata2);
 
   server.Shutdown();
@@ -287,7 +287,7 @@ TEST(Rpc, StreamJumbo) {
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>(testdata1);
   memgraph::slk::Save(testdata2, stream.GetBuilder());
-  auto echo = stream.AwaitResponse();
+  auto echo = stream.SendAndWait();
   EXPECT_EQ(echo.data, testdata1 + testdata2);
 
   server.Shutdown();

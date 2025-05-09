@@ -100,7 +100,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             locked_auth.AllUsers(), locked_auth.AllRoles());
       });
     });
-    if (const auto response = stream.AwaitResponse(); response.result == SystemRecoveryRes::Result::FAILURE) {
+    if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }

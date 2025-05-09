@@ -89,7 +89,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
   try {
     utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
-    auto res = stream.AwaitResponse();
+    auto res = stream.SendAndWait();
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
     return res.state;
   } catch (rpc::RpcFailedException const &e) {
@@ -104,7 +104,7 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   try {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
-    auto res = stream.AwaitResponse();
+    auto res = stream.SendAndWait();
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
     return res.instance_info;
 

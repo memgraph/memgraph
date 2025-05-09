@@ -27,7 +27,7 @@ namespace memgraph::replication_coordination_glue {
 
 inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uuid) {
   try {
-    if (auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)}; !stream.AwaitResponse().success) {
+    if (auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)}; !stream.SendAndWait().success) {
       spdlog::error("Received unsuccessful response to SwapMainUUIDReq");
       metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
       return false;

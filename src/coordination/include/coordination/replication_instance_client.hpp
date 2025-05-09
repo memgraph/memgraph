@@ -87,7 +87,7 @@ class ReplicationInstanceClient {
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
-      if (auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...); !stream.AwaitResponse().success) {
+      if (auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...); !stream.SendAndWait().success) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
         metrics::IncrementCounter(RpcInfo<T>::failCounter);
         return false;
@@ -108,7 +108,7 @@ class ReplicationInstanceClient {
     try {
       // Specialize in order to send replication_client_info
       if (auto stream = rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info);
-          !stream.AwaitResponse().success) {
+          !stream.SendAndWait().success) {
         spdlog::error("Received unsuccessful response to {}.", DemoteMainToReplicaRpc::Request::kType.name);
         metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
         return false;

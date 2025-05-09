@@ -55,7 +55,7 @@ class Server {
   }
 
  private:
-  friend class Session;
+  friend class RpcMessageDeliverer;
 
   struct RpcCallback {
     utils::TypeInfo req_type;
@@ -65,7 +65,7 @@ class Server {
 
   std::mutex lock_;
   std::map<utils::TypeId, RpcCallback> callbacks_;
-  communication::Server<Session, Server> server_;
+  communication::Server<RpcMessageDeliverer, Server> server_;
 };
 
 }  // namespace memgraph::rpc
