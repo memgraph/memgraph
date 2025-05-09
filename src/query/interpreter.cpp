@@ -4807,12 +4807,16 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
         for (const auto &[label, properties] : info.label_properties) {
-          auto to_name = [&](storage::PropertyId prop) { return TypedValue{storage->PropertyToName(prop)}; };
-          // TODO: put back...
-          // auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
-          // results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
-          //                    TypedValue(std::move(props)),
-          //                    TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
+          auto prop_path_to_name = [&](storage::PropertyPath const &property_path) {
+            return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
+                                return storage->PropertyToName(property_id);
+                              }) |
+                              rv::join(".") | r::to<std::string>()};
+          };
+          auto props = properties | ranges::views::transform(prop_path_to_name) | ranges::to_vector;
+          results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
+                             TypedValue(std::move(props)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
         }
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
