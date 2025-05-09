@@ -17,6 +17,7 @@
 #include <utility>
 #include <variant>
 
+#include "frontend/ast/query/identifier.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -208,7 +209,7 @@ auto MatchesIdentifier(Identifier *identifier) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
+    : symbol_(symbol), property_ids_({std::move(property)}), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -219,7 +220,35 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
-      property_(std::move(property)),
+      property_ids_({std::move(property)}),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
+  UsedSymbolsCollector collector(symbol_table);
+  if (lower_bound) {
+    lower_bound->value()->Accept(collector);
+  }
+  if (upper_bound) {
+    upper_bound->value()->Accept(collector);
+  }
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol,
+                               std::vector<PropertyIx> properties, Expression *value, Type type)
+    : symbol_(symbol), property_ids_(std::move(properties)), type_(type), value_(value) {
+  MG_ASSERT(type != Type::RANGE);
+  UsedSymbolsCollector collector(symbol_table);
+  value->Accept(collector);
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol,
+                               std::vector<PropertyIx> properties,
+                               const std::optional<PropertyFilter::Bound> &lower_bound,
+                               const std::optional<PropertyFilter::Bound> &upper_bound)
+    : symbol_(symbol),
+      property_ids_(std::move(properties)),
       type_(Type::RANGE),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
@@ -234,13 +263,16 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 }
 
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
-    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
+    : symbol_(std::move(symbol)), property_ids_({std::move(property)}), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
   // expression may actually contain the symbol whose property
   // we may be looking up.
 }
+
+PropertyFilter::PropertyFilter(Symbol symbol, std::vector<PropertyIx> properties, Type type)
+    : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
 
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
     : symbol_(symbol), value_(value) {
@@ -466,22 +498,22 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
-  CollectFilterExpression(where.expression_, symbol_table);
+void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table, AstStorage *storage) {
+  CollectFilterExpression(where.expression_, symbol_table, storage);
 }
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
   auto filters = SplitExpression(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table);
+    AnalyzeAndStoreFilter(filter, symbol_table, storage);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -490,11 +522,40 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
   };
+  auto is_nested_property_lookup = [](auto *maybe_lookup) {
+    return utils::Downcast<PropertyLookup>(maybe_lookup) &&
+           utils::Downcast<PropertyLookup>(utils::Downcast<PropertyLookup>(maybe_lookup)->expression_);
+  };
+  auto extract_nested_property_lookup = [&](auto *maybe_lookup) {
+    auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
+    auto *prev_expr = expr;
+    std::vector<PropertyIx> nested_properties;
+    while (expr) {
+      nested_properties.push_back(expr->property_);
+      prev_expr = expr;
+      expr = utils::Downcast<PropertyLookup>(expr->expression_);
+    }
+    std::reverse(nested_properties.begin(), nested_properties.end());
+    return std::pair<Identifier *, std::vector<PropertyIx>>{utils::Downcast<Identifier>(prev_expr->expression_),
+                                                            std::move(nested_properties)};
+  };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
   auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr,
+                                              PropertyFilter::Type::EQUAL);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
@@ -508,6 +569,17 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_prop_regex_match = [&](auto *maybe_lookup, auto *val_expr) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr,
+                                              PropertyFilter::Type::REGEX_MATCH);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
@@ -640,7 +712,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // We need to get both possible lookups `n.prop > thing` and `thing > n.prop`
     // Only one can be used in the rewrite, so even when we add both into all_filters_ only one can be used
     // example where two can be inserted `n0.propA > n1.propB`, the rewritten scan could be for n0 or n1
-    if (get_property_lookup(expr1, prop_lookup, ident)) {
+    if (is_nested_property_lookup(expr1)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(expr1);
+      if (ident) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties,
+                                                Bound(expr2, bound_type), std::nullopt);
+        all_filters_.emplace_back(filter);
+      }
+    } else if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
@@ -648,7 +728,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
-    if (get_property_lookup(expr2, prop_lookup, ident)) {
+    if (is_nested_property_lookup(expr2)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(expr2);
+      if (ident) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, std::nullopt,
+                                                Bound(expr1, bound_type));
+        all_filters_.emplace_back(filter);
+      }
+    } else if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
@@ -683,6 +771,17 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!utils::Downcast<ListLiteral>(val_expr)) return false;
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr, PropertyFilter::Type::IN);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
@@ -710,15 +809,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
 
-    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
-      return false;
+    if (get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
     }
-
-    auto filter = make_filter(FilterInfo::Type::Property);
-    filter.property_filter =
-        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
-    all_filters_.emplace_back(filter);
-    return true;
+    if (is_nested_property_lookup(maybe_is_null_check->expression_)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_is_null_check->expression_);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), nested_properties, PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+    return false;
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
@@ -982,7 +1091,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     }
   }
   if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table);
+    matching.filters.CollectWhereFilter(*where, symbol_table, &storage);
   }
 }
 

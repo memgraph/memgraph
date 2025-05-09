@@ -39,6 +39,9 @@ namespace memgraph::storage {
 
 namespace {
 
+namespace r = ranges;
+namespace rv = r::views;
+
 // `PropertyValue` is a very large object. It is implemented as a `union` of all
 // possible types that could be stored as a property value. That causes the
 // object to be 50+ bytes in size. Many use-cases only use primitive property
@@ -592,12 +595,12 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       for (const auto &item : map) {
         auto metadata = writer->WriteMetadata();
         if (!metadata) return std::nullopt;
-        auto key_size = writer->WriteUint(item.first.size());
-        if (!key_size) return std::nullopt;
-        if (!writer->WriteBytes(item.first.data(), item.first.size())) return std::nullopt;
+
+        auto property_id_size = writer->WriteUint(item.first.AsUint());
+        if (!property_id_size) return std::nullopt;
         auto ret = EncodePropertyValue(writer, item.second);
         if (!ret) return std::nullopt;
-        metadata->Set({ret->first, *key_size, ret->second});
+        metadata->Set({ret->first, *property_id_size, ret->second});
       }
       return {{Type::MAP, *size}};
     }
@@ -843,13 +846,13 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-        auto key_size = reader->ReadUint(metadata->id_size);
-        if (!key_size) return false;
-        std::string key(*key_size, '\0');
-        if (!reader->ReadBytes(key.data(), *key_size)) return false;
+
+        auto property_id = reader->ReadUint(metadata->id_size);
+        if (!property_id) return false;
+
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
-        map.emplace(std::move(key), std::move(item));
+        map.emplace(PropertyId::FromUint(*property_id), std::move(item));
       }
       value = PropertyValue(std::move(map));
       return true;
@@ -944,13 +947,11 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return std::nullopt;
-        auto key_size = reader->ReadUint(metadata->id_size);
-        if (!key_size) return std::nullopt;
-        std::string key(*key_size, '\0');
-        if (!reader->ReadBytes(key.data(), *key_size)) return std::nullopt;
+        auto property_id = reader->ReadUint(metadata->id_size);
+        if (!property_id) return std::nullopt;
         auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
         if (!item) return std::nullopt;
-        map.emplace(std::move(key), *std::move(item));
+        map.emplace(PropertyId::FromUint(*property_id), *std::move(item));
       }
       return std::optional<PropertyValue>{std::in_place, std::move(map)};
     }
@@ -1137,7 +1138,6 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);
         if (!key_size) return false;
-        if (!reader->SkipBytes(*key_size)) return false;
         if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
       }
       return true;
@@ -1240,10 +1240,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       for (const auto &item : map) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-        auto key_size = reader->ReadUint(metadata->id_size);
-        if (!key_size) return false;
-        if (*key_size != item.first.size()) return false;
-        if (!reader->VerifyBytes(item.first.data(), *key_size)) return false;
+        auto property_id = reader->ReadUint(metadata->id_size);
+        if (!property_id) return false;
+        if (PropertyId::FromUint(*property_id) != item.first) return false;
         if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, item.second)) return false;
       }
       return true;
@@ -1635,6 +1634,53 @@ enum class ExpectedPropertyStatus {
   auto property_id = reader->ReadUint(metadata->id_size);
   if (!property_id) return false;
   if (*property_id != expected_property.AsUint()) return false;
+
+  return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
+}
+
+// Function used to compare a `PropertyValue` with the current property value
+// nested (possible recursively) inside a map inside the byte stream.
+[[nodiscard]] bool CompareExpectedProperty(Reader *reader, PropertyPath const &path, const PropertyValue &value) {
+  DMG_ASSERT(!path.empty(), "path must be at least one `PropertyId` long.");
+
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return false;
+
+  auto const property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return false;
+  if (*property_id != path[0].AsUint()) return false;
+
+  for (auto path_part : path | rv::drop(1) | rv::transform(&PropertyId::AsUint)) {
+    // Because we are looking for a nested property, and this part is not
+    // the final one, it must to be a map in order to look for the next
+    // level of nesting.
+
+    if (metadata->type != Type::MAP) return false;
+
+    auto const map_size = reader->ReadUint(metadata->payload_size);
+    if (!map_size) return false;
+
+    // Advance to the next nested property
+    for (std::size_t i = 0; i < *map_size; ++i) {
+      metadata = reader->ReadMetadata();
+      if (!metadata) return false;
+
+      auto const property_id = reader->ReadUint(metadata->id_size);
+      if (!property_id) return false;
+      auto const cmp = property_id <=> path_part;
+      if (std::is_gt(cmp)) {
+        return false;
+      } else if (std::is_lt(cmp)) {
+        reader->SkipBytes(SizeToByteSize(metadata->payload_size));
+      } else {
+        break;
+      }
+    }
+  }
+
+  // We are now at the final part of the path (i.e., given `a.b.c.d`, we are at
+  // `d`; or given just `e` we are at `e`.) Perform the comparison with the
+  // expected value.
 
   return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
 }
@@ -2210,19 +2256,19 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   return WithReader(property_equal);
 }
 
-auto PropertyStore::ArePropertiesEqual(std::span<PropertyId const> ordered_properties,
+auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
   auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
     auto result = std::vector<bool>(ordered_properties.size(), false);
 
-    auto const get_result = [&](Reader &reader, PropertyId property, PropertyValue const &cmp_val) {
+    auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
       auto const orig_reader = reader;
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, path[0]);
       auto property_size = info.property_size();
       if (property_size != 0) {
         auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
-        auto cmp_res = CompareExpectedProperty(&prop_reader, property, cmp_val);
+        auto cmp_res = CompareExpectedProperty(&prop_reader, path, cmp_val);
         return std::pair{info.status, std::optional{cmp_res}};
       } else {
         return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};

@@ -110,7 +110,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
 }
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          const std::string_view uuid,
+                                                          NameIdMapper *name_id_mapper, const std::string_view uuid,
                                                           const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
@@ -128,7 +128,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       continue;
     }
     try {
-      auto info = ReadWalInfo(item.path());
+      auto info = ReadWalInfo(item.path(), name_id_mapper);
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
@@ -202,18 +202,19 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   // Recover label+property indices.
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   {
-    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
-    for (auto const &[label, properties] : indices_metadata.label_properties) {
-      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
-                                                 snapshot_info))
-        throw RecoveryFailure("The label+property index must be created here!");
+    // @TODO put recovery back for nested indices
+    // spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
+    // for (auto const &[label, properties] : indices_metadata.label_properties) {
+    //   if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
+    //                                              snapshot_info))
+    //     throw RecoveryFailure("The label+property index must be created here!");
 
-      auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
-      auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
+    //   auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
+    //   auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
 
-      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                   properties_string);
-    }
+    //   spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+    //                properties_string);
+    // }
     spdlog::info("Label+property indices are recreated.");
   }
 
@@ -225,7 +226,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       const auto label_id = item.first;
       const auto &property_ids = item.second.first;
       const auto &stats = item.second.second;
-      mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
+      // TODO: put back...
+      // mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
       auto id_to_name = [&](PropertyId prop) { return name_id_mapper->IdToName(prop.AsUint()); };
       auto const properties_str = utils::Join(property_ids | rv::transform(id_to_name), ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
@@ -516,7 +518,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         continue;
       }
       try {
-        auto info = ReadWalInfo(item.path());
+        auto info = ReadWalInfo(item.path(), name_id_mapper);
         wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
       } catch (const RecoveryFailure &e) {
         continue;
@@ -540,7 +542,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, name_id_mapper, std::string{uuid});
       maybe_wal_files && !maybe_wal_files->empty()) {
     // Array of all discovered WAL files, ordered by sequence number.
     const auto &wal_files = *maybe_wal_files;

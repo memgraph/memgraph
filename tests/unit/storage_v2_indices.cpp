@@ -25,6 +25,11 @@
 #include "storage_test_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
+// @TODO currently, these tests are not actually testing nested properties. Even
+// though they use the nested property API (i.e, the one with `PropertyPath`),
+// all tested properties are non-nested. Must expand the tests to ensure
+// nested props are also tested.
+
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 using testing::IsEmpty;
@@ -622,83 +627,87 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
+    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_id}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id}),
-                                     std::make_pair(this->label2, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}),
+                             std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
+    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_id})));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_id}).HasError());
+    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -718,87 +727,115 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    EXPECT_FALSE(unique_acc
+                     ->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(
+        this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label1,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+        this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    EXPECT_TRUE(unique_acc
+                    ->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                    .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label1,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    EXPECT_FALSE(unique_acc
+                     ->CreateIndex(this->label2,
+                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_TRUE(acc->LabelPropertyIndexExists(
+        this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c}),
-                             std::make_pair(this->label2, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    std::make_pair(this->label1, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
+                                                             PropertyPath{this->prop_c}}),
+                    std::make_pair(this->label2, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
+                                                             PropertyPath{this->prop_c}})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    EXPECT_FALSE(unique_acc
+                     ->DropIndex(this->label1,
+                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+        this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label2,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    EXPECT_TRUE(unique_acc
+                    ->DropIndex(this->label1,
+                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                    .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
+    EXPECT_FALSE(unique_acc
+                     ->DropIndex(this->label2,
+                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+        this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
@@ -816,20 +853,20 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_val}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc = this->storage->Access();
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = this->CreateVertex(acc.get());
@@ -837,47 +874,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
   acc->AdvanceCommand();
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -888,25 +925,25 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     }
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -915,47 +952,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     }
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 
   acc->AdvanceCommand();
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 }
 
 TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
@@ -965,17 +1002,23 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_b, this->prop_a, this->prop_c}).HasError());
+    EXPECT_FALSE(unique_acc
+                     ->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+                     .HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_c, this->prop_b}).HasError());
+    EXPECT_FALSE(
+        unique_acc->CreateIndex(this->label2, {PropertyPath{this->prop_c}, PropertyPath{this->prop_b}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               IsEmpty());
@@ -999,77 +1042,98 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
     }
   }
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              IsEmpty());
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6));
 
   acc->AdvanceCommand();
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     if (vertex.Gid().AsUint() % 2 == 0) {
@@ -1077,52 +1141,64 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
     }
   }
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre());
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre());
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre());
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1134,47 +1210,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
     }
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
     ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                     View::OLD),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::OLD),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue()));
     }
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                     View::OLD),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::OLD),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        IsEmpty());
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                IsEmpty());
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     }
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                     View::OLD),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::OLD),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
   }
 }
 
@@ -1186,18 +1262,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   auto acc = this->storage->Access();
 
-  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 0);
+  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 0);
   {
     auto vertex = this->CreateVertex(acc.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 1);
   }
 
   {
@@ -1205,7 +1281,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
     ASSERT_NO_ERROR(vertex.AddLabel(this->label2));  // NOTE: this is not label1
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     // We expect index for label1+id to be uneffected
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 1);
   }
 }
 
@@ -1213,7 +1289,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1227,18 +1303,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 1, 2, 3, 4));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
 
-  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                                View::NEW),
+  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                               View::NEW),
+  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                               std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
@@ -1246,17 +1322,17 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
 
   auto acc_after_commit = this->storage->Access();
 
-  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                                View::NEW),
+  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                               View::NEW),
+  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                               std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc_after_commit->Vertices(this->label1, std::array{this->prop_val},
+  EXPECT_THAT(this->GetIds(acc_after_commit->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                                       std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -1272,7 +1348,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1289,7 +1365,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   {
     auto acc = this->storage->Access();
     for (int i = 0; i < 5; ++i) {
-      EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+      EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                              std::array{pvr::Equal(PropertyValue(i))}, View::OLD)),
                   UnorderedElementsAre(2 * i, 2 * i + 1));
     }
@@ -1297,34 +1373,34 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
     // [1, +inf>
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt)}, View::OLD)),
         UnorderedElementsAre(2, 3, 4, 5, 6, 7, 8, 9));
 
     // <1, +inf>
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(1)), std::nullopt)}, View::OLD)),
         UnorderedElementsAre(4, 5, 6, 7, 8, 9));
 
     // <-inf, 3]
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(3)))}, View::OLD)),
         UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
 
     // <-inf, 3>
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(3)))}, View::OLD)),
         UnorderedElementsAre(0, 1, 2, 3, 4, 5));
 
     // [1, 3]
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundInclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1332,7 +1408,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
     // <1, 3]
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundInclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1340,7 +1416,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
     // [1, 3>
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundExclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1348,7 +1424,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
     // <1, 3>
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundExclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1361,7 +1437,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
@@ -1376,12 +1452,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 
     // @TODO have no tests for approx vertex count with composite indices
 
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 55);
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 55);
     for (int i = 1; i <= 10; ++i) {
-      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}, std::array{PropertyValue(i)}), i);
+      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
+                                            std::array{PropertyValue(i)}),
+                i);
     }
 
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val},
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
                                           std::array{memgraph::storage::PropertyValueRange::Bounded(
                                               memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
                                               memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
@@ -1392,7 +1470,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1428,8 +1506,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
       PropertyValue(std::vector<PropertyValue>{PropertyValue(2)}),
       PropertyValue(PropertyValue::map_t()),
-      PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-      PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}}),
+      PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5)}}),
+      PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(10)}}),
       PropertyValue(temporals[0]),
       PropertyValue(temporals[1]),
       PropertyValue(temporals[2]),
@@ -1452,7 +1530,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   // Verify that all nodes are in the index.
   {
     auto acc = this->storage->Access();
-    auto iterable = acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD);
+    auto iterable =
+        acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}}, std::array{pvr::IsNotNull()}, View::OLD);
     auto it = iterable.begin();
     for (const auto &value : values) {
       ASSERT_NE(it, iterable.end());
@@ -1469,8 +1548,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
                     const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
                     const std::vector<PropertyValue> &expected) {
     auto acc = this->storage->Access();
-    auto iterable =
-        acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::Range(from, to)}, View::OLD);
+    auto iterable = acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                  std::array{pvr::Range(from, to)}, View::OLD);
     size_t i = 0;
     for (auto it = iterable.begin(); it != iterable.end(); ++it, ++i) {
       auto vertex = *it;
@@ -1521,20 +1600,20 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
          memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-          PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5.0)}})),
-         memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue("b")}})),
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-          PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5)}}),
+          PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(10)}})});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue("b")}})),
+         {PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5)}}),
+          PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(10)}})});
 
   verify(memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[0])),
          memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::Date, 200})),
@@ -1583,13 +1662,15 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
   verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
          {PropertyValue(std::vector<PropertyValue>()), PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
-  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(false)}})),
-         std::nullopt,
-         {PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}}),
-          PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}})});
-  verify(std::nullopt,
-         memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{"id", PropertyValue(7.5)}})),
-         {PropertyValue(PropertyValue::map_t()), PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}})});
+  verify(
+      memgraph::utils::MakeBoundInclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(false)}})),
+      std::nullopt,
+      {PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5)}}),
+       PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(10)}})});
+  verify(
+      std::nullopt,
+      memgraph::utils::MakeBoundExclusive(PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(7.5)}})),
+      {PropertyValue(PropertyValue::map_t()), PropertyValue(PropertyValue::map_t{{this->prop_id, PropertyValue(5)}})});
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::Date, 10))), std::nullopt,
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
   verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
@@ -1635,7 +1716,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 
   {
     auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{prop_a}, PropertyPath{prop_b}}).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
@@ -1666,7 +1747,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 
   using enum PropertyValueType;
 
-  auto const test = [&](std::span<memgraph::storage::PropertyId const> props,
+  using PropertyPath = memgraph::storage::PropertyPath;
+
+  auto const test = [&](std::span<PropertyPath const> props,
                         std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
                         auto &&props_validator) {
     EXPECT_EQ(CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, props_validator),
@@ -1674,14 +1757,14 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   };
 
   // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21,
-       [](std::span<PropertyValue const> values) {
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}},
+       std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21, [](std::span<PropertyValue const> values) {
          EXPECT_EQ(values[0].type(), Int);
          EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
          EXPECT_NE(values[1].type(), Null);
        });
 
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
        [](std::span<PropertyValue const> values) {
          EXPECT_EQ(values[0].type(), Int);
          EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
@@ -1690,7 +1773,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
        });
 
   // Check 1 <= n.a <= 3 AND 1 <= n.b <= 6
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
        [](std::span<PropertyValue const> values) {
          EXPECT_EQ(values[0].type(), Int);
          EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
@@ -1700,14 +1783,15 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
        });
 
   // Check 1 <= n.a <= 3
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3)}, 24, [](std::span<PropertyValue const> values) {
-    EXPECT_EQ(values[0].type(), Int);
-    EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
-  });
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}}, std::array{bounded(1, 3)}, 24,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+       });
 
   // Check n.a IS NOT NULL AND 1 <= n.b <= 3
-  test(std::array{prop_a, prop_b}, std::array{PropertyValueRange::IsNotNull(), bounded(1, 3)}, 10,
-       [](std::span<PropertyValue const> values) {
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}},
+       std::array{PropertyValueRange::IsNotNull(), bounded(1, 3)}, 10, [](std::span<PropertyValue const> values) {
          EXPECT_NE(values[0].type(), Null);
 
          auto b_type = values[1].type();
@@ -1724,7 +1808,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1747,10 +1831,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     ASSERT_NO_ERROR(acc2->Commit());
 
     auto acc3 = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc3->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(1));
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                            std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(1));
   }
 }
 
@@ -1759,7 +1843,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1782,10 +1866,10 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     ASSERT_NO_ERROR(acc2->Commit());
 
     auto acc3 = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc3->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(1));
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                            std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(1));
   }
 }
 
@@ -1793,7 +1877,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -1826,7 +1910,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 
     {
       auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
+      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     auto acc1 = this->storage->Access();
@@ -3187,4 +3271,100 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
   }
 
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW), UnorderedElementsAre(1, 2, 3, 4, 5));
+}
+
+// @TODO simple test just to get MVCC passing. Once that is working, replace
+// this with more compelte test
+TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Nested indices currently not supported on disk";
+  }
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(
+        unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc = this->storage->Access();
+    for (int i = 0; i < 20; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 3 < 2 ? this->label1 : this->label2));
+
+      // INDEX: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+      // LABEL: 1 1 2 1 1 2 1 1 2 1  1  2  1  1  2  1  1  2  1  1
+      // c=int: 0 0 0 1 0 0 0 0 1 0  0  0  0  1  0  0  0  0  1  0
+
+      if (i % 5 == 0) {
+        // no `a` property
+      } else if (i % 5 == 1) {
+        // has an `a` property, but it is not a map, but a string
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(std::to_string(i))));
+      } else if (i % 5 == 2) {
+        // has `a.b`, where b is not a map, but a string
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, make_map(this->prop_b, PropertyValue(std::to_string(i)))));
+      } else if (i % 5 == 3) {
+        // has `a.b.c`, where c is an integer
+        ASSERT_NO_ERROR(
+            vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(i)))));
+      } else if (i % 5 == 4) {
+        // has `a.b.c`, where c is a boolean `true`
+        ASSERT_NO_ERROR(
+            vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(true)))));
+      }
+    }
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(3, 13, 18));
+
+  // Remove a.b.c from vertex 13 and set a.b.c to 15 on vertex 15
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id == 13) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{}));
+    } else if (id == 15) {
+      ASSERT_NO_ERROR(
+          vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(15)))));
+    }
+  }
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(3, 13, 18));
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(3, 15, 18));
+
+  acc->AdvanceCommand();
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(3, 15, 18));
 }

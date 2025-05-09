@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,7 +117,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
   *type = static_cast<storage::PropertyValue::Type>(value);
 }
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder) {
+void Save(const storage::PropertyValue &value, slk::Builder *builder, storage::NameIdMapper *name_id_mapper) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       slk::Save(storage::PropertyValue::Type::Null, builder);
@@ -144,7 +144,7 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       size_t size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
-        slk::Save(v, builder);
+        slk::Save(v, builder, name_id_mapper);
       }
       return;
     }
@@ -154,7 +154,9 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       size_t size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {
-        slk::Save(kv, builder);
+        auto property_name = name_id_mapper->IdToName(kv.first.AsUint());
+        slk::Save(property_name, builder);
+        slk::Save(kv.second, builder, name_id_mapper);
       }
       return;
     }
@@ -197,7 +199,7 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
   }
 }
 
-void Load(storage::PropertyValue *value, slk::Reader *reader) {
+void Load(storage::PropertyValue *value, slk::Reader *reader, storage::NameIdMapper *name_id_mapper) {
   storage::PropertyValue::Type type{};
   slk::Load(&type, reader);
   switch (type) {
@@ -233,7 +235,7 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       slk::Load(&size, reader);
       std::vector<storage::PropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
-        slk::Load(&list[i], reader);
+        slk::Load(&list[i], reader, name_id_mapper);
       }
       *value = storage::PropertyValue(std::move(list));
       return;
@@ -244,9 +246,12 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       auto map = storage::PropertyValue::map_t{};
       map.reserve(size);
       for (size_t i = 0; i < size; ++i) {
-        std::pair<std::string, storage::PropertyValue> kv;
-        slk::Load(&kv, reader);
-        map.insert(kv);
+        std::string property_name;
+        slk::Load(&property_name, reader);
+        auto property_name_id = storage::PropertyId::FromUint(name_id_mapper->NameToId(property_name));
+        storage::PropertyValue property_value;
+        slk::Load(&property_value, reader, name_id_mapper);
+        map.emplace(property_name_id, std::move(property_value));
       }
       *value = storage::PropertyValue(std::move(map));
       return;

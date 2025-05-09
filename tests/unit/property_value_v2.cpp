@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <memory_resource>
 #include <sstream>
 
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 
@@ -32,6 +33,11 @@ bool IsOnlyOneType(PropertyValue const &pv) {
   auto count = pv.IsNull() + pv.IsBool() + pv.IsInt() + pv.IsDouble() + pv.IsString() + pv.IsList() + pv.IsMap() +
                pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d();
   return count == 1;
+}
+
+NameIdMapper *GetNameIdMapper() {
+  static NameIdMapper *name_id_mapper = new NameIdMapper();
+  return name_id_mapper;
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -467,7 +473,7 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  PropertyValue::map_t map{{"nandare", PropertyValue(123)}};
+  StringToPropertyValueMap map{{"nandare", PropertyValue(123)}};
   PropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);

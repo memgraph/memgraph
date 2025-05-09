@@ -51,16 +51,60 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }  // end namespace
 
 PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyId const> properties)
+    : PropertiesPermutationHelper{
+          properties | rv::transform([](auto &&property_id) { return PropertyPath{property_id}; }) | r::to_vector} {}
+
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
     : sorted_properties_(properties.begin(), properties.end()) {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
-          [](auto const &value) -> decltype(auto) { return (std::get<1>(value)); });
+          [](auto const &value) -> decltype(auto) { return std::get<1>(value)[0]; });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
+
+  sorted_properties_roots_ = sorted_properties_ | rv::transform([](auto &&path) { return path[0]; }) | r::to_vector;
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
-  return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
+  auto top_level_values = properties.ExtractPropertyValuesMissingAsNull(sorted_properties_roots_);
+
+  // Assumes `value` is a map, if the key exists, this will extract the nested
+  // `PropertyValue` with the given key. Otherwise, a `null` `PropertyValue`
+  // is returned.
+  // @TODO very poor performance, as we must instantiate all levels
+  // of the nested property map as `PropertyValues`. Would it be better to
+  // either do this in a single pass, or update the property store reader
+  // to allow us to read nested properties directly without needing to
+  // instantiate the intermediate values.
+  // @TODO We are creating `PropertyValue`s here without using the allocators.
+  auto extract_from_map = [](PropertyValue &value, PropertyId key) {
+    DMG_ASSERT(value.IsMap());
+    auto &&as_map = value.ValueMap();
+    auto it = as_map.find(key);
+    if (it != as_map.end()) {
+      return it->second;
+    } else {
+      return PropertyValue{};
+    }
+  };
+
+  // @TODO currently parsing all to extract nested properties. As an optimisation,
+  // we can detect whether the index needs the additional parsing, and if not,
+  // just return the `top_level_values`.
+  auto values = rv::zip(sorted_properties_, top_level_values) | rv::transform([&](auto &&paths_and_values) {
+                  auto &&[path, value] = paths_and_values;
+                  for (auto &&key : path | rv::drop(1)) {
+                    if (value.IsMap()) {
+                      value = extract_from_map(value, key);
+                    } else {
+                      return PropertyValue{};
+                    }
+                  }
+                  return value;
+                }) |
+                r::to_vector;
+
+  return values;
 }
 
 auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> values) const
@@ -78,12 +122,38 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
 
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
-    -> std::optional<std::pair<std::ptrdiff_t, bool>> {
-  auto it = std::ranges::find(sorted_properties_, property_id);
-  if (it == sorted_properties_.end()) return std::nullopt;
+    -> std::vector<std::pair<std::ptrdiff_t, bool>> {
+  auto const compare_nested_value = [](PropertyValue const &outer, PropertyValue const &value,
+                                       PropertyPath const &path) {
+    PropertyValue const *value_ptr = &outer;
+    auto path_it = std::next(path.cbegin());
 
-  auto pos = std::distance(sorted_properties_.begin(), it);
-  return std::pair{pos, values.values_[position_lookup_[pos]] == value};
+    // Traverse the nested map of property values until we have found the single
+    // nested property we compare against.
+    while (std::distance(path_it, path.cend()) != 0) {
+      if (!value_ptr->IsMap()) {
+        return false;
+      }
+
+      auto &map = value_ptr->ValueMap();
+      auto map_it = map.find(*path_it++);
+      if (map_it == map.end()) {
+        // subkey doesn't exist
+        return false;
+      }
+
+      value_ptr = &map_it->second;
+    }
+
+    return *value_ptr == value;
+  };
+
+  return rv::enumerate(sorted_properties_) | rv::filter([&](auto &&el) { return std::get<1>(el)[0] == property_id; }) |
+         rv::transform([&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
+           auto &&[index, path] = el;
+           return {index, compare_nested_value(value, values.values_[index], path)};
+         }) |
+         r::to_vector;
 }
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,

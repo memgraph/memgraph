@@ -1392,7 +1392,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1400,7 +1400,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_property_index->CreateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
+  // @TODO put deltas back!
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1471,7 +1472,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1479,7 +1480,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
+
+  // @TODO Currently, we connvert to a non-nested path by extracting only
+  // the head of the nested path. For POC this is fine, but for delivery
+  // we must support nested property paths in the delta.
+  auto non_nested_properties =
+      properties | ranges::views::transform([](auto &&property_path) { return property_path[0]; }) | ranges::to_vector;
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label,
+                                      std::move(non_nested_properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -1683,7 +1692,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 }
 
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
-    LabelId label, std::span<storage::PropertyId const> properties,
+    LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
@@ -2746,7 +2755,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
       }
     }
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
-    auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
+    auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_, name_id_mapper_.get());
     if (wal_files) {
       for (const auto &wal_file : *wal_files) {
         spdlog::trace("Moving WAL file {}", wal_file.path);
@@ -3044,28 +3053,30 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
-                                                      std::span<storage::PropertyId const> properties,
+                                                      std::span<storage::PropertyPath const> properties,
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
-                                      std::vector(properties.begin(), properties.end()), stats);
+  // TODO: put back...
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
+  //                                     std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   auto res = in_mem_label_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
+  // TODO: put back...
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
   return res;
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>>
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>>
 InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto res = in_mem_label_prop_index->DeleteIndexStats(label);
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
+  // TODO: put back...
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
 

@@ -180,7 +180,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 struct QueryLogWrapper {
   std::string_view query;
-  const memgraph::storage::PropertyValue::map_t *metadata;
+  const memgraph::storage::IntermediatePropertyValue::map_t *metadata;
   std::string_view db_name;
 };
 
@@ -1265,7 +1265,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 ReplicationQueryHandler &replication_query_handler,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
+                                storage::Storage *storage
 #ifdef MG_ENTERPRISE
                                 ,
                                 std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
@@ -1498,7 +1499,8 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
 
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
+                                storage::Storage *storage) {
   using enum flags::Experiments;
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -1515,7 +1517,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
@@ -1537,7 +1541,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
@@ -1585,7 +1591,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
 
@@ -1676,7 +1684,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
@@ -2109,7 +2119,7 @@ Callback HandleConfigQuery() {
   return callback;
 }
 
-Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters) {
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, storage::Storage *storage) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -2561,6 +2571,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
@@ -2824,7 +2836,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
+  using LPNestedIndex = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -2880,10 +2892,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   };
 
   auto populate_label_property_stats = [execution_db_accessor, view](auto index_info) {
-    std::map<LPIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
-    std::map<LPIndex, uint64_t> vertex_degree_counter;
+    std::map<LPNestedIndex, std::map<std::vector<storage::PropertyValue>, int64_t>> label_property_counter;
+    std::map<LPNestedIndex, uint64_t> vertex_degree_counter;
 
-    auto const count_vertex_prop_info = [&](LPIndex const &key) {
+    auto const count_vertex_prop_info = [&](LPNestedIndex const &key) {
       struct StatsByPrefix {
         std::map<std::vector<storage::PropertyValue>, int64_t> *properties_value_counter;
         uint64_t *vertex_degree_counter;
@@ -2926,8 +2938,14 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
         std::vector<storage::PropertyValue> property_values;
         property_values.reserve(properties.size());
-        for (auto property : properties) {
-          property_values.emplace_back(*vertex.GetProperty(view, property));
+        for (auto property_path : properties) {
+          auto property_value = *vertex.GetProperty(view, property_path[0]);
+          auto *nested_property_value = ReadNestedPropertyValue(property_value, property_path | rv::drop(1));
+          if (nested_property_value) {
+            property_values.push_back(*nested_property_value);
+          } else {
+            property_values.push_back(storage::PropertyValue{});
+          }
         }
 
         for (auto &stats : uncomputed_stats_by_prefix) {
@@ -2958,7 +2976,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       count_vertex_prop_info(index);
     }
 
-    std::vector<std::pair<LPIndex, storage::LabelPropertyIndexStats>> label_property_stats;
+    std::vector<std::pair<LPNestedIndex, storage::LabelPropertyIndexStats>> label_property_stats;
     label_property_stats.reserve(label_property_counter.size());
     std::for_each(
         label_property_counter.begin(), label_property_counter.end(),
@@ -2979,7 +2997,6 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                       ? static_cast<double>(vertex_degree_counter[label_property]) /
                                             static_cast<double>(count_property_value)
                                       : 0;
-
           auto index_stats =
               storage::LabelPropertyIndexStats{.count = count_property_value,
                                                .distinct_values_count = static_cast<uint64_t>(values_map.size()),
@@ -2999,7 +3016,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   erase_not_specified_label_indices(label_indices_info);
   auto label_stats = populate_label_stats(label_indices_info);
 
-  std::vector<LPIndex> label_property_indices_info = index_info.label_properties;
+  std::vector<LPNestedIndex> label_property_indices_info = index_info.label_properties;
   erase_not_specified_label_property_indices(label_property_indices_info);
   auto label_property_stats = populate_label_property_stats(label_property_indices_info);
 
@@ -3020,14 +3037,17 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     results.push_back(std::move(result));
   });
 
-  auto prop_to_name = [execution_db_accessor](auto const &property) {
-    return execution_db_accessor->PropertyToName(property);
+  auto prop_path_to_name = [execution_db_accessor](auto const &property_path) {
+    return property_path |
+           rv::transform([&](auto &&property_id) { return execution_db_accessor->PropertyToName(property_id); }) |
+           rv::join(".") | r::to<std::string>();
   };
+
   std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-    result.emplace_back(stat_entry.first.second | rv::transform(prop_to_name) | ranges::to_vector);
+    result.emplace_back(stat_entry.first.second | rv::transform(prop_path_to_name) | ranges::to_vector);
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
     result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
     result.emplace_back(stat_entry.second.avg_group_size);
@@ -3083,11 +3103,12 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   };
 
   auto populate_label_property_results = [execution_db_accessor](auto const &index_info) {
-    std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> label_property_results;
+    std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_property_results;
     label_property_results.reserve(index_info.size());
+
     std::for_each(index_info.begin(), index_info.end(),
                   [execution_db_accessor, &label_property_results](
-                      const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &label_property) {
+                      const std::pair<storage::LabelId, std::vector<storage::PropertyPath>> &label_property) {
                     auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
                     label_property_results.insert(label_property_results.end(), std::move_iterator{res.begin()},
                                                   std::move_iterator{res.end()});
@@ -3115,13 +3136,19 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
         return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
       });
 
-  auto prop_to_name = [&](storage::PropertyId prop) { return TypedValue{execution_db_accessor->PropertyToName(prop)}; };
+  auto prop_path_to_name = [&](storage::PropertyPath const &property_path) {
+    return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
+                        return execution_db_accessor->PropertyToName(property_id);
+                      }) |
+                      rv::join(".") | r::to<std::string>()};
+  };
+
   std::transform(
       label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
       [&](const auto &label_property_index) {
         return std::vector<TypedValue>{
             TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-            TypedValue(label_property_index.second | ranges::views::transform(prop_to_name) | ranges::to_vector),
+            TypedValue(label_property_index.second | ranges::views::transform(prop_path_to_name) | ranges::to_vector),
         };
       });
 
@@ -3213,13 +3240,20 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
 
-  std::vector<storage::PropertyId> properties;
+  std::vector<storage::PropertyPath> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
-  for (const auto &prop : index_query->properties_) {
-    properties.push_back(storage->NameToProperty(prop.name));
-    properties_string.push_back(prop.name);
+
+  for (const auto &property_path : index_query->properties_) {
+    auto path = property_path |
+                ranges::views::transform([&](auto &&property) { return storage->NameToProperty(property.name); }) |
+                ranges::to_vector;
+    properties.push_back(std::move(path));
+
+    auto name = property_path | ranges::views::transform(&PropertyIx::name);
+
+    properties_string.push_back(utils::Join(name, "."));
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -3503,7 +3537,9 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto *storage = db_acc->storage();
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parsed_query.parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
       handler = [dba, storage, vector_index_config, invalidate_plan_cache = std::move(invalidate_plan_cache),
@@ -3663,7 +3699,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
     case TtlQuery::Type::ENABLE: {
-      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      EvaluationContext evaluation_context;
+      evaluation_context.timestamp = QueryTimestamp();
+      evaluation_context.parameters = parsed_query.parameters;
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       try {
         std::string info;
@@ -3697,8 +3735,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(
-                label, std::vector{prop});  // Only way to fail is to try to create an already existant index
+            (void)dba->CreateIndex(label,
+                                   std::vector<memgraph::storage::PropertyPath>{
+                                       {prop}});  // Only way to fail is to try to create an already existant index
             if (run_edge_ttl) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }
@@ -3720,7 +3759,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        (void)dba->DropIndex(label, std::vector{prop});  // Only way to fail is to try to drop a non-existant index
+        (void)dba->DropIndex(label, std::vector<storage::PropertyPath>{
+                                        {prop}});  // Only way to fail is to try to drop a non-existant index
         if (db_acc->config().salient.items.properties_on_edges) {
           (void)dba->DropGlobalEdgeIndex(prop);  // Only way to fail is to try to drop a non-existant index
         }
@@ -3786,7 +3826,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
-    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config
+    ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db, const InterpreterConfig &config
 #ifdef MG_ENTERPRISE
     ,
     std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
@@ -3798,9 +3838,9 @@ PreparedQuery PrepareReplicationQuery(
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler, config,
-                                         notifications
+                                         notifications, current_db.db_acc_->get()->storage(),
 #ifdef MG_ENTERPRISE
-                                         ,
+
                                          coordinator_state
 #endif
   );
@@ -3851,14 +3891,14 @@ PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_expl
 PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications,
                                       coordination::CoordinatorState &coordinator_state,
-                                      const InterpreterConfig &config) {
+                                      const InterpreterConfig &config, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw CoordinatorModificationInMulticommandTxException();
   }
 
   auto *coordinator_query = utils::Downcast<CoordinatorQuery>(parsed_query.query);
-  auto callback =
-      HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, config, notifications);
+  auto callback = HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, config,
+                                         notifications, current_db.db_acc_->get()->storage());
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -4016,8 +4056,8 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query, const storage::PropertyValue::map_t &user_parameters,
-                       TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
+Callback CreateTrigger(TriggerQuery *trigger_query, const UserParameters &user_parameters, TriggerStore *trigger_store,
+                       InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
@@ -4497,7 +4537,9 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
-  auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   return PreparedQuery{
@@ -4573,16 +4615,14 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
-
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters);
-
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, current_db.db_acc_->get()->storage());
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -4768,8 +4808,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
         for (const auto &[label, properties] : info.label_properties) {
-          auto to_name = [&](storage::PropertyId prop) { return TypedValue{storage->PropertyToName(prop)}; };
-          auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
+          auto prop_path_to_name = [&](storage::PropertyPath const &property_path) {
+            return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
+                                return storage->PropertyToName(property_id);
+                              }) |
+                              rv::join(".") | r::to<std::string>()};
+          };
+          auto props = properties | ranges::views::transform(prop_path_to_name) | ranges::to_vector;
           results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
                              TypedValue(std::move(props)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(label, properties)))});
@@ -5845,13 +5890,14 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property indices
       for (const auto &[label_id, properties] : index_info.label_properties) {
         auto to_name = [&](storage::PropertyId prop) { return storage->PropertyToName(prop); };
-        auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
-        node_indexes.push_back(nlohmann::json::object({
-            {"labels", {storage->LabelToName(label_id)}},
-            {"properties", props},
-            {"count", storage_acc->ApproximateVertexCount(label_id, properties)},
-            {"type", "label+properties"},
-        }));
+        // TODO: put back...
+        // auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
+        // node_indexes.push_back(nlohmann::json::object({
+        //     {"labels", {storage->LabelToName(label_id)}},
+        //     {"properties", props},
+        //     {"count", storage_acc->ApproximateVertexCount(label_id, properties)},
+        //     {"type", "label+properties"},
+        // }));
       }
       // Vertex label text
       for (const auto &[str, label_id] : index_info.text_indices) {
@@ -6270,7 +6316,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  *interpreter_context_->coordinator_state_, interpreter_context_->config);
+                                  *interpreter_context_->coordinator_state_, interpreter_context_->config, current_db_);
 #else
       throw EnterpriseOnlyException();
 #endif
@@ -6303,7 +6349,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
-      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);

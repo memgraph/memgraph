@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #include <boost/functional/hash.hpp>
 #include "utils/cast.hpp"
@@ -40,6 +41,10 @@ namespace memgraph::storage {
     friend bool operator==(const name &, const name &) = default;                         \
     friend bool operator<(const name &, const name &) = default;                          \
     friend std::strong_ordering operator<=>(const name &, const name &) = default;        \
+    friend std::ostream &operator<<(std::ostream &os, const name &id) {                   \
+      os << id.ToString();                                                                \
+      return os;                                                                          \
+    }                                                                                     \
                                                                                           \
    private:                                                                               \
     type_store id_;                                                                       \
@@ -64,6 +69,14 @@ struct LabelPropKey {
   LabelId label_;
   PropertyId property_;
 };
+
+/**
+ * `PropertyPath` identifies one or more properties for indexing, which may be
+ * either be a single `PropertyId` (for the case of `CREATE INDEX ON L1(a)`), or
+ * an ordered hierarchy of nested `PropertyId` (for the case of
+ * `CREATE INDEX ON :L1(a.b.c.d)`).
+ */
+using PropertyPath = std::vector<PropertyId>;
 
 }  // namespace memgraph::storage
 

@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -84,10 +83,12 @@ struct LabelPropertiesIndicesInfo {
   std::size_t label_pos_;
   std::vector<int64_t> properties_pos_;  // -1 means missing
   LabelId label_;
-  std::vector<PropertyId> properties_;
+  std::vector<PropertyPath> properties_;
 };
 
+// @TODO remove old implementation
 using PropertiesIds = std::vector<PropertyId>;
+using NestedPropertiesIds = std::vector<PropertyPath>;
 
 struct IndexOrderedPropertyValues {
   IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
@@ -112,6 +113,14 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
+   * @TODO this remains whilst developing nested indices to ease, but
+   * consider removing it afterwards.
+   */
+  explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
+
+  /**
+   * @param properties The ids of the nested properties to be read, specified in the
+   *                   required index order.
    */
   explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
 
@@ -128,13 +137,13 @@ struct PropertiesPermutationHelper {
   auto Extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
 
   /** Compares the property with id `property_id` and value `value` against the
-   * same property value in the `values` array. If the id is in the index,
-   * returns a pair of the position of the property within the values and
-   * boolean indicating whether the property matches. Otherwise, if the id is
-   * not in the index, `std::nullopt` is returned.
+   * same property values in the `values` array. For every id in the index,
+   * (which may occur multiple times for composite nested indices, such as `a.b`
+   * and `a.c`) the vector will have a pair of the position of the property
+   * within the values, and a boolean indicating whether the property matches.
    */
   auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
-      -> std::optional<std::pair<std::ptrdiff_t, bool>>;
+      -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element
@@ -147,28 +156,32 @@ struct PropertiesPermutationHelper {
    * element is a tuple comprising: (position, property id, and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
+    // @TODO Currently using only the root top-level property for nested
+    // properties.
+    return ranges::views::enumerate(sorted_properties_roots_) | std::views::transform([&](auto &&p) {
              return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
 
  private:
-  std::vector<PropertyId> sorted_properties_;
+  std::vector<PropertyPath> sorted_properties_;
+  std::vector<PropertyId> sorted_properties_roots_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
 };
 
 class LabelPropertyIndex {
  public:
-  // Becasue of composite index we need to track more info
+  // Because of composite index we need to track more info
   struct IndexInfo {
-    PropertiesIds const *properties_;
+    NestedPropertiesIds const *new_properties_;
     PropertiesPermutationHelper const *helper_;
 
     friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
   using AbortableInfo =
-      std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+      std::map<LabelId,
+               std::map<NestedPropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
   struct AbortProcessor {
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
@@ -236,22 +249,22 @@ class LabelPropertyIndex {
 
   virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
+  virtual bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) = 0;
 
-  virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+  virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
   virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                                  std::span<PropertyId const> properties) const
+                                                  std::span<PropertyPath const> properties) const
       -> std::vector<LabelPropertiesIndicesInfo> = 0;
 
-  virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
+  virtual std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ListIndices() const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                           std::span<PropertyValue const> values) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                           std::span<PropertyValueRange const> bounds) const = 0;
 
   virtual void DropGraphClearIndices() = 0;

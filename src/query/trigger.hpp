@@ -34,7 +34,7 @@ struct QueryCacheEntry;
 
 enum class TransactionStatus;
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+  explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
@@ -83,7 +83,7 @@ struct TriggerStore {
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker);
 
-  void AddTrigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+  void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
                   std::shared_ptr<QueryUserOrRole> owner);

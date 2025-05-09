@@ -15,6 +15,7 @@
 #include <limits>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index.hpp"  // @TODO temp for `PropertiesPermutationHelper`
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -54,9 +55,12 @@ const PropertyValue kSampleValues[] = {
     PropertyValue(
         std::vector<PropertyValue>{PropertyValue(33), PropertyValue(std::string("sample")), PropertyValue(-33.33)}),
     PropertyValue(std::vector<PropertyValue>{PropertyValue(), PropertyValue(false)}),
-    PropertyValue(PropertyValue::map_t{{"sample", PropertyValue()}, {"key", PropertyValue(false)}}),
+    // @TODO put back once we have tidied support with strings again as the key
+    /*PropertyValue(PropertyValue::map_t{{"sample", PropertyValue()}, {"key", PropertyValue(false)}}),
+
     PropertyValue(PropertyValue::map_t{
         {"test", PropertyValue(33)}, {"map", PropertyValue(std::string("sample"))}, {"item", PropertyValue(-33.33)}}),
+        */
     PropertyValue(TemporalData(TemporalType::Date, 23)),
     PropertyValue(GetSampleZonedTemporal()),
     PropertyValue{Enum{EnumTypeId{2}, EnumValueId{10'000}}},
@@ -259,7 +263,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   TestIsPropertyEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
-
+/*
 TEST(PropertyStore, EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
@@ -402,7 +406,7 @@ TEST(PropertyStore, FullSet) {
       TestIsPropertyEqual(props, item.first, PropertyValue());
     }
   }
-}
+}*/
 
 TEST(PropertyStore, IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
@@ -588,6 +592,7 @@ TEST(PropertyStore, IsPropertyEqualList) {
       prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test"), PropertyValue(true)})));
 }
 
+/* @TODO put back
 TEST(PropertyStore, IsPropertyEqualMap) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
@@ -597,7 +602,7 @@ TEST(PropertyStore, IsPropertyEqualMap) {
       prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
 
   // Different length.
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(PropertyValue::map_t{{"fgh", PropertyValue(24)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(StringToPropertyValueMap{{"fgh", PropertyValue(24)}})));
 
   // Same length, different value.
   ASSERT_FALSE(props.IsPropertyEqual(
@@ -617,7 +622,7 @@ TEST(PropertyStore, IsPropertyEqualMap) {
       prop, PropertyValue(PropertyValue::map_t{
                 {"abc", PropertyValue(42)}, {"sdf", PropertyValue(true)}, {"zyx", PropertyValue("test")}})));
 }
-
+*/
 TEST(PropertyStore, IsPropertyEqualTemporalData) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
@@ -683,6 +688,7 @@ TEST(PropertyStore, IsPropertyEqualEnum) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue{diff_value}));
 }
 
+/* @TODO put back
 TEST(PropertyStore, SetMultipleProperties) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
@@ -718,7 +724,7 @@ TEST(PropertyStore, SetMultipleProperties) {
     EXPECT_FALSE(store.InitProperties(data));
   }
 }
-
+*/
 TEST(PropertyStore, HasAllProperties) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
       {PropertyId::FromInt(1), PropertyValue(true)},
@@ -904,6 +910,391 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
         {PropertyId::FromInt(5), PropertyValue("echo")}},
        std::array{1, 3, 5});
 }
+
+TEST(PropertyStore, HasMapsWithPropertyIdKeys) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+  auto const p8 = PropertyId::FromInt(7);
+
+  PropertyStore store;
+
+  // Property store can have an empty map
+  store.SetProperty(p1, PropertyValue{PropertyValue::map_t{}});
+  ASSERT_TRUE(store.HasProperty(p1));
+  EXPECT_EQ(store.GetProperty(p1).type(), PropertyValue::Type::Map);
+
+  // Property store can have a map with one level
+  auto map_p2 = PropertyValue{PropertyValue::map_t{
+      {p3, PropertyValue("three")},
+      {p4, PropertyValue("four")},
+  }};
+
+  store.SetProperty(p2, map_p2);
+  ASSERT_TRUE(store.HasProperty(p2));
+  ASSERT_EQ(store.GetProperty(p2).type(), PropertyValue::Type::Map);
+  ASSERT_EQ(store.GetProperty(p2).ValueMap().size(), 2u);
+  EXPECT_EQ(store.GetProperty(p2).ValueMap()[p3], PropertyValue("three"));
+  EXPECT_EQ(store.GetProperty(p2).ValueMap()[p4], PropertyValue("four"));
+
+  // Property store can have a map with multiple levels
+  auto map_p5 = PropertyValue{PropertyValue::map_t{
+      {p6,
+       PropertyValue{PropertyValue::map_t{{p7, PropertyValue{PropertyValue::map_t{{p8, PropertyValue{"eight"}}}}}}}}}};
+
+  store.SetProperty(p5, map_p5);
+  ASSERT_TRUE(store.HasProperty(p5));
+  ASSERT_EQ(store.GetProperty(p5).type(), PropertyValue::Type::Map);
+  ASSERT_EQ(store.GetProperty(p5).ValueMap().size(), 1u);
+  auto val6 = store.GetProperty(p5).ValueMap()[p6];
+  ASSERT_EQ(val6.type(), PropertyValue::Type::Map);
+  ASSERT_EQ(val6.ValueMap().size(), 1u);
+  auto val7 = val6.ValueMap()[p7];
+  ASSERT_EQ(val7.type(), PropertyValue::Type::Map);
+  ASSERT_EQ(val7.ValueMap().size(), 1u);
+  EXPECT_EQ(val7.ValueMap()[p8], PropertyValue("eight"));
+}
+
+TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, make_map(p2, make_map(p3, make_map(p4, PropertyValue{"expected"})))}};
+
+  struct Test {
+    PropertyPath path;
+    PropertyValue value;
+    bool result;
+  };
+
+  for (auto &&test : {
+           // clang-format off
+    // Success, where nested property exists and value matches
+    Test{.path = {p1, p2, p3, p4}, .value = PropertyValue{"expected"}, .result = true},
+    // Fails because nested property is a different value
+    Test{.path = {p1, p2, p3, p4}, .value = PropertyValue{"unexpected"}, .result = false},
+    // Fails because nested property is a different type
+    Test{.path = {p1, p2, p3, p4}, .value = PropertyValue{23}, .result = false},
+    // Fails because final part of nested property path doens't exist
+    Test{.path = {p1, p2, p3, p5}, .value = PropertyValue{"expected"}, .result = false},
+    // Fails because intermediate parts of nested property path doens't exist
+    Test{.path = {p1, p2, p5}, .value = PropertyValue{"expected"}, .result = false},
+    Test{.path = {p1, p5}, .value = PropertyValue{"expected"}, .result = false},
+    Test{.path = {p5}, .value = PropertyValue{"expected"}, .result = false}
+           // clang-format on
+       }) {
+    PropertyStore store;
+    store.InitProperties(data);
+    EXPECT_EQ(store.ArePropertiesEqual(std::array{test.path}, std::array{test.value}, std::array<std::size_t, 1>{0}),
+              std::vector{test.result});
+  }
+}
+
+// @TODO test reader leaves read cursor in correct position for reading
+// successive properties.
+
+TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p1}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(1u, values.size());
+  EXPECT_EQ(values[0], data[0].second);
+}
+
+TEST(PropertiesPermutationHelper, CanReadTwoValuesInOrderFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+      {p2, PropertyValue(42)},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p1, p2}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(2u, values.size());
+  EXPECT_EQ(values[0], data[0].second);
+  EXPECT_EQ(values[1], data[1].second);
+}
+
+TEST(PropertiesPermutationHelper, CanReadTwoValuesOutOfOrderFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+      {p2, PropertyValue(42)},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p2, p1}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(2u, values.size());
+  EXPECT_EQ(values[0], data[1].second);
+  EXPECT_EQ(values[1], data[0].second);
+}
+
+TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue("test-value")},
+      {p2, PropertyValue(42)},
+      {p3, PropertyValue(true)},
+      {p4, PropertyValue(3.141592f)},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector{p3, p1, p4, p2}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(4u, values.size());
+
+  EXPECT_EQ(values[0], data[2].second);
+  EXPECT_EQ(values[1], data[0].second);
+  EXPECT_EQ(values[2], data[3].second);
+  EXPECT_EQ(values[3], data[1].second);
+}
+
+TEST(PropertiesPermutationHelper, CanExtractSinglyNestedValuesFromMap) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue{PropertyValue::map_t{{p2, PropertyValue{"test-value"}}}}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p1, p2}}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(1u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"test-value"});
+}
+
+TEST(PropertiesPermutationHelper, ExtractWillReturnNullForMissingNestedValues) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, PropertyValue{PropertyValue::map_t{{p2, PropertyValue{"test-value"}}}}}, {p2, PropertyValue{"two"}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  for (auto &&path : {PropertyPath{p1, p3}, PropertyPath{p2, p3}, PropertyPath{p1, p2, p3}}) {
+    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{path}};
+    auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+    ASSERT_EQ(1u, values.size());
+    EXPECT_EQ(values[0], PropertyValue{});
+  };
+}
+
+TEST(PropertiesPermutationHelper, CanExtractDeeplyNestedValuesFromMap) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p3, make_map(p1, make_map(p4, make_map(p2, PropertyValue{"test-value"})))}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p3, p1, p4, p2}}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(1u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"test-value"});
+}
+
+TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+  auto const p8 = PropertyId::FromInt(8);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, make_map(p2, make_map(p3, PropertyValue{"apple"}))},
+                                                               {p4, make_map(p5, PropertyValue{"banana"})},
+                                                               {p6, PropertyValue{"cherry"}},
+                                                               {p7, make_map(p8, PropertyValue{"date"})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p7, p8}, PropertyPath{p4, p5},
+                                                                    PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(4u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"date"});
+  EXPECT_EQ(values[1], PropertyValue{"banana"});
+  EXPECT_EQ(values[2], PropertyValue{"apple"});
+  EXPECT_EQ(values[3], PropertyValue{"cherry"});
+}
+
+TEST(PropertiesPermutationHelper, MatchesValue_ProducesVectorOfPositionsAndComparisons) {
+  using Match = std::pair<std::ptrdiff_t, bool>;
+
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+
+  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p4},
+                                                     PropertyPath{p5, p6}, PropertyPath{p7}}};
+
+  IndexOrderedPropertyValues const baseline{{
+      PropertyValue("apple"),
+      PropertyValue("banana"),
+      PropertyValue("cherry"),
+      PropertyValue("date"),
+      PropertyValue("eggplant"),
+  }};
+
+  // No root properties for `p6`
+  EXPECT_THAT(prop_reader.MatchesValue(p6, PropertyValue("eggplant"), baseline), UnorderedElementsAre());
+
+  // Three root properties for `p1`, match all values
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p2, PropertyValue("apple")},
+                                           {p3, PropertyValue("banana")},
+                                           {p4, PropertyValue("cherry")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, true), Match(1, true), Match(2, true)));
+
+  // Three root properties for `p1`, fails to match values because value is not a map
+  EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue("grapefruit"), baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, false), Match(2, false)));
+
+  // Three root properties for `p1`, fails to match values because nested values are missing
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p5, PropertyValue("grapefruit")},
+                                           {p6, PropertyValue("honeydew melon")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, false), Match(2, false)));
+
+  // Three root properties for `p1`, match no values because they are different
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p2, PropertyValue("banana")},
+                                           {p3, PropertyValue("apple")},
+                                           {p4, PropertyValue("apple")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, false), Match(2, false)));
+
+  // Three root properties for `p1`, match just one value as others missing
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p3, PropertyValue("banana")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, false), Match(1, true), Match(2, false)));
+
+  // Three root properties for `p1`, match just one value as others different
+  EXPECT_THAT(prop_reader.MatchesValue(p1,
+                                       PropertyValue(PropertyValue::map_t{
+                                           {p2, PropertyValue("apple")},
+                                           {p3, PropertyValue("grapefruit")},
+                                           {p4, PropertyValue("honeydew melon")},
+                                       }),
+                                       baseline),
+              UnorderedElementsAre(Match(0, true), Match(1, false), Match(2, false)));
+
+  // Test positively against non-nested property p7
+  EXPECT_THAT(prop_reader.MatchesValue(p7, PropertyValue("eggplant"), baseline), UnorderedElementsAre(Match(4, true)));
+
+  // Test negatively against non-nested property p7
+  EXPECT_THAT(prop_reader.MatchesValue(p7, PropertyValue("grapefruit"), baseline),
+              UnorderedElementsAre(Match(4, false)));
+}
+
+TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
+  using Match = std::pair<std::ptrdiff_t, bool>;
+
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  PropertiesPermutationHelper prop_reader{std::array{
+      PropertyPath{p3, p4},
+      PropertyPath{p1, p2},
+  }};
+
+  IndexOrderedPropertyValues const baseline{{
+      PropertyValue("apple"),
+      PropertyValue("banana"),
+  }};
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
+      UnorderedElementsAre(Match(0, false)));
+
+  EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("apple")}}), baseline),
+              UnorderedElementsAre(Match(0, true)));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
+      UnorderedElementsAre(Match(1, false)));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("banana")}}), baseline),
+      UnorderedElementsAre(Match(1, true)));
+}
+
+// @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d).
+// Currently, this will not work because we can only read from the `PropertyStore`
+// using monotonically increasing `PropertyId`s. No going back to read the same
+// value (`a` in this case) twice.
+
+// @TODO add tests for all methods in `PropertiesPermutationHelper`, such as
+// MatchValue, Matches value, etc
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

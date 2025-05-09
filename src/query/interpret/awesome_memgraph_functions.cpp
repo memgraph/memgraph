@@ -436,7 +436,9 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), property.second);
+      auto typed_value =
+          TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
     }
     return TypedValue(std::move(properties));
   };
@@ -739,7 +741,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       }
     }
     for (const auto &[key, value] : *maybe_props) {
-      values.emplace_back(std::move(value));
+      auto typed_value = TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      values.emplace_back(std::move(typed_value));
     }
     return TypedValue(std::move(values));
   };

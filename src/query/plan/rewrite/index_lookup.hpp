@@ -28,6 +28,8 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/ast.hpp"
+#include "frontend/ast/ast_storage.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -56,20 +58,28 @@ struct IndexHints {
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
         auto properties = index_hint.property_ixs_ |
-                          ranges::views::transform([&](PropertyIx const &p) { return db->NameToProperty(p.name); }) |
-                          ranges::to_vector;
+                          ranges::views::transform([&](std::vector<PropertyIx> const &property_path) {
+                            std::vector<storage::PropertyId> property_ids;
+                            property_ids.reserve(property_path.size());
+                            for (const auto &property_ix : property_path) {
+                              property_ids.emplace_back(db->NameToProperty(property_ix.name));
+                            }
+                            return property_ids;
+                          }) |
+                          ranges::to<std::vector<std::vector<storage::PropertyId>>>;
 
         // Fetching the corresponding index to the hint
         if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
-          auto property_names = index_hint.property_ixs_ |
-                                ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; }) |
-                                ranges::views::join(", ") | ranges::to<std::string>;
-          spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_names);
+          // TODO: put back...
+          // auto property_names = index_hint.property_ixs_ |
+          //                       ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; })
+          //                       | ranges::views::join(", ") | ranges::to<std::string>;
+          spdlog::debug("Index for label doesn't exist: {} with properties ...", label_name);
           continue;
         }
         label_property_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::POINT) {
-        auto property_name = index_hint.property_ixs_[0].name;
+        auto property_name = index_hint.property_ixs_.back()[0].name;  // TODO: nested index?
         if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
           spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
           continue;
@@ -92,16 +102,26 @@ struct IndexHints {
 
   template <class TDbAccessor>
   bool HasLabelPropertiesIndex(TDbAccessor *db, storage::LabelId label,
-                               std::span<storage::PropertyId const> properties) const {
+                               const std::vector<storage::PropertyPath> &property_paths) const {
     for (const auto &[index_type, label_hint, properties_prefix] : label_property_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_ids =
-          properties_prefix |
-          ranges::views::transform([&](PropertyIx prop_ix) { return db->NameToProperty(prop_ix.name); }) |
-          ranges::to_vector;
-      if (label_id == label &&
-          std::ranges::equal(property_ids, properties | ranges::views::take(property_ids.size()))) {
-        return true;
+      if (label_id != label) continue;
+
+      auto property_ids = properties_prefix |
+                          ranges::views::transform([&](std::vector<PropertyIx> const &property_path) {
+                            std::vector<storage::PropertyId> property_ids;
+                            property_ids.reserve(property_path.size());
+                            for (const auto &property_ix : property_path) {
+                              property_ids.emplace_back(db->NameToProperty(property_ix.name));
+                            }
+                            return property_ids;
+                          }) |
+                          ranges::to<std::vector<storage::PropertyPath>>;
+      // Check if paths are the same
+      for (const auto &path : property_paths) {
+        if (std::ranges::find(property_ids, path) != property_ids.end()) {
+          return true;
+        }
       }
     }
     return false;
@@ -112,7 +132,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint[0].name);
+      auto property_id = db->NameToProperty(property_hint.back()[0].name);  // TODO: nested index?
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -148,7 +168,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_, ast_storage_);
     return true;
   }
 
@@ -161,7 +181,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_, ast_storage_);
       op.all_filters_ = std::move(leftover_filters);
     }
 
@@ -778,8 +798,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertyIndex {
     LabelIx label;
-    std::vector<storage::PropertyId> properties;  // need props ids to associate
-                                                  // this with the actual index
+    std::vector<storage::PropertyPath> properties;  // need props ids to associate
+                                                    // this with the actual index
     // FilterInfos, each with a PropertyFilter.
     std::vector<FilterInfo> filters;
     int64_t vertex_count;
@@ -924,7 +944,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // First match with the provided hints
     for (const auto &[index_type, label, properties] : index_hints_.point_index_hints_) {
-      auto filter_it = candidate_point_indices.find(std::make_pair(label, properties[0]));
+      auto property_ix = properties.back()[0];  // TODO: nested index?
+      auto filter_it = candidate_point_indices.find(std::make_pair(label, property_ix));
       if (filter_it != candidate_point_indices.cend()) {
         // TODO: isn't .vertex_count as max value wrong?
         return PointLabelPropertyIndex{.label = label,
@@ -953,7 +974,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct LabelPropertiesIndexInfo {
     storage::LabelId label_{};
-    std::vector<storage::PropertyId> properties_{};
+    std::vector<storage::PropertyPath> properties_{};
   };
 
   struct LabelPropertiesIndexCandidate {
@@ -962,7 +983,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   };
 
   using CandidateLabelPropertiesIndices =
-      std::multimap<std::pair<LabelIx, std::vector<PropertyIx>>, LabelPropertiesIndexCandidate, std::less<>>;
+      std::multimap<std::pair<LabelIx, std::vector<query::PropertyPath>>, LabelPropertiesIndexCandidate, std::less<>>;
 
   auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
       -> CandidateLabelPropertiesIndices {
@@ -993,16 +1014,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       //       remove the need for the filter
       return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
     };
-    auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_; };
-    auto as_storage_property = [&](auto const &filter) { return GetProperty(as_propertyIX(filter)); };
+    auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
+    auto as_storage_property = [&](auto const &filter) {
+      std::vector<storage::PropertyId> storage_property_ids;
+      for (auto const &property : filter.property_filter->property_ids_) {
+        storage_property_ids.push_back(GetProperty(property));
+      }
+      return storage_property_ids;
+    };
 
     auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
     auto or_labels = filters_.FilteredOrLabels(symbol);
-    if (!or_labels.empty()) {
-      for (auto const &label_vec : or_labels) {
-        labelIXs.insert(labelIXs.end(), std::make_move_iterator(label_vec.begin()),
-                        std::make_move_iterator(label_vec.end()));
-      }
+    for (auto const &label_vec : or_labels) {
+      labelIXs.insert(labelIXs.end(), std::make_move_iterator(label_vec.begin()),
+                      std::make_move_iterator(label_vec.end()));
     }
     auto property_filters1 = filters_.PropertyFilters(symbol);
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
@@ -1011,7 +1036,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
 
     // TODO: extact as a common util
-    auto filters_grouped_by_property = std::map<storage::PropertyId, std::vector<FilterInfo>>{};
+    auto filters_grouped_by_property = std::map<std::vector<storage::PropertyId>, std::vector<FilterInfo>>{};
     auto grouped = ranges::views::zip(properties, property_filters) |
                    ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
     for (auto &&group : grouped) {
@@ -1150,8 +1175,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with same number of vertices but more optimized filter is better.
 
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
-      std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
-
+      // std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label,
+      // storage_properties);
+      std::optional<storage::LabelPropertyIndexStats> new_stats = std::nullopt;
       auto const make_label_property_index = [&]() -> LabelPropertyIndex {
         return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
       };
@@ -1387,7 +1413,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 auto is_inside = point_filter.withinbbox_.condition_ == WithinBBoxCondition::INSIDE;
 
                 auto *new_expr = ast_storage_->Create<PrimitiveLiteral>();
-                new_expr->value_ = storage::PropertyValue{is_inside};
+                new_expr->value_ = storage::IntermediatePropertyValue{is_inside};
                 return new_expr;
               }
               // else use provided evaluation time expression
@@ -1449,7 +1475,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<LabelIx> labels_to_erase;
         labels_to_erase.reserve(best_group.indices.size());
         std::vector<Expression *> removed_expressions;
-        std::optional<std::vector<storage::PropertyId>>
+        std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
         bool all_property_filters_same =
             true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter
