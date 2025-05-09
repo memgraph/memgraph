@@ -3217,7 +3217,8 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
     for (const auto &value_b : values) {
       if (!are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
                           static_cast<memgraph::storage::PropertyValue>(value_b).type())) {
-        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
+        check(TypedValue(value_a, storage_dba->GetNameIdMapper()), Bound::Type::INCLUSIVE,
+              TypedValue(value_b, storage_dba->GetNameIdMapper()), Bound::Type::INCLUSIVE, {});
       }
     }
   }

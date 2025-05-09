@@ -50,9 +50,9 @@ void Encoder::WritePoint3d(storage::Point3d value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WritePropertyValue(const PropertyValue &value) {
+void Encoder::WritePropertyValue(const PropertyValue &value, NameIdMapper *name_id_mapper) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
-  slk::Save(value, builder_);
+  slk::Save(value, builder_, name_id_mapper);
 }
 
 void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
@@ -142,11 +142,11 @@ std::optional<Point3d> Decoder::ReadPoint3dValue() {
   return value;
 }
 
-std::optional<PropertyValue> Decoder::ReadPropertyValue() {
+std::optional<PropertyValue> Decoder::ReadPropertyValue(NameIdMapper *name_id_mapper) {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
     return std::nullopt;
   PropertyValue value;
-  slk::Load(&value, reader_);
+  slk::Load(&value, reader_, name_id_mapper);
   return std::move(value);
 }
 
@@ -157,10 +157,10 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipPropertyValue() {
+bool Decoder::SkipPropertyValue(NameIdMapper *name_id_mapper) {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE) return false;
   PropertyValue value;
-  slk::Load(&value, reader_);
+  slk::Load(&value, reader_, name_id_mapper);
   return true;
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -92,7 +92,7 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
     EXPECT_EQ(properties.size(), 1);
     auto maybe_prop = vertex.GetProperty(memgraph::storage::View::OLD, property.second);
     ASSERT_TRUE(maybe_prop.HasValue());
-    auto prop_eq = TypedValue(*maybe_prop) == TypedValue(42);
+    auto prop_eq = TypedValue(*maybe_prop, dba.GetStorageAccessor()->GetNameIdMapper()) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.ValueBool());
   }
@@ -1531,7 +1531,8 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
-  auto prop_eq = TypedValue(*v1.GetProperty(memgraph::storage::View::OLD, prop.second)) == TypedValue(42 + 2);
+  auto prop_eq = TypedValue(*v1.GetProperty(memgraph::storage::View::OLD, prop.second),
+                            dba.GetStorageAccessor()->GetNameIdMapper()) == TypedValue(42 + 2);
   ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
   EXPECT_TRUE(prop_eq.ValueBool());
 }

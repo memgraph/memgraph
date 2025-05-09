@@ -635,7 +635,9 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
   }
 }
 
-mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils::MemoryResource *m) : memory(m) {
+mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::storage::NameIdMapper *name_id_mapper,
+                     memgraph::utils::MemoryResource *m)
+    : memory(m) {
   switch (pv.type()) {
     case memgraph::storage::PropertyValue::Type::Null:
       type = MGP_VALUE_TYPE_NULL;
@@ -665,7 +667,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       memgraph::utils::pmr::vector<mgp_value> elems(m);
       elems.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
-        elems.emplace_back(elem);
+        elems.emplace_back(elem, name_id_mapper);
       }
       memgraph::utils::Allocator<mgp_list> allocator(m);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
@@ -679,7 +681,9 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       type = MGP_VALUE_TYPE_MAP;
       memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(m);
       for (const auto &item : pv.ValueMap()) {
-        items.emplace(item.first, item.second);
+        auto key_as_name = name_id_mapper->IdToName(item.first.AsUint());
+        auto value = mgp_value(item.second, name_id_mapper, m);
+        items.emplace(std::move(key_as_name), std::move(value));
       }
       memgraph::utils::Allocator<mgp_map> allocator(m);
       map_v = allocator.new_object<mgp_map>(std::move(items));
@@ -1755,7 +1759,9 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
               return memgraph::utils::pmr::string(impl->PropertyToName(it->current_it->first), it->GetMemoryResource());
             },
             it->graph->impl);
-        it->current.emplace(propToName, mgp_value(it->current_it->second, it->GetMemoryResource()));
+        it->current.emplace(propToName, mgp_value(it->current_it->second,
+                                                  it->graph->ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                                                  it->GetMemoryResource()));
         it->property.name = it->current->first.c_str();
         it->property.value = &it->current->second;
         clean_up.Disable();
@@ -1817,27 +1823,31 @@ mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
 }
 
 namespace {
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value);
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
+                                                 memgraph::storage::NameIdMapper *name_id_mapper);
 
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list,
+                                                 memgraph::storage::NameIdMapper *name_id_mapper) {
   memgraph::storage::PropertyValue result{std::vector<memgraph::storage::PropertyValue>{}};
   auto &result_list = result.ValueList();
   for (const auto &value : list.elems) {
-    result_list.push_back(ToPropertyValue(value));
+    result_list.push_back(ToPropertyValue(value, name_id_mapper));
   }
   return result;
 }
 
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map, memgraph::storage::NameIdMapper *name_id_mapper) {
   auto result_map = memgraph::storage::PropertyValue::map_t{};
   result_map.reserve(map.items.size());
   for (const auto &[key, value] : map.items) {
-    result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
+    auto property_id = memgraph::storage::PropertyId::FromUint(name_id_mapper->NameToId(key));
+    result_map.insert_or_assign(property_id, ToPropertyValue(value, name_id_mapper));
   }
   return memgraph::storage::PropertyValue{std::move(result_map)};
 }
 
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
+                                                 memgraph::storage::NameIdMapper *name_id_mapper) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       return memgraph::storage::PropertyValue{};
@@ -1850,9 +1860,9 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
     case MGP_VALUE_TYPE_STRING:
       return memgraph::storage::PropertyValue{std::string{value.string_v}};
     case MGP_VALUE_TYPE_LIST:
-      return ToPropertyValue(*value.list_v);
+      return ToPropertyValue(*value.list_v, name_id_mapper);
     case MGP_VALUE_TYPE_MAP:
-      return ToPropertyValue(*value.map_v);
+      return ToPropertyValue(*value.map_v, name_id_mapper);
     case MGP_VALUE_TYPE_DATE:
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
@@ -1867,6 +1877,65 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
+    case MGP_VALUE_TYPE_VERTEX:
+      throw ValueConversionException{"A vertex is not a valid property value!"};
+    case MGP_VALUE_TYPE_EDGE:
+      throw ValueConversionException{"An edge is not a valid property value!"};
+    case MGP_VALUE_TYPE_PATH:
+      throw ValueConversionException{"A path is not a valid property value!"};
+  }
+}
+
+memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_value &value);
+
+memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_list &list) {
+  memgraph::storage::IntermediatePropertyValue result{std::vector<memgraph::storage::IntermediatePropertyValue>{}};
+  auto &result_list = result.ValueList();
+  for (const auto &value : list.elems) {
+    result_list.push_back(ToIntermediatePropertyValue(value));
+  }
+  return result;
+}
+
+memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_map &map) {
+  auto result_map = memgraph::storage::IntermediatePropertyValue::map_t{};
+  result_map.reserve(map.items.size());
+  for (const auto &[key, value] : map.items) {
+    result_map.insert_or_assign(std::string{key}, ToIntermediatePropertyValue(value));
+  }
+  return memgraph::storage::IntermediatePropertyValue{std::move(result_map)};
+}
+
+memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_value &value) {
+  switch (value.type) {
+    case MGP_VALUE_TYPE_NULL:
+      return memgraph::storage::IntermediatePropertyValue{};
+    case MGP_VALUE_TYPE_BOOL:
+      return memgraph::storage::IntermediatePropertyValue{value.bool_v};
+    case MGP_VALUE_TYPE_INT:
+      return memgraph::storage::IntermediatePropertyValue{value.int_v};
+    case MGP_VALUE_TYPE_DOUBLE:
+      return memgraph::storage::IntermediatePropertyValue{value.double_v};
+    case MGP_VALUE_TYPE_STRING:
+      return memgraph::storage::IntermediatePropertyValue{std::string{value.string_v}};
+    case MGP_VALUE_TYPE_LIST:
+      return ToIntermediatePropertyValue(*value.list_v);
+    case MGP_VALUE_TYPE_MAP:
+      return ToIntermediatePropertyValue(*value.map_v);
+    case MGP_VALUE_TYPE_DATE:
+      return memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{
+          memgraph::storage::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+      return memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{
+          memgraph::storage::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      // Use generic system time (UTC)
+      return memgraph::storage::IntermediatePropertyValue{
+          memgraph::storage::TemporalData{memgraph::storage::TemporalType::LocalDateTime,
+                                          value.local_date_time_v->local_date_time.SysMicrosecondsSinceEpoch()}};
+    case MGP_VALUE_TYPE_DURATION:
+      return memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{
+          memgraph::storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
@@ -1896,7 +1965,10 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
 
     const auto result = std::visit(
-        [prop_key, property_value](auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value)); },
+        [prop_key, property_value, &ctx](auto &impl) {
+          return impl.SetProperty(
+              prop_key, ToPropertyValue(*property_value, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+        },
         v->impl);
     if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
@@ -1924,7 +1996,8 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
       return;
     }
-    const auto old_value = memgraph::query::TypedValue(*result);
+    const auto old_value =
+        memgraph::query::TypedValue(*result, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
       trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), prop_key, old_value);
       return;
@@ -1952,8 +2025,10 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
     for (const auto &item : properties->items) {
       props.insert(std::visit(
-          [&item](auto *impl) {
-            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second));
+          [&item, &ctx](auto *impl) {
+            return std::make_pair(
+                impl->NameToProperty(item.first),
+                ToPropertyValue(item.second, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
           },
           v->graph->impl));
     }
@@ -1986,11 +2061,12 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
       return;
     }
-
     for (const auto &res : *result) {
       const auto property_key = std::get<0>(res);
-      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
-      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+      const auto old_value =
+          memgraph::query::TypedValue(std::get<1>(res), ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      const auto new_value =
+          memgraph::query::TypedValue(std::get<2>(res), ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
 
       if (new_value.IsNull()) {
         trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
@@ -2218,7 +2294,8 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
               LOG_FATAL("Unexpected error when getting a property of a vertex.");
           }
         }
-        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
+        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop),
+                                          v->graph->ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
       },
       result);
 }
@@ -2514,7 +2591,8 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
               LOG_FATAL("Unexpected error when getting a property of an edge.");
           }
         }
-        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
+        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop),
+                                          e->from.graph->ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
       },
       result);
 }
@@ -2535,7 +2613,8 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, e->from.graph->impl);
-    const auto result = e->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
+    const auto result = e->impl.SetProperty(
+        prop_key, ToPropertyValue(*property_value, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -2553,13 +2632,13 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
-
     auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
     if (!trigger_ctx_collector ||
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
       return;
     }
-    const auto old_value = memgraph::query::TypedValue(*result);
+    const auto old_value =
+        memgraph::query::TypedValue(*result, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
       e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
       return;
@@ -2586,8 +2665,10 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
     for (const auto &item : properties->items) {
       props.insert(std::visit(
-          [&item](auto *impl) {
-            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second));
+          [&item, &ctx](auto *impl) {
+            return std::make_pair(
+                impl->NameToProperty(item.first),
+                ToPropertyValue(item.second, ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
           },
           e->from.graph->impl));
     }
@@ -2616,11 +2697,12 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
       return;
     }
-
     for (const auto &res : *result) {
       const auto property_key = std::get<0>(res);
-      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
-      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+      const auto old_value =
+          memgraph::query::TypedValue(std::get<1>(res), ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      const auto new_value =
+          memgraph::query::TypedValue(std::get<2>(res), ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper());
 
       if (new_value.IsNull()) {
         trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
@@ -4468,11 +4550,11 @@ struct MgProcedureResultStream final {
   }
 };
 
-memgraph::storage::PropertyValue::map_t CreateQueryParams(mgp_map *params) {
-  auto query_params = memgraph::storage::PropertyValue::map_t{};
+memgraph::storage::IntermediatePropertyValue::map_t CreateQueryParams(mgp_map *params) {
+  auto query_params = memgraph::storage::IntermediatePropertyValue::map_t{};
   query_params.reserve(params->items.size());
   for (auto &[k, v] : params->items) {
-    query_params.emplace(k, ToPropertyValue(v));
+    query_params.emplace(k, ToIntermediatePropertyValue(v));
   }
 
   return query_params;
@@ -4513,8 +4595,8 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
 
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
-
-        auto query_params_func = [&](memgraph::storage::Storage const *) -> memgraph::storage::PropertyValue::map_t {
+        auto query_params_func =
+            [&](memgraph::storage::Storage const *) -> memgraph::storage::IntermediatePropertyValue::map_t {
           return CreateQueryParams(params);
         };
         auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});

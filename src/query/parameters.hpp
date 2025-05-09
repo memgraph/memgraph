@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,7 +32,7 @@ struct Parameters {
    * @param position Token position in query of value.
    * @param value
    */
-  void Add(int position, const storage::PropertyValue &value) { storage_.emplace_back(position, value); }
+  void Add(int position, const storage::IntermediatePropertyValue &value) { storage_.emplace_back(position, value); }
 
   /**
    *  Returns the value found for the given token position.
@@ -40,7 +40,7 @@ struct Parameters {
    *  @param position Token position in query of value.
    *  @return Value for the given token position.
    */
-  const storage::PropertyValue &AtTokenPosition(int position) const {
+  const storage::IntermediatePropertyValue &AtTokenPosition(int position) const {
     auto found = std::find_if(storage_.begin(), storage_.end(), [&](const auto &a) { return a.first == position; });
     MG_ASSERT(found != storage_.end(), "Token position must be present in container");
     return found->second;
@@ -53,7 +53,7 @@ struct Parameters {
    * @param position Which stripped param is sought.
    * @return Token position and value for sought param.
    */
-  const std::pair<int, storage::PropertyValue> &At(int position) const {
+  const std::pair<int, storage::IntermediatePropertyValue> &At(int position) const {
     MG_ASSERT(position < static_cast<int>(storage_.size()), "Invalid position");
     return storage_[position];
   }
@@ -65,7 +65,7 @@ struct Parameters {
   auto end() const { return storage_.end(); }
 
  private:
-  std::vector<std::pair<int, storage::PropertyValue>> storage_;
+  std::vector<std::pair<int, storage::IntermediatePropertyValue>> storage_;
 };
 
 }  // namespace memgraph::query

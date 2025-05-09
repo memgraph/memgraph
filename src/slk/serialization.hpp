@@ -16,7 +16,6 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <iosfwd>
 #include <map>
 #include <memory>
 #include <optional>

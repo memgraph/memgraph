@@ -31,6 +31,7 @@
 #include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -49,7 +50,7 @@ inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
+const std::map<std::string, storage::IntermediatePropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -538,8 +539,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       result.rows.clear();
       interpreter->Abort();
     }};
-
-    const static storage::PropertyValue::map_t empty_parameters{};
+    const static storage::IntermediatePropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
@@ -548,7 +548,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
               ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
-          storage::PropertyValue params_prop{params_value};
+          storage::IntermediatePropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result = interpreter->Prepare(

@@ -16,6 +16,8 @@
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "slk_common.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
 #include "storage/v2/temporal.hpp"
@@ -55,25 +57,23 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
+  memgraph::storage::NameIdMapper name_id_mapper;
   const auto sample_duration = memgraph::utils::AsSysTime(23);
   memgraph::storage::PropertyValue::map_t original{
-      {"hello", memgraph::storage::PropertyValue("world")},
-      {"number", memgraph::storage::PropertyValue(5)},
-      {"real", memgraph::storage::PropertyValue(1.123423)},
-      {"truth", memgraph::storage::PropertyValue(true)},
-      {"nothing", memgraph::storage::PropertyValue()},
-      {"date",
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("hello")),
+       memgraph::storage::PropertyValue("world")},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("number")), memgraph::storage::PropertyValue(5)},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("real")),
+       memgraph::storage::PropertyValue(1.123423)},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("truth")),
+       memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("nothing")), memgraph::storage::PropertyValue()},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("date")),
        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
-      {"zoned_temporal", memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-                             memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
-                             memgraph::utils::Timezone("Europe/Zagreb")))}};
-  ASSERT_EQ(original["hello"].type(), memgraph::storage::PropertyValue::Type::String);
-  ASSERT_EQ(original["number"].type(), memgraph::storage::PropertyValue::Type::Int);
-  ASSERT_EQ(original["real"].type(), memgraph::storage::PropertyValue::Type::Double);
-  ASSERT_EQ(original["truth"].type(), memgraph::storage::PropertyValue::Type::Bool);
-  ASSERT_EQ(original["nothing"].type(), memgraph::storage::PropertyValue::Type::Null);
-  ASSERT_EQ(original["date"].type(), memgraph::storage::PropertyValue::Type::TemporalData);
-  ASSERT_EQ(original["zoned_temporal"].type(), memgraph::storage::PropertyValue::Type::ZonedTemporalData);
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("zoned_temporal")),
+       memgraph::storage::PropertyValue(
+           memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+                                                memgraph::utils::Timezone("Europe/Zagreb")))}};
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
@@ -87,6 +87,7 @@ TEST(SlkAdvanced, PropertyValueMap) {
 }
 
 TEST(SlkAdvanced, PropertyValueComplex) {
+  memgraph::storage::NameIdMapper name_id_mapper;
   const auto sample_duration = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> vec_v{
       memgraph::storage::PropertyValue("hello world!"),
@@ -107,23 +108,20 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   ASSERT_EQ(vec_v[6].type(), memgraph::storage::PropertyValue::Type::ZonedTemporalData);
 
   memgraph::storage::PropertyValue::map_t map_v{
-      {"hello", memgraph::storage::PropertyValue("world")},
-      {"number", memgraph::storage::PropertyValue(5)},
-      {"real", memgraph::storage::PropertyValue(1.123423)},
-      {"truth", memgraph::storage::PropertyValue(true)},
-      {"nothing", memgraph::storage::PropertyValue()},
-      {"date",
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("hello")),
+       memgraph::storage::PropertyValue("world")},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("number")), memgraph::storage::PropertyValue(5)},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("real")),
+       memgraph::storage::PropertyValue(1.123423)},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("truth")),
+       memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("nothing")), memgraph::storage::PropertyValue()},
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("date")),
        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
-      {"zoned_temporal", memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-                             memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
-                             memgraph::utils::Timezone("Europe/Zagreb")))}};
-  ASSERT_EQ(map_v["hello"].type(), memgraph::storage::PropertyValue::Type::String);
-  ASSERT_EQ(map_v["number"].type(), memgraph::storage::PropertyValue::Type::Int);
-  ASSERT_EQ(map_v["real"].type(), memgraph::storage::PropertyValue::Type::Double);
-  ASSERT_EQ(map_v["truth"].type(), memgraph::storage::PropertyValue::Type::Bool);
-  ASSERT_EQ(map_v["nothing"].type(), memgraph::storage::PropertyValue::Type::Null);
-  ASSERT_EQ(map_v["date"].type(), memgraph::storage::PropertyValue::Type::TemporalData);
-  ASSERT_EQ(map_v["zoned_temporal"].type(), memgraph::storage::PropertyValue::Type::ZonedTemporalData);
+      {memgraph::storage::PropertyId::FromUint(name_id_mapper.NameToId("zoned_temporal")),
+       memgraph::storage::PropertyValue(
+           memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+                                                memgraph::utils::Timezone("Europe/Zagreb")))}};
 
   memgraph::storage::PropertyValue original(std::vector<memgraph::storage::PropertyValue>{
       memgraph::storage::PropertyValue(vec_v), memgraph::storage::PropertyValue(map_v)});
@@ -131,11 +129,11 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  memgraph::slk::Save(original, builder);
+  memgraph::slk::Save(original, builder, &name_id_mapper);
 
   memgraph::storage::PropertyValue decoded;
   auto reader = loopback.GetReader();
-  memgraph::slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader, &name_id_mapper);
 
   ASSERT_EQ(original, decoded);
 }

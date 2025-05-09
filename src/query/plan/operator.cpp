@@ -46,8 +46,10 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -189,7 +191,7 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       if (!typed_value.IsPropertyValue()) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.", typed_value.type());
       }
-      return utils::Bound{storage::PropertyValue(typed_value), value->type()};
+      return utils::Bound{typed_value.ToPropertyValue(evaluator.GetNameIdMapper()), value->type()};
     }
   };
 
@@ -226,7 +228,8 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
   }
 }
 
-std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression, Parameters const &parameters) {
+std::optional<storage::IntermediatePropertyValue> ConstPropertyValue(const Expression *expression,
+                                                                     Parameters const &parameters) {
   if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
     return literal->value_;
   } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
@@ -235,7 +238,8 @@ std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expre
   return std::nullopt;
 }
 
-auto ExpressionRange::ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange> {
+auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
+    -> std::optional<storage::PropertyValueRange> {
   struct UnknownAtPlanTime {};
 
   using obpv = std::optional<utils::Bound<storage::PropertyValue>>;
@@ -244,9 +248,10 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params) const -> std::
     if (value == std::nullopt) {
       return std::nullopt;
     } else {
-      auto property_value = ConstPropertyValue(value->value(), params);
-      if (property_value) {
-        return utils::Bound{std::move(*property_value), value->type()};
+      auto intermediate_property_value = ConstPropertyValue(value->value(), params);
+      if (intermediate_property_value) {
+        auto property_value = storage::ToPropertyValue(*intermediate_property_value, name_id_mapper);
+        return utils::Bound{std::move(property_value), value->type()};
       } else {
         return UnknownAtPlanTime{};
       }
@@ -468,12 +473,15 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   std::map<storage::PropertyId, storage::PropertyValue> properties;
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
-      properties.emplace(key, value_expression->Accept(evaluator));
+      auto typed_value = value_expression->Accept(evaluator);
+      properties.emplace(key,
+                         typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      properties.emplace(dba.NameToProperty(key), value);
+      properties.emplace(dba.NameToProperty(key),
+                         value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   }
   if (context.evaluation_context.scope.in_merge) {
@@ -609,12 +617,15 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
     std::map<storage::PropertyId, storage::PropertyValue> properties;
     if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
       for (const auto &[key, value_expression] : *edge_info_properties) {
-        properties.emplace(key, value_expression->Accept(*evaluator));
+        auto typed_value = value_expression->Accept(*evaluator);
+        properties.emplace(key,
+                           typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
       }
     } else {
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
-        properties.emplace(dba->NameToProperty(key), value);
+        properties.emplace(dba->NameToProperty(key),
+                           value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
       }
     }
     if (context.evaluation_context.scope.in_merge) {
@@ -1081,7 +1092,9 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
     if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
     }
-    return std::make_optional(db->Edges(view_, common_.edge_types[0], property_, storage::PropertyValue(value)));
+    return std::make_optional(
+        db->Edges(view_, common_.edge_types[0], property_,
+                  value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -1125,7 +1138,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
   if (!bound) return std::nullopt;
   const auto &value = bound->value()->Accept(evaluator);
   try {
-    const auto &property_value = storage::PropertyValue(value);
+    const auto &property_value = value.ToPropertyValue(evaluator.GetNameIdMapper());
     switch (property_value.type()) {
       case storage::PropertyValue::Type::Bool:
       case storage::PropertyValue::Type::List:
@@ -1260,7 +1273,8 @@ UniqueCursorPtr ScanAllByEdgePropertyValue::MakeCursor(utils::MemoryResource *me
     if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
     }
-    return std::make_optional(db->Edges(view_, property_, storage::PropertyValue(value)));
+    return std::make_optional(db->Edges(
+        view_, property_, value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper())));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
@@ -3930,12 +3944,15 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
       }
 #endif
-      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
+                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
-        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
-                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueVertex(), self_.property_,
+            TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
+            TypedValue{rhs});
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
@@ -3949,13 +3966,16 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
 #endif
-      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs,
+                                       context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid
         // during current pull
-        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
-                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueEdge(), self_.property_,
+            TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
+            TypedValue{rhs});
       }
       break;
     }
@@ -4080,8 +4100,11 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       return {};
     }();
 
+    auto name_id_mapper = context->db_accessor->GetStorageAccessor()->GetNameIdMapper();
+
     context->trigger_context_collector->RegisterSetObjectProperty(
-        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
+        *record, key, TypedValue(std::move(old_value), name_id_mapper),
+        TypedValue(std::forward<decltype(new_value)>(new_value), name_id_mapper));
   };
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
@@ -4120,7 +4143,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           property_id = context->db_accessor->NameToProperty(string_key);
           cached_name_id.emplace(string_key, property_id);
         }
-        new_properties.emplace(property_id, value);
+        new_properties.emplace(property_id,
+                               value.ToPropertyValue(context->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
       }
       update_props(new_properties);
       break;
@@ -4134,8 +4158,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   if (should_register_change && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
-      context->trigger_context_collector->RegisterRemovedObjectProperty(*record, property_id,
-                                                                        TypedValue(std::move(property_value)));
+      context->trigger_context_collector->RegisterRemovedObjectProperty(
+          *record, property_id,
+          TypedValue(std::move(property_value), context->db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   }
 }
@@ -4342,8 +4367,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     }
 
     if (context.trigger_context_collector) {
-      context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
-                                                                       TypedValue(std::move(*maybe_old_value)));
+      context.trigger_context_collector->RegisterRemovedObjectProperty(
+          *record, property,
+          TypedValue(std::move(*maybe_old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   };
 
