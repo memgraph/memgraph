@@ -592,12 +592,11 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       for (const auto &item : map) {
         auto metadata = writer->WriteMetadata();
         if (!metadata) return std::nullopt;
-
-        auto property_id_size = writer->WriteUint(item.first.AsUint());
-        if (!property_id_size) return std::nullopt;
+        auto property_id = writer->WriteUint(item.first.AsUint());
+        if (!property_id) return std::nullopt;
         auto ret = EncodePropertyValue(writer, item.second);
         if (!ret) return std::nullopt;
-        metadata->Set({ret->first, *property_id_size, ret->second});
+        metadata->Set({ret->first, *property_id, ret->second});
       }
       return {{Type::MAP, *size}};
     }
@@ -843,10 +842,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-
         auto property_id = reader->ReadUint(metadata->id_size);
         if (!property_id) return false;
-
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
         map.emplace(PropertyId::FromUint(*property_id), std::move(item));
@@ -1133,9 +1130,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       for (uint32_t i = 0; i != size_val; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-        auto key_size = reader->ReadUint(metadata->id_size);
-        if (!key_size) return false;
-        if (!reader->SkipBytes(*key_size)) return false;
+        if (!reader->SkipBytes(SizeToByteSize(metadata->id_size))) return false;
         if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
       }
       return true;
