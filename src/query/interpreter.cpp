@@ -2937,31 +2937,37 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       auto prop_ranges = std::vector<storage::PropertyValueRange>();
       prop_ranges.reserve(properties.size());
       ranges::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
-      // TODO: put back...
-      // for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges)) {
-      //   // @TODO currently using a linear pass to get the property values. Instead, gather
-      //   // all in one pass and permute as we usually do.
 
-      //   std::vector<storage::PropertyValue> property_values;
-      //   property_values.reserve(properties.size());
-      //   for (auto property : properties) {
-      //     property_values.emplace_back(*vertex.GetProperty(view, property));
-      //   }
+      for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges)) {
+        // @TODO currently using a linear pass to get the property values. Instead, gather
+        // all in one pass and permute as we usually do.
 
-      //   for (auto &stats : uncomputed_stats_by_prefix) {
-      //     // Once we've hit a prefix where all the properties in the prefixes
-      //     // are null, we can stop checking as we know for sure that each
-      //     // smaller slice of prop values will also all be null.
-      //     if (std::ranges::all_of(property_values, [](auto const &prop) { return prop.IsNull(); })) {
-      //       break;
-      //     }
+        std::vector<storage::PropertyValue> property_values;
+        property_values.reserve(properties.size());
+        for (auto property_path : properties) {
+          auto property_value = *vertex.GetProperty(view, property_path[0]);
+          auto *nested_property_value = ReadNestedPropertyValue(property_value, property_path | rv::drop(1));
+          if (nested_property_value) {
+            property_values.push_back(*nested_property_value);
+          } else {
+            property_values.push_back(storage::PropertyValue{});
+          }
+        }
 
-      //     (*stats.properties_value_counter)[property_values]++;
-      //     (*stats.vertex_degree_counter) += *vertex.OutDegree(view) + *vertex.InDegree(view);
+        for (auto &stats : uncomputed_stats_by_prefix) {
+          // Once we've hit a prefix where all the properties in the prefixes
+          // are null, we can stop checking as we know for sure that each
+          // smaller slice of prop values will also all be null.
+          if (std::ranges::all_of(property_values, [](auto const &prop) { return prop.IsNull(); })) {
+            break;
+          }
 
-      //     property_values.pop_back();
-      //   }
-      // }
+          (*stats.properties_value_counter)[property_values]++;
+          (*stats.vertex_degree_counter) += *vertex.OutDegree(view) + *vertex.InDegree(view);
+
+          property_values.pop_back();
+        }
+      }
     };
 
     // Compute the stat info in order based on the length of the composite key
@@ -2976,7 +2982,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       count_vertex_prop_info(index);
     }
 
-    std::vector<std::pair<LPIndex, storage::LabelPropertyIndexStats>> label_property_stats;
+    std::vector<std::pair<LPNestedIndex, storage::LabelPropertyIndexStats>> label_property_stats;
     label_property_stats.reserve(label_property_counter.size());
     std::for_each(
         label_property_counter.begin(), label_property_counter.end(),
@@ -2997,15 +3003,14 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                       ? static_cast<double>(vertex_degree_counter[label_property]) /
                                             static_cast<double>(count_property_value)
                                       : 0;
-          // TODO: put back...
-          // auto index_stats =
-          //     storage::LabelPropertyIndexStats{.count = count_property_value,
-          //                                      .distinct_values_count = static_cast<uint64_t>(values_map.size()),
-          //                                      .statistic = chi_squared_stat,
-          //                                      .avg_group_size = avg_group_size,
-          //                                      .avg_degree = average_degree};
-          // execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
-          // label_property_stats.push_back(std::make_pair(label_property, index_stats));
+          auto index_stats =
+              storage::LabelPropertyIndexStats{.count = count_property_value,
+                                               .distinct_values_count = static_cast<uint64_t>(values_map.size()),
+                                               .statistic = chi_squared_stat,
+                                               .avg_group_size = avg_group_size,
+                                               .avg_degree = average_degree};
+          execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
+          label_property_stats.push_back(std::make_pair(label_property, index_stats));
         });
 
     return label_property_stats;
@@ -3038,14 +3043,17 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     results.push_back(std::move(result));
   });
 
-  auto prop_to_name = [execution_db_accessor](auto const &property) {
-    return execution_db_accessor->PropertyToName(property);
+  auto prop_path_to_name = [execution_db_accessor](auto const &property_path) {
+    return property_path |
+           rv::transform([&](auto &&property_id) { return execution_db_accessor->PropertyToName(property_id); }) |
+           rv::join(".") | r::to<std::string>();
   };
+
   std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
     std::vector<TypedValue> result;
     result.reserve(kComputeStatisticsNumResults);
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-    result.emplace_back(stat_entry.first.second | rv::transform(prop_to_name) | ranges::to_vector);
+    result.emplace_back(stat_entry.first.second | rv::transform(prop_path_to_name) | ranges::to_vector);
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
     result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
     result.emplace_back(stat_entry.second.avg_group_size);
@@ -3101,16 +3109,16 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   };
 
   auto populate_label_property_results = [execution_db_accessor](auto const &index_info) {
-    std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> label_property_results;
+    std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_property_results;
     label_property_results.reserve(index_info.size());
-    // TODO: put back...
-    // std::for_each(index_info.begin(), index_info.end(),
-    //               [execution_db_accessor, &label_property_results](
-    //                   const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &label_property) {
-    //                 auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
-    //                 label_property_results.insert(label_property_results.end(), std::move_iterator{res.begin()},
-    //                                               std::move_iterator{res.end()});
-    //               });
+
+    std::for_each(index_info.begin(), index_info.end(),
+                  [execution_db_accessor, &label_property_results](
+                      const std::pair<storage::LabelId, std::vector<storage::PropertyPath>> &label_property) {
+                    auto res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
+                    label_property_results.insert(label_property_results.end(), std::move_iterator{res.begin()},
+                                                  std::move_iterator{res.end()});
+                  });
 
     return label_property_results;
   };
@@ -3134,13 +3142,19 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
         return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
       });
 
-  auto prop_to_name = [&](storage::PropertyId prop) { return TypedValue{execution_db_accessor->PropertyToName(prop)}; };
+  auto prop_path_to_name = [&](storage::PropertyPath const &property_path) {
+    return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
+                        return execution_db_accessor->PropertyToName(property_id);
+                      }) |
+                      rv::join(".") | r::to<std::string>()};
+  };
+
   std::transform(
       label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
       [&](const auto &label_property_index) {
         return std::vector<TypedValue>{
             TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-            TypedValue(label_property_index.second | ranges::views::transform(prop_to_name) | ranges::to_vector),
+            TypedValue(label_property_index.second | ranges::views::transform(prop_path_to_name) | ranges::to_vector),
         };
       });
 
