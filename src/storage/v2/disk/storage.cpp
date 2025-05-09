@@ -2048,8 +2048,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+    LabelId label, std::vector<storage::PropertyId> &&properties, std::function<bool()> cancel_check) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
@@ -2101,7 +2101,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
@@ -2269,20 +2269,25 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
+  std::unique_ptr<LabelPropertyIndex::ActiveIndices> active_indices;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
+    active_indices = indices_.label_property_index_->GetActiveIndices();
   }
 
-  return {transaction_id,
-          start_timestamp,
-          isolation_level,
-          storage_mode,
-          edge_import_mode_active,
-          !constraints_.empty(),
-          empty_point_index_.CreatePointIndexContext()};
+  return {
+      transaction_id,
+      start_timestamp,
+      isolation_level,
+      storage_mode,
+      edge_import_mode_active,
+      !constraints_.empty(),
+      empty_point_index_.CreatePointIndexContext(),
+      std::move(active_indices),
+  };
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
@@ -2342,11 +2347,9 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(),
-          disk_label_property_index->ListIndices(),
+          transaction_.active_indices_->ListIndices(),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

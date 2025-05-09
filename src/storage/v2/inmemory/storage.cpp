@@ -36,9 +36,12 @@
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/timer.hpp"
 
@@ -105,8 +108,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -462,18 +465,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
       !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
-    storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-      if (auto it = edge_type_indices.find(edge_type); it != edge_type_indices.end()) {
-        const bool this_txn_already_encountered_edge_type =
-            transaction_.introduced_new_edge_type_index_.contains(edge_type);
-        if (!this_txn_already_encountered_edge_type) {
-          ++(it->second);
-        }
-        return;
-      }
-      edge_type_indices.insert({edge_type, 1});
-    });
-    transaction_.introduced_new_edge_type_index_.insert(edge_type);
+    if (!transaction_.introduced_new_edge_type_index_.contains(edge_type)) {
+      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) { ++edge_type_indices[edge_type]; });
+      transaction_.introduced_new_edge_type_index_.insert(edge_type);
+    }
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
@@ -718,15 +713,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-          for (auto &label : label_indices) {
-            --label.second;
+          for (auto label : transaction_.introduced_new_label_index_) {
+            auto it = label_indices.find(label);
+            auto &[_, count] = *it;
+            --count;
             // If there are multiple transactions that would like to create an
             // auto-created index on a specific label, we only build the index
             // when the last one commits.
-            if (label.second == 0) {
+            if (count == 0) {
               // TODO: (andi) Handle auto-creation issue
-              CreateIndex(label.first, false);
-              label_indices.erase(label.first);
+              CreateIndex(label, false);
+              label_indices.erase(it);
             }
           }
         });
@@ -735,15 +732,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // EdgeIndex auto-creation block.
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-          for (auto &edge_type : edge_type_indices) {
-            --edge_type.second;
+          for (auto edge_type : transaction_.introduced_new_edge_type_index_) {
+            auto it = edge_type_indices.find(edge_type);
+            auto &[_, count] = *it;
+            --count;
             // If there are multiple transactions that would like to create an
             // auto-created index on a specific edge-type, we only build the index
             // when the last one commits.
-            if (edge_type.second == 0) {
+            if (count == 0) {
               // TODO: (andi) Handle silent failure
-              CreateIndex(edge_type.first, false);
-              edge_type_indices.erase(edge_type.first);
+              CreateIndex(edge_type, false);
+              edge_type_indices.erase(it);
             }
           }
         });
@@ -822,11 +821,16 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
-        }
 
-        // Install the new point index, if needed
-        mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                                transaction_.point_index_ctx_);
+          // Install the new point index, if needed
+          mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                                  transaction_.point_index_ctx_);
+
+          if (transaction_.index_change_info_) {
+            auto indices = static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+            indices->UpdateIndexStatus(*transaction_.index_change_info_);
+          }
+        }
 
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);
@@ -1004,7 +1008,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    auto index_abort_processor = storage_->indices_.GetAbortProcessor();
+    auto index_abort_processor = storage_->indices_.GetAbortProcessor(transaction_);
 
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -1314,7 +1318,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_, transaction_.start_timestamp);
+    index_abort_processor.Process(storage_->indices_, transaction_);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
@@ -1377,9 +1381,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
-  if (unique_access_needed) {
-    MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
-  }
+  // TODO: add back in as READ_ONLY
+  //  if (unique_access_needed) {
+  //    MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
+  //  }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
@@ -1392,14 +1397,23 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
+    LabelId label, std::vector<storage::PropertyId> &&properties, std::function<bool()> cancel_check) {
+  MG_ASSERT(type() == READ_ONLY, "Creating label-property index requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
+  if (!mem_label_property_index->CreateIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  DowngradeToRead();
+  auto res = mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
+                                                     std::nullopt, std::move(cancel_check), &transaction_);
+  if (!res) {
+    return StorageIndexDefinitionError{IndexPopulationError{}};  // TODO: better error info
+  }
+
+  // This gets set at commit time
+  transaction_.index_change_info_.emplace(label, properties, LabelPropertyIndex::Status::READY);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1458,7 +1472,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
+  // TODO: add back in as READ_ONLY
+  //  MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
@@ -1472,13 +1487,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Dropping label-property index requires a unique access to the storage!");
+  MG_ASSERT(type() == READ_ONLY, "Dropping label-property index requires read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // This gets set at commit time
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1685,10 +1701,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyId const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
+  auto active_indices = static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.get());
+  return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
@@ -1762,6 +1776,9 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   uint64_t last_durable_ts = 0;
+
+  std::unique_ptr<LabelPropertyIndex::ActiveIndices> active_indices;
+
   std::optional<PointIndexContext> point_index_context;
   {
     auto guard = std::lock_guard{engine_lock_};
@@ -1771,6 +1788,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts
     last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+
+    active_indices = indices_.label_property_index_->GetActiveIndices();
   }
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1780,6 +1799,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           false,
           !constraints_.empty(),
           *std::move(point_index_context),
+          std::move(active_indices),
           last_durable_ts};
 }
 
@@ -3011,8 +3031,6 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
@@ -3023,7 +3041,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto &vector_index = storage_->indices_.vector_index_;
 
   return {mem_label_index->ListIndices(),
-          mem_label_property_index->ListIndices(),
+          transaction_.active_indices_->ListIndices(),
           mem_edge_type_index->ListIndices(),
           mem_edge_type_property_index->ListIndices(),
           mem_edge_property_index->ListIndices(),

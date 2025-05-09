@@ -355,8 +355,8 @@ uint64_t ComputeProfilingKey(const T *obj) {
 }
 
 inline void AbortCheck(ExecutionContext const &context) {
-  if (!context.maybe_check_abort_()) return;
-  if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
+  if (auto const reason = context.stopping_context.MaybeMustAbort(); reason != AbortReason::NO_ABORT)
+    throw HintedAbortError(reason);
 }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
@@ -1378,7 +1378,6 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     if (ranges::any_of(prop_value_ranges, bound_is_null)) {
       return std::nullopt;
     }
-
     return std::make_optional(db->Vertices(view_, label_, properties_, prop_value_ranges));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),

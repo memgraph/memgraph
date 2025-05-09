@@ -770,6 +770,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   auto vertex_acc = storage->vertices_.access();
 
   constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
+  constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
   constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
@@ -1059,7 +1060,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO*/);
           if (transaction->DropIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
@@ -1086,7 +1087,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction =
+              get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO: problem if mixed with data deltas*/);
 
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
@@ -1098,7 +1100,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO*/);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
