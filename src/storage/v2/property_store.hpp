@@ -89,24 +89,13 @@ class PropertyStore {
   /// O(n).
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
 
-  /// Checks whether the properties `ordered_properties` are equal to the specified values
-  /// `values`. This function doesn't perform any memory allocations while
-  /// performing the equality check. The time complexity of this function is
-  /// O(n). `position_lookup` is an ordering mapping of values to match given property from `ordered_properties`,
-  /// hence value for `ordered_properties[0]` is `values[position_lookup[0]]`
-  /// Like AreAllPropertiesEqual but returns a bool for each property
-  /// The returned results in std::vector<bool> correspond to `ordered_properties`
-  auto ArePropertiesEqual(std::span<PropertyId const> ordered_properties, std::span<PropertyValue const> values,
-                          std::span<std::size_t const> position_lookup) const -> std::vector<bool>;
-
-  // @TODO same method for PropertyPaths. Do we then need the above method?
-  /// Checks whether the properties `ordered_properties` are equal to the specified values
-  /// `values`. This function doesn't perform any memory allocations while
-  /// performing the equality check. The time complexity of this function is
-  /// O(n). `position_lookup` is an ordering mapping of values to match given property from `ordered_properties`,
-  /// hence value for `ordered_properties[0]` is `values[position_lookup[0]]`
-  /// Like AreAllPropertiesEqual but returns a bool for each property
-  /// The returned results in std::vector<bool> correspond to `ordered_properties`
+  /// Checks whether the properties `ordered_properties` are equal to the
+  /// specified values `values`. This function doesn't perform any memory
+  /// allocations while performing the equality check. The time complexity of
+  /// this function is O(n). `position_lookup` is an ordering mapping of values
+  /// to match given property from `ordered_properties`, hence value for
+  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The
+  /// returned results in std::vector<bool> correspond to `ordered_properties`
   auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
                           std::span<std::size_t const> position_lookup) const -> std::vector<bool>;
 
