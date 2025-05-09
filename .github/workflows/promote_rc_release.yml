@@ -52,6 +52,14 @@ jobs:
             arch: arm
             malloc: false
             build_type: Release
+          - os: docker
+            arch: amd
+            malloc: false
+            build_type: RelWithDebInfo
+          - os: docker
+            arch: arm
+            malloc: false
+            build_type: RelWithDebInfo
           - os: ubuntu-24.04
             arch: arm
             malloc: false
@@ -82,7 +90,11 @@ jobs:
           if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
             package_name=${package_rpm}
           elif [[ $os == docker ]]; then
-            package_name=${package_docker}
+            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+              package_name=${package_docker_relwithdebinfo}
+            else
+              package_name=${package_docker}
+            fi
           else
             package_name=${package_deb_amd}
             if [[ "${{ matrix.arch }}" == "arm" ]]; then
@@ -181,7 +193,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Get dockerhub token
-        if: ${{ matrix.build_type == 'Release' }}
         run: |
           dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
           echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
