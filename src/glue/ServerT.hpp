@@ -12,35 +12,9 @@
 
 #include "communication/v2/server.hpp"
 #include "glue/SessionHL.hpp"
-#include "utils/synchronized.hpp"
 
-namespace memgraph::query {
-struct InterpreterContext;
-}
-
-#if MG_ENTERPRISE
-namespace memgraph::audit {
-class Log;
-}
-#endif
-
-namespace memgraph::auth {
-class Auth;
-}
-namespace memgraph::utils {
-class WritePrioritizedRWLock;
-}
-
-struct Context {
-  memgraph::query::InterpreterContext *ic;
-  memgraph::auth::SynchedAuth *auth;
-#if MG_ENTERPRISE
-  memgraph::audit::Log *audit_log;
-#endif
-};
-
-extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;
+extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;
 
 namespace memgraph::glue {
-using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;
+using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;
 }  // namespace memgraph::glue

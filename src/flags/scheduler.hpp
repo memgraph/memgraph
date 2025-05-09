@@ -10,17 +10,14 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/auth.hpp"
-#include "flags/bolt.hpp"
-#include "flags/coordination.hpp"
-#include "flags/experimental.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/replication.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/scheduler.hpp"
-#include "flags/storage_mode.hpp"
+#include "gflags/gflags.h"
+
+enum class SchedulerType : uint8_t {
+  ASIO,
+  PRIORITY_QUEUE_WITH_SIDECAR,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(scheduler);
+
+SchedulerType GetSchedulerType();

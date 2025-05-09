@@ -18,6 +18,7 @@ target_sources(mg-flags
         run_time_configurable.hpp
         storage_access.hpp
         storage_mode.hpp
+        scheduler.hpp
 
         PRIVATE
         audit.cpp
@@ -35,6 +36,7 @@ target_sources(mg-flags
         run_time_configurable.cpp
         storage_access.cpp
         storage_mode.cpp
+        scheduler.cpp
 )
 target_include_directories(mg-flags PUBLIC include)
 target_link_libraries(mg-flags

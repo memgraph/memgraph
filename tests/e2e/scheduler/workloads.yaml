@@ -1,0 +1,23 @@
+pq_setup: &pq_setup
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          "7687",
+          "--log-level",
+          "TRACE",
+          "--scheduler",
+          "priority_queue",
+          "--bolt-num-workers",
+          "4",
+        ]
+      log_file: "scheduler.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Scheduler priority queue"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["scheduler/priority_queue.py"]
+    <<: *pq_setup
