@@ -52,6 +52,14 @@ jobs:
             arch: arm
             malloc: false
             build_type: Release
+          - os: docker
+            arch: amd
+            malloc: false
+            build_type: RelWithDebInfo
+          - os: docker
+            arch: arm
+            malloc: false
+            build_type: RelWithDebInfo
           - os: ubuntu-24.04
             arch: arm
             malloc: false
