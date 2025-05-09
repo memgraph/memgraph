@@ -155,11 +155,6 @@ struct PropertiesPermutationHelper {
            });
   }
 
-  auto Contains(std::map<PropertyId, PropertyValue> const &properties) const {
-    return std::all_of(sorted_properties_.begin(), sorted_properties_.end(),
-                       [&](auto const &pair) { return properties.find(pair) != properties.end(); });
-  }
-
  private:
   std::vector<PropertyId> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
@@ -231,6 +226,7 @@ class LabelPropertyIndex {
     std::vector<PropertyId> properties;
     Status status;
   };
+
   struct ActiveIndices {
     virtual ~ActiveIndices() = default;
 

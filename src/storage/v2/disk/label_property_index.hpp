@@ -61,7 +61,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
     std::set<IndexInformation> index_;
-    std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>> entries_for_deletion;
+    std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> entries_for_deletion;
   };
 
   explicit DiskLabelPropertyIndex(const Config &config);
@@ -77,8 +77,9 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
-  [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
-                                                            uint64_t transaction_commit_timestamp);
+  [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(
+      uint64_t transaction_start_timestamp, uint64_t transaction_commit_timestamp,
+      std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> &entries_for_deletion);
 
   bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
 
@@ -93,9 +94,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 
  private:
-  // TODO: shouldn't exist
-  utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
-      entries_for_deletion;
   std::set<IndexInformation> index_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };

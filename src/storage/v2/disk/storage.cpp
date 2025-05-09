@@ -1281,10 +1281,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  auto *disk_label_property_active_indices =
+      static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.get());
+
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
       !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts)) {
+      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(
+          transaction->start_timestamp, commit_ts, disk_label_property_active_indices->entries_for_deletion)) {
     return StorageManipulationError{SerializationError{}};
   }
   return {};

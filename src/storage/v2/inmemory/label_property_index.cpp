@@ -194,6 +194,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   }
 
   auto values = props.Extract(vertex.properties);
+  // If all values are Null, no need to insert an Entry
   if (r::all_of(values, [](auto const &each) { return each.IsNull(); })) {
     return;
   }
@@ -212,18 +213,18 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   bool has_label = false;
   std::map<PropertyId, PropertyValue> properties;
 
-  auto view = View::OLD;
   {
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     delta = vertex.delta;
     has_label = utils::Contains(vertex.labels, label);
+    // TODO: BAD: we are extracting more than required
     properties = vertex.properties.Properties();
   }
 
   // Create and drop index will always use snapshot isolation
   if (delta) {
-    ApplyDeltasForRead(&tx, delta, view, [&](const Delta &delta) {
+    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
       // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Exists_ActionMethod(exists),
@@ -235,14 +236,19 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     });
   }
 
-  // TODO: currently we double check for properties (in return and here)
-  if (!exists || deleted || !has_label || !props.Contains(properties)) {
+  if (!exists || deleted || !has_label) {
+    return;
+  }
+
+  auto ordered_values = props.ApplyPermutation(std::move(properties));
+  // If all values are Null, no need to insert an Entry
+  if (r::all_of(ordered_values.values_, [](auto const &each) { return each.IsNull(); })) {
     return;
   }
 
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x since we wait for all the writers to drain out first.
-  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
+  index_accessor.insert({std::move(ordered_values), &vertex, tx.start_timestamp});
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<PropertyId> const &properties) {
@@ -451,8 +457,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
 };
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyId const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyId const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
