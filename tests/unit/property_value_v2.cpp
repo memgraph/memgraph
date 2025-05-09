@@ -38,11 +38,6 @@ bool IsOnlyOneType(const PropertyValueImpl<Alloc, KeyType> &pv) {
   return count == 1;
 }
 
-NameIdMapper *GetNameIdMapper() {
-  static NameIdMapper *name_id_mapper = new NameIdMapper();
-  return name_id_mapper;
-}
-
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Null) {
   PropertyValue pv;
