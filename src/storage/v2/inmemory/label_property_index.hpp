@@ -124,9 +124,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyId const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties)
+        const -> std::vector<LabelPropertiesIndicesInfo> override;
 
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {}
@@ -187,12 +186,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 
-  auto PopulateIndex(LabelId label, std::vector<PropertyId> const &properties,
-                     utils::SkipList<Vertex>::Accessor vertices,
-                     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     std::function<bool()> cancel_check,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     const Transaction *tx = nullptr) -> bool;
+  auto PopulateIndex(
+      LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+      std::function<bool()> cancel_check = []() { return false; }, const Transaction *tx = nullptr) -> bool;
 
  private:
   utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
