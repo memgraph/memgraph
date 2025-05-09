@@ -181,7 +181,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Get dockerhub token
-        if: ${{ matrix.build_type == 'Release' }}
         run: |
           dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
           echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
