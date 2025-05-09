@@ -1415,6 +1415,31 @@ inline std::ostream &operator<<(std::ostream &os, const T &value) {
 
 using IntermediatePropertyValue = IntermediatePropertyValueImpl<std::allocator<std::byte>>;
 
+/**
+ * Helper to read a nested value from within a PropertyValue map. If the path
+ * is valid, returns an positional pointer to the `PropertyValue` within the
+ * top-most value. Otherwise, return `nullptr`.
+ */
+inline PropertyValue const *ReadNestedPropertyValue(PropertyValue const &value,
+                                                    std::span<PropertyId const> path_to_property) {
+  PropertyValue const *value_ptr = &value;
+  for (auto &&property_id : path_to_property) {
+    if (!value_ptr->IsMap()) {
+      return nullptr;
+    }
+
+    auto &as_map = value_ptr->ValueMap();
+    auto it = as_map.find(property_id);
+    if (it == as_map.cend()) {
+      return nullptr;
+    } else {
+      value_ptr = &it->second;
+    }
+  }
+
+  return value_ptr;
+}
+
 }  // namespace memgraph::storage
 namespace std {
 
