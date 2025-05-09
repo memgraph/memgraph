@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <functional>
-#include <iosfwd>
 #include <optional>
 #include <utility>
 
@@ -210,6 +208,8 @@ class Socket {
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
+
+  static void Close(int sfd, std::string_view socket_addr);
 
   int socket_ = -1;
   Endpoint endpoint_;

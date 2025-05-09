@@ -24,6 +24,10 @@
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
 
+namespace {
+constexpr auto timeout_ms = std::chrono::milliseconds(5000);
+}  // namespace
+
 namespace memgraph::metrics {
 extern const Event SocketConnect_us;
 }  // namespace memgraph::metrics
@@ -48,11 +52,7 @@ Socket::~Socket() noexcept { Close(); }
 
 void Socket::Close() noexcept {
   if (socket_ == -1) return;
-  if (close(socket_) != 0) {
-    int err_sc = errno;
-    spdlog::error("Failed to close fd for {}. Closing because 'socket_' is trying to get closed. Errno: {}",
-                  endpoint_.SocketAddress(), err_sc);
-  }
+  Close(socket_, endpoint_.SocketAddress());
   socket_ = -1;
 }
 
@@ -65,6 +65,13 @@ void Socket::Shutdown() {
 
 bool Socket::IsOpen() const { return socket_ != -1; }
 
+void Socket::Close(int const sfd, std::string_view socket_addr) {
+  if (close(sfd) != 0) {
+    int const err_sc = errno;
+    spdlog::error("Failed to close fd for {}. Errno: {}", socket_addr, std::strerror(err_sc));
+  }
+}
+
 bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) {
     spdlog::trace("Socket::Connect failed, socket_ not ready!");
@@ -76,32 +83,106 @@ bool Socket::Connect(const Endpoint &endpoint) {
   try {
     for (const auto &it : AddrInfo{endpoint}) {
       utils::MetricsTimer const timer{metrics::SocketConnect_us};
-      int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
+
+      int const sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
         spdlog::trace("Socket creation failed while connecting to {}. File descriptor is -1", socket_addr);
         continue;
       }
-      if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
-        socket_ = sfd;
-        endpoint_ = endpoint;
-        break;
+
+      const int sockfd_flags_orig = fcntl(sfd, F_GETFL, 0);
+      if (sockfd_flags_orig < 0) {
+        spdlog::error("Failed to read file status and file access mode during connect");
+        Close(sfd, socket_addr);
+        continue;
       }
-      int err_sc = errno;
-      spdlog::error("Connect failed, closing fd for {}. Errno: {}", socket_addr, err_sc);
-      // If the connect failed close the file descriptor to prevent file
-      // descriptors being leaked
-      if (close(sfd) != 0) {
-        err_sc = errno;
-        spdlog::error("Failed to close fd for {}. Closing started because 'connect' failed. Errno: {}", socket_addr,
-                      err_sc);
+
+      if (fcntl(sfd, F_SETFL, sockfd_flags_orig | O_NONBLOCK) < 0) {
+        spdlog::error("Failed to set socket to non-blocking mode during connect.");
+        Close(sfd, socket_addr);
+        continue;
       }
+
+      auto async_connect = [&](int const fd, const sockaddr *addr, socklen_t addrlen) -> bool {
+        // if connect succeeded
+        if (connect(fd, addr, addrlen) == 0) {
+          return true;
+        }
+
+        // Failure which we don't handle
+        if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
+          spdlog::error("Failed to connect to socket with err code {}", errno);
+          return false;
+        }
+
+        auto const start_time = std::chrono::steady_clock::now();
+        auto const deadline = start_time + timeout_ms;
+
+        while (true) {
+          auto const now = std::chrono::steady_clock::now();
+
+          if (now >= deadline) {
+            errno = ETIMEDOUT;
+            return false;
+          }
+
+          auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+
+          pollfd pfds[] = {{.fd = fd, .events = POLLOUT}};
+          int const poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
+
+          // Socket is ready, likely writeable
+          if (poll_status > 0) {
+            int error = 0;
+            socklen_t len = sizeof(error);
+
+            // Check if the connection was successful
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+              return true;
+            }
+
+            // Update errno if the connection wasn't successful
+            errno = error;
+            return false;
+          }
+
+          // Poll status of 0 indicated timeout
+          if (poll_status == 0) {
+            errno = ETIMEDOUT;
+            return false;
+          }
+
+          // If errno == EINTR, it means that the signal occurred while the system call was in progress
+          // In that case we retry, otherwise abort and return false
+          // https://stackoverflow.com/questions/41474299/checking-if-errno-eintr-what-does-it-mean
+          if (errno != EINTR) {
+            return false;
+          }
+        }
+      };
+
+      if (!async_connect(sfd, it.ai_addr, it.ai_addrlen)) {
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      if (fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
+        spdlog::error("Failed to set socket to blocking mode during connect");
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      // Success
+      socket_ = sfd;
+      endpoint_ = endpoint;
+      break;
     }
   } catch (const NetworkError &e) {
     spdlog::trace("Error occurred while connecting to {}. Error: {}", endpoint.SocketAddress(), e.what());
     return false;
   }
 
-  return !(socket_ == -1);
+  return socket_ != -1;
 }
 
 bool Socket::Bind(const Endpoint &endpoint) {
@@ -127,10 +208,10 @@ bool Socket::Bind(const Endpoint &endpoint) {
         // If the setsockopt failed close the file descriptor to prevent file
         // descriptors being leaked
         if (close(sfd) != 0) {
-          int err_sc = errno;
+          int const err_sc = errno;
           spdlog::error(
               "Failed to close fd for {}. Closing started because 'setsockopt' failed while binding. Errno: {}",
-              socket_addr, err_sc);
+              socket_addr, std::strerror(err_sc));
         }
         continue;
       }
@@ -143,8 +224,8 @@ bool Socket::Bind(const Endpoint &endpoint) {
       // descriptors being leaked
       spdlog::trace("Socket::Bind failed. Closing file descriptor for socket address {}", endpoint.SocketAddress());
       if (close(sfd) != 0) {
-        int err_sc = errno;
-        spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, err_sc);
+        int const err_sc = errno;
+        spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, std::strerror(err_sc));
       }
     }
   } catch (NetworkError const &e) {
@@ -164,9 +245,9 @@ bool Socket::Bind(const Endpoint &endpoint) {
     // If the getsockname failed close the file descriptor to prevent file
     // descriptors being leaked
     if (close(socket_) != 0) {
-      int err_sc = errno;
+      int const err_sc = errno;
       spdlog::error("Failed to close fd for {}. Closing started because 'getsockname' failed. Errno: {}", socket_addr,
-                    err_sc);
+                    std::strerror(err_sc));
     }
     socket_ = -1;
     spdlog::trace("Socket::Bind failed. getsockname failed, closing file descriptor for socket address {}",
