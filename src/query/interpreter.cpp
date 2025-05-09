@@ -2839,9 +2839,6 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex =
-      std::pair<storage::LabelId, std::vector<storage::PropertyId>>;  // @TODO: maybe we don't need `LPIndex` type once
-                                                                      // nested indices are fully implemented.
   using LPNestedIndex = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
   auto view = storage::View::OLD;
 

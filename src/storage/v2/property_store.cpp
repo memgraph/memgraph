@@ -2248,38 +2248,6 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   return WithReader(property_equal);
 }
 
-auto PropertyStore::ArePropertiesEqual(std::span<PropertyId const> ordered_properties,
-                                       std::span<PropertyValue const> values,
-                                       std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
-  auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
-    auto result = std::vector<bool>(ordered_properties.size(), false);
-
-    auto const get_result = [&](Reader &reader, PropertyId property, PropertyValue const &cmp_val) {
-      auto const orig_reader = reader;
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
-      auto property_size = info.property_size();
-      if (property_size != 0) {
-        auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
-        auto cmp_res = CompareExpectedProperty(&prop_reader, property, cmp_val);
-        return std::pair{info.status, std::optional{cmp_res}};
-      } else {
-        return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};
-      }
-    };
-    auto const apply_result = [&](std::optional<bool> extracted_result, PropertyValue const &cmp_val, size_t pos) {
-      result[pos] = extracted_result ? *extracted_result : cmp_val.IsNull();
-    };
-
-    auto safe_reader = SafeReader{reader, get_result, apply_result, std::nullopt};
-    for (auto [pos, property] : ranges::views::enumerate(ordered_properties)) {
-      auto const &value = values[position_lookup[pos]];
-      safe_reader(std::tuple{property, std::cref(value)}, std::tuple{std::cref(value), pos});
-    }
-    return result;
-  };
-  return WithReader(properties_are_equal);
-}
-
 auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
