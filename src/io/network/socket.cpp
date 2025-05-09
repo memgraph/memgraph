@@ -25,7 +25,7 @@
 #include "utils/metrics_timer.hpp"
 
 namespace {
-constexpr uint32_t timeout_ms = 5000;
+constexpr auto timeout_ms = std::chrono::milliseconds(5000);
 }  // namespace
 
 namespace memgraph::metrics {
@@ -116,7 +116,7 @@ bool Socket::Connect(const Endpoint &endpoint) {
         }
 
         auto const start_time = std::chrono::steady_clock::now();
-        auto const deadline = start_time + std::chrono::milliseconds(timeout_ms);
+        auto const deadline = start_time + timeout_ms;
 
         while (true) {
           auto const now = std::chrono::steady_clock::now();
@@ -152,7 +152,9 @@ bool Socket::Connect(const Endpoint &endpoint) {
             return false;
           }
 
-          // A signal occurred before any requested event
+          // If errno == EINTR, it means that the signal occurred while the system call was in progress
+          // In that case we retry, otherwise abort and return false
+          // https://stackoverflow.com/questions/41474299/checking-if-errno-eintr-what-does-it-mean
           if (errno != EINTR) {
             return false;
           }
