@@ -153,7 +153,7 @@ storage::IntermediatePropertyValue DeserializeIntermediatePropertyValue(const nl
   }
 
   if (data.is_array()) {
-    return storage::IntermediatePropertyValue(DeserializeIntermediatePropertyValue(data, storage_acc));
+    return storage::IntermediatePropertyValue(DeserializeIntermediatePropertyValueList(data, storage_acc));
   }
 
   MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");

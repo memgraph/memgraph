@@ -138,47 +138,6 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(point3d_val).ValuePoint3d(), point3d_val);
 }
 
-TEST(TypedValue, CreationValuesFromPropertyValues) {
-  auto pv_true = PropertyValue{true};
-  EXPECT_EQ(TypedValue(pv_true).ValueBool(), true);
-  EXPECT_EQ(TypedValue(PropertyValue{true}).ValueBool(), true);
-
-  auto pv_false = PropertyValue{false};
-  EXPECT_EQ(TypedValue(pv_false).ValueBool(), false);
-  EXPECT_EQ(TypedValue(PropertyValue{false}).ValueBool(), false);
-
-  auto pv_str1 = PropertyValue{std::string("bla")};
-  EXPECT_EQ(TypedValue(pv_str1).ValueString(), "bla");
-  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}).ValueString(), "bla");
-
-  auto pv_str2 = PropertyValue{"bla2"};
-  EXPECT_EQ(TypedValue(pv_str2).ValueString(), "bla2");
-  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}).ValueString(), "bla2");
-
-  auto pv_int = PropertyValue{55};
-  EXPECT_EQ(TypedValue(pv_int).ValueInt(), 55);
-  EXPECT_EQ(TypedValue(PropertyValue{55}).ValueInt(), 55);
-
-  auto pv_double = PropertyValue{66.6};
-  EXPECT_FLOAT_EQ(TypedValue(pv_double).ValueDouble(), 66.6);
-  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}).ValueDouble(), 66.6);
-
-  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
-  auto pv_enum = PropertyValue{enum_val};
-  EXPECT_EQ(TypedValue(pv_enum).ValueEnum(), enum_val);
-  EXPECT_EQ(TypedValue(PropertyValue{enum_val}).ValueEnum(), enum_val);
-
-  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
-  auto pv_point2d = PropertyValue{point2d_val};
-  EXPECT_EQ(TypedValue(pv_point2d).ValuePoint2d(), point2d_val);
-  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}).ValuePoint2d(), point2d_val);
-
-  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
-  auto pv_point3d = PropertyValue{point3d_val};
-  EXPECT_EQ(TypedValue(pv_point3d).ValuePoint3d(), point3d_val);
-  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}).ValuePoint3d(), point3d_val);
-}
-
 TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue(true), TypedValue(true));
   EXPECT_PROP_NE(TypedValue(true), TypedValue(false));
@@ -343,6 +302,47 @@ TEST(TypedValue, Hash) {
   EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
+}
+
+TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
+  auto pv_true = PropertyValue{true};
+  EXPECT_EQ(TypedValue(pv_true, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+  EXPECT_EQ(TypedValue(PropertyValue{true}, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+
+  auto pv_false = PropertyValue{false};
+  EXPECT_EQ(TypedValue(pv_false, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+  EXPECT_EQ(TypedValue(PropertyValue{false}, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+
+  auto pv_str1 = PropertyValue{std::string("bla")};
+  EXPECT_EQ(TypedValue(pv_str1, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+
+  auto pv_str2 = PropertyValue{"bla2"};
+  EXPECT_EQ(TypedValue(pv_str2, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+
+  auto pv_int = PropertyValue{55};
+  EXPECT_EQ(TypedValue(pv_int, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+  EXPECT_EQ(TypedValue(PropertyValue{55}, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+
+  auto pv_double = PropertyValue{66.6};
+  EXPECT_FLOAT_EQ(TypedValue(pv_double, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  auto pv_enum = PropertyValue{enum_val};
+  EXPECT_EQ(TypedValue(pv_enum, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+  EXPECT_EQ(TypedValue(PropertyValue{enum_val}, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  auto pv_point2d = PropertyValue{point2d_val};
+  EXPECT_EQ(TypedValue(pv_point2d, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  auto pv_point3d = PropertyValue{point3d_val};
+  EXPECT_EQ(TypedValue(pv_point3d, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
