@@ -176,7 +176,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, qu
       *os << "{";
       const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [&](auto &os, const auto &kv) {
-        os << dba->PropertyToName(kv.first) << ": ";
+        os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
         DumpPropertyValue(&os, kv.second, dba);
       });
       *os << "}";

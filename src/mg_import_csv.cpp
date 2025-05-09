@@ -584,15 +584,15 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
   if (!relationship.HasValue()) throw LoadException("Couldn't create the relationship");
 
   for (const auto &property : properties) {
-    auto ret = relationship.GetValue().SetProperty(acc->NameToProperty(property.first), property.second);
+    auto ret = relationship.GetValue().SetProperty(property.first, property.second);
     if (!ret.HasValue()) {
       if (ret.GetError() != memgraph::storage::Error::PROPERTIES_DISABLED) {
-        throw LoadException("Couldn't add property '{}' to the relationship", property.first);
+        throw LoadException("Couldn't add property '{}' to the relationship", acc->PropertyToName(property.first));
       } else {
         throw LoadException(
             "Couldn't add property '{}' to the relationship because properties "
             "on edges are disabled",
-            property.first);
+            acc->PropertyToName(property.first));
       }
     }
   }
