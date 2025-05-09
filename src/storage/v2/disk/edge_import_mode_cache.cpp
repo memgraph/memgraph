@@ -51,8 +51,7 @@ bool EdgeImportModeCache::CreateIndex(
   bool const res = mem_label_property_index->CreateIndex(label, {property});
   if (!res) return res;
 
-  mem_label_property_index->PopulateIndex(label, {property}, vertices_.access(), parallel_exec_info,
-                                          []() { return false; });
+  mem_label_property_index->PopulateIndex(label, {property}, vertices_.access(), parallel_exec_info);
   scanned_label_properties_.insert({label, property});
   return res;
 }

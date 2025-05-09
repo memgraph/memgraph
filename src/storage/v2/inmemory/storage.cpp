@@ -108,8 +108,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -821,11 +821,16 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
-        }
 
-        // Install the new point index, if needed
-        mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                                transaction_.point_index_ctx_);
+          // Install the new point index, if needed
+          mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                                  transaction_.point_index_ctx_);
+
+          if (transaction_.index_change_info_) {
+            auto indices = static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+            indices->UpdateIndexStatus(*transaction_.index_change_info_);
+          }
+        }
 
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);
@@ -845,11 +850,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           }
         }
       }
-      if (transaction_.index_change_info_) {
-        auto indices = static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
-        indices->UpdateIndexStatus(*transaction_.index_change_info_);
-      }
-
     }  // Release engine lock because we don't have to hold it anymore
 
     if (unique_constraint_violation) {
@@ -1407,7 +1407,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   }
   DowngradeToRead();
   auto res = mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
-                                                     std::move(cancel_check), std::nullopt, &transaction_);
+                                                     std::nullopt, std::move(cancel_check), &transaction_);
   if (!res) {
     return StorageIndexDefinitionError{IndexPopulationError{}};  // TODO: better error info
   }
