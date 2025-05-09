@@ -211,8 +211,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
         //       We should add it. Then we can allow the recovery to be canceled when server is shutting down.
         return false;
       };
-      mem_label_property_index->PopulateIndex(label, properties, vertices->access(), parallel_exec_info, cancel_check,
-                                              snapshot_info);
+      mem_label_property_index->PopulateIndex(label, properties, vertices->access(), parallel_exec_info, snapshot_info,
+                                              cancel_check);
 
       auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
       auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
