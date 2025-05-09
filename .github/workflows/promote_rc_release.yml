@@ -90,7 +90,11 @@ jobs:
           if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
             package_name=${package_rpm}
           elif [[ $os == docker ]]; then
-            package_name=${package_docker}
+            if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+              package_name=${package_docker_relwithdebinfo}
+            else
+              package_name=${package_docker}
+            fi
           else
             package_name=${package_deb_amd}
             if [[ "${{ matrix.arch }}" == "arm" ]]; then
