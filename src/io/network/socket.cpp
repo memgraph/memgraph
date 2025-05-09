@@ -67,8 +67,8 @@ bool Socket::IsOpen() const { return socket_ != -1; }
 
 void Socket::Close(int const sfd, std::string_view socket_addr) {
   if (close(sfd) != 0) {
-    int err_sc = errno;
-    spdlog::error("Failed to close fd for {}. Errno: {}", socket_addr, err_sc);
+    int const err_sc = errno;
+    spdlog::error("Failed to close fd for {}. Errno: {}", socket_addr, std::strerror(err_sc));
   }
 }
 
@@ -115,30 +115,21 @@ bool Socket::Connect(const Endpoint &endpoint) {
           return false;
         }
 
-        timespec now{};
-        if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
-          spdlog::error("Failed to get monotonic time from clock_gettime");
-          return false;
-        }
-
-        int64_t const deadline_ns = static_cast<int64_t>(now.tv_sec) * 1'000'000'000 + now.tv_nsec +
-                                    static_cast<int64_t>(timeout_ms) * 1'000'000;
+        auto const start_time = std::chrono::steady_clock::now();
+        auto const deadline = start_time + std::chrono::milliseconds(timeout_ms);
 
         while (true) {
-          if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
-            spdlog::error("Failed to get monotonic time from clock_gettime");
-            return false;
-          }
+          auto const now = std::chrono::steady_clock::now();
 
-          int64_t const now_ns = static_cast<int64_t>(now.tv_sec) * 1'000'000'000 + now.tv_nsec;
-          int const ms_remaining = static_cast<int>((deadline_ns - now_ns) / 1'000'000);
-          if (ms_remaining <= 0) {
+          if (now >= deadline) {
             errno = ETIMEDOUT;
             return false;
           }
 
+          auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+
           pollfd pfds[] = {{.fd = fd, .events = POLLOUT}};
-          int const poll_status = poll(pfds, 1, ms_remaining);
+          int const poll_status = poll(pfds, 1, static_cast<int>(ms_remaining));
 
           // Socket is ready, likely writeable
           if (poll_status > 0) {
@@ -215,10 +206,10 @@ bool Socket::Bind(const Endpoint &endpoint) {
         // If the setsockopt failed close the file descriptor to prevent file
         // descriptors being leaked
         if (close(sfd) != 0) {
-          int err_sc = errno;
+          int const err_sc = errno;
           spdlog::error(
               "Failed to close fd for {}. Closing started because 'setsockopt' failed while binding. Errno: {}",
-              socket_addr, err_sc);
+              socket_addr, std::strerror(err_sc));
         }
         continue;
       }
@@ -231,8 +222,8 @@ bool Socket::Bind(const Endpoint &endpoint) {
       // descriptors being leaked
       spdlog::trace("Socket::Bind failed. Closing file descriptor for socket address {}", endpoint.SocketAddress());
       if (close(sfd) != 0) {
-        int err_sc = errno;
-        spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, err_sc);
+        int const err_sc = errno;
+        spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, std::strerror(err_sc));
       }
     }
   } catch (NetworkError const &e) {
@@ -252,9 +243,9 @@ bool Socket::Bind(const Endpoint &endpoint) {
     // If the getsockname failed close the file descriptor to prevent file
     // descriptors being leaked
     if (close(socket_) != 0) {
-      int err_sc = errno;
+      int const err_sc = errno;
       spdlog::error("Failed to close fd for {}. Closing started because 'getsockname' failed. Errno: {}", socket_addr,
-                    err_sc);
+                    std::strerror(err_sc));
     }
     socket_ = -1;
     spdlog::trace("Socket::Bind failed. getsockname failed, closing file descriptor for socket address {}",
