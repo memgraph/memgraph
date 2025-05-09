@@ -2,7 +2,7 @@ name: "Jepsen HA Stress Tests"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
-  
+
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +10,7 @@ on:
         description: "Run sync tests (untick for async)"
         type: boolean
         default: true
-      run-mt: 
+      run-mt:
         description: "Run MT tests"
         type: boolean
         default: true
@@ -63,16 +63,16 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-non-mt }}
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
     with:
-      name: "${{ inputs.sync && 'sync' || 'mixed' }}"
+      name: "${{ inputs.sync == true && 'sync' || 'mixed' }}"
       mt: false
-      sync: ${{ inputs.sync }}
+      sync: ${{ inputs.sync == true }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-mt }}
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
     with:
-      name: "${{ inputs.sync && 'sync' || 'mixed' }}-mt"
+      name: "${{ inputs.sync == true && 'sync' || 'mixed' }}-mt"
       mt: true
-      sync: ${{ inputs.sync }}
+      sync: ${{ inputs.sync == true }}
     secrets: inherit
