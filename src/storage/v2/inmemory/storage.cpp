@@ -108,8 +108,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -1381,10 +1381,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, bool unique_access_needed) {
-  // TODO: add back in as READ_ONLY
-  //  if (unique_access_needed) {
-  //    MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
-  //  }
+  if (unique_access_needed) {
+    MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
+  }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
@@ -1472,8 +1471,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
-  // TODO: add back in as READ_ONLY
-  //  MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
@@ -1487,6 +1485,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties) {
+  // TODO: use the weaker READ
   MG_ASSERT(type() == READ_ONLY, "Dropping label-property index requires read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =

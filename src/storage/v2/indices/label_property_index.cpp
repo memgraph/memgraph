@@ -79,12 +79,18 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
 
 auto PropertiesPermutationHelper::ApplyPermutation(std::map<PropertyId, PropertyValue> &&values) const
     -> IndexOrderedPropertyValues {
+  // TODO: name is not correct, does more than ApplyPermutation
   std::vector<PropertyValue> values_vec;
-  values_vec.reserve(values.size());
-  for (auto &[id, property] : values) {
-    values_vec.emplace_back(std::move(property));
+  values_vec.reserve(sorted_properties_.size());
+  for (auto id : sorted_properties_) {
+    auto const it = values.find(id);
+    if (it == values.end()) {
+      values_vec.emplace_back();
+    } else {
+      values_vec.emplace_back(std::move(it->second));
+    }
   }
-  return {std::move(values_vec)};
+  return ApplyPermutation(std::move(values_vec));
 }
 
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,

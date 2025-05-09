@@ -1059,13 +1059,17 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
+          // TODO: NOTE for concurrent index creation when we do kReadOnlyAccess
+          //           problem when mixed with data deltas
+          //           we need to fix auto-indexing to have its own txn,
+          //           so that replication deltas are not mixed with data deltas
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
         },
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
-          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO*/);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->DropIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
@@ -1092,8 +1096,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
-          auto *transaction =
-              get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO: problem if mixed with data deltas*/);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
 
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
@@ -1105,7 +1108,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
-          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess /*TODO*/);
+          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,

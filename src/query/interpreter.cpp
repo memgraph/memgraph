@@ -3703,9 +3703,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto &ttl = db_acc->ttl();
 
           if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(label, std::vector{prop}, []() {
-              return false;
-            });  // Only way to fail is to try to create an already existant index
+            (void)dba->CreateIndex(
+                label, std::vector{prop});  // Only way to fail is to try to create an already existant index
             if (run_edge_ttl) {
               (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
             }

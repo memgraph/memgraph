@@ -126,9 +126,10 @@ bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t t
   return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
 }
 
-bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
-                                                                    uint64_t transaction_commit_timestamp) {
-  if (entries_for_deletion->empty()) {
+bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(
+    uint64_t transaction_start_timestamp, uint64_t transaction_commit_timestamp,
+    std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> &entries_for_deletion) {
+  if (entries_for_deletion.empty()) {
     return true;
   }
   auto disk_transaction = CreateAllReadingRocksDBTransaction();
@@ -137,16 +138,7 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
-  bool deletion_success = entries_for_deletion.WithLock(
-      [transaction_start_timestamp, disk_transaction_ptr = disk_transaction.get()](auto &tx_to_entries_for_deletion) {
-        if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
-            tx_it != tx_to_entries_for_deletion.end()) {
-          bool res = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction_ptr, tx_it->second);
-          tx_to_entries_for_deletion.erase(tx_it);
-          return res;
-        }
-        return true;
-      });
+  bool deletion_success = ClearTransactionEntriesWithRemovedIndexingLabel(*disk_transaction, entries_for_deletion);
   if (deletion_success) {
     return CommitWithTimestamp(disk_transaction.get(), transaction_commit_timestamp);
   }
@@ -155,12 +147,8 @@ bool DiskLabelPropertyIndex::DeleteVerticesWithRemovedIndexingLabel(uint64_t tra
 
 void DiskLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                              const Transaction &tx) {
-  auto tx_it = entries_for_deletion.find(tx.start_timestamp);
-  if (tx_it == entries_for_deletion.end()) {
-    return;
-  }
-  auto vertex_label_index_it = tx_it->second.find(vertex_after_update->gid);
-  if (vertex_label_index_it == tx_it->second.end()) {
+  auto vertex_label_index_it = entries_for_deletion.find(vertex_after_update->gid);
+  if (vertex_label_index_it == entries_for_deletion.end()) {
     return;
   }
   std::erase_if(vertex_label_index_it->second,
@@ -176,12 +164,9 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
     if (index_entry.label != removed_label) {
       continue;
     }
-    const auto &[indexing_label, indexing_property] = index_entry;
-    auto [it, _] = entries_for_deletion.emplace(std::piecewise_construct, std::forward_as_tuple(tx.start_timestamp),
-                                                std::forward_as_tuple());
-    auto &vertex_map_store = it->second;
-    auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
+    auto [it_vertex_map_store, emplaced] = entries_for_deletion.emplace(
         std::piecewise_construct, std::forward_as_tuple(vertex_after_update->gid), std::forward_as_tuple());
+    const auto &[indexing_label, indexing_property] = index_entry;
     it_vertex_map_store->second.emplace_back(indexing_label, indexing_property);
   }
 }
