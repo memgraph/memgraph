@@ -6054,8 +6054,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth, interpreter = &interpreter](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, /* force = query->force_ */ db_handler, auth = interpreter_context->auth,
+           interpreter = &interpreter](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
             }
@@ -6064,7 +6064,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 
             try {
               // Remove database
-              auto success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              // if (force)
+              // DbmsHandler::DeleteResult success{FAIL};
+              // TODO Hard to handle auth since we don't know if the database is in use
+              // Also GRANT DATABASE * will still allow users to access the dropped db
+              const auto success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
+              // auto success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
               if (!success.HasError()) {
                 // Remove from auth
                 if (auth) auth->DeleteDatabase(db_name, &*interpreter->system_transaction_);
