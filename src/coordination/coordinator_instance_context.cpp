@@ -14,6 +14,8 @@
 #include "coordination/coordinator_instance_context.hpp"
 #include "utils/logging.hpp"
 
+#include <nlohmann/json.hpp>
+
 static constexpr std::string_view kId{"id"};
 static constexpr std::string_view kBoltServer{"bolt_server"};
 

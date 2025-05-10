@@ -13,18 +13,11 @@
 #pragma once
 
 #include <algorithm>
-#include <cctype>
 #include <charconv>
-#include <cstdint>
-#include <cstring>
 #include <iomanip>
-#include <iosfwd>
-#include <iterator>
 #include <random>
 #include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <utility>
 
 #include "utils/exceptions.hpp"
 

@@ -23,8 +23,6 @@
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
-#include "query/frontend/ast/ast.hpp"
-
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"

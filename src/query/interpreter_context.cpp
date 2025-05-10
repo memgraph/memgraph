@@ -15,6 +15,7 @@
 #include "query/interpreter_context.hpp"
 
 #include "query/interpreter.hpp"
+
 #include "system/include/system/system.hpp"
 namespace memgraph::query {
 

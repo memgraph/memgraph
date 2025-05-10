@@ -21,6 +21,7 @@
 #include <vector>
 
 using memgraph::coordination::CoordinatorClusterState;
+using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
@@ -54,9 +55,11 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-  std::vector<CoordinatorInstanceContext> coord_instances;
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .current_main_uuid_ = uuid};
 
-  cluster_state.DoAction(data_instances, coord_instances, uuid);
+  cluster_state.DoAction(delta_state);
 
   auto const data_instances_res = cluster_state.GetDataInstancesContext();
   ASSERT_EQ(data_instances_res.size(), 1);
@@ -77,8 +80,9 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
 
-    std::vector<CoordinatorInstanceContext> coord_instances;
-    cluster_state.DoAction(data_instances, coord_instances, uuid);
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances, .current_main_uuid_ = uuid};
+    cluster_state.DoAction(delta_state);
   }
   {
     auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -91,9 +95,10 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-    std::vector<CoordinatorInstanceContext> coord_instances;
-
-    cluster_state.DoAction(data_instances, coord_instances, uuid);
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                   .current_main_uuid_ = uuid};
+    cluster_state.DoAction(delta_state);
   }
 
   auto const repl_instances = cluster_state.GetDataInstancesContext();
@@ -114,7 +119,10 @@ TEST_F(CoordinatorClusterStateTest, Coordinators) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  cluster_state.DoAction({}, coord_instances, UUID{});
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coord_instances),
+                                                 .current_main_uuid_ = UUID{}};
+  cluster_state.DoAction(delta_state);
 
   auto const coord_instances_res = cluster_state.GetCoordinatorInstancesContext();
   ASSERT_EQ(coord_instances_res.size(), 2);
@@ -125,7 +133,7 @@ TEST_F(CoordinatorClusterStateTest, Coordinators) {
 }
 
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
-  CoordinatorClusterState cluster_state{};
+  CoordinatorClusterState cluster_state;
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -143,11 +151,60 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
       CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
   };
 
-  cluster_state.DoAction(data_instances, coord_instances, uuid);
+  // by default, it should be true
+  ASSERT_TRUE(cluster_state.GetSyncFailoverOnly());
 
-  ptr<buffer> data{};
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = uuid,
+                                                 .enabled_reads_on_main_ = true,
+                                                 .sync_failover_only_ = false};
+  cluster_state.DoAction(delta_state);
+
+  ptr<buffer> data;
   cluster_state.Serialize(data);
 
   auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
   ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_TRUE(cluster_state.GetEnabledReadsOnMain());
+  ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
+}
+
+TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
+  CoordinatorClusterState cluster_state;
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  auto json = nlohmann::json{{memgraph::coordination::kDataInstances.data(), data_instances},
+                             {memgraph::coordination::kMainUUID.data(), uuid},
+                             {memgraph::coordination::kCoordinatorInstances.data(), coord_instances}};
+
+  auto const log = json.dump();
+  ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + log.size());
+  nuraft::buffer_serializer bs(data);
+  bs.put_str(log);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(deserialized_cluster_state.GetCoordinatorInstancesContext(), coord_instances);
+  ASSERT_EQ(deserialized_cluster_state.GetDataInstancesContext(), data_instances);
+  ASSERT_EQ(deserialized_cluster_state.GetCurrentMainUUID(), uuid);
+  // by default read false
+  ASSERT_FALSE(deserialized_cluster_state.GetEnabledReadsOnMain());
+  // by default read true
+  ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
 }

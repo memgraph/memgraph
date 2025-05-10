@@ -226,7 +226,8 @@ TEST_P(FileLockerParameterizedTest, RemovePath) {
       auto acc = locker.Access();
       // If absolute was sent to AddPath method, use relative now
       // to test those combinations.
-      acc.RemovePath(lock_absolute ? file : file_absolute);
+      auto ret = acc.RemovePath(lock_absolute ? file : file_absolute);
+      ASSERT_FALSE(ret.HasError());
     }
     if (delete_explicitly_file) {
       file_retainer.DeleteFile(delete_absolute ? file_absolute : file);

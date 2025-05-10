@@ -17,7 +17,7 @@
 #include <optional>
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::io::network {
 

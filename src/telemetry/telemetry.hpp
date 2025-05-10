@@ -14,7 +14,7 @@
 #include <mutex>
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/scheduler.hpp"

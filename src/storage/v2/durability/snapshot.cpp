@@ -57,6 +57,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timer.hpp"
 
 using namespace std::chrono_literals;
 namespace {
@@ -145,6 +146,9 @@ struct BatchInfo {
   uint64_t count;
 };
 
+using SnapshotEncoder = Encoder<utils::NonConcurrentOutputFile>;
+
+// Used for an upper limit, ie. something beyond the last item we should be processing
 constexpr auto kEnd = std::numeric_limits<int64_t>::max();
 
 // Result of a partial snapshot creation
@@ -189,7 +193,7 @@ class SafeTaskQueue {
 
 using task_results_t = std::vector<std::pair<SnapshotPartialRes, std::promise<bool>>>;
 
-void WaitAndCombine(task_results_t &partial_results, Encoder &snapshot_encoder, uint64_t &element_count,
+void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
                     std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
                     auto &&snapshot_aborted) {
   // NOTE: They have to be combined in order
@@ -256,7 +260,7 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
       batches[batch_id++] = elem.gid.AsInt();  // This batch's start ID and previous batch's end ID
       i = 1;                                   // 1 on purpose, as the first element is already in the batch
       // Check if we have enough batches
-      if (batch_id == n_batches) break;
+      if (batch_id == n_batches) break;  // THIS IS IMPORTANT, we do not want to remove the kEnd as our upper limit
     }
   }
   return batches;
@@ -264,7 +268,7 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
 
 void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex> *vertices, auto &&partial_edge_handler,
                            auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges,
-                           uint64_t &offset_vertices, Encoder &snapshot_encoder, uint64_t &edges_count,
+                           uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder, uint64_t &edges_count,
                            uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
                            std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
                            uint64_t thread_count, auto &&snapshot_aborted) {
@@ -281,7 +285,7 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
                      end_gid = edge_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
         // Create workers temporary file
         {
-          Encoder edges_snapshot;
+          SnapshotEncoder edges_snapshot;
           const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
           edges_snapshot.Initialize(snapshot_path);
           // Fill snapshot with edges
@@ -302,7 +306,7 @@ void MultiThreadedWorkflow(utils::SkipList<Edge> *edges, utils::SkipList<Vertex>
                    end_gid = vertex_batch_gid[id + 1], path = snapshot_encoder.GetPath()] {
       // Create workers temporary file
       {
-        Encoder vertex_snapshot;
+        SnapshotEncoder vertex_snapshot;
         const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
         vertex_snapshot.Initialize(snapshot_path);
         // Fill snapshot with edges
@@ -4661,8 +4665,9 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   utils::Timer timer;
 
   auto const snapshot_aborted = [abort_snapshot, &timer]() -> bool {
+    if (abort_snapshot == nullptr) return false;
     if (timer.Elapsed() >= kCheckIfSnapshotAborted) {
-      const bool abort = abort_snapshot != nullptr && abort_snapshot->load(std::memory_order_acquire);
+      const bool abort = abort_snapshot->load(std::memory_order_acquire);
       if (!abort) timer.ResetStartTime();  // Leave timer as elapsed, so future checks also retrun true
       return abort;
     }
@@ -4676,7 +4681,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
                                                                                   : transaction->start_timestamp);
   spdlog::info("Starting snapshot creation to {}", path);
-  Encoder snapshot;
+  SnapshotEncoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
 
   // Write placeholder offsets.
@@ -4736,22 +4741,31 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                                   int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
-    SnapshotPartialRes res{};
-    res.snapshot_path = edges_snapshot.GetPath();
+    auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    auto res = SnapshotPartialRes{.snapshot_path = edges_snapshot.GetPath()};
     auto items_in_current_batch{0UL};
     auto batch_start_offset = edges_snapshot.GetPosition();
 
     auto acc = edges->access();
+    // edge_id_ is monotonically increasing, holds a value which is currently unused
+    auto const unused_edge_gid = storage->edge_id_.load(std::memory_order_acquire);
 
     // Comparison start <= elem.gid < end with GID is important here because we need to
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
-      if (snapshot_aborted()) {
+      // This is a hot loop, use counter to reduce the frequency that we check for abort
+      if (counter() && snapshot_aborted()) [[unlikely]] {
         break;
       }
 
       auto &edge = *it;
+
+      // If we have reached a newly inserted edge, we can stop processing
+      if (unused_edge_gid <= edge.gid.AsUint()) [[unlikely]] {
+        break;
+      }
+
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
       bool is_visible = true;
@@ -4830,22 +4844,32 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                                     int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
-    SnapshotPartialRes res;
-    res.snapshot_path = vertex_snapshot.GetPath();
+    auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
+    auto res = SnapshotPartialRes{.snapshot_path = vertex_snapshot.GetPath()};
     auto items_in_current_batch = 0UL;
     auto batch_start_offset = vertex_snapshot.GetPosition();
 
     auto acc = vertices->access();
 
+    // vertex_id_ is monotonically increasing, holds a value which is currently unused
+    auto const unused_vertex_gid = storage->vertex_id_.load(std::memory_order_acquire);
+
     // Comparison start <= elem.gid < end with GID is important here because we need to
     // ensure that we are not reading elemets that are not in the batch.
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
-      if (snapshot_aborted()) {
+      // This is a hot loop, use counter to reduce the frequency that we check for abort
+      if (counter() && snapshot_aborted()) [[unlikely]] {
         break;
       }
 
       auto &vertex = *it;
+
+      // If we have reached a newly inserted vertex, we can stop processing
+      if (unused_vertex_gid <= vertex.gid.AsUint()) [[unlikely]] {
+        break;
+      }
+
       // The visibility check is implemented for vertices so we use it here.
       auto va = VertexAccessor::Create(&vertex, storage, transaction, View::OLD);
       if (!va) continue;

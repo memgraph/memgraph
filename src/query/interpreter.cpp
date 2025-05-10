@@ -33,9 +33,11 @@
 #include <vector>
 
 #include "auth/auth.hpp"
+#include "coordination/constants.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "dbms/coordinator_handler.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -61,6 +63,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/fmt.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
@@ -81,6 +84,7 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -104,6 +108,7 @@
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
+#include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
@@ -263,12 +268,7 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
 }
 
 template <typename T>
-concept HasEmpty = requires(T t) {
-  { t.empty() } -> std::convertible_to<bool>;
-};
-
-template <typename T>
-inline std::optional<T> GenOptional(const T &in) {
+std::optional<T> GenOptional(const T &in) {
   return in.empty() ? std::nullopt : std::make_optional<T>(in);
 }
 
@@ -276,7 +276,6 @@ struct Callback {
   std::vector<std::string> header;
   using CallbackFunction = std::function<std::vector<std::vector<TypedValue>>()>;
   CallbackFunction fn;
-  bool should_abort_query{false};
 };
 
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionVisitor<TypedValue> &eval) {
@@ -552,6 +551,41 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case SUCCESS:
         break;
     }
+  }
+
+  void YieldLeadership() override {
+    switch (coordinator_handler_.YieldLeadership()) {
+      case coordination::YieldLeadershipStatus::SUCCESS: {
+        spdlog::info(
+            "The request for yielding leadership was submitted successfully. Please monitor the cluster state with "
+            "'SHOW INSTANCES' to see changes applied.");
+        break;
+      }
+      case coordination::YieldLeadershipStatus::NOT_LEADER: {
+        throw QueryRuntimeException("Only the current leader can yield the leadership!");
+      }
+    }
+  }
+
+  void SetCoordinatorSetting(std::string_view const setting_name, std::string_view const setting_value) override {
+    switch (coordinator_handler_.SetCoordinatorSetting(setting_name, setting_value)) {
+      case coordination::SetCoordinatorSettingStatus::SUCCESS: {
+        spdlog::info("The request for updating coordinator setting was accepted by Raft storage.");
+        break;
+      }
+      case coordination::SetCoordinatorSettingStatus::RAFT_LOG_ERROR: {
+        throw QueryRuntimeException(
+            "Raft storage didn't accept a configuration change. The most probable reason is that coordinators cannot "
+            "form a consensus or that the currently active instance is not the leader.");
+      }
+      case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
+        throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
+      }
+    }
+  }
+
+  std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() override {
+    return coordinator_handler_.ShowCoordinatorSettings();
   }
 
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
@@ -1465,7 +1499,7 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
-  using enum memgraph::flags::Experiments;
+  using enum flags::Experiments;
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
@@ -1593,7 +1627,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                               bolt_server_it->second, coordinator_query->instance_name_));
       return callback;
     }
-    case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
+    case CoordinatorQuery::Action::UNREGISTER_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can unregister instance!");
       }
@@ -1607,8 +1641,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           fmt::format("Coordinator has unregistered instance {}.", coordinator_query->instance_name_));
 
       return callback;
-
-    case CoordinatorQuery::Action::DEMOTE_INSTANCE:
+    }
+    case CoordinatorQuery::Action::DEMOTE_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can demote instance!");
       }
@@ -1622,8 +1656,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           fmt::format("Coordinator has demoted instance to replica {}.", coordinator_query->instance_name_));
 
       return callback;
-
-    case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE:
+    }
+    case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can force reset cluster!");
       }
@@ -1635,7 +1669,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                   fmt::format("Coordinator has force reset cluster state."));
 
       return callback;
-
+    }
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
@@ -1692,6 +1726,68 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
         };
         results.push_back(std::move(instance_result));
+        return results;
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::YIELD_LEADERSHIP: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run YIELD LEADERSHIP query.");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        handler.YieldLeadership();
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::YIELD_LEADERSHIP,
+                                  fmt::format("The coordinator has tried to yield the current leadership."));
+
+      return callback;
+    }
+    case CoordinatorQuery::Action::SET_COORDINATOR_SETTING: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SET COORDINATOR SETTING query.");
+      }
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      const auto setting_name = EvaluateOptionalExpression(coordinator_query->setting_name_, evaluator);
+
+      if (!setting_name.IsString()) {
+        throw utils::BasicException("Setting name should be a string literal");
+      }
+
+      const auto setting_value = EvaluateOptionalExpression(coordinator_query->setting_value_, evaluator);
+      if (!setting_value.IsString()) {
+        throw utils::BasicException("Setting value should be a string literal");
+      }
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     setting_name = std::string{setting_name.ValueString()},
+                     setting_value = std::string{setting_value.ValueString()}]() mutable {
+        handler.SetCoordinatorSetting(setting_name, setting_value);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW COORDINATOR SETTINGS query.");
+      }
+      callback.header = {"setting_name", "setting_value"};
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const coord_settings = handler.ShowCoordinatorSettings();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(coord_settings.size());
+
+        for (const auto &[k, v] : coord_settings) {
+          spdlog::info("Setting name: {} Setting value: {}", k, v);
+          std::vector<TypedValue> setting_info;
+          setting_info.reserve(2);
+
+          setting_info.emplace_back(k);
+          setting_info.emplace_back(v);
+          results.push_back(std::move(setting_info));
+        }
         return results;
       };
       return callback;
@@ -2329,8 +2425,7 @@ void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   const auto rw_type = plan.rw_type();
   if (rw_type == RWType::W || rw_type == RWType::RW) {
     if (dba.type() != storage::Storage::Accessor::Type::WRITE) {
-      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", static_cast<int>(dba.type()),
-                                  static_cast<int>(rw_type));
+      throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
   }
 }
@@ -4377,6 +4472,10 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
               break;
             case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
               throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
+            case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
+              throw utils::BasicException("Another snapshot creation is already in progress.");
+            case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
+              throw utils::BasicException("Nothing has been written since the last snapshot.");
           }
         }
         return QueryHandlerResult::COMMIT;
@@ -4474,13 +4573,14 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
+
   auto callback = HandleSettingQuery(setting_query, parsed_query.parameters);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
@@ -6165,7 +6265,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
         throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port and coordinator id or management port where not "
+            "Coordinator was not initialized as coordinator port, coordinator id or management port were not "
             "set.");
       }
       prepared_query =
@@ -6323,6 +6423,20 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
     AbortCommand(query_execution_ptr);
     throw;
+  }
+}
+
+void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
+  const std::string db_name = db ? *db : "";
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
+    Abort();
+    if (db_name.empty()) {
+      throw QueryException("You are not authorized to execute this query! Please contact your database administrator.");
+    }
+    throw QueryException(
+        "You are not authorized to execute this query on database \"{}\"! Please contact your database "
+        "administrator.",
+        db_name);
   }
 }
 

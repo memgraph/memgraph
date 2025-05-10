@@ -11,29 +11,14 @@
 
 #pragma once
 
-#include <atomic>
-#include <cmath>
-#include <cstdint>
-#include <cstdlib>
-#include <limits>
-#include <mutex>
-#include <optional>
-#include <random>
-#include <utility>
-
-#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
-#include "utils/linux.hpp"
-#include "utils/logging.hpp"
+#include "utils/math.hpp"
 #include "utils/memory.hpp"
-#include "utils/memory_tracker.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/readable_size.hpp"
 #include "utils/rw_spin_lock.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
-#include "utils/stat.hpp"
+
+#include <random>
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -619,11 +604,13 @@ class SkipList final : detail::SkipListNode_base {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
+      auto current = node_;
       while (true) {
-        node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
+        current = current->nexts[0].load(std::memory_order_acquire);
+        if (current != nullptr && current->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
+          node_ = current;
           return *this;
         }
       }
@@ -752,7 +739,7 @@ class SkipList final : detail::SkipListNode_base {
     ~Accessor() {
       if (skiplist_ != nullptr) {
         skiplist_->gc_.ReleaseId(id_);
-        thread_local auto gc_run_interval = utils::ResettableCounter<1024>();
+        thread_local auto gc_run_interval = utils::ResettableCounter(1024);
         if (gc_run_interval()) {
           skiplist_->run_gc();
         }

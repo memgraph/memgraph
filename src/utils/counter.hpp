@@ -13,19 +13,25 @@
 
 #include <atomic>
 #include <cstdint>
+#include <stdexcept>
 
 namespace memgraph::utils {
 
 /// A resettable counter, every Nth call returns true
-template <std::size_t N>
-auto ResettableCounter() {
-  return [counter = N]() mutable {
-    --counter;
-    if (counter != 0) return false;
-    counter = N;
+
+struct ResettableCounter {
+  ResettableCounter(std::size_t N) : counter_{N}, orig_{N} {}
+  bool operator()() const {
+    --counter_;
+    if (counter_ != 0) return false;
+    counter_ = orig_;
     return true;
-  };
-}
+  }
+
+ private:
+  mutable std::size_t counter_;
+  std::size_t orig_;
+};
 
 struct ResettableAtomicCounter {
   explicit ResettableAtomicCounter(uint64_t const original_size) : original_size_(original_size) {

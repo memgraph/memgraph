@@ -21,7 +21,7 @@
 #include "utils/uuid.hpp"
 
 #include <libnuraft/nuraft.hxx>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <range/v3/view.hpp>
 
 #include <string>
@@ -32,6 +32,16 @@ using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::ptr;
 using replication_coordination_glue::ReplicationRole;
+
+struct CoordinatorClusterStateDelta {
+  std::optional<std::vector<DataInstanceContext>> data_instances_;
+  std::optional<std::vector<CoordinatorInstanceContext>> coordinator_instances_;
+  std::optional<utils::UUID> current_main_uuid_;
+  std::optional<bool> enabled_reads_on_main_;
+  std::optional<bool> sync_failover_only_;
+
+  bool operator==(const CoordinatorClusterStateDelta &other) const = default;
+};
 
 // Represents the state of the cluster from the coordinator's perspective.
 // Source of truth since it is modified only as the result of RAFT's commiting.
@@ -54,8 +64,7 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(std::vector<DataInstanceContext> data_instances,
-                std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid) -> void;
+  auto DoAction(CoordinatorClusterStateDelta delta_state) -> void;
 
   auto Serialize(ptr<buffer> &data) const -> void;
 
@@ -66,6 +75,10 @@ class CoordinatorClusterState {
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
+
+  auto GetEnabledReadsOnMain() const -> bool;
+
+  auto GetSyncFailoverOnly() const -> bool;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
@@ -78,14 +91,29 @@ class CoordinatorClusterState {
   // Setter function used on parsing data from json
   void SetCoordinatorInstances(std::vector<CoordinatorInstanceContext>);
 
-  friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
-    return lhs.data_instances_ == rhs.data_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
+  // Setter function used on parsing data from json
+  void SetEnabledReadsOnMain(bool enabled_reads_on_main);
+
+  void SetSyncFailoverOnly(bool sync_failover_only);
+
+  friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
+    if (&lhs == &rhs) {
+      return true;
+    }
+    std::scoped_lock lock(lhs.app_lock_, rhs.app_lock_);
+
+    return std::tie(lhs.data_instances_, lhs.coordinator_instances_, lhs.current_main_uuid_, lhs.enabled_reads_on_main_,
+                    lhs.sync_failover_only_) == std::tie(rhs.data_instances_, rhs.coordinator_instances_,
+                                                         rhs.current_main_uuid_, rhs.enabled_reads_on_main_,
+                                                         rhs.sync_failover_only_);
   }
 
  private:
   std::vector<DataInstanceContext> data_instances_;
   std::vector<CoordinatorInstanceContext> coordinator_instances_;
   utils::UUID current_main_uuid_;
+  bool enabled_reads_on_main_{false};
+  bool sync_failover_only_{true};
   mutable utils::ResourceLock app_lock_;
 };
 

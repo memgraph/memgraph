@@ -26,6 +26,7 @@
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -36,8 +37,10 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "utils/async_timer.hpp"
+#include "utils/timer.hpp"
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -598,8 +601,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  mem_storage->edge_id_.store(std::max(mem_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                              std::memory_order_release);
+
+  auto const next_edge_id = gid.AsUint() + 1;
+  auto current_edge_id = mem_storage->edge_id_.load(std::memory_order_acquire);
+  bool updated = false;
+  while (!updated && current_edge_id < next_edge_id) {
+    updated = mem_storage->edge_id_.compare_exchange_weak(current_edge_id, next_edge_id, std::memory_order_acq_rel);
+  }
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -809,8 +817,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Replica can only update the last durable timestamp with
           // the commits received from main.
           // Update the last durable timestamp
-          auto prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+#ifndef NDEBUG
+          auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
           DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
+#endif
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
         }
 
@@ -2593,7 +2603,18 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     return CreateSnapshotError::AbortSnapshot;
   }
 
-  std::lock_guard snapshot_guard(snapshot_lock_);
+  // Make sure only one create snapshot is running at any moment
+  auto expected = false;
+  auto already_running = !snapshot_running_.compare_exchange_strong(expected, true, std::memory_order_acq_rel);
+  if (already_running) {
+    return CreateSnapshotError::AlreadyRunning;
+  }
+  auto const clear_snapshot_running_on_exit =
+      utils::OnScopeExit{[&] { snapshot_running_.store(false, std::memory_order_release); }};
+
+  // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication
+  // stuff are mutually exclusive from each other
+  auto const snapshot_guard = std::unique_lock(snapshot_lock_);
 
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
@@ -2605,11 +2626,20 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
+
+  DMG_ASSERT(transaction->last_durable_ts_.has_value());
   auto const &epoch = repl_storage_state_.epoch_;
+  auto const &epochHistory = repl_storage_state_.history;
+  auto const &storage_uuid = uuid();
+
+  auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
+  if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+
+  last_snapshot_digest_ = std::move(current_digest);
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
   if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
-                                  &vertices_, &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_,
+                                  &vertices_, &edges_, storage_uuid, epoch, epochHistory, &file_retainer_,
                                   &abort_snapshot_)) {
     return CreateSnapshotError::AbortSnapshot;
   }
@@ -2836,7 +2866,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 
 void InMemoryStorage::CreateSnapshotHandler(
     std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
-  create_snapshot_handler = [cb]() {
+  create_snapshot_handler = [cb = std::move(cb)] {
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
@@ -2847,6 +2877,12 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::AbortSnapshot:
           spdlog::warn("Failed to create snapshot. The current snapshot needs to be aborted.");
+          break;
+        case CreateSnapshotError::AlreadyRunning:
+          spdlog::info("Skipping snapshot creation. Another snapshot creation is already in progress.");
+          break;
+        case CreateSnapshotError::NothingNewToWrite:
+          spdlog::info("Skipping snapshot creation. Nothing has been written since the last snapshot.");
           break;
       }
     }
@@ -2964,6 +3000,8 @@ void InMemoryStorage::Clear() {
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
   repl_storage_state_.last_durable_timestamp_ = 0;
   repl_storage_state_.history.clear();
+
+  last_snapshot_digest_ = std::nullopt;
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {

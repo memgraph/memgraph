@@ -13,12 +13,13 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <cstdint>
-
 namespace memgraph::coordination {
 
+enum class YieldLeadershipStatus { SUCCESS = 0, NOT_LEADER };
+enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING };
+
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
+  NAME_EXISTS = 0,
   MGMT_ENDPOINT_EXISTS,
   REPL_ENDPOINT_EXISTS,
   NOT_COORDINATOR,
@@ -32,7 +33,7 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
-  NO_INSTANCE_WITH_NAME,
+  NO_INSTANCE_WITH_NAME = 0,
   IS_MAIN,
   NO_MAIN,
   NOT_COORDINATOR,
@@ -46,7 +47,7 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
 };
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
-  NO_INSTANCE_WITH_NAME,
+  NO_INSTANCE_WITH_NAME = 0,
   MAIN_ALREADY_EXISTS,
   NOT_COORDINATOR,
   NOT_LEADER,
@@ -60,19 +61,19 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
 };
 
 enum class AddCoordinatorInstanceStatus : uint8_t {
-  SUCCESS,
+  SUCCESS = 0,
   ID_ALREADY_EXISTS,
   MGMT_ENDPOINT_ALREADY_EXISTS,
   COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };
 
 enum class RemoveCoordinatorInstanceStatus : uint8_t {
-  SUCCESS,
+  SUCCESS = 0,
   NO_SUCH_ID,
 };
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
-  NO_INSTANCE_WITH_NAME,
+  NO_INSTANCE_WITH_NAME = 0,
   NOT_LEADER,
   RPC_FAILED,
   RAFT_LOG_ERROR,
@@ -83,7 +84,7 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR
 };
 
-enum class ReconcileClusterStateStatus : uint8_t { SUCCESS, FAIL, SHUTTING_DOWN, NOT_LEADER_ANYMORE };
+enum class ReconcileClusterStateStatus : uint8_t { SUCCESS = 0, FAIL, SHUTTING_DOWN, NOT_LEADER_ANYMORE };
 
 }  // namespace memgraph::coordination
 #endif

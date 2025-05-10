@@ -13,6 +13,8 @@
 
 #include "coordination/coordinator_instance_aux.hpp"
 
+#include <nlohmann/json.hpp>
+
 static constexpr std::string_view kId{"id"};
 static constexpr std::string_view kManagementServer{"management_server"};
 static constexpr std::string_view kCoordinatorServer{"coordinator_server"};

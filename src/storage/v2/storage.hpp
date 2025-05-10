@@ -11,43 +11,24 @@
 
 #pragma once
 
-#include <chrono>
-#include <cstdint>
-#include <optional>
-#include <span>
-
 #include "mg_procedure.h"
-#include "query/exceptions.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/database_access.hpp"
-#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
-#include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/replication_transaction.hpp"
-#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
-#include "storage/v2/storage_mode.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
-#include "utils/compressor.hpp"
 #include "utils/event_counter.hpp"
-#include "utils/event_gauge.hpp"
-#include "utils/event_histogram.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
-#include "utils/timer.hpp"
-#include "utils/uuid.hpp"
 
 namespace memgraph::metrics {
 extern const Event SnapshotCreationLatency_us;
@@ -708,13 +689,30 @@ class Storage {
   utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
   utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
+  std::atomic<uint64_t> vertex_id_{0};  // contains Vertex Gid that has not been used yet
+  std::atomic<uint64_t> edge_id_{0};    // contains Edge Gid that has not been used yet
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
 
   SchemaInfo schema_info_;
 };
+
+inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {
+  switch (type) {
+    using enum Storage::Accessor::Type;
+    case NO_ACCESS:
+      return os << "NO_ACCESS";
+    case UNIQUE:
+      return os << "UNIQUE";
+    case WRITE:
+      return os << "WRITE";
+    case READ:
+      return os << "READ";
+    case READ_ONLY:
+      return os << "READ_ONLY";
+  }
+  return os;
+}
 
 }  // namespace memgraph::storage

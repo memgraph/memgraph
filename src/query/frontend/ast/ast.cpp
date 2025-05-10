@@ -10,6 +10,10 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/aggregation.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/exists.hpp"
+#include "query/frontend/ast/query/pattern_comprehension.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "range/v3/all.hpp"
@@ -383,5 +387,70 @@ constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "
 
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
                                                           &query::Query::kType};
+
+namespace query {
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<void>);
+DEFINE_VISITABLE(Identifier, HierarchicalTreeVisitor);
+
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<void>);
+bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    expression_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
+bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    pattern_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<void>);
+bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (variable_) {
+      variable_->Accept(visitor);
+    }
+    pattern_->Accept(visitor);
+    if (filter_) {
+      filter_->Accept(visitor);
+    }
+    resultExpr_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<void>);
+
+bool Aggregation::Accept(HierarchicalTreeVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (expression1_) expression1_->Accept(visitor);
+    if (expression2_) expression2_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggregation::Op op, bool distinct)
+    : BinaryOperator(expression1, expression2), op_(op), distinct_(distinct) {
+  // COUNT without expression denotes COUNT(*) in cypher.
+  DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression1");
+  DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP),
+             "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
+}
+
+}  // namespace query
 
 }  // namespace memgraph

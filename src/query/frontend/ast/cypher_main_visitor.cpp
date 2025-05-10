@@ -26,6 +26,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -689,6 +690,38 @@ antlrcpp::Any CypherMainVisitor::visitShowInstance(MemgraphCypher::ShowInstanceC
 antlrcpp::Any CypherMainVisitor::visitShowInstances(MemgraphCypher::ShowInstancesContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
   coordinator_query->action_ = CoordinatorQuery::Action::SHOW_INSTANCES;
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitYieldLeadership(MemgraphCypher::YieldLeadershipContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::YIELD_LEADERSHIP;
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetCoordinatorSetting(MemgraphCypher::SetCoordinatorSettingContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SET_COORDINATOR_SETTING;
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
+  coordinator_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
+  MG_ASSERT(coordinator_query->setting_name_);
+
+  coordinator_query->setting_value_ = std::any_cast<Expression *>(ctx->settingValue()->accept(this));
+  MG_ASSERT(coordinator_query->setting_value_);
+
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowCoordinatorSettings(MemgraphCypher::ShowCoordinatorSettingsContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS;
   return coordinator_query;
 }
 
@@ -3566,6 +3599,72 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
   query_ = session_trace_query;
 
   return session_trace_query;
+}
+
+Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {
+  switch (token) {
+    case MemgraphCypher::OR:
+      return storage_->Create<OrOperator>(e1, e2);
+    case MemgraphCypher::XOR:
+      return storage_->Create<XorOperator>(e1, e2);
+    case MemgraphCypher::AND:
+      return storage_->Create<AndOperator>(e1, e2);
+    case MemgraphCypher::PLUS:
+      return storage_->Create<AdditionOperator>(e1, e2);
+    case MemgraphCypher::MINUS:
+      return storage_->Create<SubtractionOperator>(e1, e2);
+    case MemgraphCypher::ASTERISK:
+      return storage_->Create<MultiplicationOperator>(e1, e2);
+    case MemgraphCypher::SLASH:
+      return storage_->Create<DivisionOperator>(e1, e2);
+    case MemgraphCypher::PERCENT:
+      return storage_->Create<ModOperator>(e1, e2);
+    case MemgraphCypher::CARET:
+      return storage_->Create<ExponentiationOperator>(e1, e2);
+    case MemgraphCypher::EQ:
+      return storage_->Create<EqualOperator>(e1, e2);
+    case MemgraphCypher::NEQ1:
+    case MemgraphCypher::NEQ2:
+      return storage_->Create<NotEqualOperator>(e1, e2);
+    case MemgraphCypher::LT:
+      return storage_->Create<LessOperator>(e1, e2);
+    case MemgraphCypher::GT:
+      return storage_->Create<GreaterOperator>(e1, e2);
+    case MemgraphCypher::LTE:
+      return storage_->Create<LessEqualOperator>(e1, e2);
+    case MemgraphCypher::GTE:
+      return storage_->Create<GreaterEqualOperator>(e1, e2);
+    default:
+      throw utils::NotYetImplemented("binary operator");
+  }
+}
+
+Expression *CypherMainVisitor::CreateUnaryOperatorByToken(size_t token, Expression *e) {
+  switch (token) {
+    case MemgraphCypher::NOT:
+      return storage_->Create<NotOperator>(e);
+    case MemgraphCypher::PLUS:
+      return storage_->Create<UnaryPlusOperator>(e);
+    case MemgraphCypher::MINUS:
+      return storage_->Create<UnaryMinusOperator>(e);
+    default:
+      throw utils::NotYetImplemented("unary operator");
+  }
+}
+
+auto CypherMainVisitor::ExtractOperators(std::vector<antlr4::tree::ParseTree *> &all_children,
+                                         std::vector<size_t> const &allowed_operators) -> std::vector<size_t> {
+  std::vector<size_t> operators;
+  for (auto *child : all_children) {
+    antlr4::tree::TerminalNode *operator_node = nullptr;
+    if ((operator_node = dynamic_cast<antlr4::tree::TerminalNode *>(child))) {
+      if (std::find(allowed_operators.begin(), allowed_operators.end(), operator_node->getSymbol()->getType()) !=
+          allowed_operators.end()) {
+        operators.push_back(operator_node->getSymbol()->getType());
+      }
+    }
+  }
+  return operators;
 }
 
 }  // namespace memgraph::query::frontend

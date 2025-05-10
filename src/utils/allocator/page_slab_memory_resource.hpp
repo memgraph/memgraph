@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,14 +62,14 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
 
   void *do_allocate(size_t bytes, size_t alignment) final {
     // 1. could this fit inside a page slab?
-    auto earlest_slab_position = alignSize(sizeof(header), alignment);
-    auto max_slab_capacity = PAGE_SIZE - earlest_slab_position;
+    auto earliest_slab_position = alignSize(sizeof(header), alignment);
+    auto max_slab_capacity = PAGE_SIZE - earliest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
-      auto required_bytes = bytes + earlest_slab_position;
+      auto required_bytes = bytes + earliest_slab_position;
       auto *newmem = reinterpret_cast<header *>(operator new (required_bytes, std::align_val_t{alignment}));
       // add to the allocation list
       pages = std::construct_at<header>(newmem, pages, std::align_val_t{alignment});
-      return pages + earlest_slab_position;
+      return reinterpret_cast<std::byte *>(pages) + earliest_slab_position;
     }
 
     // 2. can it fit in existing slab?
