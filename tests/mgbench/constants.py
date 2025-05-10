@@ -14,10 +14,11 @@ class GraphVendors:
     MEMGRAPH = "memgraph"
     NEO4J = "neo4j"
     FALKORDB = "falkordb"
+    POSTGRESQL = "postgresql"
 
     @classmethod
     def get_all_vendors(cls):
-        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB]
+        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB, cls.POSTGRESQL]
 
 
 class BenchmarkInstallationType:
