@@ -117,3 +117,5 @@ target_link_libraries(mg-storage-v2
     strong_type::strong_type
     rangev3
 )
+
+add_subdirectory(fuzz EXCLUDE_FROM_ALL)

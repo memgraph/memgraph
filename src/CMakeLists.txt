@@ -147,7 +147,7 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------
 add_executable(mg_import_csv mg_import_csv.cpp)
-target_link_libraries(mg_import_csv mg-storage-v2 mg-dbms)
+target_link_libraries(mg_import_csv mg::storage mg-dbms)
 
 # Strip the executable in release build.
 if(lower_build_type STREQUAL "release")
