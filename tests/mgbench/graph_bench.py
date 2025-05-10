@@ -16,18 +16,47 @@ import json
 import subprocess
 from pathlib import Path
 
+from constants import BenchmarkClientLanguage, BenchmarkInstallationType, GraphVendors
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Run graph database benchmarks on supported databases(Memgraph and Neo4j)",
     )
+
     parser.add_argument(
         "--vendor",
-        nargs=2,
-        action="append",
-        metavar=("vendor_name", "vendor_binary"),
-        help="Forward name and paths to vendors binary"
-        "Example: --vendor memgraph /path/to/binary --vendor neo4j /path/to/binary",
+        type=str,
+        nargs="+",  # Accept multiple if you want to benchmark multiple vendors
+        default=GraphVendors.MEMGRAPH,
+        choices=GraphVendors.get_all_vendors(),
+        required=True,
+        help="Choose one or more database vendors: memgraph, neo4j, or falkordb",
+    )
+
+    parser.add_argument(
+        "--installation-type",
+        type=str,
+        default=BenchmarkInstallationType.NATIVE,
+        choices=BenchmarkInstallationType.get_all_installation_types(),
+        required=True,
+        help="Specify installation type: native or docker",
+    )
+
+    parser.add_argument(
+        "--client-language",
+        type=str,
+        default=BenchmarkClientLanguage.CPP,
+        choices=BenchmarkClientLanguage.get_all_client_languages(),
+        required=True,
+        help="Specify client language implementation: cpp or docker",
+    )
+
+    parser.add_argument(
+        "--vendor-binary",
+        type=str,
+        nargs="*",
+        help="Path to vendor binary (required if installation type is 'native'). Accept multiple binaries if you want to benchmark multiple vendors",
     )
 
     parser.add_argument(
@@ -90,12 +119,22 @@ def parse_arguments():
 
     args = parser.parse_args()
 
+    # Ensure vendor-binary is provided and matches vendor count when installation-type is 'native'
+    if args.installation_type == BenchmarkInstallationType.NATIVE:
+        if not args.vendor_binary or len(args.vendor_binary) != len(args.vendor):
+            parser.error(
+                f"--vendor-binary is required when --installation-type is '{BenchmarkInstallationType.NATIVE}'. "
+                "Provide one binary path per vendor."
+            )
+
     return args
 
 
 def run_full_benchmarks(
     vendor,
+    installation_type,
     binary,
+    client_language,
     dataset,
     dataset_size,
     dataset_group,
@@ -109,19 +148,19 @@ def run_full_benchmarks(
         # Basic isolated test cold
         [
             "--export-results",
-            vendor + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_cold_isolated.json",
+            f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_cold_isolated.json",
         ],
         # Basic isolated test hot
         [
             "--export-results",
-            vendor + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_hot_isolated.json",
+            f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_hot_isolated.json",
             "--warm-up",
             "hot",
         ],
         # Basic isolated test vulcanic
         [
             "--export-results",
-            vendor + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_vulcanic_isolated.json",
+            f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_vulcanic_isolated.json",
             "--warm-up",
             "vulcanic",
         ],
@@ -132,14 +171,7 @@ def run_full_benchmarks(
         for count, write, read, update, analytical in realistic:
             cold = [
                 "--export-results",
-                vendor
-                + "_"
-                + str(workers)
-                + "_"
-                + dataset
-                + "_"
-                + dataset_size
-                + "_cold_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
+                f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_cold_realistic_{count}_{write}_{read}_{update}_{analytical}.json",
                 "--workload-realistic",
                 count,
                 write,
@@ -150,14 +182,7 @@ def run_full_benchmarks(
 
             hot = [
                 "--export-results",
-                vendor
-                + "_"
-                + str(workers)
-                + "_"
-                + dataset
-                + "_"
-                + dataset_size
-                + "_hot_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
+                f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_hot_realistic_{count}_{write}_{read}_{update}_{analytical}.json",
                 "--warm-up",
                 "hot",
                 "--workload-realistic",
@@ -176,14 +201,7 @@ def run_full_benchmarks(
         for count, write, read, update, analytical, query in mixed:
             cold = [
                 "--export-results",
-                vendor
-                + "_"
-                + str(workers)
-                + "_"
-                + dataset
-                + "_"
-                + dataset_size
-                + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
+                f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_cold_mixed_{count}_{write}_{read}_{update}_{analytical}_{query}.json",
                 "--workload-mixed",
                 count,
                 write,
@@ -194,14 +212,7 @@ def run_full_benchmarks(
             ]
             hot = [
                 "--export-results",
-                vendor
-                + "_"
-                + str(workers)
-                + "_"
-                + dataset
-                + "_"
-                + dataset_size
-                + "_hot_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
+                f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_hot_mixed_{count}_{write}_{read}_{update}_{analytical}_{query}.json",
                 "--warm-up",
                 "hot",
                 "--workload-mixed",
@@ -216,23 +227,30 @@ def run_full_benchmarks(
             configurations.append(cold)
             configurations.append(hot)
 
-    default_args = [
-        "python3",
-        "benchmark.py",
-        "vendor-native",
-        "--vendor-binary",
-        binary,
-        "--vendor-name",
-        vendor,
-        "--num-workers-for-benchmark",
-        str(workers),
-        "--single-threaded-runtime-sec",
-        str(single_threaded_runtime_sec),
-        "--query-count-lower-bound",
-        str(query_count_lower_bound),
-        "--no-authorization",
-        dataset + "/" + dataset_size + "/" + dataset_group + "/*",
-    ]
+    installation_type_specific_args = (
+        [] if installation_type == BenchmarkInstallationType.DOCKER else ["--vendor-binary", binary]
+    )
+
+    default_args = (
+        ["python3", "benchmark.py"]
+        + installation_type_specific_args
+        + [
+            "--vendor-name",
+            vendor,
+            "--installation-type",
+            installation_type,
+            "--client-language",
+            client_language,
+            "--num-workers-for-benchmark",
+            str(workers),
+            "--single-threaded-runtime-sec",
+            str(single_threaded_runtime_sec),
+            "--query-count-lower-bound",
+            str(query_count_lower_bound),
+            "--no-authorization",
+            dataset + "/" + dataset_size + "/" + dataset_group + "/*",
+        ]
+    )
 
     for config in configurations:
         full_config = default_args + config
@@ -279,28 +297,36 @@ if __name__ == "__main__":
     realistic = args.realistic
     mixed = args.mixed
 
-    vendor_names = {"memgraph", "neo4j"}
-    for vendor_name, vendor_binary in args.vendor:
-        path = Path(vendor_binary)
-        if vendor_name.lower() in vendor_names and path.is_file():
-            run_full_benchmarks(
-                vendor_name,
-                vendor_binary,
-                args.dataset_name,
-                args.dataset_size,
-                args.dataset_group,
-                realistic,
-                mixed,
-                args.num_workers_for_benchmark,
-                args.query_count_lower_bound,
-                args.single_threaded_runtime_sec,
-            )
-            collect_all_results(
-                vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark
-            )
-        else:
-            raise Exception(
-                "Check that vendor: {} is supported and you are passing right path: {} to binary.".format(
-                    vendor_name, path
-                )
-            )
+    vendors = GraphVendors.get_all_vendors()
+
+    # Pre-check if all the vendors are supported for the benchmark
+    for vendor in args.vendor:
+        if vendor.lower() not in vendors:
+            raise Exception(f"Check that vendor: {vendor} is supported!")
+
+    for i in range(len(args.vendor)):
+        vendor_name = args.vendor[i]
+        vendor_binary = (
+            None if args.installation_type == BenchmarkInstallationType.DOCKER else Path(args.vendor_binary[i])
+        )
+
+        if vendor_binary is not None and not vendor_binary.is_file():
+            raise Exception(f"Binary path provided: {vendor_binary} seems not to be a file!")
+
+        run_full_benchmarks(
+            vendor_name,
+            args.installation_type,
+            vendor_binary,
+            args.client_language,
+            args.dataset_name,
+            args.dataset_size,
+            args.dataset_group,
+            realistic,
+            mixed,
+            args.num_workers_for_benchmark,
+            args.query_count_lower_bound,
+            args.single_threaded_runtime_sec,
+        )
+        collect_all_results(
+            vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark
+        )

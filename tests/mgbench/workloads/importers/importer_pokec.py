@@ -13,12 +13,18 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 from runners import BaseRunner
 
 
 class ImporterPokec:
     def __init__(
-        self, benchmark_context: BenchmarkContext, dataset_name: str, variant: str, index_file: str, dataset_file: str
+        self,
+        benchmark_context: BenchmarkContext,
+        dataset_name: str,
+        variant: str,
+        index_file: str,
+        dataset_file: str,
     ) -> None:
         self._benchmark_context = benchmark_context
         self._dataset_name = dataset_name
@@ -27,7 +33,7 @@ class ImporterPokec:
         self._dataset_file = dataset_file
 
     def execute_import(self):
-        if self._benchmark_context.vendor_name == "neo4j":
+        if self._benchmark_context.vendor_name == GraphVendors.NEO4J:
             neo4j_dump = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "neo4j.dump"
             vendor_runner = BaseRunner.create(
                 benchmark_context=self._benchmark_context,
@@ -44,6 +50,19 @@ class ImporterPokec:
                 print("Importing dataset...")
                 client.execute(file_path=self._dataset_file, num_workers=self._benchmark_context.num_workers_for_import)
                 vendor_runner.stop_db_init("import")
+            return True
+        elif self._benchmark_context.vendor_name == GraphVendors.POSTGRESQL:
+            vendor_runner = BaseRunner.create(
+                benchmark_context=self._benchmark_context,
+            )
+            vendor_runner.clean_db()
+            client = vendor_runner.fetch_client()
+            vendor_runner.start_db_init("import")
+            print("Executing database index setup...")
+            client.execute(file_path=self._index_file, num_workers=1)
+            print("Importing dataset...")
+            client.execute(file_path=self._dataset_file, num_workers=self._benchmark_context.num_workers_for_import)
+            vendor_runner.stop_db_init("import")
             return True
         else:
             return False
