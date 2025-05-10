@@ -29,6 +29,11 @@ class Pokec(Workload):
         "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_large.setup.cypher.gz",
     }
 
+    SQL_URL_FILE = {
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_small_import.sql",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_medium_import.sql",
+    }
+
     SIZES = {
         "small": {"vertices": 10000, "edges": 121716},
         "medium": {"vertices": 100000, "edges": 1768515},

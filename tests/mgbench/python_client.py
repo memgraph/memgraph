@@ -74,7 +74,11 @@ class PostgreSQLClient(PythonClient):
     def execute_query(self, query, params=None):
         start = time.time()
         self._cursor.execute(query, params or {})
-        _ = self._cursor.fetchall()  # Force client to pull results
+
+        # Only fetch results if the query returns rows
+        if self._cursor.description:
+            _ = self._cursor.fetchall()
+
         end = time.time()
         return (end - start) * 1000
 
