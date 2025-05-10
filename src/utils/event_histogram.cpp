@@ -40,7 +40,8 @@
   GenerateRpcTimer(WalFilesRpc)                                                                                   \
   GenerateRpcTimer(FrequentHeartbeatRpc)                                                                          \
   GenerateRpcTimer(SystemRecoveryRpc)                                                                             \
-  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)
+  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)    \
+  M(GCLatency_us, Memory, "Latency of GC in microseconds", 50, 90, 99)
 // clang-format on
 
 namespace memgraph::metrics {
