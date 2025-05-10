@@ -98,6 +98,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "DisableTTL"sv;
     case NotificationCode::STOP_TTL:
       return "StopTTL"sv;
+    case NotificationCode::SYNC_REPLICA_NOT_CONFIRMED:
+      return "SyncReplicaNotConfirmed"sv;
   }
 }
 }  // namespace

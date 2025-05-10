@@ -59,6 +59,7 @@ enum class NotificationCode : uint8_t {
   ENABLE_TTL,
   DISABLE_TTL,
   STOP_TTL,
+  SYNC_REPLICA_NOT_CONFIRMED,
 };
 
 struct Notification {

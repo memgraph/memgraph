@@ -344,7 +344,7 @@ class Interpreter final {
 
   std::optional<uint64_t> GetTransactionId() const;
 
-  void CommitTransaction();
+  std::map<std::string, TypedValue> CommitTransaction();
 
   void RollbackTransaction();
 
@@ -433,8 +433,9 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
-  void Commit();
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {},
+                                        std::vector<Notification> *notifications = nullptr);
+  void Commit(std::vector<Notification> *notifications = nullptr);
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
@@ -487,19 +488,21 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     if (maybe_res) {
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
-      if (!query_execution->notifications.empty()) {
-        std::vector<TypedValue> notifications;
-        notifications.reserve(query_execution->notifications.size());
-        for (const auto &notification : query_execution->notifications) {
-          notifications.emplace_back(notification.ConvertToMap());
-        }
-        maybe_summary->insert_or_assign("notifications", std::move(notifications));
+      std::vector<TypedValue> notifications;
+      notifications.reserve(query_execution->notifications.size());
+      // Query notifications
+      for (const auto &notification : query_execution->notifications) {
+        notifications.emplace_back(notification.ConvertToMap());
       }
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
-          case QueryHandlerResult::COMMIT:
-            Commit();
-            break;
+          case QueryHandlerResult::COMMIT: {
+            std::vector<Notification> commit_notifications;
+            Commit(&commit_notifications);
+            for (const auto &notification : commit_notifications) {
+              notifications.emplace_back(notification.ConvertToMap());
+            }
+          } break;
           case QueryHandlerResult::ABORT:
             Abort();
             break;
@@ -519,6 +522,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
         query_execution.reset(nullptr);
+      }
+      if (!notifications.empty()) {
+        maybe_summary->insert_or_assign("notifications", std::move(notifications));
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {

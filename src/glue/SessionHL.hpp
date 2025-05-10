@@ -68,7 +68,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void BeginTransaction(const bolt_map_t &extra) override;
 
-  void CommitTransaction() override;
+  bolt_map_t CommitTransaction() override;
 
   void RollbackTransaction() override;
 
