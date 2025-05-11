@@ -1026,6 +1026,25 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     }
   };
   if (!is_legal(a.type()) || !is_legal(b.type())) {
+    constexpr auto is_canonical = [](TypedValue::Type type) constexpr {
+      switch (type) {
+        case TypedValue::Type::Null:
+        case TypedValue::Type::Int:
+        case TypedValue::Type::Double:
+        case TypedValue::Type::String:
+        case TypedValue::Type::Bool:
+        case TypedValue::Type::List:
+        case TypedValue::Type::Map:
+        case TypedValue::Type::Vertex:
+        case TypedValue::Type::Edge:
+        case TypedValue::Type::Path:
+          return true;
+        default:
+          return false;
+      }
+    };
+    if ((is_canonical(a.type()) || is_canonical(b.type())) && (a.type() != b.type()))
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
   }
 
@@ -1035,7 +1054,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.GetMemoryResource());
     }
@@ -1043,7 +1062,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+      throw IncompatibleTypesComparisonException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     }
 
     switch (a.type()) {

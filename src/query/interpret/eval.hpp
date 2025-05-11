@@ -223,6 +223,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }                                                                                                          \
   }
 
+#define BINARY_COMPARISON_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                         \
+  TypedValue Visit(OP_NODE &op) override {                                                                     \
+    auto val1 = op.expression1_->Accept(*this);                                                                \
+    auto val2 = op.expression2_->Accept(*this);                                                                \
+    try {                                                                                                      \
+      return val1 CPP_OP val2;                                                                                 \
+    } catch (const IncompatibleTypesComparisonException &) {                                                   \
+      return TypedValue();                                                                                     \
+    } catch (const TypedValueException &) {                                                                    \
+      throw QueryRuntimeException("Invalid types: {} and {} for '{}'.", val1.type(), val2.type(), #CYPHER_OP); \
+    }                                                                                                          \
+  }
+
 #define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
   TypedValue Visit(OP_NODE &op) override {                                              \
     auto val = op.expression_->Accept(*this);                                           \
@@ -239,18 +252,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   BINARY_OPERATOR_VISITOR(MultiplicationOperator, *, *);
   BINARY_OPERATOR_VISITOR(DivisionOperator, /, /);
   BINARY_OPERATOR_VISITOR(ModOperator, %, %);
-  BINARY_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
-  BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
-  BINARY_OPERATOR_VISITOR(LessOperator, <, <);
-  BINARY_OPERATOR_VISITOR(GreaterOperator, >, >);
-  BINARY_OPERATOR_VISITOR(LessEqualOperator, <=, <=);
-  BINARY_OPERATOR_VISITOR(GreaterEqualOperator, >=, >=);
+
+  BINARY_COMPARISON_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
+  BINARY_COMPARISON_OPERATOR_VISITOR(EqualOperator, ==, =);
+  BINARY_COMPARISON_OPERATOR_VISITOR(LessOperator, <, <);
+  BINARY_COMPARISON_OPERATOR_VISITOR(GreaterOperator, >, >);
+  BINARY_COMPARISON_OPERATOR_VISITOR(LessEqualOperator, <=, <=);
+  BINARY_COMPARISON_OPERATOR_VISITOR(GreaterEqualOperator, >=, >=);
 
   UNARY_OPERATOR_VISITOR(NotOperator, !, NOT);
   UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +, +);
   UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -, -);
 
 #undef BINARY_OPERATOR_VISITOR
+#undef BINARY_COMPARISON_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
   TypedValue Visit(RangeOperator &op) override { return op.expr1_->Accept(*this) && op.expr2_->Accept(*this); }

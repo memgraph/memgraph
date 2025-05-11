@@ -613,6 +613,17 @@ class TypedValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
 
+/**
+ * Exception raised by the TypedValue system, specifically when
+ * trying to perform a comparison (relational operator or equality
+ * test) on TypedValues of incompatible Types.
+ */
+class IncompatibleTypesComparisonException : public TypedValueException {
+ public:
+  using TypedValueException::TypedValueException;
+  SPECIALIZE_GET_EXCEPTION_NAME(IncompatibleTypesComparisonException)
+};
+
 // binary bool operators
 
 /**
