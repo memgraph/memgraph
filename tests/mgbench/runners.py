@@ -1328,7 +1328,9 @@ class FalkorDBDocker(BaseRunner):
             used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
 
             # Convert memory to bytes for consistency
-            if used_memory_unit == "KiB":
+            if used_memory_unit == "B":
+                return int(float(used_memory_value))  # Bytes
+            elif used_memory_unit == "KiB":
                 return int(float(used_memory_value) * 1024)  # KiB to Bytes
             elif used_memory_unit == "MiB":
                 return int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
@@ -1388,43 +1390,56 @@ class PostgreSQLDocker(BaseRunner):
         self._user = benchmark_context.vendor_args.get("user", "postgres")
         self._password = benchmark_context.vendor_args.get("password", "postgres")
         self._database = benchmark_context.vendor_args.get("database", "postgres")
+        self._image = "postgres:15"
         _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
 
     def start_db_init(self, message):
-        self._start(
-            image="postgres:15",
-            environment={
-                "POSTGRES_USER": self._user,
-                "POSTGRES_PASSWORD": self._password,
-                "POSTGRES_DB": self._database,
-            },
-            ports={f"{self._port}/tcp": self._port},
-        )
+        command = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "-e",
+            f"POSTGRES_USER={self._user}",
+            "-e",
+            f"POSTGRES_PASSWORD={self._password}",
+            "-e",
+            f"POSTGRES_DB={self._database}",
+            "-p",
+            f"{self._port}:{self._port}/tcp",
+            self._image,
+        ]
+        self._run_command(command)
         _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
 
     def start_db(self, message):
-        self._start(
-            image="postgres:15",
-            environment={
-                "POSTGRES_USER": self._user,
-                "POSTGRES_PASSWORD": self._password,
-                "POSTGRES_DB": self._database,
-            },
-            ports={f"{self._port}/tcp": self._port},
-        )
+        log.init("Starting database for benchmark...")
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
         _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+        log.log("Database started.")
 
     def stop_db_init(self, message):
         log.init("Stopping database (init)...")
         usage = self._get_cpu_memory_usage()
-        self.remove_container(self._container_name)
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
 
         return usage
 
     def stop_db(self, message):
-        log.init("Stopping database (init)...")
+        log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
-        self.remove_container(self._container_name)
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
 
         return usage
 
@@ -1448,8 +1463,30 @@ class PostgreSQLDocker(BaseRunner):
             return {"cpu": 0, "memory": 0}
         cpu_perc, mem_usage = ret[0].split(",")
         cpu_perc = float(cpu_perc.strip("%")) / 100
-        # mem_usage = int(mem_usage.split("/")[0].strip("MiB")) * 1024 * 1024
-        return {"cpu": cpu_perc, "memory": mem_usage}
+
+        memory_usage = mem_usage.split(" / ")
+
+        if len(memory_usage) == 2:
+            used_memory = memory_usage[0].strip()  # e.g., "79.52MiB"
+            used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
+
+            # Convert memory to bytes for consistency
+            if used_memory_unit == "B":
+                used_memory_value = int(float(used_memory_value))  # Bytes
+            elif used_memory_unit == "KiB":
+                used_memory_value = int(float(used_memory_value) * 1024)  # KiB to Bytes
+            elif used_memory_unit == "MiB":
+                used_memory_value = int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
+            elif used_memory_unit == "GiB":
+                used_memory_value = int(float(used_memory_value) * 1024 * 1024 * 1024)  # GiB to Bytes
+            elif used_memory_unit == "TiB":
+                used_memory_value = int(float(used_memory_value) * 1024 * 1024 * 1024 * 1024)  # TiB to Bytes
+            else:
+                raise Exception(f"Unrecognized used memory: {used_memory}")
+
+            return {"cpu": cpu_perc, "memory": used_memory_value}
+        else:
+            raise Exception(f"Unrecognized memory usage: {memory_usage}")
 
     def _run_command(self, command):
         ret = subprocess.run(command, capture_output=True, text=True)
@@ -1457,14 +1494,17 @@ class PostgreSQLDocker(BaseRunner):
             return None
         return ret.stdout.strip().split("\n")
 
-    def _start(self, **kwargs):
-        command = ["docker", "run", "-d", "--name", self._container_name, "--network", DOCKER_NETWORK_NAME]
+    def _wait_for_postgres_ready(self, host, port, user, password, database, timeout=30):
+        import psycopg2
 
-        for key, value in kwargs.get("environment", {}).items():
-            command.extend(["-e", f"{key}={value}"])
-
-        for key, value in kwargs.get("ports", {}).items():
-            command.extend(["-p", f"{value}:{key}"])
-
-        command.append(kwargs["image"])
-        self._run_command(command)
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+                conn.close()
+                return
+            except psycopg2.OperationalError as e:
+                if "authentication failed" in str(e):
+                    raise e  # Credentials are actually wrong
+                time.sleep(0.5)
+        raise TimeoutError("PostgreSQL did not become ready in time.")

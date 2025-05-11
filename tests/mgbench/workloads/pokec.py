@@ -84,9 +84,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT * FROM users WHERE id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id : $id}) RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -97,9 +99,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO users_temp (id) VALUES (%(id)s) RETURNING *"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "CREATE (n:UserTemp {id : $id}) RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -110,12 +114,14 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO friendships (user_id, friend_id) VALUES (%(from)s, %(to)s) RETURNING *"
                 params = {"from": vertex_from, "to": vertex_to}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
                     CREATE (n)-[e:Temp]->(m) RETURN e
                 """
                 params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -124,9 +130,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT age, COUNT(*) FROM users GROUP BY age"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User) RETURN n.age, COUNT(*)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -135,9 +143,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT COUNT(DISTINCT age) FROM users"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User) RETURN COUNT(DISTINCT n.age)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -146,9 +156,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT age, COUNT(*) FROM users WHERE age >= 18 GROUP BY age"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -159,9 +171,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT f.friend_id FROM friendships f WHERE f.user_id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->(n:User) RETURN n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -177,13 +191,15 @@ class Pokec(Workload):
                     WHERE f.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->(n:User)
                     WHERE n.age >= 18
                     RETURN n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -199,9 +215,11 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->()-->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -218,13 +236,15 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->()-->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -241,9 +261,11 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->()-->()-->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -261,13 +283,15 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->()-->()-->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -285,9 +309,11 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -306,13 +332,15 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->()-->()-->()-->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -335,9 +363,11 @@ class Pokec(Workload):
                     SELECT DISTINCT friend_id FROM friends
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -363,13 +393,15 @@ class Pokec(Workload):
                     WHERE u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-[*1..2]->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -394,9 +426,11 @@ class Pokec(Workload):
                     JOIN users u ON f.friend_id = u.id
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id, n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -422,13 +456,15 @@ class Pokec(Workload):
                     WHERE u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-[*1..2]->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id, n
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -463,13 +499,15 @@ class Pokec(Workload):
                     RETURN extract(n in nodes(p) | n.id) AS path
                 """
                 params = {"from": vertex_from, "to": vertex_to}
-            case _:
+            case GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
                     MATCH p=shortestPath((n)-[*..15]->(m))
                     RETURN [n in nodes(p) | n.id] AS path
                 """
                 params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -507,7 +545,7 @@ class Pokec(Workload):
                     RETURN extract(n in nodes(p) | n.id) AS path
                 """
                 params = {"from": vertex_from, "to": vertex_to}
-            case _:
+            case GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
                     MATCH p=shortestPath((n)-[*..15]->(m))
@@ -515,6 +553,8 @@ class Pokec(Workload):
                     RETURN [n in nodes(p) | n.id] AS path
                 """
                 params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -547,13 +587,15 @@ class Pokec(Workload):
                     RETURN extract(n in nodes(p) | n.id) AS path
                 """
                 params = {"from": vertex_from, "to": vertex_to}
-            case _:
+            case GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
                     MATCH p = allShortestPaths((n)-[*..2]->(m))
                     RETURN [node in nodes(p) | node.id] AS path
                 """
                 params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -566,9 +608,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO friendships (user_id, friend_id) VALUES (%(from)s, %(to)s) RETURNING *"
                 params = {"from": vertex_from, "to": vertex_to}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (a:User {id: $from}), (b:User {id: $to}) CREATE (a)-[:TempEdge]->(b)"
                 params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -577,9 +621,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO friendships (user_id, friend_id) VALUES (1, 2) RETURNING *"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "CREATE ()-[:TempEdge]->()"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -588,9 +634,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO users_temp (id) VALUES (1) RETURNING *"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "CREATE ()"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -606,7 +654,7 @@ class Pokec(Workload):
                     ) RETURNING *
                 """
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     CREATE (:L1:L2:L3:L4:L5:L6:L7 {
                         p1: true, p2: 42,
@@ -615,6 +663,8 @@ class Pokec(Workload):
                     })
                 """
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -623,9 +673,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT COUNT(*), COUNT(age) FROM users"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n) RETURN count(n), count(n.age)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -634,9 +686,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT MIN(age), MAX(age), AVG(age) FROM users"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -655,9 +709,11 @@ class Pokec(Workload):
                     SELECT * FROM cycle
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) RETURN e1, m, e2"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -677,12 +733,14 @@ class Pokec(Workload):
                     LIMIT 1
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->(n3)-[e3]->(n4)<-[e4]-(n5)
                     RETURN n5 LIMIT 1
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -693,9 +751,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT friend_id FROM friendships WHERE user_id = %(id)s LIMIT 1"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -706,9 +766,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT * FROM users WHERE id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User) WITH n WHERE n.id = $id RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -719,9 +781,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT * FROM users WHERE id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id}) RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -732,9 +796,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT * FROM users WHERE id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id}) RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -745,9 +811,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "UPDATE users SET property = -1 WHERE id = %(id)s RETURNING *"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n {id: $id}) SET n.property = -1"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -760,9 +828,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT * FROM users WHERE id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id : $id}) RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -773,9 +843,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO users_temp (id) VALUES (%(id)s) RETURNING *"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "CREATE (n:UserTemp {id : $id}) RETURN n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -786,9 +858,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "UPDATE users SET property = -1 WHERE id = %(id)s RETURNING *"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id}) SET n.property = -1"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -799,12 +873,14 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "INSERT INTO friendships (user_id, friend_id) VALUES (%(from)s, %(to)s) RETURNING *"
                 params = {"from": vertex_from, "to": vertex_to}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
                     CREATE (n)-[e:Temp]->(m) RETURN e
                 """
                 params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -813,9 +889,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT age, COUNT(*) FROM users GROUP BY age"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User) RETURN n.age, COUNT(*)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -824,9 +902,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT COUNT(*), COUNT(age) FROM users"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n) RETURN count(n), count(n.age)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -835,9 +915,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT age, COUNT(*) FROM users WHERE age >= 18 GROUP BY age"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -846,9 +928,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT MIN(age), MAX(age), AVG(age) FROM users"
                 params = {}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"
                 params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -859,9 +943,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT friend_id FROM friendships WHERE user_id = %(id)s"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->(n:User) RETURN n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -877,13 +963,15 @@ class Pokec(Workload):
                     WHERE f.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->(n:User)
                     WHERE n.age >= 18
                     RETURN n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -899,9 +987,11 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->()-->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -918,13 +1008,15 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->()-->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -941,9 +1033,11 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->()-->()-->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -961,13 +1055,15 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->()-->()-->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -985,9 +1081,11 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1006,13 +1104,15 @@ class Pokec(Workload):
                     WHERE f1.user_id = %(id)s AND u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-->()-->()-->()-->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1035,9 +1135,11 @@ class Pokec(Workload):
                     SELECT DISTINCT friend_id FROM friends
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1063,13 +1165,15 @@ class Pokec(Workload):
                     WHERE u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-[*1..2]->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1094,9 +1198,11 @@ class Pokec(Workload):
                     JOIN users u ON f.friend_id = u.id
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id, n"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1122,13 +1228,15 @@ class Pokec(Workload):
                     WHERE u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-[*1..2]->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id, n
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1147,9 +1255,11 @@ class Pokec(Workload):
                     SELECT * FROM cycle
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) RETURN e1, m, e2"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1169,12 +1279,14 @@ class Pokec(Workload):
                     LIMIT 1
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->(n3)-[e3]->(n4)<-[e4]-(n5)
                     RETURN n5 LIMIT 1
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1185,9 +1297,11 @@ class Pokec(Workload):
             case GraphVendors.POSTGRESQL:
                 query = "SELECT friend_id FROM friendships WHERE user_id = %(id)s LIMIT 1"
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = "MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1"
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1213,13 +1327,15 @@ class Pokec(Workload):
                     WHERE u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-[*1..3]->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id, n
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
 
@@ -1245,12 +1361,14 @@ class Pokec(Workload):
                     WHERE u.age >= 18
                 """
                 params = {"id": vertex_id}
-            case _:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 query = """
                     MATCH (s:User {id: $id})-[*1..4]->(n:User)
                     WHERE n.age >= 18
                     RETURN DISTINCT n.id, n
                 """
                 params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params

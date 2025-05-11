@@ -65,6 +65,7 @@ class Neo4jClient(PythonClient):
 class PostgreSQLClient(PythonClient):
     def __init__(self, host, port, user="postgres", password="postgres", database="postgres"):
         self._conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+        self._conn.autocommit = True
         self._cursor = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
     def close(self):
