@@ -19,16 +19,22 @@
 
 namespace memgraph::coordination {
 
-CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
-    : data_instances_{other.data_instances_},
-      coordinator_instances_(other.coordinator_instances_),
-      current_main_uuid_(other.current_main_uuid_),
-      enabled_reads_on_main_(other.enabled_reads_on_main_),
-      sync_failover_only_(other.sync_failover_only_) {}
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
+  auto lock = std::lock_guard{other.app_lock_};
+
+  data_instances_ = other.data_instances_;
+  coordinator_instances_ = other.coordinator_instances_;
+  current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
+}
+
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
     return *this;
   }
+  std::scoped_lock lock{app_lock_, other.app_lock_};
+
   data_instances_ = other.data_instances_;
   coordinator_instances_ = other.coordinator_instances_;
   current_main_uuid_ = other.current_main_uuid_;
@@ -37,17 +43,23 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   return *this;
 }
 
-CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
-    : data_instances_{std::move(other.data_instances_)},
-      coordinator_instances_{std::move(other.coordinator_instances_)},
-      current_main_uuid_{other.current_main_uuid_},
-      enabled_reads_on_main_{other.enabled_reads_on_main_},
-      sync_failover_only_(other.sync_failover_only_) {}
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept {
+  auto lock = std::lock_guard{other.app_lock_};
+
+  data_instances_ = std::move(other.data_instances_);
+  coordinator_instances_ = std::move(other.coordinator_instances_);
+  current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
+}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
     return *this;
   }
+
+  std::scoped_lock lock{app_lock_, other.app_lock_};
+
   data_instances_ = std::move(other.data_instances_);
   coordinator_instances_ = std::move(other.coordinator_instances_);
   current_main_uuid_ = other.current_main_uuid_;
