@@ -132,7 +132,7 @@ class BoltClient(BaseClient):
             json.dump(query, f)
             f.write("\n")
 
-        check_db_args = self._get_args(
+        client_args = self._get_args(
             input=check_db_query,
             num_workers=1,
             max_retries=max_retries,
@@ -144,9 +144,11 @@ class BoltClient(BaseClient):
             time_dependent_execution=time_dependent_execution,
         )
 
+        log.info("Client args: {}".format(client_args))
+
         while True:
             try:
-                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                subprocess.run(client_args, capture_output=True, text=True, check=True)
                 break
             except subprocess.CalledProcessError as e:
                 log.log("Checking if database is up and running failed...")
@@ -196,7 +198,6 @@ class BoltClient(BaseClient):
 
 class BoltClientDocker(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
-        self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
@@ -376,6 +377,9 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
+        if benchmark_context.external_vendor:
+            return ExternalVendor(benchmark_context=benchmark_context)
+
         if benchmark_context.vendor_name not in cls.subclasses:
             raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
@@ -388,27 +392,43 @@ class BaseRunner(ABC):
         self.benchmark_context = benchmark_context
 
     @abstractmethod
-    def start_db_init(self):
+    def start_db_init(self, arg):
         pass
 
     @abstractmethod
-    def stop_db_init(self):
+    def stop_db_init(self, arg):
         pass
 
     @abstractmethod
-    def start_db(self):
+    def start_db(self, arg):
         pass
 
     @abstractmethod
-    def stop_db(self):
+    def stop_db(self, arg):
         pass
 
     @abstractmethod
     def clean_db(self):
         pass
 
-    @abstractmethod
-    def fetch_client(self) -> BaseClient:
+
+class ExternalVendor(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+
+    def start_db_init(self, arg):
+        pass
+
+    def stop_db_init(self, arg):
+        pass
+
+    def start_db(self, arg):
+        pass
+
+    def stop_db(self, arg):
+        pass
+
+    def clean_db(self):
         pass
 
 
@@ -528,9 +548,6 @@ class Memgraph(BaseRunner):
                 f.write(str(rss))
                 f.write("\n")
             f.close()
-
-    def fetch_client(self) -> BoltClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
 
 
 class Neo4j(BaseRunner):
@@ -781,9 +798,6 @@ class Neo4j(BaseRunner):
                 f.write(memory_usage.stdout)
                 f.close()
 
-    def fetch_client(self) -> BoltClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
-
 
 class MemgraphDocker(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -878,9 +892,6 @@ class MemgraphDocker(BaseRunner):
 
     def clean_db(self):
         self.remove_container(self._container_name)
-
-    def fetch_client(self) -> BaseClient:
-        return BoltClientDocker(benchmark_context=self.benchmark_context)
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
@@ -1025,9 +1036,6 @@ class Neo4jDocker(BaseRunner):
 
     def clean_db(self):
         self.remove_container(self._container_name)
-
-    def fetch_client(self) -> BaseClient:
-        return BoltClientDocker(benchmark_context=self.benchmark_context)
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]

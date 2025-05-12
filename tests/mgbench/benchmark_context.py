@@ -10,9 +10,9 @@
 # licenses/APL.txt.
 
 from workload_mode import (
-    BENCHMARK_MODE_ISOLATED,
-    BENCHMARK_MODE_MIXED,
-    BENCHMARK_MODE_REALISTIC,
+  BENCHMARK_MODE_ISOLATED,
+  BENCHMARK_MODE_MIXED,
+  BENCHMARK_MODE_REALISTIC,
 )
 
 
@@ -24,6 +24,7 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
+        external_vendor: bool = False,
         vendor_binary: str = None,
         vendor_name: str = None,
         client_binary: str = None,
@@ -60,15 +61,16 @@ class BenchmarkContext:
         self.export_results_in_memory_analytical = export_results_in_memory_analytical
         self.export_results_on_disk_txn = export_results_on_disk_txn
         self.temporary_directory = temporary_directory
+        self.external_vendor = external_vendor
 
         assert (
             workload_mixed is None or workload_realistic is None
         ), "Cannot run both mixed and realistic workload, please select one!"
 
-        if workload_mixed != None:
+        if workload_mixed is not None:
             self.mode = BENCHMARK_MODE_MIXED
             self.mode_config = workload_mixed
-        elif workload_realistic != None:
+        elif workload_realistic is not None:
             self.mode = BENCHMARK_MODE_REALISTIC
             self.mode_config = workload_realistic
         else:
