@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -96,7 +96,7 @@ State StateHandshakeRun(TSession &session) {
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
   uint8_t protocol[4] = {0x00};
 
-  session.client_supported_bolt_versions_ = std::move(StringifySupportedVersions(dataPosition));
+  session.client_supported_bolt_versions_ = StringifySupportedVersions(dataPosition);
 
   for (int i = 0; i < 4 && !protocol[3]; ++i) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte

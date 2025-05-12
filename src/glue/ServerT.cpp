@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,4 +10,4 @@
 // licenses/APL.txt.
 #include "glue/ServerT.hpp"
 
-template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, Context>;
+template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;

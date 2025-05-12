@@ -103,6 +103,7 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
@@ -2477,62 +2478,70 @@ auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &conf
   return {};
 }
 
-PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras) {
+PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum,
+                                                   QueryExtras const &extras) {
   std::function<void()> handler;
 
-  if (query_upper == "BEGIN") {
-    // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
-    // becomes large.
-    handler = [this, extras = extras] {
-      if (in_explicit_transaction_) {
-        throw ExplicitTransactionUsageException("Nested transactions are not supported.");
-      }
-      SetupInterpreterTransaction(extras);
-      in_explicit_transaction_ = true;
-      expect_rollback_ = false;
-      if (!current_db_.db_acc_) throw DatabaseContextRequiredException("No current database for transaction defined.");
-      SetupDatabaseTransaction(true,
-                               extras.is_read ? storage::Storage::Accessor::READ : storage::Storage::Accessor::WRITE);
-    };
-  } else if (query_upper == "COMMIT") {
-    handler = [this] {
-      if (!in_explicit_transaction_) {
-        throw ExplicitTransactionUsageException("No current transaction to commit.");
-      }
-      if (expect_rollback_) {
-        throw ExplicitTransactionUsageException(
-            "Transaction can't be committed because there was a previous "
-            "error. Please invoke a rollback instead.");
-      }
+  switch (tx_query_enum) {
+    case TransactionQuery::BEGIN: {
+      // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
+      // becomes large.
+      handler = [this, extras = extras] {
+        if (in_explicit_transaction_) {
+          throw ExplicitTransactionUsageException("Nested transactions are not supported.");
+        }
+        SetupInterpreterTransaction(extras);
+        // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
+        current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
+        in_explicit_transaction_ = true;
+        expect_rollback_ = false;
+        if (!current_db_.db_acc_)
+          throw DatabaseContextRequiredException("No current database for transaction defined.");
+        SetupDatabaseTransaction(true,
+                                 extras.is_read ? storage::Storage::Accessor::READ : storage::Storage::Accessor::WRITE);
+      };
+    } break;
+    case TransactionQuery::COMMIT: {
+      handler = [this] {
+        if (!in_explicit_transaction_) {
+          throw ExplicitTransactionUsageException("No current transaction to commit.");
+        }
+        if (expect_rollback_) {
+          throw ExplicitTransactionUsageException(
+              "Transaction can't be committed because there was a previous "
+              "error. Please invoke a rollback instead.");
+        }
 
-      try {
-        Commit();
-      } catch (const utils::BasicException &) {
-        AbortCommand(nullptr);
-        throw;
-      }
+        try {
+          Commit();
+        } catch (const utils::BasicException &) {
+          AbortCommand(nullptr);
+          throw;
+        }
 
-      expect_rollback_ = false;
-      in_explicit_transaction_ = false;
-      metadata_ = std::nullopt;
-      current_timeout_timer_.reset();
-    };
-  } else if (query_upper == "ROLLBACK") {
-    handler = [this] {
-      if (!in_explicit_transaction_) {
-        throw ExplicitTransactionUsageException("No current transaction to rollback.");
-      }
+        expect_rollback_ = false;
+        in_explicit_transaction_ = false;
+        metadata_ = std::nullopt;
+        current_timeout_timer_.reset();
+      };
+    } break;
+    case TransactionQuery::ROLLBACK: {
+      handler = [this] {
+        if (!in_explicit_transaction_) {
+          throw ExplicitTransactionUsageException("No current transaction to rollback.");
+        }
 
-      memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
 
-      Abort();
-      expect_rollback_ = false;
-      in_explicit_transaction_ = false;
-      metadata_ = std::nullopt;
-      current_timeout_timer_.reset();
-    };
-  } else {
-    LOG_FATAL("Should not get here -- unknown transaction query!");
+        Abort();
+        expect_rollback_ = false;
+        in_explicit_transaction_ = false;
+        metadata_ = std::nullopt;
+        current_timeout_timer_.reset();
+      };
+    } break;
+    default:
+      LOG_FATAL("Should not get here -- unknown transaction query!");
   }
 
   return {{},
@@ -2646,7 +2655,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, interpreter.query_logger_,
       trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
-  return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
+  return PreparedQuery{std::move(header),
+                       std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          if (pull_plan->Pull(stream, n, output_symbols, summary)) {
@@ -2654,7 +2664,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                          }
                          return std::nullopt;
                        },
-                       rw_type};
+                       rw_type,
+                       current_db.db_acc_->get()->name(),
+                       utils::Priority::LOW};  // Default to LOW priority for all Cypher queries
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
@@ -5983,18 +5995,18 @@ std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_t
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
-  const auto prepared_query = PrepareTransactionQuery("BEGIN", extras);
+  const auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
   prepared_query.query_handler(nullptr, {});
 }
 
 void Interpreter::CommitTransaction() {
-  const auto prepared_query = PrepareTransactionQuery("COMMIT");
+  const auto prepared_query = PrepareTransactionQuery(TransactionQuery::COMMIT);
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
 
 void Interpreter::RollbackTransaction() {
-  const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
+  const auto prepared_query = PrepareTransactionQuery(TransactionQuery::ROLLBACK);
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
@@ -6037,8 +6049,8 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(), false); }
 #endif
 
-Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
-                                                QueryExtras const &extras) {
+Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
+                                         QueryExtras const &extras) {
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
@@ -6052,32 +6064,71 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                             (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
                             current_db_.name()});
 
-  if (is_begin || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
-    if (is_begin) {
+  if (is_begin) {
+    return TransactionQuery::BEGIN;
+  }
+  if (trimmed_query == "COMMIT") {
+    return TransactionQuery::COMMIT;
+  }
+  if (trimmed_query == "ROLLBACK") {
+    return TransactionQuery::ROLLBACK;
+  }
+
+  try {
+    if (!in_explicit_transaction_) {
+      // BEGIN has a different execution path; for implicit transaction start the timer as soon as possible
+      current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
+    }
+    // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
+    bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
+    const utils::Timer parsing_timer;
+    LogQueryMessage("Query parsing started.");
+    ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
+                                          interpreter_context_->config.query);
+    auto parsing_time = parsing_timer.Elapsed().count();
+    LogQueryMessage("Query parsing ended.");
+    return Interpreter::ParseInfo{std::move(parsed_query), parsing_time, is_schema_assert_query};
+  } catch (const utils::BasicException &e) {
+    LogQueryMessage(fmt::format("Failed query: {}", e.what()));
+    // Trigger first failed query
+    metrics::FirstFailedQuery();
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPrepare);
+    AbortCommand({});
+    throw;
+  }
+}
+
+Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
+                                                QueryExtras const &extras) {
+  if (std::holds_alternative<TransactionQuery>(parse_res)) {
+    const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
+    if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
-    query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
+    query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
 
-  // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
+  MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
 
-  bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
+  auto &parse_info = std::get<ParseInfo>(parse_res);
+  auto &parsed_query = parse_info.parsed_query;
 
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
-    if (is_schema_assert_query) {
+    if (parse_info.is_schema_assert_query) {
       throw SchemaAssertInMulticommandTxException();
     }
 
-    transaction_queries_->push_back(query_string);
+    transaction_queries_->push_back(parsed_query.query_string);
     AdvanceCommand();
   } else {
     ResetInterpreter();
-    transaction_queries_->push_back(query_string);
+    transaction_queries_->push_back(parsed_query.query_string);
     if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open
       // transaction, abort it since we're about to prepare a new query.
@@ -6085,18 +6136,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
     SetupInterpreterTransaction(extras);
-    LogQueryMessage(fmt::format("Query [{}] associated with transaction [{}]", query_string, *current_transaction_));
+    LogQueryMessage(
+        fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
-    utils::Timer parsing_timer;
-    LogQueryMessage("Query parsing started.");
-    ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
-                                          interpreter_context_->config.query);
-    auto parsing_time = parsing_timer.Elapsed().count();
-    LogQueryMessage("Query parsing ended.");
-
     // Setup QueryExecution
     query_executions_.emplace_back(QueryExecution::Create());
     auto &query_execution = query_executions_.back();
@@ -6105,8 +6150,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     std::optional<int> qid =
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
-    query_execution->summary["parsing_time"] = parsing_time;
-    LogQueryMessage(fmt::format("Query parsing time: {}", parsing_time));
+    query_execution->summary["parsing_time"] = parse_info.parsing_time;
+    LogQueryMessage(fmt::format("Query parsing time: {}", parse_info.parsing_time));
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
@@ -6176,7 +6221,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
       if (cypher_query || profile_query) {
-        if (is_schema_assert_query) {
+        if (parse_info.is_schema_assert_query) {
           acc_type = storage::Storage::Accessor::Type::UNIQUE;
         } else {
           acc_type = parsed_query.is_cypher_read ? storage::Storage::Accessor::Type::READ
@@ -6201,7 +6246,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 #endif
 
-    utils::Timer planning_timer;
+    const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
@@ -6469,7 +6514,6 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
     query_logger_->SetTransactionId(std::to_string(*current_transaction_));
   }
   metadata_ = GenOptional(extras.metadata_pv);
-  current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 }
 
 std::vector<TypedValue> Interpreter::GetQueries() {
