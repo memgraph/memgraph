@@ -51,19 +51,7 @@ auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermuta
   });
 }
 
-/** Converts a span of `PropertyIds` into a comma-separated string.
- */
-auto JoinPropertiesAsString(std::span<PropertyId const> properties) -> std::string {
-  return utils::Join(properties | ranges::views::transform(&PropertyId::AsUint) |
-                         ranges::views::transform([](uint64_t id) { return std::to_string(id); }),
-                     ", ");
-}
-
-/** Converts a span of `PropertyIds` into a comma-separated string.
- * @TODO this is a duplicate method to allow us to build whilst we still
- * have a mix of `PropertyId` and `PropertyPaths`. Once nested indices have
- * been developed enough, we can remove the above method and just use this
- * throughout.
+/** Converts a span of `PropertyPaths` into a comma-separated string.
  */
 auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::string {
   auto const make_nested = [](std::span<PropertyId const> path) {
