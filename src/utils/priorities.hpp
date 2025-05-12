@@ -10,17 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/auth.hpp"
-#include "flags/bolt.hpp"
-#include "flags/coordination.hpp"
-#include "flags/experimental.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/replication.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/scheduler.hpp"
-#include "flags/storage_mode.hpp"
+#include <cstdint>
+
+namespace memgraph::utils {
+enum class Priority : uint8_t { LOW, HIGH };
+}  // namespace memgraph::utils
