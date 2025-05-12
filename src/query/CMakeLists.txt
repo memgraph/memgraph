@@ -109,7 +109,7 @@ target_link_libraries(mg-query
     Python3::Python
     mg-integrations-pulsar
     mg-integrations-kafka
-    mg-storage-v2
+    mg::storage
     mg-license
     mg-utils
     mg-kvstore
