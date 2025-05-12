@@ -310,11 +310,16 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                              std::span<storage::PropertyId const> properties) {
-  auto prop_names =
-      properties | rv::transform([&](auto &&property) { return EscapeName(dba->PropertyToName(property)); });
+                              std::span<storage::PropertyPath const> properties) {
+  auto const concat_nested_props = [&](auto &&path) {
+    return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+           rv::join(".");
+  };
 
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << utils::Join(prop_names, ", ") << ");";
+  auto prop_names = properties | rv::transform([&](auto &&path) { return concat_nested_props(path); }) |
+                    rv::join(", ") | r::to<std::string>();
+
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
@@ -599,8 +604,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
       const auto &[label, properties] = label_property[global_index];
-      // @TODO implement this for nested indices
-      // DumpLabelPropertiesIndex(&os, dba_, label, properties);
+      DumpLabelPropertiesIndex(&os, dba_, label, properties);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;
