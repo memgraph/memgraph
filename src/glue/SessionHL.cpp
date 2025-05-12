@@ -26,6 +26,7 @@
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/event_map.hpp"
 #include "utils/priorities.hpp"
 #include "utils/typeinfo.hpp"
@@ -311,12 +312,12 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   }
 #endif
 
-  auto get_params_pv =
-      [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
-    auto params_pv = memgraph::storage::PropertyValue::map_t{};
+  auto get_params_pv = [params = std::move(params)](
+                           storage::Storage const *storage) -> memgraph::storage::IntermediatePropertyValue::map_t {
+    auto params_pv = memgraph::storage::IntermediatePropertyValue::map_t{};
     params_pv.reserve(params.size());
     for (const auto &[key, bolt_param] : params) {
-      params_pv.try_emplace(key, ToPropertyValue(bolt_param, storage));
+      params_pv.try_emplace(key, ToIntermediatePropertyValue(bolt_param, storage));
     }
     return params_pv;
   };
