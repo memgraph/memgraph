@@ -1276,18 +1276,18 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
 
   EXPECT_THAT(
       prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
-      UnorderedElementsAre(Match(0, false)));
+      UnorderedElementsAre(Match(1, false)));
 
   EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("apple")}}), baseline),
-              UnorderedElementsAre(Match(0, true)));
+              UnorderedElementsAre(Match(1, true)));
 
   EXPECT_THAT(
       prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
-      UnorderedElementsAre(Match(1, false)));
+      UnorderedElementsAre(Match(0, false)));
 
   EXPECT_THAT(
-      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("banana")}}), baseline),
-      UnorderedElementsAre(Match(1, true)));
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("banana")}}), baseline),
+      UnorderedElementsAre(Match(0, true)));
 }
 
 // @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d).

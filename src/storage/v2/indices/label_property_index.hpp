@@ -140,7 +140,7 @@ struct PropertiesPermutationHelper {
    * same property values in the `values` array. For every id in the index,
    * (which may occur multiple times for composite nested indices, such as `a.b`
    * and `a.c`) the vector will have a pair of the position of the property
-   * within the values, and a boolean indicating whether the property matches.
+   * within `value`, and a boolean indicating whether the property matches.
    */
   auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
       -> std::vector<std::pair<std::ptrdiff_t, bool>>;
