@@ -93,6 +93,11 @@
   [e]
   (string/includes? (str e) "Transaction was asked to abort because of transaction timeout"))
 
+(defn unique-constraint-violated?
+  "Unique constraint was violated."
+  [e]
+  (string/includes? (str e) "Unable to commit due to unique constraint violation"))
+
 (defn server-no-longer-available
   "Accepts exception e as argument."
   [e]
