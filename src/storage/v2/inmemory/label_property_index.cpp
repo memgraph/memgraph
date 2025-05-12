@@ -465,6 +465,9 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
   //     - For properties (a, b, c): [-1, 1, 0]   // a not found, b at pos 1, c at pos 0
   //     - For properties (b, c, d): [1, 0, -1]   // b at pos 1, c at pos 0, d not found
 
+  r::sort(rv::zip(properties_vec, ppos_indices), std::less{},
+          [](auto const &val) -> PropertyPath const & { return std::get<0>(val); });
+
   for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
     auto it = index_.find(label);
     if (it == index_.end()) continue;
@@ -473,8 +476,8 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
       for (auto prop_path : nested_props) {
-        auto it = r::find(properties_vec, prop_path);
-        if (it != properties_vec.end()) {
+        auto it = r::lower_bound(properties_vec, prop_path);
+        if (it != properties_vec.end() && *it == prop_path) {
           auto distance = std::distance(properties_vec.begin(), it);
           positions.emplace_back(static_cast<int64_t>(ppos_indices[distance]));
           has_matching_property = true;
