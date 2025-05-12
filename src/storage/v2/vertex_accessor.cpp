@@ -437,7 +437,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock(
-      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc, this]() {
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
         if (!vertex->properties.InitProperties(properties)) {
           result = false;
           return;

@@ -28,10 +28,6 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 
-namespace memgraph::storage {
-class NameIdMapper;
-}  // namespace memgraph::storage
-
 namespace memgraph::query {
 
 class Graph;  // fwd declare

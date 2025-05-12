@@ -107,8 +107,8 @@ auto ReadDurabilityFiles(
     std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> &maybe_old_snapshot_files,
     std::filesystem::path const &current_snapshot_dir,
     std::optional<std::vector<storage::durability::WalDurabilityInfo>> &maybe_old_wal_files,
-    std::filesystem::path const &current_wal_dir, storage::NameIdMapper *name_id_mapper) -> bool {
-  auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_dir, name_id_mapper);
+    std::filesystem::path const &current_wal_dir) -> bool {
+  auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_dir);
   // If there are 0 WAL files, replica will be recovered.
   if (!maybe_wal_files.has_value()) {
     spdlog::warn("Failed to read current WAL files. Replica won't be recovered.");
@@ -404,8 +404,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 
   // Read durability files
   auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
-  auto const maybe_curr_wal_files =
-      storage::durability::GetWalFiles(current_wal_directory, storage->name_id_mapper_.get());
+  auto const maybe_curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
   // If there are 0 WAL files, replica will be recovered.
   if (!maybe_curr_wal_files.has_value()) {
     spdlog::error("Cannot read current WAL files. Replica won't be recovered.");
@@ -552,8 +551,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files, current_wal_directory,
-                             storage->name_id_mapper_.get())) {
+    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
+                             current_wal_directory)) {
       rpc::SendFinalResponse(storage::replication::WalFilesRes{}, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
@@ -646,8 +645,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files, current_wal_directory,
-                             storage->name_id_mapper_.get())) {
+    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
+                             current_wal_directory)) {
       rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder,
                              fmt::format("db: {}", storage->name()));
       return;

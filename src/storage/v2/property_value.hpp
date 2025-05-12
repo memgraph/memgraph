@@ -37,7 +37,7 @@ class PropertyValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
 };
 
-// These are durable, do not chage there values
+// These are durable, do not change their values
 enum class PropertyValueType : uint8_t {
   Null = 0,
   Bool = 1,

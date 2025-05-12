@@ -31,7 +31,6 @@
 #include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"

@@ -80,9 +80,8 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       release_wal_dir(  // Each individually used file will be locked, so at the end, the dir can be released
           [&locker_acc, &wal_dir = main_storage->recovery_.wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
   // Get WAL files, ordered by timestamp, from oldest to newest
-  auto const maybe_wal_files =
-      durability::GetWalFiles(main_storage->recovery_.wal_directory_, main_storage->name_id_mapper_.get(),
-                              std::string{main_storage->uuid()}, current_wal_seq_num);
+  auto const maybe_wal_files = durability::GetWalFiles(main_storage->recovery_.wal_directory_,
+                                                       std::string{main_storage->uuid()}, current_wal_seq_num);
 
   if (!maybe_wal_files) {
     spdlog::error("WAL files couldn't be loaded while trying to find recovery steps.");

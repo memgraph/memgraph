@@ -26,7 +26,6 @@
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/event_map.hpp"
 #include "utils/priorities.hpp"
 #include "utils/typeinfo.hpp"

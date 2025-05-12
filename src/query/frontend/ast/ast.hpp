@@ -828,7 +828,6 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
  protected:
   template <typename T>
   explicit PrimitiveLiteral(T value) : value_(value) {}
-
   template <typename T>
   PrimitiveLiteral(T value, int token_position) : value_(value), token_position_(token_position) {}
 

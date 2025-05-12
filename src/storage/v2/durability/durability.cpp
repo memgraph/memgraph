@@ -110,7 +110,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
 }
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          NameIdMapper *name_id_mapper, const std::string_view uuid,
+                                                          const std::string_view uuid,
                                                           const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
@@ -540,7 +540,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, name_id_mapper, std::string{uuid});
+  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
       maybe_wal_files && !maybe_wal_files->empty()) {
     // Array of all discovered WAL files, ordered by sequence number.
     const auto &wal_files = *maybe_wal_files;

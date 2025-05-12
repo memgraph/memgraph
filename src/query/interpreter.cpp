@@ -1266,8 +1266,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 ReplicationQueryHandler &replication_query_handler,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
-                                storage::Storage *storage
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications
 #ifdef MG_ENTERPRISE
                                 ,
                                 std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
@@ -1500,8 +1499,7 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
 
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
-                                storage::Storage *storage) {
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
   using enum flags::Experiments;
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -1518,9 +1516,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context;
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parameters;
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
@@ -1542,9 +1538,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context;
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parameters;
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
@@ -1592,9 +1586,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context;
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parameters;
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
 
@@ -1685,9 +1677,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
-      EvaluationContext evaluation_context;
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parameters;
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
@@ -2120,7 +2110,7 @@ Callback HandleConfigQuery() {
   return callback;
 }
 
-Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, storage::Storage *storage) {
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -2580,8 +2570,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
-
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
@@ -3527,9 +3515,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto *storage = db_acc->storage();
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      EvaluationContext evaluation_context;
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parsed_query.parameters;
+      const EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
       handler = [dba, storage, vector_index_config, invalidate_plan_cache = std::move(invalidate_plan_cache),
@@ -3689,9 +3675,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
     case TtlQuery::Type::ENABLE: {
-      EvaluationContext evaluation_context;
-      evaluation_context.timestamp = QueryTimestamp();
-      evaluation_context.parameters = parsed_query.parameters;
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       try {
         std::string info;
@@ -3814,7 +3798,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
-    ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db, const InterpreterConfig &config
+    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config
 #ifdef MG_ENTERPRISE
     ,
     std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
@@ -3826,9 +3810,9 @@ PreparedQuery PrepareReplicationQuery(
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler, config,
-                                         notifications, current_db.db_acc_->get()->storage(),
+                                         notifications
 #ifdef MG_ENTERPRISE
-
+                                         ,
                                          coordinator_state
 #endif
   );
@@ -3879,14 +3863,14 @@ PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_expl
 PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications,
                                       coordination::CoordinatorState &coordinator_state,
-                                      const InterpreterConfig &config, CurrentDB &current_db) {
+                                      const InterpreterConfig &config) {
   if (in_explicit_transaction) {
     throw CoordinatorModificationInMulticommandTxException();
   }
 
   auto *coordinator_query = utils::Downcast<CoordinatorQuery>(parsed_query.query);
-  auto callback = HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, config,
-                                         notifications, current_db.db_acc_->get()->storage());
+  auto callback =
+      HandleCoordinatorQuery(coordinator_query, parsed_query.parameters, &coordinator_state, config, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -4044,8 +4028,8 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query, const UserParameters &user_parameters, TriggerStore *trigger_store,
-                       InterpreterContext *interpreter_context, DbAccessor *dba,
+Callback CreateTrigger(TriggerQuery *trigger_query, const storage::IntermediatePropertyValue::map_t &user_parameters,
+                       TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
@@ -4525,9 +4509,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   return PreparedQuery{
@@ -4603,7 +4585,7 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction, CurrentDB &current_db) {
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
@@ -4611,7 +4593,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
 
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, current_db.db_acc_->get()->storage());
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters);
+
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
@@ -6332,7 +6315,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  *interpreter_context_->coordinator_state_, interpreter_context_->config, current_db_);
+                                  *interpreter_context_->coordinator_state_, interpreter_context_->config);
 #else
       throw EnterpriseOnlyException();
 #endif
@@ -6365,7 +6348,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
-      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);

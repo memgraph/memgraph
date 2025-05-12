@@ -90,7 +90,7 @@ struct WalDurabilityInfo {
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          NameIdMapper *name_id_mapper, std::string_view uuid = "",
+                                                          std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
 // Helper function used to recover all discovered indices. The

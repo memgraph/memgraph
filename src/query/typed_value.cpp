@@ -16,14 +16,11 @@
 #include <cmath>
 #include <iosfwd>
 #include <memory>
-#include <stdexcept>
 #include <string_view>
 #include <utility>
 
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/fnv.hpp"
@@ -209,7 +206,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
       if (!name_id_mapper) {
-        throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
+        throw TypedValueException("NameIdMapper is required for TypedValue::Map");
       }
       for (auto &kv : map) {
         auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
@@ -699,14 +696,13 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       std::vector<storage::PropertyValue> list;
       list.reserve(list_v.size());
       for (const auto &v : list_v) {
-        auto typed_value = v.ToPropertyValue(name_id_mapper);
-        list.emplace_back(std::move(typed_value));
+        list.emplace_back(v.ToPropertyValue(name_id_mapper));
       }
       return storage::PropertyValue(std::move(list));
     }
     case TypedValue::Type::Map: {
       if (!name_id_mapper) {
-        throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
+        throw TypedValueException("NameIdMapper is required for TypedValue::Map");
       }
       storage::PropertyValue::map_t map;
       for (const auto &kv : map_v) {
