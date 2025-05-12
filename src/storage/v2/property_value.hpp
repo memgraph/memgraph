@@ -868,6 +868,47 @@ inline PropertyValue ToPropertyValue(const IntermediatePropertyValue &value, Nam
   throw PropertyValueException("Unknown type during conversion");
 }
 
+inline IntermediatePropertyValue ToIntermediatePropertyValue(const PropertyValue &value, NameIdMapper *mapper) {
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      return IntermediatePropertyValue();
+    case PropertyValueType::Bool:
+      return IntermediatePropertyValue(value.ValueBool());
+    case PropertyValueType::Int:
+      return IntermediatePropertyValue(value.ValueInt());
+    case PropertyValueType::Double:
+      return IntermediatePropertyValue(value.ValueDouble());
+    case PropertyValueType::String:
+      return IntermediatePropertyValue(value.ValueString());
+    case PropertyValueType::List: {
+      typename IntermediatePropertyValue::list_t list;
+      for (const auto &elem : value.ValueList()) {
+        list.push_back(ToIntermediatePropertyValue(elem, mapper));
+      }
+      return IntermediatePropertyValue(std::move(list));
+    }
+    case PropertyValueType::Map: {
+      typename IntermediatePropertyValue::map_t map;
+      for (const auto &[key, val] : value.ValueMap()) {
+        auto name = mapper->IdToName(key.AsUint());
+        map.emplace(name, ToIntermediatePropertyValue(val, mapper));
+      }
+      return IntermediatePropertyValue(std::move(map));
+    }
+    case PropertyValueType::TemporalData:
+      return IntermediatePropertyValue(value.ValueTemporalData());
+    case PropertyValueType::ZonedTemporalData:
+      return IntermediatePropertyValue(value.ValueZonedTemporalData());
+    case PropertyValueType::Enum:
+      return IntermediatePropertyValue(value.ValueEnum());
+    case PropertyValueType::Point2d:
+      return IntermediatePropertyValue(value.ValuePoint2d());
+    case PropertyValueType::Point3d:
+      return IntermediatePropertyValue(value.ValuePoint3d());
+  }
+  throw PropertyValueException("Unknown type during conversion");
+}
+
 namespace pmr {
 using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId>;
 }  // namespace pmr

@@ -157,12 +157,11 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
 
 constexpr uint32_t kDeltasBatchProgressSize = 100000;
 
-std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version,
-                                            storage::NameIdMapper *name_id_mapper) {
+std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
     spdlog::trace("       Timestamp {}", timestamp);
-    auto delta = ReadWalDeltaData(decoder, name_id_mapper, version);
+    auto delta = ReadWalDeltaData(decoder, version);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
@@ -336,7 +335,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     bool transaction_complete = false;
     while (!transaction_complete) {
       spdlog::info("Skipping delta");
-      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion, storage->name_id_mapper_.get());
+      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
@@ -703,7 +702,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
   }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
-    auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path, storage->name_id_mapper_.get());
+    auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path);
 
     // We have to check if this is our 1st wal, not what main is sending
     if (storage->wal_seq_num_ == 0) {
@@ -823,7 +822,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
       current_batch_counter = 0;
     }
 
-    const auto [delta_timestamp, delta] = ReadDelta(decoder, version, storage->name_id_mapper_.get());
+    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
       prev_printed_timestamp = delta_timestamp;
@@ -900,7 +899,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), data.value);
+          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property),
+                                         ToPropertyValue(data.value, storage->name_id_mapper_.get()));
           if (ret.HasError()) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
@@ -1038,7 +1038,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           });
 
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
-          auto ret = ea.SetProperty(transaction->NameToProperty(data.property), data.value);
+          auto ret = ea.SetProperty(transaction->NameToProperty(data.property),
+                                    ToPropertyValue(data.value, storage->name_id_mapper_.get()));
           if (ret.HasError()) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }

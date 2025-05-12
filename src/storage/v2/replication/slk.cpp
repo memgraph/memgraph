@@ -89,200 +89,195 @@ void Load(storage::Gid *gid, slk::Reader *reader) {
   *gid = storage::Gid::FromUint(value);
 }
 
-void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
+void Load(storage::IntermediatePropertyValue::Type *type, slk::Reader *reader) {
+  using PVTypeUnderlyingType = std::underlying_type_t<storage::IntermediatePropertyValue::Type>;
   PVTypeUnderlyingType value{};
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Null):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Bool):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Int):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Double):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::String):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::List):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::ZonedTemporalData):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Enum):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Point2d):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Point3d):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Null):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Bool):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Int):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Double):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::String):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::List):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Map):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::TemporalData):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::ZonedTemporalData):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Enum):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Point2d):
+    case utils::UnderlyingCast(storage::IntermediatePropertyValue::Type::Point3d):
       valid = true;
       break;
     default:
       valid = false;
       break;
   }
-  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::PropertyValue!");
-  *type = static_cast<storage::PropertyValue::Type>(value);
+  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::IntermediatePropertyValue!");
+  *type = static_cast<storage::IntermediatePropertyValue::Type>(value);
 }
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder, storage::NameIdMapper *name_id_mapper) {
+void Save(const storage::IntermediatePropertyValue &value, slk::Builder *builder) {
   switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
-      slk::Save(storage::PropertyValue::Type::Null, builder);
+    case storage::IntermediatePropertyValue::Type::Null:
+      slk::Save(storage::IntermediatePropertyValue::Type::Null, builder);
       return;
-    case storage::PropertyValue::Type::Bool:
-      slk::Save(storage::PropertyValue::Type::Bool, builder);
+    case storage::IntermediatePropertyValue::Type::Bool:
+      slk::Save(storage::IntermediatePropertyValue::Type::Bool, builder);
       slk::Save(value.ValueBool(), builder);
       return;
-    case storage::PropertyValue::Type::Int:
-      slk::Save(storage::PropertyValue::Type::Int, builder);
+    case storage::IntermediatePropertyValue::Type::Int:
+      slk::Save(storage::IntermediatePropertyValue::Type::Int, builder);
       slk::Save(value.ValueInt(), builder);
       return;
-    case storage::PropertyValue::Type::Double:
-      slk::Save(storage::PropertyValue::Type::Double, builder);
+    case storage::IntermediatePropertyValue::Type::Double:
+      slk::Save(storage::IntermediatePropertyValue::Type::Double, builder);
       slk::Save(value.ValueDouble(), builder);
       return;
-    case storage::PropertyValue::Type::String:
-      slk::Save(storage::PropertyValue::Type::String, builder);
+    case storage::IntermediatePropertyValue::Type::String:
+      slk::Save(storage::IntermediatePropertyValue::Type::String, builder);
       slk::Save(value.ValueString(), builder);
       return;
-    case storage::PropertyValue::Type::List: {
-      slk::Save(storage::PropertyValue::Type::List, builder);
+    case storage::IntermediatePropertyValue::Type::List: {
+      slk::Save(storage::IntermediatePropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
       size_t size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
-        slk::Save(v, builder, name_id_mapper);
+        slk::Save(v, builder);
       }
       return;
     }
-    case storage::PropertyValue::Type::Map: {
-      slk::Save(storage::PropertyValue::Type::Map, builder);
+    case storage::IntermediatePropertyValue::Type::Map: {
+      slk::Save(storage::IntermediatePropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
       size_t size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {
-        auto property_name = name_id_mapper->IdToName(kv.first.AsUint());
-        slk::Save(property_name, builder);
-        slk::Save(kv.second, builder, name_id_mapper);
+        slk::Save(kv, builder);
       }
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+    case storage::IntermediatePropertyValue::Type::TemporalData: {
+      slk::Save(storage::IntermediatePropertyValue::Type::TemporalData, builder);
       const auto temporal_data = value.ValueTemporalData();
       slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
       return;
     }
-    case storage::PropertyValue::Type::ZonedTemporalData: {
-      slk::Save(storage::PropertyValue::Type::ZonedTemporalData, builder);
+    case storage::IntermediatePropertyValue::Type::ZonedTemporalData: {
+      slk::Save(storage::IntermediatePropertyValue::Type::ZonedTemporalData, builder);
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       slk::Save(zoned_temporal_data.type, builder);
       slk::Save(zoned_temporal_data.IntMicroseconds(), builder);
       if (zoned_temporal_data.timezone.InTzDatabase()) {
-        slk::Save(storage::PropertyValue::Type::String, builder);
+        slk::Save(storage::IntermediatePropertyValue::Type::String, builder);
         slk::Save(zoned_temporal_data.timezone.TimezoneName(), builder);
       } else {
-        slk::Save(storage::PropertyValue::Type::Int, builder);
+        slk::Save(storage::IntermediatePropertyValue::Type::Int, builder);
         slk::Save(zoned_temporal_data.timezone.DefiningOffset(), builder);
       }
       return;
     }
-    case storage::PropertyValue::Type::Enum: {
-      slk::Save(storage::PropertyValue::Type::Enum, builder);
+    case storage::IntermediatePropertyValue::Type::Enum: {
+      slk::Save(storage::IntermediatePropertyValue::Type::Enum, builder);
       slk::Save(value.ValueEnum(), builder);
       return;
     }
-    case storage::PropertyValue::Type::Point2d: {
-      slk::Save(storage::PropertyValue::Type::Point2d, builder);
+    case storage::IntermediatePropertyValue::Type::Point2d: {
+      slk::Save(storage::IntermediatePropertyValue::Type::Point2d, builder);
       slk::Save(value.ValuePoint2d(), builder);
       return;
     }
-    case storage::PropertyValue::Type::Point3d: {
-      slk::Save(storage::PropertyValue::Type::Point3d, builder);
+    case storage::IntermediatePropertyValue::Type::Point3d: {
+      slk::Save(storage::IntermediatePropertyValue::Type::Point3d, builder);
       slk::Save(value.ValuePoint3d(), builder);
       return;
     }
   }
 }
 
-void Load(storage::PropertyValue *value, slk::Reader *reader, storage::NameIdMapper *name_id_mapper) {
-  storage::PropertyValue::Type type{};
+void Load(storage::IntermediatePropertyValue *value, slk::Reader *reader) {
+  storage::IntermediatePropertyValue::Type type{};
   slk::Load(&type, reader);
   switch (type) {
-    case storage::PropertyValue::Type::Null:
-      *value = storage::PropertyValue();
+    case storage::IntermediatePropertyValue::Type::Null:
+      *value = storage::IntermediatePropertyValue();
       return;
-    case storage::PropertyValue::Type::Bool: {
+    case storage::IntermediatePropertyValue::Type::Bool: {
       bool v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::IntermediatePropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Int: {
+    case storage::IntermediatePropertyValue::Type::Int: {
       int64_t v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::IntermediatePropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Double: {
+    case storage::IntermediatePropertyValue::Type::Double: {
       double v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::IntermediatePropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::String: {
+    case storage::IntermediatePropertyValue::Type::String: {
       std::string v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(std::move(v));
+      *value = storage::IntermediatePropertyValue(std::move(v));
       return;
     }
-    case storage::PropertyValue::Type::List: {
+    case storage::IntermediatePropertyValue::Type::List: {
       size_t size;
       slk::Load(&size, reader);
-      std::vector<storage::PropertyValue> list(size);
+      std::vector<storage::IntermediatePropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
-        slk::Load(&list[i], reader, name_id_mapper);
+        slk::Load(&list[i], reader);
       }
-      *value = storage::PropertyValue(std::move(list));
+      *value = storage::IntermediatePropertyValue(std::move(list));
       return;
     }
-    case storage::PropertyValue::Type::Map: {
+    case storage::IntermediatePropertyValue::Type::Map: {
       size_t size;
       slk::Load(&size, reader);
-      auto map = storage::PropertyValue::map_t{};
+      auto map = storage::IntermediatePropertyValue::map_t{};
       map.reserve(size);
       for (size_t i = 0; i < size; ++i) {
-        std::string property_name;
-        slk::Load(&property_name, reader);
-        auto property_name_id = storage::PropertyId::FromUint(name_id_mapper->NameToId(property_name));
-        storage::PropertyValue property_value;
-        slk::Load(&property_value, reader, name_id_mapper);
-        map.emplace(property_name_id, std::move(property_value));
+        std::pair<std::string, storage::IntermediatePropertyValue> kv;
+        slk::Load(&kv.first, reader);
+        map.insert(kv);
       }
-      *value = storage::PropertyValue(std::move(map));
+      *value = storage::IntermediatePropertyValue(std::move(map));
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
+    case storage::IntermediatePropertyValue::Type::TemporalData: {
       storage::TemporalType temporal_type{};
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
-      *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      *value = storage::IntermediatePropertyValue(storage::TemporalData{temporal_type, microseconds});
       return;
     }
-    case storage::PropertyValue::Type::ZonedTemporalData: {
+    case storage::IntermediatePropertyValue::Type::ZonedTemporalData: {
       storage::ZonedTemporalType temporal_type{};
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
-      storage::PropertyValue::Type timezone_representation_type{};
+      storage::IntermediatePropertyValue::Type timezone_representation_type{};
       slk::Load(&timezone_representation_type, reader);
       switch (timezone_representation_type) {
-        case storage::PropertyValue::Type::String: {
+        case storage::IntermediatePropertyValue::Type::String: {
           std::string timezone_name;
           slk::Load(&timezone_name, reader);
-          *value = storage::PropertyValue(storage::ZonedTemporalData{temporal_type, utils::AsSysTime(microseconds),
-                                                                     utils::Timezone(timezone_name)});
+          *value = storage::IntermediatePropertyValue(storage::ZonedTemporalData{
+              temporal_type, utils::AsSysTime(microseconds), utils::Timezone(timezone_name)});
           return;
         }
-        case storage::PropertyValue::Type::Int: {
+        case storage::IntermediatePropertyValue::Type::Int: {
           int64_t offset_minutes{0};
           slk::Load(&offset_minutes, reader);
-          *value = storage::PropertyValue(storage::ZonedTemporalData{
+          *value = storage::IntermediatePropertyValue(storage::ZonedTemporalData{
               temporal_type, utils::AsSysTime(microseconds), utils::Timezone(std::chrono::minutes{offset_minutes})});
           return;
         }
@@ -291,22 +286,22 @@ void Load(storage::PropertyValue *value, slk::Reader *reader, storage::NameIdMap
       }
       return;
     }
-    case storage::PropertyValue::Type::Enum: {
+    case storage::IntermediatePropertyValue::Type::Enum: {
       storage::Enum v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::IntermediatePropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Point2d: {
+    case storage::IntermediatePropertyValue::Type::Point2d: {
       storage::Point2d v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::IntermediatePropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Point3d: {
+    case storage::IntermediatePropertyValue::Type::Point3d: {
       storage::Point3d v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::IntermediatePropertyValue(v);
       return;
     }
   }

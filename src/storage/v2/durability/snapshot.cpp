@@ -47,6 +47,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -601,9 +602,9 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read edge property id!");
-          auto value = snapshot.ReadPropertyValue(name_id_mapper);
+          auto value = snapshot.ReadIntermediatePropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
-          read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
+          read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
         props.InitProperties(std::move(read_properties));
       }
@@ -699,9 +700,9 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-          auto value = snapshot.ReadPropertyValue(name_id_mapper);
+          auto value = snapshot.ReadIntermediatePropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
-          read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
+          read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
         it->properties.InitProperties(std::move(read_properties));
       }
@@ -839,7 +840,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
       for (uint64_t j = 0; j < *props_size; ++j) {
         auto key = snapshot.ReadUint();
         if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-        auto value = snapshot.SkipPropertyValue(name_id_mapper);
+        auto value = snapshot.SkipIntermediatePropertyValue();
         if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
       }
     }
@@ -1068,11 +1069,11 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
               if (!key) throw RecoveryFailure("Couldn't read edge property id!");
-              auto value = snapshot.ReadPropertyValue(name_id_mapper);
+              auto value = snapshot.ReadIntermediatePropertyValue();
               if (!value) throw RecoveryFailure("Couldn't read edge property value!");
               SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for edge {}.",
                            name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
-              props.SetProperty(get_property_from_id(*key), *value);
+              props.SetProperty(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
             }
           }
         } else {
@@ -1144,11 +1145,11 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read the vertex property id!");
-          auto value = snapshot.ReadPropertyValue(name_id_mapper);
+          auto value = snapshot.ReadIntermediatePropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read the vertex property value!");
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
-          props.SetProperty(get_property_from_id(*key), *value);
+          props.SetProperty(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
       }
 
@@ -1215,7 +1216,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read property key while skipping properties!");
-          auto value = snapshot.SkipPropertyValue(name_id_mapper);
+          auto value = snapshot.SkipIntermediatePropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read property value while skipping properties!");
         }
       }
@@ -4581,7 +4582,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
-      auto info = ReadWalInfo(item.path(), name_id_mapper);
+      auto info = ReadWalInfo(item.path());
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
@@ -4825,7 +4826,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(edges_snapshot, res.used_ids, item.first);
-          edges_snapshot.WritePropertyValue(item.second, storage->name_id_mapper_.get());
+          edges_snapshot.WriteIntermediatePropertyValue(
+              ToIntermediatePropertyValue(item.second, storage->name_id_mapper_.get()));
         }
       }
 
@@ -4907,7 +4909,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(vertex_snapshot, res.used_ids, item.first);
-          vertex_snapshot.WritePropertyValue(item.second, storage->name_id_mapper_.get());
+          vertex_snapshot.WriteIntermediatePropertyValue(
+              ToIntermediatePropertyValue(item.second, storage->name_id_mapper_.get()));
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
         const auto &out_edges = maybe_out_edges.GetValue().edges;

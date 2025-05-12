@@ -254,8 +254,8 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
 
 // ========== concrete type decoders start here ==========
 template <bool is_read>
-auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper * /*unused*/) -> std::conditional_t<is_read, Gid, void> {
+auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, Gid, void> {
   const auto gid = decoder->ReadUint();
   if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -264,8 +264,8 @@ auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper * /*unused*/) -> std::conditional_t<is_read, std::string, void> {
+auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadString();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -276,21 +276,20 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<PropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper *name_id_mapper) -> std::conditional_t<is_read, PropertyValue, void> {
+auto Decode(utils::tag_type<IntermediatePropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, IntermediatePropertyValue, void> {
   if constexpr (is_read) {
-    auto str = decoder->ReadPropertyValue(name_id_mapper);
+    auto str = decoder->ReadIntermediatePropertyValue();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
     return *std::move(str);
   } else {
-    if (!decoder->SkipPropertyValue(name_id_mapper)) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipIntermediatePropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
 template <bool is_read>
 auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/, NameIdMapper * /*unused*/)
-    -> std::conditional_t<is_read, std::set<std::string, std::less<>>, void> {
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::set<std::string, std::less<>>, void> {
   if constexpr (is_read) {
     std::set<std::string, std::less<>> strings;
     const auto count = decoder->ReadUint();
@@ -311,8 +310,8 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper * /*unused*/) -> std::conditional_t<is_read, std::vector<std::string>, void> {
+auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::vector<std::string>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -334,8 +333,8 @@ auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *d
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper * /*unused*/) -> std::conditional_t<is_read, TypeConstraintKind, void> {
+auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
     auto kind = decoder->ReadUint();
     if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -346,8 +345,8 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper * /*unused*/) -> std::conditional_t<is_read, uint16_t, void> {
+auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint16_t, void> {
   const auto uint16 = decoder->ReadUint();
   if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -356,8 +355,8 @@ auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const ui
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/,
-            NameIdMapper * /*unused*/) -> std::conditional_t<is_read, std::size_t, void> {
+auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
   if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -369,10 +368,10 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version,
-            NameIdMapper *name_id_mapper) -> std::conditional_t<is_read, std::optional<Type>, void> {
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
-    return Decode<is_read>(utils::tag_t<Type>, decoder, version, name_id_mapper);
+    return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
   if constexpr (is_read) {
     return std::nullopt;
@@ -382,37 +381,36 @@ auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDec
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Before, typename After, auto Upgrader>
 auto Decode(utils::tag_type<VersionDependantUpgradable<MIN_VER, Before, After, Upgrader>> /*unused*/,
-            BaseDecoder *decoder, const uint64_t version, NameIdMapper *name_id_mapper)
-    -> std::conditional_t<is_read, After, void> {
+            BaseDecoder *decoder, const uint64_t version) -> std::conditional_t<is_read, After, void> {
   if (MIN_VER <= version) {
-    return Decode<is_read>(utils::tag_t<After>, decoder, version, name_id_mapper);
+    return Decode<is_read>(utils::tag_t<After>, decoder, version);
   }
   if constexpr (is_read) {
-    return Upgrader(Decode<true>(utils::tag_t<Before>, decoder, version, name_id_mapper));
+    return Upgrader(Decode<true>(utils::tag_t<Before>, decoder, version));
   } else {
-    Decode<false>(utils::tag_t<Before>, decoder, version, name_id_mapper);
+    Decode<false>(utils::tag_t<Before>, decoder, version);
   }
 }
 
 template <typename T>
-auto Read(BaseDecoder *decoder, const uint64_t version, NameIdMapper *name_id_mapper) -> T {
+auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
   using ctr_types = typename T::ctr_types;
 
   return [&]<auto... I>(std::index_sequence<I...>) {
     // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4950.pdf
     // see [dcl.init.list] 9.4.5.4
     // Ordering of these constructor argument calls is well defined
-    return T{Decode<true>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version, name_id_mapper)...};
+    return T{Decode<true>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version)...};
   }
   (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 template <typename T>
-auto Skip(BaseDecoder *decoder, const uint64_t version, NameIdMapper *name_id_mapper) -> void {
+auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
   using ctr_types = typename T::ctr_types;
 
   [&]<auto... I>(std::index_sequence<I...>) {
-    (Decode<false>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version, name_id_mapper), ...);
+    (Decode<false>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version), ...);
   }
   (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
@@ -424,20 +422,20 @@ auto Skip(BaseDecoder *decoder, const uint64_t version, NameIdMapper *name_id_ma
 // be used.
 // @throw RecoveryFailure
 template <bool read_data>
-auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version, NameIdMapper *name_id_mapper)
+auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<read_data, WalDeltaData, bool> {
   auto action = decoder->ReadMarker();
   if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
 
     // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define read_skip(enum_val, decode_to)                                     \
-  case Marker::DELTA_##enum_val: {                                         \
-    if constexpr (read_data) {                                             \
-      return {.data_ = Read<decode_to>(decoder, version, name_id_mapper)}; \
-    } else {                                                               \
-      Skip<decode_to>(decoder, version, name_id_mapper);                   \
-      return IsMarkerTransactionEnd(*action, version);                     \
-    }                                                                      \
+#define read_skip(enum_val, decode_to)                     \
+  case Marker::DELTA_##enum_val: {                         \
+    if constexpr (read_data) {                             \
+      return {.data_ = Read<decode_to>(decoder, version)}; \
+    } else {                                               \
+      Skip<decode_to>(decoder, version);                   \
+      return IsMarkerTransactionEnd(*action, version);     \
+    }                                                      \
   }
 
   switch (*action) {
@@ -515,7 +513,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version, NameIdMa
 }  // namespace
 
 // Function used to read information about the WAL file.
-WalInfo ReadWalInfo(const std::filesystem::path &path, NameIdMapper *name_id_mapper) {
+WalInfo ReadWalInfo(const std::filesystem::path &path) {
   // Check magic and version.
   Decoder wal;
   auto version = wal.Initialize(path, kWalMagic);
@@ -567,10 +565,10 @@ WalInfo ReadWalInfo(const std::filesystem::path &path, NameIdMapper *name_id_map
 
   // Read deltas.
   info.num_deltas = 0;
-  auto validate_delta = [&wal, version = *version, &name_id_mapper]() -> std::optional<std::pair<uint64_t, bool>> {
+  auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
-      auto is_transaction_end = SkipWalDeltaData(&wal, name_id_mapper, version);
+      auto is_transaction_end = SkipWalDeltaData(&wal, version);
       return {{timestamp, is_transaction_end}};
     } catch (const RecoveryFailure &) {
       return std::nullopt;
@@ -624,14 +622,14 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
 
 // Function used to read the current WAL delta data. The WAL delta header must
 // be read before calling this function.
-WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, NameIdMapper *name_id_mapper, const uint64_t version) {
-  return ReadSkipWalDeltaData<true>(decoder, version, name_id_mapper);
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
+  return ReadSkipWalDeltaData<true>(decoder, version);
 }
 
 // Function used to skip the current WAL delta data. The WAL delta header must
 // be read before calling this function.
-bool SkipWalDeltaData(BaseDecoder *decoder, NameIdMapper *name_id_mapper, const uint64_t version) {
-  return ReadSkipWalDeltaData<false>(decoder, version, name_id_mapper);
+bool SkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
+  return ReadSkipWalDeltaData<false>(decoder, version);
 }
 
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
@@ -659,7 +657,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WritePropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper);
+      encoder->WriteIntermediatePropertyValue(
+          ToIntermediatePropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -708,7 +707,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper);
+      encoder->WriteIntermediatePropertyValue(
+          ToIntermediatePropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
       break;
@@ -752,7 +752,7 @@ std::optional<RecoveryInfo> LoadWal(
   if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid WAL version!");
 
   // Read wal info.
-  auto info = ReadWalInfo(path, name_id_mapper);
+  auto info = ReadWalInfo(path);
 
   // Check timestamp.
   if (last_applied_delta_timestamp && info.to_timestamp <= *last_applied_delta_timestamp) {
@@ -812,11 +812,12 @@ std::optional<RecoveryInfo> LoadWal(
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(data.value)}, old_type);
+          schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        vertex->properties.SetProperty(property_id, data.value);
+        vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
@@ -897,6 +898,7 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge = edge_acc.find(data.gid);
         if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
         if (schema_info) {
           const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
@@ -918,11 +920,11 @@ std::optional<RecoveryInfo> LoadWal(
           });
 
           const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(edge_type, from_vertex, to_vertex, property_id, ExtendedPropertyType{data.value},
+          schema_info->SetProperty(edge_type, from_vertex, to_vertex, property_id, ExtendedPropertyType{property_value},
                                    old_type, items.properties_on_edges);
         }
 
-        edge->properties.SetProperty(property_id, data.value);
+        edge->properties.SetProperty(property_id, property_value);
       },
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
@@ -1143,13 +1145,13 @@ std::optional<RecoveryInfo> LoadWal(
 
     if (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp) {
       // This delta should be loaded.
-      auto delta = ReadWalDeltaData(&wal, name_id_mapper, *version);
+      auto delta = ReadWalDeltaData(&wal, *version);
       std::visit(delta_apply, delta.data_);
       ++deltas_applied;
       ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
     } else {
       // This delta should be skipped.
-      SkipWalDeltaData(&wal, name_id_mapper, *version);
+      SkipWalDeltaData(&wal, *version);
     }
   }
 

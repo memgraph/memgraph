@@ -128,7 +128,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       continue;
     }
     try {
-      auto info = ReadWalInfo(item.path(), name_id_mapper);
+      auto info = ReadWalInfo(item.path());
       spdlog::trace(
           "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
@@ -516,7 +516,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         continue;
       }
       try {
-        auto info = ReadWalInfo(item.path(), name_id_mapper);
+        auto info = ReadWalInfo(item.path());
         wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
       } catch (const RecoveryFailure &e) {
         continue;

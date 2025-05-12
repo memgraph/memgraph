@@ -41,7 +41,7 @@ class Encoder final : public durability::BaseEncoder {
 
   void WritePoint3d(storage::Point3d value) override;
 
-  void WritePropertyValue(const PropertyValue &value, NameIdMapper *name_id_mapper) override;
+  void WriteIntermediatePropertyValue(const IntermediatePropertyValue &value) override;
 
   void WriteBuffer(const uint8_t *buffer, size_t buffer_size);
 
@@ -73,11 +73,11 @@ class Decoder final : public durability::BaseDecoder {
 
   std::optional<Point3d> ReadPoint3dValue() override;
 
-  std::optional<PropertyValue> ReadPropertyValue(NameIdMapper *name_id_mapper) override;
+  std::optional<IntermediatePropertyValue> ReadIntermediatePropertyValue() override;
 
   bool SkipString() override;
 
-  bool SkipPropertyValue(NameIdMapper *name_id_mapper) override;
+  bool SkipIntermediatePropertyValue() override;
 
   /// Read the file and save it inside the specified directory.
   /// @param directory Directory which will contain the read file.

@@ -38,7 +38,7 @@ class BaseEncoder {
   virtual void WriteEnum(storage::Enum value) = 0;
   virtual void WritePoint2d(storage::Point2d value) = 0;
   virtual void WritePoint3d(storage::Point3d value) = 0;
-  virtual void WritePropertyValue(const PropertyValue &value, NameIdMapper *name_id_mapper) = 0;
+  virtual void WriteIntermediatePropertyValue(const IntermediatePropertyValue &value) = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
@@ -63,7 +63,7 @@ class Encoder final : public BaseEncoder {
   void WriteEnum(storage::Enum value) override;
   void WritePoint2d(storage::Point2d value) override;
   void WritePoint3d(storage::Point3d value) override;
-  void WritePropertyValue(const PropertyValue &value, NameIdMapper *name_id_mapper) override;
+  void WriteIntermediatePropertyValue(const IntermediatePropertyValue &value) override;
 
   uint64_t GetPosition();
   void SetPosition(uint64_t position);
@@ -106,10 +106,10 @@ class BaseDecoder {
   virtual std::optional<Enum> ReadEnumValue() = 0;
   virtual std::optional<Point2d> ReadPoint2dValue() = 0;
   virtual std::optional<Point3d> ReadPoint3dValue() = 0;
-  virtual std::optional<PropertyValue> ReadPropertyValue(NameIdMapper *name_id_mapper) = 0;
+  virtual std::optional<IntermediatePropertyValue> ReadIntermediatePropertyValue() = 0;
 
   virtual bool SkipString() = 0;
-  virtual bool SkipPropertyValue(NameIdMapper *name_id_mapper) = 0;
+  virtual bool SkipIntermediatePropertyValue() = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -132,9 +132,9 @@ class Decoder final : public BaseDecoder {
   std::optional<Enum> ReadEnumValue() override;
   std::optional<Point2d> ReadPoint2dValue() override;
   std::optional<Point3d> ReadPoint3dValue() override;
-  std::optional<PropertyValue> ReadPropertyValue(NameIdMapper *name_id_mapper) override;
+  std::optional<IntermediatePropertyValue> ReadIntermediatePropertyValue() override;
   bool SkipString() override;
-  bool SkipPropertyValue(NameIdMapper *name_id_mapper) override;
+  bool SkipIntermediatePropertyValue() override;
 
   std::optional<uint64_t> GetSize();
   std::optional<uint64_t> GetPosition();
