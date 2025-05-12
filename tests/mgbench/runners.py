@@ -109,6 +109,7 @@ class BoltClient(BaseClient):
         self._bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
+        self._bolt_address = benchmark_context.client_bolt_address
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -140,6 +141,7 @@ class BoltClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._bolt_port,
+            address=self._bolt_address,
             validation=False,
             time_dependent_execution=time_dependent_execution,
         )

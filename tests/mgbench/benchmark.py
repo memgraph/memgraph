@@ -84,6 +84,14 @@ def parse_args():
         default=multiprocessing.cpu_count() // 2,
         help="number of workers used to import the dataset",
     )
+
+    benchmark_parser.add_argument(
+        "--client-bolt-address",
+        type=str,
+        default="127.0.0.1",
+        help="On which IP is instance available for a client to connect to",
+    )
+
     benchmark_parser.add_argument(
         "--num-workers-for-benchmark",
         type=int,
@@ -933,6 +941,7 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
+        client_bolt_address=args.client_bolt_address,
         external_vendor=args.run_option == "external-vendor",
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
         vendor_name=vendor_name,

@@ -24,6 +24,7 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
+        client_bolt_address: str = "127.0.0.1",
         external_vendor: bool = False,
         vendor_binary: str = None,
         vendor_name: str = None,
@@ -48,6 +49,8 @@ class BenchmarkContext:
         vendor_args: dict = {},
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
+        self.external_vendor = external_vendor
+        self.client_bolt_address = client_bolt_address
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
         self.client_binary = client_binary
@@ -61,7 +64,6 @@ class BenchmarkContext:
         self.export_results_in_memory_analytical = export_results_in_memory_analytical
         self.export_results_on_disk_txn = export_results_on_disk_txn
         self.temporary_directory = temporary_directory
-        self.external_vendor = external_vendor
 
         assert (
             workload_mixed is None or workload_realistic is None
