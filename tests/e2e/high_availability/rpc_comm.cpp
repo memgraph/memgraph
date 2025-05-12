@@ -49,7 +49,7 @@ bool SendPromoteToMain(const char *address, int port, const char *uuid) {
         .replication_server = {"127.0.0.1", 10002}});
     auto stream{
         rpc_client.Stream<memgraph::coordination::PromoteToMainRpc>(new_uuid, std::move(replication_clients_info))};
-    return stream.AwaitResponse().success;
+    return stream.SendAndWait().success;
   } catch (...) {
     return false;
   }
