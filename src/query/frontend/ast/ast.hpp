@@ -1847,7 +1847,7 @@ struct IndexHint {
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::vector<PropertyPath> property_ixs_;
+  std::vector<std::vector<PropertyIx>> property_ixs_;
 
   IndexHint Clone(AstStorage *storage) const;
 };
