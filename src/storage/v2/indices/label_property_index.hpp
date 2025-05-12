@@ -153,12 +153,10 @@ struct PropertiesPermutationHelper {
       -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
-   * element is a tuple comprising: (position, property id, and value).
+   * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
-    // @TODO Currently using only the root top-level property for nested
-    // properties.
-    return ranges::views::enumerate(sorted_properties_roots_) | std::views::transform([&](auto &&p) {
+    return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
              return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
