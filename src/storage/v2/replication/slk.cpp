@@ -245,7 +245,7 @@ void Load(storage::IntermediatePropertyValue *value, slk::Reader *reader) {
       map.reserve(size);
       for (size_t i = 0; i < size; ++i) {
         std::pair<std::string, storage::IntermediatePropertyValue> kv;
-        slk::Load(&kv.first, reader);
+        slk::Load(&kv, reader);
         map.insert(kv);
       }
       *value = storage::IntermediatePropertyValue(std::move(map));

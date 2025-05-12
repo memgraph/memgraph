@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -363,7 +363,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   ASSERT_EQ(result_group_bys.size(), group_by_vals.size() - 2);
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
-  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v);
+  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
   EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
                                   TypedValue::BoolEqual{}));
 }
@@ -588,13 +588,14 @@ TYPED_TEST(QueryPlanTest, Unwind) {
   SymbolTable symbol_table;
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
-  auto input_expr = this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::PropertyValue>{
-      memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-          memgraph::storage::PropertyValue(1), memgraph::storage::PropertyValue(true),
-          memgraph::storage::PropertyValue("x")}),
-      memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{}),
-      memgraph::storage::PropertyValue(
-          std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})});
+  auto input_expr =
+      this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::IntermediatePropertyValue>{
+          memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{
+              memgraph::storage::IntermediatePropertyValue(1), memgraph::storage::IntermediatePropertyValue(true),
+              memgraph::storage::IntermediatePropertyValue("x")}),
+          memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{}),
+          memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{
+              memgraph::storage::IntermediatePropertyValue("bla")})});
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
@@ -775,7 +776,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   ASSERT_EQ(result_group_bys.size(), group_by_vals.size() - 2);
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
-  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v);
+  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v, storage_dba->GetNameIdMapper());
   EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
                                   TypedValue::BoolEqual{}));
 }

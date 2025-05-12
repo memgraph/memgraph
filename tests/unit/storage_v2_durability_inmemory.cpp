@@ -47,6 +47,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
@@ -2349,15 +2350,18 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     // Verify transaction 3.
     using namespace memgraph::storage::durability;
     ASSERT_EQ(data[0].second, WalDeltaData{WalVertexCreate{gid3}});
-    ASSERT_EQ(data[1].second, WalDeltaData{WalVertexSetProperty(gid3, "id", memgraph::storage::PropertyValue(3))});
+    ASSERT_EQ(data[1].second,
+              WalDeltaData{WalVertexSetProperty(gid3, "id", memgraph::storage::IntermediatePropertyValue(3))});
     ASSERT_EQ(data[2].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 1.
     ASSERT_EQ(data[3].second, WalDeltaData{WalVertexCreate{gid1}});
-    ASSERT_EQ(data[4].second, WalDeltaData{WalVertexSetProperty(gid1, "id", memgraph::storage::PropertyValue(1))});
+    ASSERT_EQ(data[4].second,
+              WalDeltaData{WalVertexSetProperty(gid1, "id", memgraph::storage::IntermediatePropertyValue(1))});
     ASSERT_EQ(data[5].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 2.
     ASSERT_EQ(data[6].second, WalDeltaData{WalVertexCreate{gid2}});
-    ASSERT_EQ(data[7].second, WalDeltaData{WalVertexSetProperty(gid2, "id", memgraph::storage::PropertyValue(2))});
+    ASSERT_EQ(data[7].second,
+              WalDeltaData{WalVertexSetProperty(gid2, "id", memgraph::storage::IntermediatePropertyValue(2))});
     ASSERT_EQ(data[8].second, WalDeltaData{WalTransactionEnd{}});
   }
 
