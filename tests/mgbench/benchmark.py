@@ -30,7 +30,6 @@ from benchmark_context import BenchmarkContext
 from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
-from workloads import *
 
 WARMUP_TO_HOT_QUERIES = [
     ("CREATE ();", {}),
@@ -85,6 +84,14 @@ def parse_args():
         default=multiprocessing.cpu_count() // 2,
         help="number of workers used to import the dataset",
     )
+
+    benchmark_parser.add_argument(
+        "--client-bolt-address",
+        type=str,
+        default="127.0.0.1",
+        help="On which IP is instance available for a client to connect to",
+    )
+
     benchmark_parser.add_argument(
         "--num-workers-for-benchmark",
         type=int,
@@ -232,17 +239,27 @@ def parse_args():
         help="Input vendor name to run in docker (memgraph-docker, neo4j-docker)",
     )
 
+    parser_vendor_external = subparsers.add_parser(
+        "external-vendor", help="Database/cluster is run separately from the test", parents=[benchmark_parser]
+    )
+
+    parser_vendor_external.add_argument(
+        "--client-binary",
+        default=helpers.get_binary_path("tests/mgbench/client"),
+        help="Client binary used for benchmarking",
+    )
+
     return parser.parse_args()
 
 
 def sanitize_args(args):
-    assert args.benchmarks != None, helpers.list_available_workloads()
+    assert args.benchmarks is not None, helpers.list_available_workloads()
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
-    assert args.export_results != None, "Pass where will results be saved"
+    assert args.export_results is not None, "Pass where will results be saved"
     assert args.single_threaded_runtime_sec >= 1, "Low runtime value, consider extending time for more accurate results"
     assert (
-        args.workload_realistic == None or args.workload_mixed == None
+        args.workload_realistic is None or args.workload_mixed is None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
 
@@ -435,7 +452,7 @@ def mixed_workload(
         results.set_value(*results_key, value=ret)
 
 
-def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
+def warmup(condition: str, client, queries: list = None):
     if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(
@@ -682,6 +699,8 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     rss_db = workload.NAME + workload.get_variant() + "_" + EMPTY_DB
     vendor_runner.start_db(rss_db)
     usage = vendor_runner.stop_db(rss_db)
+    if usage is None:
+        return {"memory": 0, "cpu": 0}
     key = [workload.NAME, workload.get_variant(), EMPTY_DB]
     results.set_value(*key, value={DATABASE: usage})
     return usage[MEMORY]
@@ -747,7 +766,6 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
             )
 
 
-# TODO: (andi) Reorder functions in top-down notion in order to improve readibility
 def run_target_workloads(benchmark_context, target_workloads, bench_results):
     for workload, bench_queries in target_workloads:
         log.info(f"Started running {str(workload.NAME)} workload")
@@ -770,7 +788,13 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
 
 def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
     log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
-    disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
+    disk_vendor_runner = client_runner_factory(benchmark_context)
+    disk_client = (
+        runners.BoltClient(benchmark_context=benchmark_context)
+        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
+        else runners.BoltClientDocker(benchmark_context=benchmark_context)
+    )
+
     disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
     disk_client.execute(queries=SETUP_DISK_STORAGE)
     disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
@@ -782,7 +806,13 @@ def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queri
 
 def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_queries, in_memory_analytical_results):
     log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
-    in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
+    in_memory_analytical_vendor_runner = client_runner_factory(benchmark_context)
+    in_memory_analytical_client = (
+        runners.BoltClient(benchmark_context=benchmark_context)
+        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
+        else runners.BoltClientDocker(benchmark_context=benchmark_context)
+    )
+
     in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
     in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
     in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
@@ -800,7 +830,13 @@ def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_querie
 
 def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, in_memory_txn_results):
     log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
-    in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
+    in_memory_txn_vendor_runner = client_runner_factory(benchmark_context)
+    in_memory_txn_client = (
+        runners.BoltClient(benchmark_context=benchmark_context)
+        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
+        else runners.BoltClientDocker(benchmark_context=benchmark_context)
+    )
+
     run_target_workload(
         benchmark_context,
         workload,
@@ -817,8 +853,7 @@ def client_runner_factory(benchmark_context):
     vendor_runner = runners.BaseRunner.create(benchmark_context=benchmark_context)
     vendor_runner.clean_db()
     log.log("Database cleaned from any previous data")
-    client = vendor_runner.fetch_client()
-    return vendor_runner, client
+    return vendor_runner
 
 
 def validate_target_workloads(benchmark_context, target_workloads):
@@ -900,11 +935,17 @@ if __name__ == "__main__":
     temp_dir = pathlib.Path.cwd() / ".temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
+    vendor_name = getattr(args, "vendor_name", None)
+    if vendor_name is not None:
+        vendor_name = vendor_name.replace("-", "")
+
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
+        client_bolt_address=args.client_bolt_address,
+        external_vendor=args.run_option == "external-vendor",
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
-        vendor_name=args.vendor_name.replace("-", ""),
-        client_binary=args.client_binary if args.run_option == "vendor-native" else None,
+        vendor_name=vendor_name,
+        client_binary=getattr(args, "client_binary", None),
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,
