@@ -70,16 +70,20 @@ struct IndexHints {
 
         // Fetching the corresponding index to the hint
         if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
-          // TODO: put back...
-          // auto property_names = index_hint.property_ixs_ |
-          //                       ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; })
-          //                       | ranges::views::join(", ") | ranges::to<std::string>;
-          spdlog::debug("Index for label doesn't exist: {} with properties ...", label_name);
+          auto const join_nested_property_name = [](auto &&property_path) {
+            return property_path |
+                   ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; }) |
+                   ranges::views::join(".");
+          };
+          auto property_names = index_hint.property_ixs_ |
+                                ranges::views::transform([&](auto &&path) { return join_nested_property_name(path); }) |
+                                ranges::views::join(", ") | ranges::to<std::string>;
+          spdlog::debug("Index for label doesn't exist: {} with properties {}", label_name, property_names);
           continue;
         }
         label_property_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::POINT) {
-        auto property_name = index_hint.property_ixs_.back()[0].name;  // TODO: nested index?
+        auto property_name = index_hint.property_ixs_.back()[0].name;
         if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
           spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
           continue;
