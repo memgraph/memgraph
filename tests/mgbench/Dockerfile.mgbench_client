@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS mg_bench_client_build_base
+FROM ubuntu:24.04 AS mg_bench_client_build_base
 
 SHELL ["/bin/bash", "-c"]
 ARG TOOLCHAIN_VERSION
@@ -11,18 +11,18 @@ USER root
 RUN apt update && apt install -y \
     ca-certificates wget git
 
-RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz \
-    -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz \
-    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz -C /opt
+RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz \
+    -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz \
+    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz -C /opt
 
 RUN git clone https://github.com/memgraph/memgraph.git
 
 WORKDIR memgraph
 
-RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-22.04.sh install TOOLCHAIN_RUN_DEPS ; else ./environment/os/ubuntu-22.04-arm.sh install TOOLCHAIN_RUN_DEPS ; fi
-RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-22.04.sh install MEMGRAPH_BUILD_DEPS ; else ./environment/os/ubuntu-22.04-arm.sh install MEMGRAPH_BUILD_DEPS ; fi
+RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS ; else ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS ; fi
+RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS ; else ./environment/os/ubuntu-24.04-arm.sh install MEMGRAPH_BUILD_DEPS ; fi
 
-RUN source /opt/toolchain-v4/activate && \
+RUN source /opt/toolchain-${TOOLCHAIN_VERSION}}/activate && \
     ./init  && \
     rm -r build && \
     mkdir build && \
@@ -32,7 +32,7 @@ RUN source /opt/toolchain-v4/activate && \
     make .
 
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y wget libcurl4
 
