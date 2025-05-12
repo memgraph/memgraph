@@ -22,7 +22,7 @@ WORKDIR memgraph
 RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS ; else ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS ; fi
 RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS ; else ./environment/os/ubuntu-24.04-arm.sh install MEMGRAPH_BUILD_DEPS ; fi
 
-RUN source /opt/toolchain-${TOOLCHAIN_VERSION}}/activate && \
+RUN source /opt/${TOOLCHAIN_VERSION}}/activate && \
     ./init  && \
     rm -r build && \
     mkdir build && \
