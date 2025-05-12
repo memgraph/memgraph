@@ -53,7 +53,7 @@ endfunction(_add_unit_test)
 
 # Test utilities
 add_library(storage_test_utils storage_test_utils.cpp)
-target_link_libraries(storage_test_utils mg-storage-v2)
+target_link_libraries(storage_test_utils mg::storage)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
@@ -328,87 +328,87 @@ target_link_libraries(${test_prefix}utils_compressor mg-utils)
 add_unit_test(utils_observer.cpp)
 target_link_libraries(${test_prefix}utils_observer mg-utils)
 
-# Test mg-storage-v2
+# Test mg::storage
 add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
+target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg::storage)
 
 add_unit_test(property_value_v2.cpp)
-target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
+target_link_libraries(${test_prefix}property_value_v2 mg::storage mg-utils)
 
 add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
+target_link_libraries(${test_prefix}storage_v2 mg::storage storage_test_utils)
 
 add_unit_test(storage_v2_acc.cpp)
-target_link_libraries(${test_prefix}storage_v2_acc mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_acc mg::storage)
 
 add_unit_test(storage_v2_delta_container.cpp)
-target_link_libraries(${test_prefix}storage_v2_delta_container mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_delta_container mg::storage)
 
 add_unit_test(storage_v2_enum_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_enum_store mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_enum_store mg::storage)
 
 add_unit_test(storage_v2_constraints.cpp)
-target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)
+target_link_libraries(${test_prefix}storage_v2_constraints mg::storage mg-dbms)
 
 add_unit_test(storage_v2_decoder_encoder.cpp)
-target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg::storage)
 
 add_unit_test(storage_v2_durability_inmemory.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2 mg-dbms)
+target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg::storage mg-dbms)
 
 add_unit_test(storage_rocks.cpp)
-target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
+target_link_libraries(${test_prefix}storage_rocks mg::storage)
 
 add_unit_test(storage_v2_disk.cpp)
-target_link_libraries(${test_prefix}storage_v2_disk mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_disk mg::storage)
 
 add_unit_test(clearing_old_disk_data.cpp)
-target_link_libraries(${test_prefix}clearing_old_disk_data mg-storage-v2)
+target_link_libraries(${test_prefix}clearing_old_disk_data mg::storage)
 
 add_unit_test(storage_v2_edge_inmemory.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge_inmemory mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_edge_inmemory mg::storage)
 
 add_unit_test(storage_v2_edge_ondisk.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge_ondisk mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_edge_ondisk mg::storage)
 
 add_unit_test(storage_v2_gc.cpp)
-target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_gc mg::storage)
 
 add_unit_test(storage_v2_indices.cpp)
-target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
+target_link_libraries(${test_prefix}storage_v2_indices mg::storage mg-utils)
 
 add_unit_test(storage_v2_name_id_mapper.cpp)
-target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg::storage)
 
 add_unit_test_with_custom_main(storage_v2_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
+target_link_libraries(${test_prefix}storage_v2_property_store mg::storage fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 storage_test_utils fmt)
+target_link_libraries(${test_prefix}storage_v2_wal_file mg::storage storage_test_utils fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt mg-repl_coord_glue)
+target_link_libraries(${test_prefix}storage_v2_replication mg::storage mg-dbms fmt mg-repl_coord_glue)
 
 add_unit_test(storage_v2_isolation_level.cpp)
-target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_isolation_level mg::storage)
 
 add_unit_test(storage_v2_show_storage_info.cpp)
-target_link_libraries(${test_prefix}storage_v2_show_storage_info mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_show_storage_info mg::storage)
 
 add_unit_test(storage_v2_get_info.cpp)
-target_link_libraries(${test_prefix}storage_v2_get_info mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_get_info mg::storage)
 
 add_unit_test(database_get_info.cpp)
-target_link_libraries(${test_prefix}database_get_info mg-storage-v2 mg-glue mg-dbms)
+target_link_libraries(${test_prefix}database_get_info mg::storage mg-glue mg-dbms)
 
 add_unit_test(storage_v2_storage_mode.cpp)
-target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
+target_link_libraries(${test_prefix}storage_v2_storage_mode mg::storage storage_test_utils mg-query mg-glue)
 
 add_unit_test(storage_v2_schema_info.cpp)
-target_link_libraries(${test_prefix}storage_v2_schema_info mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_schema_info mg::storage)
 
 add_unit_test(replication_persistence_helper.cpp)
-target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2 mg-repl_coord_glue)
+target_link_libraries(${test_prefix}replication_persistence_helper mg::storage mg-repl_coord_glue)
 
 add_unit_test(auth_checker.cpp)
 target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
@@ -429,7 +429,7 @@ target_link_libraries(${test_prefix}cpp_api mg-query)
 target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_unit_test(vector_index.cpp)
-target_link_libraries(${test_prefix}vector_index mg-storage-v2)
+target_link_libraries(${test_prefix}vector_index mg::storage)
 
 # Test mg-auth
 if(MG_ENTERPRISE)
@@ -440,7 +440,7 @@ endif()
 # Test mg-slk
 if(MG_ENTERPRISE)
   add_unit_test(slk_advanced.cpp)
-  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2 mg-replication mg-coordination mg-repl_coord_glue)
+  target_link_libraries(${test_prefix}slk_advanced mg::storage mg-replication mg-coordination mg-repl_coord_glue)
 endif()
 
 add_unit_test(slk_core.cpp)
@@ -480,7 +480,7 @@ target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
 # Test multi-database
 if(MG_ENTERPRISE)
   add_unit_test(dbms_database.cpp)
-  target_link_libraries(${test_prefix}dbms_database mg-storage-v2 mg-query mg-glue mg-dbms)
+  target_link_libraries(${test_prefix}dbms_database mg::storage mg-query mg-glue mg-dbms)
 
   add_unit_test_with_custom_main(dbms_handler.cpp)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
