@@ -20,6 +20,8 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 
+using testing::IsNull;
+using testing::NotNull;
 using testing::UnorderedElementsAre;
 
 using namespace memgraph::storage;
@@ -1288,6 +1290,25 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
   EXPECT_THAT(
       prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("banana")}}), baseline),
       UnorderedElementsAre(Match(0, true)));
+}
+
+TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  auto const value = make_map(p1, make_map(p2, make_map(p3, PropertyValue("apple"))));
+  ASSERT_THAT(ReadNestedPropertyValue(value, std::array{p1, p2, p3}), NotNull());
+  EXPECT_EQ(*ReadNestedPropertyValue(value, std::array{p1, p2, p3}), PropertyValue("apple"));
+  EXPECT_THAT(ReadNestedPropertyValue(value, std::array{p1, p2, p4}), IsNull());
+  EXPECT_THAT(ReadNestedPropertyValue(value, std::array{p1, p3}), IsNull());
+  EXPECT_THAT(ReadNestedPropertyValue(value, std::array{p3}), IsNull());
+  EXPECT_THAT(ReadNestedPropertyValue(value, std::array{p4}), IsNull());
 }
 
 // @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d).
