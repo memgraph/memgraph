@@ -151,7 +151,8 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyV
   return rv::enumerate(sorted_properties_) | rv::filter([&](auto &&el) { return std::get<1>(el)[0] == property_id; }) |
          rv::transform([&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
            auto &&[index, path] = el;
-           return {index, compare_nested_value(value, values.values_[index], path)};
+           std::size_t const pos{position_lookup_[index]};
+           return {pos, compare_nested_value(value, values.values_[position_lookup_[pos]], path)};
          }) |
          r::to_vector;
 }
