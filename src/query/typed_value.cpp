@@ -86,7 +86,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
-      new (&list_v) TVector(vec.size(), memory_);
+      new (&list_v) TVector(memory_);
       for (const auto &v : vec) {
         auto typed_value = TypedValue(v, name_id_mapper, memory_);
         list_v.emplace_back(std::move(typed_value));
@@ -193,7 +193,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(vec.size(), memory_);
+      new (&list_v) TVector(memory_);
       list_v.reserve(vec.size());
       for (auto &v : vec) {
         auto typed_value = TypedValue(std::move(v), name_id_mapper, memory_);
@@ -202,12 +202,12 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       break;
     }
     case storage::PropertyValue::Type::Map: {
-      type_ = Type::Map;
-      auto &map = other.ValueMap();
-      std::construct_at(&map_v, memory_);
       if (!name_id_mapper) {
         throw TypedValueException("NameIdMapper is required for TypedValue::Map");
       }
+      type_ = Type::Map;
+      auto &map = other.ValueMap();
+      std::construct_at(&map_v, memory_);
       for (auto &kv : map) {
         auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
@@ -301,21 +301,16 @@ TypedValue::TypedValue(const storage::IntermediatePropertyValue &value, utils::M
     case storage::IntermediatePropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
-      new (&list_v) TVector(vec.size(), memory_);
-      for (const auto &v : vec) {
-        auto typed_value = TypedValue(v, memory_);
-        list_v.emplace_back(std::move(typed_value));
-      }
+      new (&list_v) TVector(memory_);
+      list_v.reserve(vec.size());
+      for (const auto &v : vec) list_v.emplace_back(v);
       return;
     }
     case storage::IntermediatePropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       std::construct_at(&map_v, memory_);
-      for (const auto &kv : map) {
-        auto typed_value = TypedValue(kv.second, memory_);
-        map_v.emplace(TString(kv.first, memory_), std::move(typed_value));
-      }
+      for (const auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
       return;
     }
     case storage::IntermediatePropertyValue::Type::TemporalData: {
@@ -402,22 +397,14 @@ TypedValue::TypedValue(storage::IntermediatePropertyValue &&other, utils::Memory
     case storage::IntermediatePropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(vec.size(), memory_);
-      list_v.reserve(vec.size());
-      for (auto &v : vec) {
-        auto typed_value = TypedValue(std::move(v), memory_);
-        list_v.emplace_back(std::move(typed_value));
-      }
+      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
       break;
     }
     case storage::IntermediatePropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
-      for (auto &kv : map) {
-        auto typed_value = TypedValue(std::move(kv.second), memory_);
-        map_v.emplace(TString(kv.first, memory_), std::move(typed_value));
-      }
+      for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
       break;
     }
     case storage::IntermediatePropertyValue::Type::TemporalData: {
