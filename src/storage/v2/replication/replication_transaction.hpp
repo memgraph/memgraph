@@ -18,17 +18,25 @@
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include <future>
 #include <range/v3/view.hpp>
 
 namespace memgraph::storage {
 
 class TransactionReplication {
  public:
-  TransactionReplication(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
+  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
-    for (const auto &client : *locked_clients) {
-      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc));
+    std::vector<std::future<std::optional<ReplicaStream>>> futures;
+    futures.reserve(locked_clients->size());
+    for (auto const &client : *locked_clients) {
+      futures.emplace_back(std::async(std::launch::async,
+                                      [&]() { return client->StartTransactionReplication(seq_num, storage, db_acc); }));
+    }
+
+    for (auto &fut : futures) {
+      streams.emplace_back(fut.get());
     }
   }
 
