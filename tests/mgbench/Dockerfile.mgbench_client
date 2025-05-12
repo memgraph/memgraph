@@ -26,6 +26,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get update && \
     apt-get install -y nodejs
 
+RUN useradd --create-home --shell /bin/bash memgraph \
+    && chown -R memgraph:memgraph /memgraph
+
+USER memgraph
+ENV HOME=/home/memgraph
+
 RUN source /opt/${TOOLCHAIN_VERSION}/activate && \
     ./init  && \
     rm -r build && \
