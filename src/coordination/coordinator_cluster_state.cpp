@@ -43,19 +43,17 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   return *this;
 }
 
-CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept {
-  data_instances_ = std::move(other.data_instances_);
-  coordinator_instances_ = std::move(other.coordinator_instances_);
-  current_main_uuid_ = other.current_main_uuid_;
-  enabled_reads_on_main_ = other.enabled_reads_on_main_;
-  sync_failover_only_ = other.sync_failover_only_;
-}
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
+    : data_instances_{std::move(other.data_instances_)},
+      coordinator_instances_{std::move(other.coordinator_instances_)},
+      current_main_uuid_{other.current_main_uuid_},
+      enabled_reads_on_main_{other.enabled_reads_on_main_},
+      sync_failover_only_{other.sync_failover_only_} {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
     return *this;
   }
-
   data_instances_ = std::move(other.data_instances_);
   coordinator_instances_ = std::move(other.coordinator_instances_);
   current_main_uuid_ = other.current_main_uuid_;
