@@ -1037,17 +1037,11 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
-        map_property_size += 1;
+        map_property_size += 1;  // metadata size
+        auto metadata_id_size = SizeToByteSize(metadata->id_size);
+        map_property_size += metadata_id_size;
 
-        auto key_size = reader->ReadUint(metadata->id_size);
-        if (!key_size) return false;
-
-        map_property_size += SizeToByteSize(metadata->id_size);
-
-        if (!reader->SkipBytes(*key_size)) return false;
-
-        map_property_size += *key_size;
-
+        if (!reader->SkipBytes(metadata_id_size)) return false;
         if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, map_property_size)) return false;
       }
 
