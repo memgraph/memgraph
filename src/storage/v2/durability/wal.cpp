@@ -1322,11 +1322,14 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 }
 
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats) {
+                              std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
-  for (auto const &prop : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  for (auto const &path : properties) {
+    encoder.WriteUint(path.size());
+    for (auto const &segment : path) {
+      encoder.WriteString(name_id_mapper.IdToName(segment.AsUint()));
+    }
   }
   encoder.WriteString(ToJson(stats));
 }
@@ -1351,11 +1354,14 @@ void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
 }
 
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                           std::vector<PropertyId> const &properties) {
+                           std::span<PropertyPath const> properties) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
-  for (const auto &property : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  for (const auto &path : properties) {
+    encoder.WriteUint(path.size());
+    for (const auto &property : path) {
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+    }
   }
 }
 

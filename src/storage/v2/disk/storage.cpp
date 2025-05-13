@@ -2066,7 +2066,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
           label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties[0]));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
@@ -2121,12 +2121,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  // @TODO need to pass entire path of propertiesm to delta.
-  auto non_nested_properties =
-      properties | ranges::views::transform([](auto &&property_path) { return property_path[0]; }) | ranges::to_vector;
-
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label,
-                                      std::move(non_nested_properties));
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
