@@ -24,7 +24,7 @@ namespace memgraph::storage {
 
 class TransactionReplication {
  public:
-  TransactionReplication(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
+  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
