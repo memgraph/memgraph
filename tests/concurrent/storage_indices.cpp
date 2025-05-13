@@ -118,8 +118,8 @@ TEST(Storage, LabelPropertyIndex) {
   auto label = store->NameToLabel("label");
   auto prop = store->NameToProperty("prop");
   {
-    auto unique_acc = store->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(label, {prop}).HasError());
+    auto acc = store->ReadOnlyAccess();
+    ASSERT_FALSE(acc->CreateIndex(label, {prop}).HasError());
   }
 
   std::vector<std::thread> verifiers;
