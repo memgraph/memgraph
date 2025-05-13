@@ -50,10 +50,6 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }
 }  // end namespace
 
-PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyId const> properties)
-    : PropertiesPermutationHelper{
-          properties | rv::transform([](auto &&property_id) { return PropertyPath{property_id}; }) | r::to_vector} {}
-
 PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
     : sorted_properties_(properties.begin(), properties.end()) {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
