@@ -303,9 +303,9 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const memgraph::storage::LabelPropertyIndexStats lp_stats{98, 76, 5.4, 3.2, 1.0};
 
   {
-    auto read_only_acc = main.db.ReadOnlyAccess();
-    ASSERT_FALSE(read_only_acc->CreateIndex(main.db.storage()->NameToLabel(label)).HasError());
-    ASSERT_FALSE(read_only_acc->Commit({}, main.db_acc).HasError());
+    auto acc = main.db.UniqueAccess();
+    ASSERT_FALSE(acc->CreateIndex(main.db.storage()->NameToLabel(label)).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -415,9 +415,9 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
-    auto read_only_acc = main.db.ReadOnlyAccess();
-    ASSERT_FALSE(read_only_acc->DropIndex(main.db.storage()->NameToLabel(label)).HasError());
-    ASSERT_FALSE(read_only_acc->Commit({}, main.db_acc).HasError());
+    auto acc = main.db.UniqueAccess();
+    ASSERT_FALSE(acc->DropIndex(main.db.storage()->NameToLabel(label)).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();

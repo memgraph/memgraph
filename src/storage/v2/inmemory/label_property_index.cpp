@@ -251,7 +251,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   index_accessor.insert({std::move(ordered_values), &vertex, tx.start_timestamp});
 }
 
-bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<PropertyId> const &properties) {
+bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::span<PropertyId const> properties) {
   return index_.WithLock([&](IndexContainer &index) {
     auto [it1, _] = index.try_emplace(label);
     auto &properties_map = it1->second;
@@ -263,23 +263,21 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::vector<Property
     }
 
     auto helper = PropertiesPermutationHelper{properties};
-    auto [it2, emplaced] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
-
-    auto indices_by_property_ptr = indices_by_property_.Lock();
-    AddReverseEntries(*indices_by_property_ptr, label, it2->first, it2->second);
+    properties_map.emplace(properties | ranges::to_vector, std::make_shared<IndividualIndex>(std::move(helper)));
     return true;
   });
 }
 
 struct PopulateCancel : std::exception {};
 
-bool InMemoryLabelPropertyIndex::PopulateIndex(
+auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, std::function<bool()> cancel_check,
-    const Transaction *tx) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, CheckCancelFunction cancel_check, const Transaction *tx)
+    -> utils::BasicResult<IndexPopulateError> {
   spdlog::trace("Vertices size when populating index: {}", vertices.size());
 
+  // Find the index we are populating
   auto index_ptr = index_.WithReadLock([&](IndexContainer const &index) -> std::shared_ptr<IndividualIndex> {
     auto it = index.find(label);
     if (it == index.end()) {
@@ -293,7 +291,7 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
   });
 
   // If the index is not found, it means that the index was dropped before we started to populating it.
-  if (!index_ptr) return false;  // TODO: Better communication of why we didn't populate
+  if (!index_ptr) return IndexPopulateError::IndexAlreadyDropped;
 
   auto const remove_index_on_population_failure = [&]() {
     index_.WithLock([&](IndexContainer &index) {
@@ -307,6 +305,7 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
         return;
       };
       by_properties.erase(it2);
+      // if no more properties for this label, remove the labels map
       if (by_properties.empty()) {
         index.erase(it);
       }
@@ -319,6 +318,7 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
     auto const &props_permutation_helper = index_ptr->permutations_helper;
 
     if (tx) {
+      // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         if (cancel_check()) {
           throw PopulateCancel{};
@@ -327,6 +327,7 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
       };
       PopulateIndexHelper(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     } else {
+      // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         if (cancel_check()) {
           throw PopulateCancel{};
@@ -338,17 +339,21 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
 
   } catch (const PopulateCancel &) {
     remove_index_on_population_failure();
-    return false;  // TODO: Better communication of why we stopped
+    return IndexPopulateError::Cancellation;
   } catch (const utils::OutOfMemoryException &) {
     remove_index_on_population_failure();
     throw;
   }
-  return true;
+  return {};
 }
 
-bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  // find the primary
+bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::span<PropertyId const> properties,
+                                           PublishIndexCallback publish_index_callback) {
   return index_.WithLock([&](IndexContainer &index) {
+    // while under index lock...clear the plan cache
+    publish_index_callback([] {});
+
+    // find the primary
     auto it1 = index.find(label);
     if (it1 == index.end()) {
       return false;
@@ -360,34 +365,6 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId
       return false;
     }
 
-    // cleanup the auxiliary indexes
-    // MUST be done before removal of primary index entries
-    indices_by_property_.WithLock([&](ReverseIndexContainer &reverse_index) {
-      for (auto prop : properties) {
-        auto it3 = reverse_index.find(prop);
-        if (it3 == reverse_index.end()) continue;
-
-        auto &label_map = it3->second;
-        auto [b, e] = label_map.equal_range(label);
-        // TODO(composite_index): replace linear search with logn
-        while (b != e) {
-          auto const &[props_key_ptr, _] = b->second;
-          if (props_key_ptr == &it2->first) {
-            b = label_map.erase(b);
-          } else {
-            ++b;
-          }
-        }
-        if (label_map.empty()) {
-          reverse_index.erase(it3);
-        }
-      }
-    });
-
-    auto const make_props_subspan = [&](std::size_t length) {
-      return std::span{properties.cbegin(), properties.cbegin() + length + 1};
-    };
-
     // For each prefix of properties, compute the number of indices which have the
     // same label and properties prefix. For example, for :L1(a, b, c), we count
     // other indices for :L1(a, b, ...) and :L1(a, ...). Because stats are shared
@@ -398,10 +375,10 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId
 
       std::vector<std::size_t> use_count(properties.size(), 0);
       for (std::size_t i = 0; i < use_count.size(); ++i) {
-        auto const prefix = make_props_subspan(i);
-
         use_count[i] = ranges::count_if(properties_map, [&](auto &&each) {
           auto &&[index_properties, _] = each;
+          auto const prefix_len = i + 1;
+          auto const prefix = properties.subspan(0, prefix_len);
           return ranges::starts_with(index_properties, prefix);
         });
       }
@@ -419,14 +396,14 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId
 
       auto &properties_map = it1->second;
 
-      for (auto &&[prefix_len, use_count] : ranges::views::enumerate(index_prefix_usage)) {
+      for (auto &&[i, use_count] : ranges::views::enumerate(index_prefix_usage)) {
         if (use_count != 1) {
-          // Unless this is the only index using the stat, we shouldn't delete
-          // it.
+          // Unless this is the only index using the stat, we shouldn't delete it.
           continue;
         }
 
-        auto it2 = properties_map.find(make_props_subspan(prefix_len));
+        auto const prefix_len = i + 1;
+        auto it2 = properties_map.find(properties.subspan(0, prefix_len));
         if (it2 == properties_map.end()) {
           continue;
         }
@@ -494,7 +471,8 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
     if (it == index_container.end()) continue;
 
     for (auto const &[props, index] : it->second) {
-      if (index->status.load(std::memory_order_acquire) == LabelPropertyIndex::Status::POPULATING) continue;
+      // Only consider indexes that are READY to be used
+      if (index->status.load(std::memory_order_acquire) != LabelPropertyIndex::Status::READY) continue;
 
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
@@ -995,8 +973,6 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   stats_->clear();
-  // important to clear reverse index first as it has pointers into index
-  indices_by_property_.WithLock([](ReverseIndexContainer &reverse_index) { reverse_index.clear(); });
   index_.WithLock([](IndexContainer &index) { index.clear(); });
 }
 
@@ -1076,13 +1052,14 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
   }
 }
 
-void InMemoryLabelPropertyIndex::UpdateIndexStatus(UpdateStatus status) {
-  index_.WithLock([status](IndexContainer &index) {
-    auto it = index.find(status.label);
-    if (it == index.end()) return;
-    auto it2 = it->second.find(status.properties);
-    if (it2 == it->second.end()) return;
-    it2->second->status.store(status.status, std::memory_order_release);
+bool InMemoryLabelPropertyIndex::PublishIndexForUse(LabelId label, std::span<PropertyId const> properties) {
+  return index_.WithLock([&](IndexContainer &index) {
+    auto it = index.find(label);
+    if (it == index.end()) return false;
+    auto it2 = it->second.find(properties);
+    if (it2 == it->second.end()) return false;
+    it2->second->status.store(Status::READY, std::memory_order_release);
+    return true;
   });
 }
 

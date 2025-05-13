@@ -148,8 +148,6 @@ struct Transaction {
   std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
 
-  std::optional<LabelPropertyIndex::UpdateStatus> index_change_info_{std::nullopt};
-
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;
   /// Hold point index relevant to this txn+command

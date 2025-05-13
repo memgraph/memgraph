@@ -2036,7 +2036,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed) {
+    LabelId label, PublishIndexCallback publish_index_callback, bool unique_access_needed) {
   if (unique_access_needed) {
     MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
   }
@@ -2045,6 +2045,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  publish_index_callback([] {});
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -2052,7 +2054,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties, std::function<bool()> cancel_check) {
+    LabelId label, std::vector<storage::PropertyId> &&properties, CheckCancelFunction cancel_check,
+    PublishIndexCallback publish_index_callback) {
   MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2066,6 +2069,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
                                               on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  publish_index_callback([] {});
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -2090,13 +2095,16 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
+    LabelId label, PublishIndexCallback publish_index_callback) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  publish_index_callback([] {});
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -2104,7 +2112,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyId> &&properties, PublishIndexCallback publish_index_callback) {
   MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2117,6 +2125,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  publish_index_callback([] {});
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);

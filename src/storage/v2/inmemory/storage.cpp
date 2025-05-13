@@ -722,7 +722,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // when the last one commits.
             if (count == 0) {
               // TODO: (andi) Handle auto-creation issue
-              CreateIndex(label, false);
+              // NOTE: plan cache is not invalidated here, becasue we are down in storage and we don't have access to it
+              CreateIndex(label, invoke_input, false);
               label_indices.erase(it);
             }
           }
@@ -825,11 +826,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Install the new point index, if needed
           mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
                                                                   transaction_.point_index_ctx_);
-
-          if (transaction_.index_change_info_) {
-            auto indices = static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
-            indices->UpdateIndexStatus(*transaction_.index_change_info_);
-          }
         }
 
         // TODO: can and should this be moved earlier?
@@ -1380,7 +1376,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed) {
+    LabelId label, PublishIndexCallback publish_index_callback, bool unique_access_needed) {
   if (unique_access_needed) {
     MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
   }
@@ -1389,6 +1385,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  publish_index_callback([] {});
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -1396,7 +1393,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties, std::function<bool()> cancel_check) {
+    LabelId label, std::vector<storage::PropertyId> &&properties, CheckCancelFunction cancel_check,
+    PublishIndexCallback publish_index_callback) {
   MG_ASSERT(type() == READ_ONLY, "Creating label-property index requires a read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1404,15 +1402,27 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_property_index->CreateIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // We have done the metadata change that requires no writers, downgrade to read to allow new writer txns while
+  // we populate the index
   DowngradeToRead();
-  auto res = mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
-                                                     std::nullopt, std::move(cancel_check), &transaction_);
-  if (!res) {
-    return StorageIndexDefinitionError{IndexPopulationError{}};  // TODO: better error info
+  auto const res =
+      mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
+                                              std::nullopt, std::move(cancel_check), &transaction_);
+  if (res.HasError()) {
+    switch (res.GetError()) {
+      case IndexPopulateError::IndexAlreadyDropped:
+        return StorageIndexDefinitionError{IndexPopulationError{}};
+      case IndexPopulateError::Cancellation:
+        return StorageIndexDefinitionError{IndexPopulationCancellation{}};
+    }
   }
 
-  // This gets set at commit time
-  transaction_.index_change_info_.emplace(label, properties, LabelPropertyIndex::Status::READY);
+  publish_index_callback([&] {
+    // This will be called while the plan cache is locked and cleared
+    // ensuring next planning will include this index in its consideration
+    mem_label_property_index->PublishIndexForUse(label, properties);
+  });
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1470,13 +1480,16 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+    LabelId label, PublishIndexCallback publish_index_callback) {
   MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  publish_index_callback([] {});
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -1484,16 +1497,16 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyId> &&properties, PublishIndexCallback publish_index_callback) {
   // TODO: use the weaker READ
   MG_ASSERT(type() == READ_ONLY, "Dropping label-property index requires read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->DropIndex(label, properties)) {
+  if (!mem_label_property_index->DropIndex(label, properties, std::move(publish_index_callback))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // This gets set at commit time
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);

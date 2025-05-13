@@ -24,6 +24,7 @@ struct PersistenceError {};  // TODO: Generalize and add to InMemory durability 
 struct IndexDefinitionError {};
 struct IndexDefinitionConfigError {};
 struct IndexPopulationError {};
+struct IndexPopulationCancellation {};
 
 struct ConstraintsPersistenceError {};
 
@@ -34,7 +35,7 @@ using StorageManipulationError =
     std::variant<ConstraintViolation, ReplicationError, SerializationError, PersistenceError>;
 
 using StorageIndexDefinitionError =
-    std::variant<IndexDefinitionError, IndexDefinitionConfigError, IndexPopulationError>;
+    std::variant<IndexDefinitionError, IndexDefinitionConfigError, IndexPopulationError, IndexPopulationCancellation>;
 
 struct ConstraintDefinitionError {};
 
