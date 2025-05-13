@@ -26,7 +26,6 @@
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
@@ -657,8 +656,8 @@ struct mgp_properties_iterator {
           },
           graph->impl);
 
-      current.emplace(value, mgp_value(current_it->second,
-                                       graph->ctx->db_accessor->GetStorageAccessor()->GetNameIdMapper(), memory));
+      current.emplace(value,
+                      mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), memory));
       property.name = current->first.c_str();
       property.value = &current->second;
     }
