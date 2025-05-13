@@ -24,8 +24,11 @@
   M(InstanceSuccCallback_us, HighAvailability, "Instance success callback in microseconds", 50, 90, 99)           \
   M(InstanceFailCallback_us, HighAvailability, "Instance failure callback in microseconds", 50, 90, 99)           \
   M(ChooseMostUpToDateInstance_us, HighAvailability, "Latency of choosing next main in microseconds", 50, 90, 99) \
-  M(SocketConnect_us, General, "Latency of Socket::Connect in microseconds", 50, 90, 99)                 \
+  M(SocketConnect_us, General, "Latency of Socket::Connect in microseconds", 50, 90, 99)                          \
   M(ReplicaStream_us, HighAvailability, "Latency of creating replica stream in microseconds", 50, 90, 99)         \
+  M(DataFailover_us, HighAvailability, "Latency of the failover procedure in microseconds", 50, 90, 99)           \
+  M(StartTxnReplication_us, HighAvailability, "Latency of starting txn replication in us", 50, 90, 99)            \
+  M(FinalizeTxnReplication_us, HighAvailability, "Latency of finishing txn replication in us", 50, 90, 99)        \
   GenerateRpcTimer(PromoteToMainRpc)                                                                              \
   GenerateRpcTimer(DemoteMainToReplicaRpc)                                                                        \
   GenerateRpcTimer(RegisterReplicaOnMainRpc)                                                                      \
