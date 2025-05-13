@@ -113,16 +113,8 @@ struct PropertiesPermutationHelper {
   /**
    * @param properties The ids of the properties to be read, specified in the
    *                   required index order.
-   * @TODO this remains whilst developing nested indices to ease, but
-   * consider removing it afterwards.
    */
   explicit PropertiesPermutationHelper(std::span<PropertyPath const> properties);
-
-  /**
-   * @param properties The ids of the nested properties to be read, specified in the
-   *                   required index order.
-   */
-  explicit PropertiesPermutationHelper(std::span<PropertyId const> properties);
 
   /** Rearranges a vector of monotonically ordered properties (as returned
    * by `Extract`) into the index order.
