@@ -51,7 +51,8 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }  // end namespace
 
 PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
-    : sorted_properties_(properties.begin(), properties.end()) {
+    : sorted_properties_(properties.begin(), properties.end()),
+      has_nested_properties_{r::any_of(sorted_properties_, [](auto &&path) { return path.size() != 1; })} {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
           [](auto const &value) -> decltype(auto) { return std::get<1>(value)[0]; });
@@ -63,40 +64,25 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
   auto top_level_values = properties.ExtractPropertyValuesMissingAsNull(sorted_properties_roots_);
+  if (!has_nested_properties_) {
+    return top_level_values;
+  }
 
-  // Assumes `value` is a map, if the key exists, this will extract the nested
-  // `PropertyValue` with the given key. Otherwise, a `null` `PropertyValue`
-  // is returned.
-  // @TODO very poor performance, as we must instantiate all levels
-  // of the nested property map as `PropertyValues`. Would it be better to
-  // either do this in a single pass, or update the property store reader
-  // to allow us to read nested properties directly without needing to
-  // instantiate the intermediate values.
-  // @TODO We are creating `PropertyValue`s here without using the allocators.
-  auto extract_from_map = [](PropertyValue &value, PropertyId key) {
-    DMG_ASSERT(value.IsMap());
-    auto &&as_map = value.ValueMap();
-    auto it = as_map.find(key);
-    if (it != as_map.end()) {
-      return it->second;
-    } else {
-      return PropertyValue{};
-    }
-  };
-
-  // @TODO currently parsing all to extract nested properties. As an optimisation,
-  // we can detect whether the index needs the additional parsing, and if not,
-  // just return the `top_level_values`.
+  // At least one of the properties is a nested property. Replace each
+  // `top_level_value` corresponding to a nested property with the corresponding
+  // values within the value's map.
   auto values = rv::zip(sorted_properties_, top_level_values) | rv::transform([&](auto &&paths_and_values) {
                   auto &&[path, value] = paths_and_values;
-                  for (auto &&key : path | rv::drop(1)) {
-                    if (value.IsMap()) {
-                      value = extract_from_map(value, key);
+                  if (path.size() == 1) {
+                    return value;
+                  } else {
+                    auto *value_ptr = ReadNestedPropertyValue(value, path | rv::drop(1));
+                    if (value_ptr) {
+                      return *value_ptr;
                     } else {
                       return PropertyValue{};
                     }
                   }
-                  return value;
                 }) |
                 r::to_vector;
 
