@@ -1473,7 +1473,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
   memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterConfig::Query query_config;
-  memgraph::storage::IntermediatePropertyValue::map_t props;
+  memgraph::storage::ExternalPropertyValue::map_t props;
 
   {
     auto trigger_store = this->db.get()->trigger_store();

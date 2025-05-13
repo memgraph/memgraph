@@ -570,7 +570,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // If the expression is a constant property value, it is returned. Otherwise,
   // return nullopt.
-  std::optional<storage::IntermediatePropertyValue> ConstPropertyValue(const Expression *expression) {
+  std::optional<storage::ExternalPropertyValue> ConstPropertyValue(const Expression *expression) {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
     } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {

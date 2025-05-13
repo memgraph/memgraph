@@ -602,7 +602,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read edge property id!");
-          auto value = snapshot.ReadIntermediatePropertyValue();
+          auto value = snapshot.ReadExternalPropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
@@ -700,7 +700,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-          auto value = snapshot.ReadIntermediatePropertyValue();
+          auto value = snapshot.ReadExternalPropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
           read_properties.emplace_back(get_property_from_id(*key), ToPropertyValue(*value, name_id_mapper));
         }
@@ -840,7 +840,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
       for (uint64_t j = 0; j < *props_size; ++j) {
         auto key = snapshot.ReadUint();
         if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
-        auto value = snapshot.SkipIntermediatePropertyValue();
+        auto value = snapshot.SkipExternalPropertyValue();
         if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
       }
     }
@@ -1069,7 +1069,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
               if (!key) throw RecoveryFailure("Couldn't read edge property id!");
-              auto value = snapshot.ReadIntermediatePropertyValue();
+              auto value = snapshot.ReadExternalPropertyValue();
               if (!value) throw RecoveryFailure("Couldn't read edge property value!");
               SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for edge {}.",
                            name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
@@ -1145,7 +1145,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read the vertex property id!");
-          auto value = snapshot.ReadIntermediatePropertyValue();
+          auto value = snapshot.ReadExternalPropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read the vertex property value!");
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
@@ -1216,7 +1216,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read property key while skipping properties!");
-          auto value = snapshot.SkipIntermediatePropertyValue();
+          auto value = snapshot.SkipExternalPropertyValue();
           if (!value) throw RecoveryFailure("Couldn't read property value while skipping properties!");
         }
       }
@@ -4826,8 +4826,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         edges_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(edges_snapshot, res.used_ids, item.first);
-          edges_snapshot.WriteIntermediatePropertyValue(
-              ToIntermediatePropertyValue(item.second, storage->name_id_mapper_.get()));
+          edges_snapshot.WriteExternalPropertyValue(
+              ToExternalPropertyValue(item.second, storage->name_id_mapper_.get()));
         }
       }
 
@@ -4909,8 +4909,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         vertex_snapshot.WriteUint(props.size());
         for (const auto &item : props) {
           write_mapping_to(vertex_snapshot, res.used_ids, item.first);
-          vertex_snapshot.WriteIntermediatePropertyValue(
-              ToIntermediatePropertyValue(item.second, storage->name_id_mapper_.get()));
+          vertex_snapshot.WriteExternalPropertyValue(
+              ToExternalPropertyValue(item.second, storage->name_id_mapper_.get()));
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
         const auto &out_edges = maybe_out_edges.GetValue().edges;

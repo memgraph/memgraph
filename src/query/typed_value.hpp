@@ -210,8 +210,8 @@ class TypedValue {
     point_3d_v = value;
   }
 
-  // conversion function to storage::IntermediatePropertyValue
-  explicit operator storage::IntermediatePropertyValue() const;
+  // conversion function to storage::ExternalPropertyValue
+  explicit operator storage::ExternalPropertyValue() const;
 
   // copy constructors for non-primitive types
   explicit TypedValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -327,10 +327,10 @@ class TypedValue {
   TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::IntermediatePropertyValue &value);
+  explicit TypedValue(const storage::ExternalPropertyValue &value);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::IntermediatePropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::ExternalPropertyValue &value, utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
 
@@ -476,13 +476,13 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::IntermediatePropertyValue &&other);
+  explicit TypedValue(storage::ExternalPropertyValue &&other);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::IntermediatePropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::ExternalPropertyValue &&other, utils::MemoryResource *memory);
 
   // copy assignment operators
   TypedValue &operator=(const char *);

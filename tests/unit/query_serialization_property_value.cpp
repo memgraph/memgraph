@@ -16,50 +16,46 @@
 #include "utils/temporal.hpp"
 
 namespace {
-void ExpectPropEq(const memgraph::storage::IntermediatePropertyValue &a,
-                  const memgraph::storage::IntermediatePropertyValue &b) {
+void ExpectPropEq(const memgraph::storage::ExternalPropertyValue &a,
+                  const memgraph::storage::ExternalPropertyValue &b) {
   ASSERT_EQ(a.type(), b.type());
   ASSERT_EQ(a, b);
 }
 
-void CheckJsonConversion(const memgraph::storage::IntermediatePropertyValue &property_value) {
+void CheckJsonConversion(const memgraph::storage::ExternalPropertyValue &property_value) {
   const auto json_string =
-      memgraph::query::serialization::SerializeIntermediatePropertyValue(property_value, nullptr).dump();
+      memgraph::query::serialization::SerializeExternalPropertyValue(property_value, nullptr).dump();
   const auto json_object = nlohmann::json::parse(json_string);
-  ExpectPropEq(property_value,
-               memgraph::query::serialization::DeserializeIntermediatePropertyValue(json_object, nullptr));
+  ExpectPropEq(property_value, memgraph::query::serialization::DeserializeExternalPropertyValue(json_object, nullptr));
 }
 
 }  // namespace
 
-TEST(IntermediatePropertyValueSerializationTest, Null) {
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{});
+TEST(ExternalPropertyValueSerializationTest, Null) { CheckJsonConversion(memgraph::storage::ExternalPropertyValue{}); }
+
+TEST(ExternalPropertyValueSerializationTest, Bool) {
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{true});
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{false});
 }
 
-TEST(IntermediatePropertyValueSerializationTest, Bool) {
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{true});
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{false});
+TEST(ExternalPropertyValueSerializationTest, Int) {
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{1});
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{100});
 }
 
-TEST(IntermediatePropertyValueSerializationTest, Int) {
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{1});
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{100});
+TEST(ExternalPropertyValueSerializationTest, Double) {
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{1.0});
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{2.321});
 }
 
-TEST(IntermediatePropertyValueSerializationTest, Double) {
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{1.0});
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{2.321});
+TEST(ExternalPropertyValueSerializationTest, String) {
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{"TestString"});
+  CheckJsonConversion(memgraph::storage::ExternalPropertyValue{""});
 }
 
-TEST(IntermediatePropertyValueSerializationTest, String) {
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{"TestString"});
-  CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{""});
-}
-
-TEST(IntermediatePropertyValueSerializationTest, TemporalData) {
+TEST(ExternalPropertyValueSerializationTest, TemporalData) {
   const auto test_temporal_data_conversion = [](const auto type, const auto microseconds) {
-    CheckJsonConversion(
-        memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{type, microseconds}});
+    CheckJsonConversion(memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{type, microseconds}});
   };
 
   test_temporal_data_conversion(memgraph::storage::TemporalType::Date, 20);
@@ -67,11 +63,11 @@ TEST(IntermediatePropertyValueSerializationTest, TemporalData) {
   test_temporal_data_conversion(memgraph::storage::TemporalType::Duration, 10000);
 }
 
-TEST(IntermediatePropertyValueSerializationTest, ZonedTemporalData) {
+TEST(ExternalPropertyValueSerializationTest, ZonedTemporalData) {
   const auto test_zoned_temporal_data_conversion = [](const auto type, const auto microseconds,
                                                       const memgraph::utils::Timezone &timezone) {
-    CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{
-        memgraph::storage::ZonedTemporalData{type, microseconds, timezone}});
+    CheckJsonConversion(
+        memgraph::storage::ExternalPropertyValue{memgraph::storage::ZonedTemporalData{type, microseconds, timezone}});
   };
 
   const auto sample_duration = memgraph::utils::AsSysTime(20);
@@ -83,35 +79,35 @@ TEST(IntermediatePropertyValueSerializationTest, ZonedTemporalData) {
 
 namespace {
 
-std::vector<memgraph::storage::IntermediatePropertyValue> GetIntermediatePropertyValueListWithBasicTypes() {
-  return {memgraph::storage::IntermediatePropertyValue{}, memgraph::storage::IntermediatePropertyValue{true},
-          memgraph::storage::IntermediatePropertyValue{"string"}, memgraph::storage::IntermediatePropertyValue{1},
-          memgraph::storage::IntermediatePropertyValue{1.0}};
+std::vector<memgraph::storage::ExternalPropertyValue> GetExternalPropertyValueListWithBasicTypes() {
+  return {memgraph::storage::ExternalPropertyValue{}, memgraph::storage::ExternalPropertyValue{true},
+          memgraph::storage::ExternalPropertyValue{"string"}, memgraph::storage::ExternalPropertyValue{1},
+          memgraph::storage::ExternalPropertyValue{1.0}};
 }
 
-memgraph::storage::IntermediatePropertyValue::map_t GetIntermediatePropertyValueMapWithBasicTypes() {
-  using memgraph::storage::IntermediatePropertyValue;
+memgraph::storage::ExternalPropertyValue::map_t GetExternalPropertyValueMapWithBasicTypes() {
+  using memgraph::storage::ExternalPropertyValue;
   using memgraph::storage::Point2d;
   using memgraph::storage::Point3d;
   using enum memgraph::storage::CoordinateReferenceSystem;
   return {
-      {"null", IntermediatePropertyValue{}},
-      {"bool", IntermediatePropertyValue{true}},
-      {"int", IntermediatePropertyValue{1}},
-      {"double", IntermediatePropertyValue{1.0}},
-      {"string", IntermediatePropertyValue{"string"}},
-      {"point2d_1", IntermediatePropertyValue{Point2d{WGS84_2d, 1.0, 2.0}}},
-      {"point2d_2", IntermediatePropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
-      {"point3d_1", IntermediatePropertyValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}},
-      {"point3d_2", IntermediatePropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+      {"null", ExternalPropertyValue{}},
+      {"bool", ExternalPropertyValue{true}},
+      {"int", ExternalPropertyValue{1}},
+      {"double", ExternalPropertyValue{1.0}},
+      {"string", ExternalPropertyValue{"string"}},
+      {"point2d_1", ExternalPropertyValue{Point2d{WGS84_2d, 1.0, 2.0}}},
+      {"point2d_2", ExternalPropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {"point3d_1", ExternalPropertyValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}},
+      {"point3d_2", ExternalPropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
   };
 }
 
 }  // namespace
 
-TEST(IntermediatePropertyValueSerializationTest, List) {
-  memgraph::storage::IntermediatePropertyValue list =
-      memgraph::storage::IntermediatePropertyValue{GetIntermediatePropertyValueListWithBasicTypes()};
+TEST(ExternalPropertyValueSerializationTest, List) {
+  memgraph::storage::ExternalPropertyValue list =
+      memgraph::storage::ExternalPropertyValue{GetExternalPropertyValueListWithBasicTypes()};
 
   {
     SCOPED_TRACE("Basic list");
@@ -120,33 +116,33 @@ TEST(IntermediatePropertyValueSerializationTest, List) {
 
   {
     SCOPED_TRACE("Nested list");
-    CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{
-        std::vector<memgraph::storage::IntermediatePropertyValue>{list, list}});
+    CheckJsonConversion(
+        memgraph::storage::ExternalPropertyValue{std::vector<memgraph::storage::ExternalPropertyValue>{list, list}});
   }
 
   {
     SCOPED_TRACE("List with map");
-    list.ValueList().emplace_back(GetIntermediatePropertyValueMapWithBasicTypes());
+    list.ValueList().emplace_back(GetExternalPropertyValueMapWithBasicTypes());
     CheckJsonConversion(list);
   }
 }
 
-TEST(IntermediatePropertyValueSerializationTest, Map) {
-  auto map = GetIntermediatePropertyValueMapWithBasicTypes();
+TEST(ExternalPropertyValueSerializationTest, Map) {
+  auto map = GetExternalPropertyValueMapWithBasicTypes();
   {
     SCOPED_TRACE("Basic map");
-    CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{map});
+    CheckJsonConversion(memgraph::storage::ExternalPropertyValue{map});
   }
 
   {
     SCOPED_TRACE("Nested map");
-    map.emplace("map", memgraph::storage::IntermediatePropertyValue{map});
-    CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{map});
+    map.emplace("map", memgraph::storage::ExternalPropertyValue{map});
+    CheckJsonConversion(memgraph::storage::ExternalPropertyValue{map});
   }
 
   {
     SCOPED_TRACE("Map with list");
-    map.emplace("list", memgraph::storage::IntermediatePropertyValue{GetIntermediatePropertyValueListWithBasicTypes()});
-    CheckJsonConversion(memgraph::storage::IntermediatePropertyValue{map});
+    map.emplace("list", memgraph::storage::ExternalPropertyValue{GetExternalPropertyValueListWithBasicTypes()});
+    CheckJsonConversion(memgraph::storage::ExternalPropertyValue{map});
   }
 }

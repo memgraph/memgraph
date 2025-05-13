@@ -139,10 +139,10 @@ struct WalVertexAddLabel : VertexLabelOpInfo {};
 struct WalVertexRemoveLabel : VertexLabelOpInfo {};
 struct WalVertexSetProperty {
   friend bool operator==(const WalVertexSetProperty &, const WalVertexSetProperty &) = default;
-  using ctr_types = std::tuple<Gid, std::string, IntermediatePropertyValue>;
+  using ctr_types = std::tuple<Gid, std::string, ExternalPropertyValue>;
   Gid gid;
   std::string property;
-  IntermediatePropertyValue value;
+  ExternalPropertyValue value;
 };
 struct WalEdgeSetProperty {
   friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
@@ -151,10 +151,10 @@ struct WalEdgeSetProperty {
     return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
   }
   using ctr_types =
-      std::tuple<Gid, std::string, IntermediatePropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
   Gid gid;
   std::string property;
-  IntermediatePropertyValue value;
+  ExternalPropertyValue value;
   std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
 };
 struct WalEdgeCreate : EdgeOpInfo {};

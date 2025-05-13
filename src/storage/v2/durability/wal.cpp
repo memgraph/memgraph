@@ -276,14 +276,14 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<IntermediatePropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, IntermediatePropertyValue, void> {
+auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, ExternalPropertyValue, void> {
   if constexpr (is_read) {
-    auto str = decoder->ReadIntermediatePropertyValue();
+    auto str = decoder->ReadExternalPropertyValue();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
     return *std::move(str);
   } else {
-    if (!decoder->SkipIntermediatePropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipExternalPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -657,8 +657,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WriteIntermediatePropertyValue(
-          ToIntermediatePropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper));
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -707,8 +707,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WriteIntermediatePropertyValue(
-          ToIntermediatePropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
       break;

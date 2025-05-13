@@ -31,6 +31,6 @@ void Load(storage::Point3d *point3d_val, slk::Reader *reader);
 void Save(const storage::Gid &gid, slk::Builder *builder);
 void Load(storage::Gid *gid, slk::Reader *reader);
 
-void Save(const storage::IntermediatePropertyValue &value, slk::Builder *builder);
-void Load(storage::IntermediatePropertyValue *value, slk::Reader *reader);
+void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder);
+void Load(storage::ExternalPropertyValue *value, slk::Reader *reader);
 }  // namespace memgraph::slk

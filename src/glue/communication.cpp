@@ -39,7 +39,7 @@ using namespace std::string_view_literals;
 namespace memgraph::glue {
 
 auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
-    -> std::optional<storage::IntermediatePropertyValue> {
+    -> std::optional<storage::ExternalPropertyValue> {
   auto info = BoltMapToMgTypeInfo(value);
   if (!info) return std::nullopt;
 
@@ -49,7 +49,7 @@ auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
       if (!storage) return std::nullopt;
       auto enum_val = storage->enum_store_.ToEnum(mg_value);
       if (enum_val.HasError()) return std::nullopt;
-      return storage::IntermediatePropertyValue(*enum_val);
+      return storage::ExternalPropertyValue(*enum_val);
     }
   }
   return std::nullopt;
@@ -300,65 +300,65 @@ storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage
   return std::move(map);
 }
 
-storage::IntermediatePropertyValue ToIntermediatePropertyValue(communication::bolt::Value const &value,
-                                                               storage::Storage const *storage) {
+storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Value const &value,
+                                                       storage::Storage const *storage) {
   switch (value.type()) {
     case Value::Type::Null:
-      return storage::IntermediatePropertyValue();
+      return storage::ExternalPropertyValue();
     case Value::Type::Bool:
-      return storage::IntermediatePropertyValue(value.ValueBool());
+      return storage::ExternalPropertyValue(value.ValueBool());
     case Value::Type::Int:
-      return storage::IntermediatePropertyValue(value.ValueInt());
+      return storage::ExternalPropertyValue(value.ValueInt());
     case Value::Type::Double:
-      return storage::IntermediatePropertyValue(value.ValueDouble());
+      return storage::ExternalPropertyValue(value.ValueDouble());
     case Value::Type::String:
-      return storage::IntermediatePropertyValue(value.ValueString());
+      return storage::ExternalPropertyValue(value.ValueString());
     case Value::Type::List: {
-      std::vector<storage::IntermediatePropertyValue> vec;
+      std::vector<storage::ExternalPropertyValue> vec;
       vec.reserve(value.ValueList().size());
-      for (const auto &value : value.ValueList()) vec.emplace_back(ToIntermediatePropertyValue(value, storage));
-      return storage::IntermediatePropertyValue(std::move(vec));
+      for (const auto &value : value.ValueList()) vec.emplace_back(ToExternalPropertyValue(value, storage));
+      return storage::ExternalPropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
       auto const &valueMap = value.ValueMap();
       auto mg_type = BoltMapToMgType(valueMap, storage);
       if (mg_type) return *mg_type;
 
-      auto map = storage::IntermediatePropertyValue::map_t{};
+      auto map = storage::ExternalPropertyValue::map_t{};
       map.reserve(valueMap.size());
       for (const auto &[k, v] : valueMap) {
-        map.try_emplace(k, ToIntermediatePropertyValue(v, storage));
+        map.try_emplace(k, ToExternalPropertyValue(v, storage));
       }
-      return storage::IntermediatePropertyValue(std::move(map));
+      return storage::ExternalPropertyValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
-      throw communication::bolt::ValueException("Unsupported conversion from Value to IntermediatePropertyValue");
+      throw communication::bolt::ValueException("Unsupported conversion from Value to ExternalPropertyValue");
     case Value::Type::Date:
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::Date, value.ValueDate().MicrosecondsSinceEpoch()));
     case Value::Type::LocalTime:
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().MicrosecondsSinceEpoch()));
     case Value::Type::LocalDateTime:
       // Bolt uses time since epoch without timezone (as if in UTC)
-      return storage::IntermediatePropertyValue(storage::TemporalData(
+      return storage::ExternalPropertyValue(storage::TemporalData(
           storage::TemporalType::LocalDateTime, value.ValueLocalDateTime().SysMicrosecondsSinceEpoch()));
     case Value::Type::Duration:
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
     case Value::Type::ZonedDateTime: {
       const auto &temp_value = value.ValueZonedDateTime();
-      return storage::IntermediatePropertyValue(storage::ZonedTemporalData(
+      return storage::ExternalPropertyValue(storage::ZonedTemporalData(
           storage::ZonedTemporalType::ZonedDateTime, temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone()));
     }
     case Value::Type::Point2d: {
-      return storage::IntermediatePropertyValue(value.ValuePoint2d());
+      return storage::ExternalPropertyValue(value.ValuePoint2d());
     }
     case Value::Type::Point3d: {
-      return storage::IntermediatePropertyValue(value.ValuePoint3d());
+      return storage::ExternalPropertyValue(value.ValuePoint3d());
     }
   }
 }

@@ -1387,7 +1387,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 auto is_inside = point_filter.withinbbox_.condition_ == WithinBBoxCondition::INSIDE;
 
                 auto *new_expr = ast_storage_->Create<PrimitiveLiteral>();
-                new_expr->value_ = storage::IntermediatePropertyValue{is_inside};
+                new_expr->value_ = storage::ExternalPropertyValue{is_inside};
                 return new_expr;
               }
               // else use provided evaluation time expression

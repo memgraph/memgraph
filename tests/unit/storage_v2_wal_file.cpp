@@ -129,7 +129,7 @@ class DeltaGenerator final {
               ASSERT_NE(vertex, gen_->vertices_.end());
               auto property_id =
                   memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(set_property->property));
-              set_property->value = memgraph::storage::ToIntermediatePropertyValue(
+              set_property->value = memgraph::storage::ToExternalPropertyValue(
                   vertex->properties.GetProperty(property_id), &gen_->mapper_);
             }
             gen_->data_.emplace_back(commit_timestamp, data);

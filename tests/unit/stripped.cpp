@@ -33,7 +33,7 @@ void EXPECT_PROP_TRUE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue:
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a == b); }
 
-void EXPECT_PROP_EQ(const memgraph::storage::IntermediatePropertyValue &a, const TypedValue &b) {
+void EXPECT_PROP_EQ(const memgraph::storage::ExternalPropertyValue &a, const TypedValue &b) {
   EXPECT_PROP_EQ(TypedValue(a), b);
 }
 

@@ -38,12 +38,12 @@ extern const Event ActiveBoltSessions;
 namespace {
 
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
-  auto metadata_pv = memgraph::storage::IntermediatePropertyValue::map_t{};
+  auto metadata_pv = memgraph::storage::ExternalPropertyValue::map_t{};
   auto const &as_map = extra.ValueMap();
   // user-defined metadata
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {
-      metadata_pv.emplace(key, memgraph::glue::ToIntermediatePropertyValue(bolt_md, nullptr));
+      metadata_pv.emplace(key, memgraph::glue::ToExternalPropertyValue(bolt_md, nullptr));
     }
   }
   // timeout
@@ -311,12 +311,12 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   }
 #endif
 
-  auto get_params_pv = [params = std::move(params)](
-                           storage::Storage const *storage) -> memgraph::storage::IntermediatePropertyValue::map_t {
-    auto params_pv = memgraph::storage::IntermediatePropertyValue::map_t{};
+  auto get_params_pv =
+      [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::ExternalPropertyValue::map_t {
+    auto params_pv = memgraph::storage::ExternalPropertyValue::map_t{};
     params_pv.reserve(params.size());
     for (const auto &[key, bolt_param] : params) {
-      params_pv.try_emplace(key, ToIntermediatePropertyValue(bolt_param, storage));
+      params_pv.try_emplace(key, ToExternalPropertyValue(bolt_param, storage));
     }
     return params_pv;
   };

@@ -71,7 +71,7 @@ query::TypedValue ToTypedValue(const communication::bolt::Value &value, storage:
 
 communication::bolt::Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage);
 
-storage::IntermediatePropertyValue ToIntermediatePropertyValue(communication::bolt::Value const &value,
-                                                               storage::Storage const *storage);
+storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Value const &value,
+                                                       storage::Storage const *storage);
 
 }  // namespace memgraph::glue

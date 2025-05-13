@@ -67,44 +67,44 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(false)), "false");
 
   // [1 null "hello"]
-  std::vector<memgraph::storage::IntermediatePropertyValue> values{
-      memgraph::storage::IntermediatePropertyValue(1),
-      memgraph::storage::IntermediatePropertyValue(),
-      memgraph::storage::IntermediatePropertyValue("hello"),
+  std::vector<memgraph::storage::ExternalPropertyValue> values{
+      memgraph::storage::ExternalPropertyValue(1),
+      memgraph::storage::ExternalPropertyValue(),
+      memgraph::storage::ExternalPropertyValue("hello"),
   };
-  EXPECT_EQ(ToString(LITERAL(memgraph::storage::IntermediatePropertyValue(values))), "[1, null, \"hello\"]");
+  EXPECT_EQ(ToString(LITERAL(memgraph::storage::ExternalPropertyValue(values))), "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}
-  memgraph::storage::IntermediatePropertyValue::map_t map{{"hello", memgraph::storage::IntermediatePropertyValue(1)},
-                                                          {"there", memgraph::storage::IntermediatePropertyValue(2)}};
-  EXPECT_EQ(ToString(LITERAL(memgraph::storage::IntermediatePropertyValue(map))), "{\"hello\": 1, \"there\": 2}");
+  memgraph::storage::ExternalPropertyValue::map_t map{{"hello", memgraph::storage::ExternalPropertyValue(1)},
+                                                      {"there", memgraph::storage::ExternalPropertyValue(2)}};
+  EXPECT_EQ(ToString(LITERAL(memgraph::storage::ExternalPropertyValue(map))), "{\"hello\": 1, \"there\": 2}");
 
-  std::vector<memgraph::storage::IntermediatePropertyValue> tt_vec{
-      memgraph::storage::IntermediatePropertyValue(
+  std::vector<memgraph::storage::ExternalPropertyValue> tt_vec{
+      memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 1)),
-      memgraph::storage::IntermediatePropertyValue(
+      memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, -2)),
-      memgraph::storage::IntermediatePropertyValue(
+      memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::LocalTime, 2)),
-      memgraph::storage::IntermediatePropertyValue(
+      memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::LocalDateTime, 3)),
-      memgraph::storage::IntermediatePropertyValue(
+      memgraph::storage::ExternalPropertyValue(
           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 4))};
-  EXPECT_EQ(ToString(LITERAL(memgraph::storage::IntermediatePropertyValue(tt_vec))),
+  EXPECT_EQ(ToString(LITERAL(memgraph::storage::ExternalPropertyValue(tt_vec))),
             "[DURATION(\"P0DT0H0M0.000001S\"), DURATION(\"P0DT0H0M-0.000002S\"), LOCALTIME(\"00:00:00.000002\"), "
             "LOCALDATETIME(\"1970-01-01T00:00:00.000003\"), DATE(\"1970-01-01\")]");
 
   const auto sample_duration = memgraph::utils::AsSysTime(3);
   const auto sample_duration_plus_1h = std::chrono::sys_time<std::chrono::microseconds>(
       std::chrono::microseconds{3} + std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{1}));
-  std::vector<memgraph::storage::IntermediatePropertyValue> ztt_vec{
-      memgraph::storage::IntermediatePropertyValue(memgraph::storage::ZonedTemporalData(
+  std::vector<memgraph::storage::ExternalPropertyValue> ztt_vec{
+      memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
           memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration, memgraph::utils::Timezone("Etc/UTC"))),
-      memgraph::storage::IntermediatePropertyValue(memgraph::storage::ZonedTemporalData(
+      memgraph::storage::ExternalPropertyValue(memgraph::storage::ZonedTemporalData(
           memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration_plus_1h,
           memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
-  EXPECT_EQ(ToString(LITERAL(memgraph::storage::IntermediatePropertyValue(ztt_vec))),
+  EXPECT_EQ(ToString(LITERAL(memgraph::storage::ExternalPropertyValue(ztt_vec))),
             "[DATETIME(\"1970-01-01T00:00:00.000003+00:00[Etc/UTC]\"), "
             "DATETIME(\"1970-01-01T00:00:00.000003-01:00\")]");
 
@@ -131,7 +131,7 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Identifiers) {
 TYPED_TEST(ExpressionPrettyPrinterTest, Reducing) {
   // all(x in list where x.prop = 42)
   auto prop = this->dba.NameToProperty("prop");
-  EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<memgraph::storage::IntermediatePropertyValue>{}),
+  EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<memgraph::storage::ExternalPropertyValue>{}),
                          WHERE(EQ(PROPERTY_LOOKUP(this->dba, "x", prop), LITERAL(42))))),
             "(All (Identifier \"x\") [] (== (PropertyLookup "
             "(Identifier \"x\") \"prop\") 42))");

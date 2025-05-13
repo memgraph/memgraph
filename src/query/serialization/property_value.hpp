@@ -20,22 +20,22 @@
 
 namespace memgraph::query::serialization {
 
-nlohmann::json SerializeIntermediatePropertyValue(const storage::IntermediatePropertyValue &property_value,
-                                                  memgraph::storage::Storage::Accessor *storage_acc);
+nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyValue &property_value,
+                                              memgraph::storage::Storage::Accessor *storage_acc);
 
-nlohmann::json SerializeIntermediatePropertyValueVector(const std::vector<storage::IntermediatePropertyValue> &values,
-                                                        memgraph::storage::Storage::Accessor *storage_acc);
+nlohmann::json SerializeExternalPropertyValueVector(const std::vector<storage::ExternalPropertyValue> &values,
+                                                    memgraph::storage::Storage::Accessor *storage_acc);
 
-nlohmann::json SerializeIntermediatePropertyValueMap(storage::IntermediatePropertyValue::map_t const &map,
-                                                     memgraph::storage::Storage::Accessor *storage_acc);
+nlohmann::json SerializeExternalPropertyValueMap(storage::ExternalPropertyValue::map_t const &map,
+                                                 memgraph::storage::Storage::Accessor *storage_acc);
 
-storage::IntermediatePropertyValue DeserializeIntermediatePropertyValue(const nlohmann::json &data,
-                                                                        storage::Storage::Accessor *storage_acc);
+storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::json &data,
+                                                                storage::Storage::Accessor *storage_acc);
 
-std::vector<storage::IntermediatePropertyValue> DeserializeIntermediatePropertyValueList(
+std::vector<storage::ExternalPropertyValue> DeserializeExternalPropertyValueList(
     const nlohmann::json::array_t &data, storage::Storage::Accessor *storage_acc);
 
-storage::IntermediatePropertyValue::map_t DeserializeIntermediatePropertyValueMap(
-    nlohmann::json::object_t const &data, storage::Storage::Accessor *storage_acc);
+storage::ExternalPropertyValue::map_t DeserializeExternalPropertyValueMap(nlohmann::json::object_t const &data,
+                                                                          storage::Storage::Accessor *storage_acc);
 
 }  // namespace memgraph::query::serialization

@@ -471,13 +471,13 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  IntermediatePropertyValue::map_t map{{"nandare", IntermediatePropertyValue(123)}};
-  IntermediatePropertyValue pv(map);
+  ExternalPropertyValue::map_t map{{"nandare", ExternalPropertyValue(123)}};
+  ExternalPropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);
   ASSERT_EQ(map.at("nandare").ValueInt(), 123);
 
-  ASSERT_EQ(pv.type(), IntermediatePropertyValue::Type::Map);
+  ASSERT_EQ(pv.type(), ExternalPropertyValue::Type::Map);
 
   ASSERT_TRUE(pv.IsMap());
   ASSERT_TRUE(IsOnlyOneType(pv));
@@ -526,12 +526,12 @@ TEST(PropertyValue, MapCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapMove) {
-  IntermediatePropertyValue::map_t map{{"nandare", IntermediatePropertyValue(123)}};
-  IntermediatePropertyValue pv(std::move(map));
+  ExternalPropertyValue::map_t map{{"nandare", ExternalPropertyValue(123)}};
+  ExternalPropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
 
-  ASSERT_EQ(pv.type(), IntermediatePropertyValue::Type::Map);
+  ASSERT_EQ(pv.type(), ExternalPropertyValue::Type::Map);
 
   ASSERT_TRUE(pv.IsMap());
   ASSERT_TRUE(IsOnlyOneType(pv));

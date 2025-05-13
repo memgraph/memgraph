@@ -825,9 +825,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
 
 using PropertyValue = PropertyValueImpl<std::allocator<std::byte>, PropertyId>;
 
-using IntermediatePropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string>;
+using ExternalPropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string>;
 
-inline PropertyValue ToPropertyValue(const IntermediatePropertyValue &value, NameIdMapper *mapper) {
+inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdMapper *mapper) {
   switch (value.type()) {
     case PropertyValueType::Null:
       return PropertyValue();
@@ -868,43 +868,43 @@ inline PropertyValue ToPropertyValue(const IntermediatePropertyValue &value, Nam
   throw PropertyValueException("Unknown type during conversion");
 }
 
-inline IntermediatePropertyValue ToIntermediatePropertyValue(const PropertyValue &value, NameIdMapper *mapper) {
+inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value, NameIdMapper *mapper) {
   switch (value.type()) {
     case PropertyValueType::Null:
-      return IntermediatePropertyValue();
+      return ExternalPropertyValue();
     case PropertyValueType::Bool:
-      return IntermediatePropertyValue(value.ValueBool());
+      return ExternalPropertyValue(value.ValueBool());
     case PropertyValueType::Int:
-      return IntermediatePropertyValue(value.ValueInt());
+      return ExternalPropertyValue(value.ValueInt());
     case PropertyValueType::Double:
-      return IntermediatePropertyValue(value.ValueDouble());
+      return ExternalPropertyValue(value.ValueDouble());
     case PropertyValueType::String:
-      return IntermediatePropertyValue(value.ValueString());
+      return ExternalPropertyValue(value.ValueString());
     case PropertyValueType::List: {
-      typename IntermediatePropertyValue::list_t list;
+      typename ExternalPropertyValue::list_t list;
       for (const auto &elem : value.ValueList()) {
-        list.push_back(ToIntermediatePropertyValue(elem, mapper));
+        list.push_back(ToExternalPropertyValue(elem, mapper));
       }
-      return IntermediatePropertyValue(std::move(list));
+      return ExternalPropertyValue(std::move(list));
     }
     case PropertyValueType::Map: {
-      typename IntermediatePropertyValue::map_t map;
+      typename ExternalPropertyValue::map_t map;
       for (const auto &[key, val] : value.ValueMap()) {
         auto name = mapper->IdToName(key.AsUint());
-        map.emplace(name, ToIntermediatePropertyValue(val, mapper));
+        map.emplace(name, ToExternalPropertyValue(val, mapper));
       }
-      return IntermediatePropertyValue(std::move(map));
+      return ExternalPropertyValue(std::move(map));
     }
     case PropertyValueType::TemporalData:
-      return IntermediatePropertyValue(value.ValueTemporalData());
+      return ExternalPropertyValue(value.ValueTemporalData());
     case PropertyValueType::ZonedTemporalData:
-      return IntermediatePropertyValue(value.ValueZonedTemporalData());
+      return ExternalPropertyValue(value.ValueZonedTemporalData());
     case PropertyValueType::Enum:
-      return IntermediatePropertyValue(value.ValueEnum());
+      return ExternalPropertyValue(value.ValueEnum());
     case PropertyValueType::Point2d:
-      return IntermediatePropertyValue(value.ValuePoint2d());
+      return ExternalPropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
-      return IntermediatePropertyValue(value.ValuePoint3d());
+      return ExternalPropertyValue(value.ValuePoint3d());
   }
   throw PropertyValueException("Unknown type during conversion");
 }

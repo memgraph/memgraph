@@ -589,13 +589,13 @@ TYPED_TEST(QueryPlanTest, Unwind) {
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
   auto input_expr =
-      this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::IntermediatePropertyValue>{
-          memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{
-              memgraph::storage::IntermediatePropertyValue(1), memgraph::storage::IntermediatePropertyValue(true),
-              memgraph::storage::IntermediatePropertyValue("x")}),
-          memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{}),
-          memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{
-              memgraph::storage::IntermediatePropertyValue("bla")})});
+      this->storage.template Create<PrimitiveLiteral>(std::vector<memgraph::storage::ExternalPropertyValue>{
+          memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+              memgraph::storage::ExternalPropertyValue(1), memgraph::storage::ExternalPropertyValue(true),
+              memgraph::storage::ExternalPropertyValue("x")}),
+          memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{}),
+          memgraph::storage::ExternalPropertyValue(
+              std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue("bla")})});
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);

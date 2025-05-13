@@ -334,7 +334,7 @@ class Database {
         // We block each entity in the graph and run BFS.
         input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
         filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)), LITERAL(true),
-                         LITERAL(memgraph::storage::IntermediatePropertyValue()));
+                         LITERAL(memgraph::storage::ExternalPropertyValue()));
         break;
       case FilterLambdaType::USE_CTX:
         // We only block vertex #5 and run BFS.
@@ -342,7 +342,7 @@ class Database {
             nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
             std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(vertices[5])}});
         filter_expr = NEQ(PROPERTY_LOOKUP(dba, inner_node, PROPERTY_PAIR(dba, "id")), PARAMETER_LOOKUP(0));
-        context.evaluation_context.parameters.Add(0, memgraph::storage::IntermediatePropertyValue(5));
+        context.evaluation_context.parameters.Add(0, memgraph::storage::ExternalPropertyValue(5));
         break;
       case FilterLambdaType::ERROR:
         // Evaluate to 42 for vertex #5 which is on worker 1.

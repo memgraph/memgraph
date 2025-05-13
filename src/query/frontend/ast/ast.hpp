@@ -813,7 +813,7 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  storage::IntermediatePropertyValue value_;
+  storage::ExternalPropertyValue value_;
   /// This field contains token position of literal used to create PrimitiveLiteral object. If PrimitiveLiteral object
   /// is not created from query, leave its value at -1.
   int32_t token_position_{-1};

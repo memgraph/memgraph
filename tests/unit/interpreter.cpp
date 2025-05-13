@@ -117,7 +117,7 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterFaker default_interpreter{&interpreter_context, db};
 
-  auto Prepare(const std::string &query, const memgraph::storage::IntermediatePropertyValue::map_t &params = {}) {
+  auto Prepare(const std::string &query, const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
     return default_interpreter.Prepare(query, params);
   }
 
@@ -125,7 +125,7 @@ class InterpreterTest : public ::testing::Test {
     default_interpreter.Pull(stream, n, qid);
   }
 
-  auto Interpret(const std::string &query, const memgraph::storage::IntermediatePropertyValue::map_t &params = {}) {
+  auto Interpret(const std::string &query, const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
     return default_interpreter.Interpret(query, params);
   }
 };
@@ -218,8 +218,8 @@ TYPED_TEST(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TYPED_TEST(InterpreterTest, Parameters) {
   {
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::IntermediatePropertyValue(10)},
-                                                         {"a b", memgraph::storage::IntermediatePropertyValue(15)}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue(10)},
+                                                         {"a b", memgraph::storage::ExternalPropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -228,9 +228,9 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::IntermediatePropertyValue(10)},
-                                                         {"a b", memgraph::storage::IntermediatePropertyValue(15)},
-                                                         {"c", memgraph::storage::IntermediatePropertyValue(10)}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue(10)},
+                                                         {"a b", memgraph::storage::ExternalPropertyValue(15)},
+                                                         {"c", memgraph::storage::ExternalPropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -239,8 +239,8 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::IntermediatePropertyValue("da")},
-                                                         {"a b", memgraph::storage::IntermediatePropertyValue("ne")}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue("da")},
+                                                         {"a b", memgraph::storage::ExternalPropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
@@ -249,9 +249,9 @@ TYPED_TEST(InterpreterTest, Parameters) {
     // Non-primitive literal.
     auto stream = this->Interpret(
         "RETURN $2",
-        {{"2", memgraph::storage::IntermediatePropertyValue(std::vector<memgraph::storage::IntermediatePropertyValue>{
-                   memgraph::storage::IntermediatePropertyValue(5), memgraph::storage::IntermediatePropertyValue(2),
-                   memgraph::storage::IntermediatePropertyValue(3)})}});
+        {{"2", memgraph::storage::ExternalPropertyValue(std::vector<memgraph::storage::ExternalPropertyValue>{
+                   memgraph::storage::ExternalPropertyValue(5), memgraph::storage::ExternalPropertyValue(2),
+                   memgraph::storage::ExternalPropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result =
@@ -260,8 +260,8 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, unprovided parameter.
-    ASSERT_THROW(this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::IntermediatePropertyValue("da")},
-                                                        {"ab", memgraph::storage::IntermediatePropertyValue("ne")}}),
+    ASSERT_THROW(this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::ExternalPropertyValue("da")},
+                                                        {"ab", memgraph::storage::ExternalPropertyValue("ne")}}),
                  memgraph::query::UnprovidedParameterError);
   }
 }
@@ -269,12 +269,12 @@ TYPED_TEST(InterpreterTest, Parameters) {
 // Run CREATE/MATCH/MERGE queries with property map
 TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   {
-    memgraph::storage::IntermediatePropertyValue::map_t property_map{};
-    property_map["name"] = memgraph::storage::IntermediatePropertyValue("name1");
-    property_map["age"] = memgraph::storage::IntermediatePropertyValue(25);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(25);
     auto stream = this->Interpret("CREATE (n $prop) RETURN n",
                                   {
-                                      {"prop", memgraph::storage::IntermediatePropertyValue(property_map)},
+                                      {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                   });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "n");
@@ -285,13 +285,13 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
-    memgraph::storage::IntermediatePropertyValue::map_t property_map{};
-    property_map["name"] = memgraph::storage::IntermediatePropertyValue("name1");
-    property_map["age"] = memgraph::storage::IntermediatePropertyValue(25);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(25);
     this->Interpret("CREATE (:Person)");
     auto stream = this->Interpret("MATCH (m: Person) CREATE (n $prop) RETURN n",
                                   {
-                                      {"prop", memgraph::storage::IntermediatePropertyValue(property_map)},
+                                      {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                   });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "n");
@@ -302,12 +302,12 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
-    memgraph::storage::IntermediatePropertyValue::map_t property_map{};
-    property_map["name"] = memgraph::storage::IntermediatePropertyValue("name1");
-    property_map["weight"] = memgraph::storage::IntermediatePropertyValue(121);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["weight"] = memgraph::storage::ExternalPropertyValue(121);
     auto stream = this->Interpret("CREATE ()-[r:TO $prop]->() RETURN r",
                                   {
-                                      {"prop", memgraph::storage::IntermediatePropertyValue(property_map)},
+                                      {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                   });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "r");
@@ -318,22 +318,22 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["weight"].ValueInt(), 121);
   }
   {
-    memgraph::storage::IntermediatePropertyValue::map_t property_map{};
-    property_map["name"] = memgraph::storage::IntermediatePropertyValue("name1");
-    property_map["age"] = memgraph::storage::IntermediatePropertyValue(15);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(15);
     ASSERT_THROW(this->Interpret("MATCH (n $prop) RETURN n",
                                  {
-                                     {"prop", memgraph::storage::IntermediatePropertyValue(property_map)},
+                                     {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                  }),
                  memgraph::query::SemanticException);
   }
   {
-    memgraph::storage::IntermediatePropertyValue::map_t property_map{};
-    property_map["name"] = memgraph::storage::IntermediatePropertyValue("name1");
-    property_map["age"] = memgraph::storage::IntermediatePropertyValue(15);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(15);
     ASSERT_THROW(this->Interpret("MERGE (n $prop) RETURN n",
                                  {
-                                     {"prop", memgraph::storage::IntermediatePropertyValue(property_map)},
+                                     {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                  }),
                  memgraph::query::SemanticException);
   }
@@ -764,7 +764,7 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream = this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;",
-                                {{"id", memgraph::storage::IntermediatePropertyValue(42)}});
+                                {{"id", memgraph::storage::ExternalPropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
   std::vector<std::string> expected_rows{" * Produce {n}", " * Filter {n.id}", " * ScanAll (n)", " * Once"};
@@ -780,7 +780,7 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
-                  {{"id", memgraph::storage::IntermediatePropertyValue("something else")}});
+                  {{"id", memgraph::storage::ExternalPropertyValue("something else")}});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
@@ -854,7 +854,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream = this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;",
-                                {{"id", memgraph::storage::IntermediatePropertyValue(42)}});
+                                {{"id", memgraph::storage::ExternalPropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
   std::vector<std::string> expected_rows{"* Produce {n}", "* Filter {n.id}", "* ScanAll (n)", "* Once"};
@@ -870,7 +870,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
-                  {{"id", memgraph::storage::IntermediatePropertyValue("something else")}});
+                  {{"id", memgraph::storage::ExternalPropertyValue("something else")}});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }

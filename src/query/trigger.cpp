@@ -284,8 +284,8 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     spdlog::warn(invalid_state_message);
     return;
   }
-  const auto user_parameters = serialization::DeserializeIntermediatePropertyValueMap(
-      json_trigger_data["user_parameters"], db_accessor->GetStorageAccessor());
+  const auto user_parameters = serialization::DeserializeExternalPropertyValueMap(json_trigger_data["user_parameters"],
+                                                                                  db_accessor->GetStorageAccessor());
 
   // TODO: Migration
   const auto owner_json = json_trigger_data["owner"];
@@ -373,7 +373,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
   data["user_parameters"] =
-      serialization::SerializeIntermediatePropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
+      serialization::SerializeExternalPropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;

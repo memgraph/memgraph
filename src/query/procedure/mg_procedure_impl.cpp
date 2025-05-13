@@ -1886,55 +1886,55 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
   }
 }
 
-memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_value &value);
+memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value &value);
 
-memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_list &list) {
-  memgraph::storage::IntermediatePropertyValue result{std::vector<memgraph::storage::IntermediatePropertyValue>{}};
+memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_list &list) {
+  memgraph::storage::ExternalPropertyValue result{std::vector<memgraph::storage::ExternalPropertyValue>{}};
   auto &result_list = result.ValueList();
   for (const auto &value : list.elems) {
-    result_list.push_back(ToIntermediatePropertyValue(value));
+    result_list.push_back(ToExternalPropertyValue(value));
   }
   return result;
 }
 
-memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_map &map) {
-  auto result_map = memgraph::storage::IntermediatePropertyValue::map_t{};
+memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_map &map) {
+  auto result_map = memgraph::storage::ExternalPropertyValue::map_t{};
   result_map.reserve(map.items.size());
   for (const auto &[key, value] : map.items) {
-    result_map.insert_or_assign(std::string{key}, ToIntermediatePropertyValue(value));
+    result_map.insert_or_assign(std::string{key}, ToExternalPropertyValue(value));
   }
-  return memgraph::storage::IntermediatePropertyValue{std::move(result_map)};
+  return memgraph::storage::ExternalPropertyValue{std::move(result_map)};
 }
 
-memgraph::storage::IntermediatePropertyValue ToIntermediatePropertyValue(const mgp_value &value) {
+memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value &value) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
-      return memgraph::storage::IntermediatePropertyValue{};
+      return memgraph::storage::ExternalPropertyValue{};
     case MGP_VALUE_TYPE_BOOL:
-      return memgraph::storage::IntermediatePropertyValue{value.bool_v};
+      return memgraph::storage::ExternalPropertyValue{value.bool_v};
     case MGP_VALUE_TYPE_INT:
-      return memgraph::storage::IntermediatePropertyValue{value.int_v};
+      return memgraph::storage::ExternalPropertyValue{value.int_v};
     case MGP_VALUE_TYPE_DOUBLE:
-      return memgraph::storage::IntermediatePropertyValue{value.double_v};
+      return memgraph::storage::ExternalPropertyValue{value.double_v};
     case MGP_VALUE_TYPE_STRING:
-      return memgraph::storage::IntermediatePropertyValue{std::string{value.string_v}};
+      return memgraph::storage::ExternalPropertyValue{std::string{value.string_v}};
     case MGP_VALUE_TYPE_LIST:
-      return ToIntermediatePropertyValue(*value.list_v);
+      return ToExternalPropertyValue(*value.list_v);
     case MGP_VALUE_TYPE_MAP:
-      return ToIntermediatePropertyValue(*value.map_v);
+      return ToExternalPropertyValue(*value.map_v);
     case MGP_VALUE_TYPE_DATE:
-      return memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{
+      return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_TIME:
-      return memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{
+      return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       // Use generic system time (UTC)
-      return memgraph::storage::IntermediatePropertyValue{
+      return memgraph::storage::ExternalPropertyValue{
           memgraph::storage::TemporalData{memgraph::storage::TemporalType::LocalDateTime,
                                           value.local_date_time_v->local_date_time.SysMicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_DURATION:
-      return memgraph::storage::IntermediatePropertyValue{memgraph::storage::TemporalData{
+      return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
@@ -4550,11 +4550,11 @@ struct MgProcedureResultStream final {
   }
 };
 
-memgraph::storage::IntermediatePropertyValue::map_t CreateQueryParams(mgp_map *params) {
-  auto query_params = memgraph::storage::IntermediatePropertyValue::map_t{};
+memgraph::storage::ExternalPropertyValue::map_t CreateQueryParams(mgp_map *params) {
+  auto query_params = memgraph::storage::ExternalPropertyValue::map_t{};
   query_params.reserve(params->items.size());
   for (auto &[k, v] : params->items) {
-    query_params.emplace(k, ToIntermediatePropertyValue(v));
+    query_params.emplace(k, ToExternalPropertyValue(v));
   }
 
   return query_params;
@@ -4596,7 +4596,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
         auto query_params_func =
-            [&](memgraph::storage::Storage const *) -> memgraph::storage::IntermediatePropertyValue::map_t {
+            [&](memgraph::storage::Storage const *) -> memgraph::storage::ExternalPropertyValue::map_t {
           return CreateQueryParams(params);
         };
         auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});

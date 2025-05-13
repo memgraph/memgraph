@@ -272,33 +272,32 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
   other = storage::PropertyValue();
 }
 
-TypedValue::TypedValue(const storage::IntermediatePropertyValue &value)
-    // TODO: MemoryResource in storage::IntermediatePropertyValue
+TypedValue::TypedValue(const storage::ExternalPropertyValue &value)
+    // TODO: MemoryResource in storage::ExternalPropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const storage::IntermediatePropertyValue &value, utils::MemoryResource *memory)
-    : memory_(memory) {
+TypedValue::TypedValue(const storage::ExternalPropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
   switch (value.type()) {
-    case storage::IntermediatePropertyValue::Type::Null:
+    case storage::ExternalPropertyValue::Type::Null:
       type_ = Type::Null;
       return;
-    case storage::IntermediatePropertyValue::Type::Bool:
+    case storage::ExternalPropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = value.ValueBool();
       return;
-    case storage::IntermediatePropertyValue::Type::Int:
+    case storage::ExternalPropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = value.ValueInt();
       return;
-    case storage::IntermediatePropertyValue::Type::Double:
+    case storage::ExternalPropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = value.ValueDouble();
       return;
-    case storage::IntermediatePropertyValue::Type::String:
+    case storage::ExternalPropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) TString(value.ValueString(), memory_);
       return;
-    case storage::IntermediatePropertyValue::Type::List: {
+    case storage::ExternalPropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
       new (&list_v) TVector(memory_);
@@ -306,14 +305,14 @@ TypedValue::TypedValue(const storage::IntermediatePropertyValue &value, utils::M
       for (const auto &v : vec) list_v.emplace_back(v);
       return;
     }
-    case storage::IntermediatePropertyValue::Type::Map: {
+    case storage::ExternalPropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       std::construct_at(&map_v, memory_);
       for (const auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
       return;
     }
-    case storage::IntermediatePropertyValue::Type::TemporalData: {
+    case storage::ExternalPropertyValue::Type::TemporalData: {
       const auto &temporal_data = value.ValueTemporalData();
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
@@ -339,7 +338,7 @@ TypedValue::TypedValue(const storage::IntermediatePropertyValue &value, utils::M
       }
       return;
     }
-    case storage::IntermediatePropertyValue::Type::ZonedTemporalData: {
+    case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto &zoned_temporal_data = value.ValueZonedTemporalData();
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
@@ -350,17 +349,17 @@ TypedValue::TypedValue(const storage::IntermediatePropertyValue &value, utils::M
       }
       return;
     }
-    case storage::IntermediatePropertyValue::Type::Enum: {
+    case storage::ExternalPropertyValue::Type::Enum: {
       type_ = Type::Enum;
       new (&enum_v) storage::Enum(value.ValueEnum());
       return;
     }
-    case storage::IntermediatePropertyValue::Type::Point2d: {
+    case storage::ExternalPropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
       new (&point_2d_v) storage::Point2d(value.ValuePoint2d());
       return;
     }
-    case storage::IntermediatePropertyValue::Type::Point3d: {
+    case storage::ExternalPropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
       new (&point_3d_v) storage::Point3d(value.ValuePoint3d());
       return;
@@ -369,45 +368,45 @@ TypedValue::TypedValue(const storage::IntermediatePropertyValue &value, utils::M
   LOG_FATAL("Unsupported type");
 }
 
-TypedValue::TypedValue(storage::IntermediatePropertyValue &&other) /* noexcept */
-    // TODO: MemoryResource in storage::IntermediatePropertyValue, so this can be noexcept
+TypedValue::TypedValue(storage::ExternalPropertyValue &&other) /* noexcept */
+    // TODO: MemoryResource in storage::ExternalPropertyValue, so this can be noexcept
     : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(storage::IntermediatePropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(storage::ExternalPropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
   switch (other.type()) {
-    case storage::IntermediatePropertyValue::Type::Null:
+    case storage::ExternalPropertyValue::Type::Null:
       type_ = Type::Null;
       break;
-    case storage::IntermediatePropertyValue::Type::Bool:
+    case storage::ExternalPropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = other.ValueBool();
       break;
-    case storage::IntermediatePropertyValue::Type::Int:
+    case storage::ExternalPropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = other.ValueInt();
       break;
-    case storage::IntermediatePropertyValue::Type::Double:
+    case storage::ExternalPropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = other.ValueDouble();
       break;
-    case storage::IntermediatePropertyValue::Type::String:
+    case storage::ExternalPropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) TString(other.ValueString(), memory_);
       break;
-    case storage::IntermediatePropertyValue::Type::List: {
+    case storage::ExternalPropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
       new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
       break;
     }
-    case storage::IntermediatePropertyValue::Type::Map: {
+    case storage::ExternalPropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
       std::construct_at(&map_v, memory_);
       for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
       break;
     }
-    case storage::IntermediatePropertyValue::Type::TemporalData: {
+    case storage::ExternalPropertyValue::Type::TemporalData: {
       const auto &temporal_data = other.ValueTemporalData();
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
@@ -433,7 +432,7 @@ TypedValue::TypedValue(storage::IntermediatePropertyValue &&other, utils::Memory
       }
       break;
     }
-    case storage::IntermediatePropertyValue::Type::ZonedTemporalData: {
+    case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto &zoned_temporal_data = other.ValueZonedTemporalData();
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
@@ -444,69 +443,68 @@ TypedValue::TypedValue(storage::IntermediatePropertyValue &&other, utils::Memory
       }
       break;
     }
-    case storage::IntermediatePropertyValue::Type::Enum: {
+    case storage::ExternalPropertyValue::Type::Enum: {
       type_ = Type::Enum;
       new (&enum_v) storage::Enum(other.ValueEnum());
       break;
     }
-    case storage::IntermediatePropertyValue::Type::Point2d: {
+    case storage::ExternalPropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
       new (&point_2d_v) storage::Point2d(other.ValuePoint2d());
       break;
     }
-    case storage::IntermediatePropertyValue::Type::Point3d: {
+    case storage::ExternalPropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
       new (&point_3d_v) storage::Point3d(other.ValuePoint3d());
       break;
     }
   }
 
-  other = storage::IntermediatePropertyValue();
+  other = storage::ExternalPropertyValue();
 }
 
-TypedValue::operator storage::IntermediatePropertyValue() const {
+TypedValue::operator storage::ExternalPropertyValue() const {
   switch (type_) {
     case TypedValue::Type::Null:
-      return storage::IntermediatePropertyValue();
+      return storage::ExternalPropertyValue();
     case TypedValue::Type::Bool:
-      return storage::IntermediatePropertyValue(bool_v);
+      return storage::ExternalPropertyValue(bool_v);
     case TypedValue::Type::Int:
-      return storage::IntermediatePropertyValue(int_v);
+      return storage::ExternalPropertyValue(int_v);
     case TypedValue::Type::Double:
-      return storage::IntermediatePropertyValue(double_v);
+      return storage::ExternalPropertyValue(double_v);
     case TypedValue::Type::String:
-      return storage::IntermediatePropertyValue(std::string(string_v));
+      return storage::ExternalPropertyValue(std::string(string_v));
     case TypedValue::Type::List:
-      return storage::IntermediatePropertyValue(
-          std::vector<storage::IntermediatePropertyValue>(list_v.begin(), list_v.end()));
+      return storage::ExternalPropertyValue(std::vector<storage::ExternalPropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
-      storage::IntermediatePropertyValue::map_t map;
+      storage::ExternalPropertyValue::map_t map;
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
-      return storage::IntermediatePropertyValue(std::move(map));
+      return storage::ExternalPropertyValue(std::move(map));
     }
     case Type::Date:
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData{storage::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
     case Type::LocalTime:
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
     case Type::LocalDateTime:
       // Use generic system time (UTC)
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.SysMicrosecondsSinceEpoch()});
     case Type::ZonedDateTime:
-      return storage::IntermediatePropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
-                                                                           zoned_date_time_v.SysTimeSinceEpoch(),
-                                                                           zoned_date_time_v.GetTimezone()});
+      return storage::ExternalPropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
+                                                                       zoned_date_time_v.SysTimeSinceEpoch(),
+                                                                       zoned_date_time_v.GetTimezone()});
     case Type::Duration:
-      return storage::IntermediatePropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     case TypedValue::Type::Enum:
-      return storage::IntermediatePropertyValue(enum_v);
+      return storage::ExternalPropertyValue(enum_v);
     case TypedValue::Type::Point2d:
-      return storage::IntermediatePropertyValue(point_2d_v);
+      return storage::ExternalPropertyValue(point_2d_v);
     case TypedValue::Type::Point3d:
-      return storage::IntermediatePropertyValue(point_3d_v);
+      return storage::ExternalPropertyValue(point_3d_v);
     case Type::Vertex:
     case Type::Edge:
     case Type::Path:

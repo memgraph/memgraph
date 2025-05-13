@@ -50,7 +50,7 @@ void Encoder::WritePoint3d(storage::Point3d value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteIntermediatePropertyValue(const IntermediatePropertyValue &value) {
+void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
   slk::Save(value, builder_);
 }
@@ -142,10 +142,10 @@ std::optional<Point3d> Decoder::ReadPoint3dValue() {
   return value;
 }
 
-std::optional<IntermediatePropertyValue> Decoder::ReadIntermediatePropertyValue() {
+std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
     return std::nullopt;
-  IntermediatePropertyValue value;
+  ExternalPropertyValue value;
   slk::Load(&value, reader_);
   return std::move(value);
 }
@@ -157,9 +157,9 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipIntermediatePropertyValue() {
+bool Decoder::SkipExternalPropertyValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE) return false;
-  IntermediatePropertyValue value;
+  ExternalPropertyValue value;
   slk::Load(&value, reader_);
   return true;
 }
