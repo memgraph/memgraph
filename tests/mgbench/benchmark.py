@@ -249,6 +249,13 @@ def parse_args():
         help="Client binary used for benchmarking",
     )
 
+    parser_vendor_external.add_argument(
+        "--vendor-name",
+        default="memgraph",
+        choices=["memgraph", "neo4j"],
+        help="Input vendor binary name (memgraph, neo4j)",
+    )
+
     return parser.parse_args()
 
 
@@ -542,7 +549,7 @@ def setup_cache_config(benchmark_context, cache):
 def save_import_results(workload, results, import_results, rss_usage):
     log.info("Summarized importing benchmark results:")
     import_key = [workload.NAME, workload.get_variant(), IMPORT]
-    if import_results != None and rss_usage != None:
+    if import_results is not None and rss_usage is not None:
         # Display import statistics.
         for row in import_results:
             log.success(
@@ -650,7 +657,8 @@ def run_isolated_workload_without_authorization(
 
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
         usage = vendor_runner.stop_db(rss_db)
-        usage[MEMORY] -= memory_usage_with_imported_data
+        if usage is not None:
+            usage[MEMORY] -= memory_usage_with_imported_data
 
         ret[DATABASE] = usage
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
@@ -700,7 +708,7 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     vendor_runner.start_db(rss_db)
     usage = vendor_runner.stop_db(rss_db)
     if usage is None:
-        return {"memory": 0, "cpu": 0}
+        usage = {"memory": 0, "cpu": 0}
     key = [workload.NAME, workload.get_variant(), EMPTY_DB]
     results.set_value(*key, value={DATABASE: usage})
     return usage[MEMORY]
@@ -710,6 +718,8 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
     rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
     vendor_runner.start_db(rss_db)
     usage = vendor_runner.stop_db(rss_db)
+    if usage is None:
+        usage = {"memory": 0, "cpu": 0}
     # Save total memory usage with imported data to be able to calculate only execution memory usage later
     total_usage_with_imported_data = usage[MEMORY]
     usage[MEMORY] -= memory_usage_of_emtpy_db
@@ -882,7 +892,9 @@ def log_benchmark_summary(results: Dict, storage_mode):
                         log.log("-" * 120)
                         log.summary(
                             "{:<20} {:>26.2f} QPS {:>27.2f} MB".format(
-                                query, value[THROUGHPUT], value[DATABASE][MEMORY] / (1024.0 * 1024.0)
+                                query,
+                                value[THROUGHPUT],
+                                0 if value[DATABASE] is None else value[DATABASE][MEMORY] / (1024.0 * 1024.0),
                             )
                         )
     log.log("-" * 90)
@@ -897,8 +909,9 @@ def log_benchmark_arguments(benchmark_context):
 def log_metrics_summary(ret, usage):
     log.log("Executed  {} queries in {} seconds.".format(ret[COUNT], ret[DURATION]))
     log.log("Queries have been retried {} times".format(ret[RETRIES]))
-    log.log("Database used {:.3f} seconds of CPU time.".format(usage[CPU]))
-    log.info("Database peaked at {:.3f} MiB of memory.".format(usage[MEMORY] / (1024.0 * 1024.0)))
+    if usage is not None:
+        log.log("Database used {:.3f} seconds of CPU time.".format(usage[CPU]))
+        log.info("Database peaked at {:.3f} MiB of memory.".format(usage[MEMORY] / (1024.0 * 1024.0)))
 
 
 def log_metadata_summary(ret):
@@ -935,16 +948,12 @@ if __name__ == "__main__":
     temp_dir = pathlib.Path.cwd() / ".temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    vendor_name = getattr(args, "vendor_name", None)
-    if vendor_name is not None:
-        vendor_name = vendor_name.replace("-", "")
-
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
         client_bolt_address=args.client_bolt_address,
         external_vendor=args.run_option == "external-vendor",
-        vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
-        vendor_name=vendor_name,
+        vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else helpers.get_binary_path("memgraph"),
+        vendor_name=args.vendor_name.replace("-", ""),
         client_binary=getattr(args, "client_binary", None),
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
