@@ -57,16 +57,17 @@ struct IndexHints {
         }
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
-        auto properties = index_hint.property_ixs_ |
-                          ranges::views::transform([&](std::vector<PropertyIx> const &property_path) {
-                            std::vector<storage::PropertyId> property_ids;
-                            property_ids.reserve(property_path.size());
-                            for (const auto &property_ix : property_path) {
-                              property_ids.emplace_back(db->NameToProperty(property_ix.name));
-                            }
-                            return property_ids;
-                          }) |
-                          ranges::to<std::vector<std::vector<storage::PropertyId>>>;
+        auto properties =
+            index_hint.property_ixs_ |
+            ranges::views::transform([&](std::vector<PropertyIx> const &property_path) -> storage::PropertyPath {
+              std::vector<storage::PropertyId> property_ids;
+              property_ids.reserve(property_path.size());
+              for (const auto &property_ix : property_path) {
+                property_ids.emplace_back(db->NameToProperty(property_ix.name));
+              }
+              return {std::move(property_ids)};
+            }) |
+            ranges::to<std::vector<storage::PropertyPath>>;
 
         // Fetching the corresponding index to the hint
         if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
@@ -1019,12 +1020,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
     };
     auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
-    auto as_storage_property = [&](auto const &filter) {
+    auto as_storage_property = [&](auto const &filter) -> storage::PropertyPath {
       std::vector<storage::PropertyId> storage_property_ids;
       for (auto const &property : filter.property_filter->property_ids_) {
         storage_property_ids.push_back(GetProperty(property));
       }
-      return storage_property_ids;
+      return {std::move(storage_property_ids)};
     };
 
     auto labelIXs = filters_.FilteredLabels(symbol) | r::to_vector;
@@ -1040,7 +1041,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
 
     // TODO: extact as a common util
-    auto filters_grouped_by_property = std::map<std::vector<storage::PropertyId>, std::vector<FilterInfo>>{};
+    // @TODO double check that this is correct for nested properties
+    auto filters_grouped_by_property = std::map<storage::PropertyPath, std::vector<FilterInfo>>{};
     auto grouped = ranges::views::zip(properties, property_filters) |
                    ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
     for (auto &&group : grouped) {
