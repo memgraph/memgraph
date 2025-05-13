@@ -57,6 +57,8 @@ namespace memgraph::metrics {
 extern const Event HeartbeatRpc_us;
 extern const Event AppendDeltasRpc_us;
 extern const Event ReplicaStream_us;
+extern const Event StartTxnReplication_us;
+extern const Event FinalizeTxnReplication_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -242,6 +244,7 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 auto ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage,
                                                            DatabaseAccessProtector db_acc)
     -> std::optional<ReplicaStream> {
+  utils::MetricsTimer const timer{metrics::StartTxnReplication_us};
   auto locked_state = replica_state_.Lock();
   spdlog::trace("Starting transaction replication for replica {} in state {}", client_.name_,
                 StateToString(*locked_state));
@@ -273,7 +276,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case READY: {
       auto replica_stream = std::optional<ReplicaStream>{};
       try {
-        utils::MetricsTimer const timer{metrics::ReplicaStream_us};
+        utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
         replica_stream.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
         *locked_state = REPLICATING;
       } catch (const rpc::RpcFailedException &) {
@@ -294,6 +297,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
+  utils::MetricsTimer const timer{metrics::FinalizeTxnReplication_us};
   spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_,
                 StateToString(*replica_state_.Lock()));
   if (State() != ReplicaState::REPLICATING) {
