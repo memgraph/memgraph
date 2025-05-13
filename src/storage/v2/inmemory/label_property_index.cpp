@@ -367,50 +367,49 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
   // other indices for :L1(a, b, ...) and :L1(a, ...). Because stats are shared
   // between indices, we can only remove the stats if no other indices are using
   // them.
-  // @TODO put this back
-  // auto const index_prefix_usage = std::invoke([&] {
-  //   auto &properties_map = it1->second;
+  auto const index_prefix_usage = std::invoke([&] {
+    auto &properties_map = it1->second;
 
-  //   std::vector<std::size_t> use_count(properties.size(), 0);
-  //   for (std::size_t i = 0; i < use_count.size(); ++i) {
-  //     auto const prefix = make_props_subspan(i);
+    std::vector<std::size_t> use_count(properties.size(), 0);
+    for (std::size_t i = 0; i < use_count.size(); ++i) {
+      auto const prefix = make_props_subspan(i);
 
-  //     use_count[i] = ranges::count_if(properties_map, [&](auto &&each) {
-  //       auto &&[index_properties, _] = each;
-  //       return ranges::starts_with(index_properties, prefix);
-  //     });
-  //   }
+      use_count[i] = ranges::count_if(properties_map, [&](auto &&each) {
+        auto &&[index_properties, _] = each;
+        return ranges::starts_with(index_properties, prefix);
+      });
+    }
 
-  //   return use_count;
-  // });
+    return use_count;
+  });
 
   // Cleanup stats (the stats may not have been generated)
-  // std::invoke([&] {
-  //   auto stats_ptr = stats_.Lock();
-  //   auto it1 = stats_ptr->find(label);
-  //   if (it1 == stats_ptr->end()) {
-  //     return;
-  //   }
+  std::invoke([&] {
+    auto stats_ptr = stats_.Lock();
+    auto it1 = stats_ptr->find(label);
+    if (it1 == stats_ptr->end()) {
+      return;
+    }
 
-  //   auto &properties_map = it1->second;
+    auto &properties_map = it1->second;
 
-  //   for (auto &&[prefix_len, use_count] : ranges::views::enumerate(index_prefix_usage)) {
-  //     if (use_count != 1) {
-  //       // Unless this is the only index using the stat, we shouldn't delete
-  //       // it.
-  //       continue;
-  //     }
+    for (auto &&[prefix_len, use_count] : ranges::views::enumerate(index_prefix_usage)) {
+      if (use_count != 1) {
+        // Unless this is the only index using the stat, we shouldn't delete
+        // it.
+        continue;
+      }
 
-  //     auto it2 = properties_map.find(make_props_subspan(prefix_len));
-  //     if (it2 == properties_map.end()) {
-  //       continue;
-  //     }
-  //     properties_map.erase(it2);
-  //     if (properties_map.empty()) {
-  //       stats_ptr->erase(it1);
-  //     }
-  //   }
-  // });
+      auto it2 = properties_map.find(make_props_subspan(prefix_len));
+      if (it2 == properties_map.end()) {
+        continue;
+      }
+      properties_map.erase(it2);
+      if (properties_map.empty()) {
+        stats_ptr->erase(it1);
+      }
+    }
+  });
 
   // Do the actual removal from the primary index
   properties_map.erase(it2);
