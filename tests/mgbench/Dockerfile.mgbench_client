@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y wget libcurl4 python3 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy mgbench client to clean image
-COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /mgbench
+COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /bin
+COPY --from=mg_bench_client_build_base /memgraph/tests/mgbench /mgbench
 
 ENTRYPOINT ["python3", "/mgbench/benchmark.py"]
