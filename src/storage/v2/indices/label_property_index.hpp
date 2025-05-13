@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -221,11 +223,6 @@ class LabelPropertyIndex {
   };
 
   enum class Status : uint8_t { POPULATING, READY };
-  struct UpdateStatus {
-    LabelId label;
-    std::vector<PropertyId> properties;
-    Status status;
-  };
 
   struct ActiveIndices {
     virtual ~ActiveIndices() = default;
@@ -234,6 +231,8 @@ class LabelPropertyIndex {
     virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                      const Transaction &tx) = 0;
     virtual bool IndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+
+    // Used during planning to get the appropriate indexes available
     virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                                     std::span<PropertyId const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> = 0;
@@ -262,7 +261,8 @@ class LabelPropertyIndex {
 
   virtual ~LabelPropertyIndex() = default;
 
-  virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
+  virtual bool DropIndex(LabelId label, std::span<PropertyId const> properties,
+                         PublishIndexCallback publish_index_callback = invoke_input) = 0;
 
   virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 

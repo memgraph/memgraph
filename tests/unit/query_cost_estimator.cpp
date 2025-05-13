@@ -55,7 +55,7 @@ class QueryCostEstimator : public ::testing::Test {
 
   void SetUp() override {
     {
-      auto unique_acc = db->ReadOnlyAccess();
+      auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }

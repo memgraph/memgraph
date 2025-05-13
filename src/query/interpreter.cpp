@@ -2452,8 +2452,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras,
-                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -3109,11 +3109,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto prop_to_name = [&](storage::PropertyId prop) { return TypedValue{execution_db_accessor->PropertyToName(prop)}; };
   std::transform(
@@ -3207,8 +3207,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *dba = &*current_db.execution_db_accessor_;
 
   // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  auto invalidate_plan_cache_and_publish = [plan_cache = db_acc->plan_cache()](auto publish_new_indexes = [] {}) {
+    plan_cache->WithLock([&](auto &cache) {
+      cache.reset();
+      publish_new_indexes();
+    });
   };
 
   auto *storage = db_acc->storage();
@@ -3232,24 +3235,47 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
       auto cancel_callback = [stopping_context = std::move(stopping_context),
                               counter = utils::ResettableCounter{10'000}]() {
-        return counter() ? stopping_context.MustAbort() != AbortReason::NO_ABORT : false;
+        if (!counter()) {
+          return false;
+        }
+        // For now only handle TERMINATED + SHUTDOWN
+        auto reason = stopping_context.MustAbort();
+        return reason == AbortReason::TERMINATED || reason == AbortReason::SHUTDOWN;
       };
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache),
+                 invalidate_plan_cache_and_publish = std::move(invalidate_plan_cache_and_publish),
                  cancel_callback = std::move(cancel_callback)](Notification &index_notification) mutable {
         auto maybe_index_error = properties.empty()
-                                     ? dba->CreateIndex(label)
-                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback));
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+                                     ? dba->CreateIndex(label, std::move(invalidate_plan_cache_and_publish))
+                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
+                                                        std::move(invalidate_plan_cache_and_publish));
         if (maybe_index_error.HasError()) {
-          // TODO: More that EXISTENT_INDEX, eg. population can be cancelled
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          // ABORT?
+          auto const error_visitor = utils::Overloaded{
+              [&](storage::IndexDefinitionError) {
+                index_notification.code = NotificationCode::EXISTENT_INDEX;
+                index_notification.title = fmt::format("Index on label {} on properties {} already exists.", label_name,
+                                                       properties_stringified);
+              },
+              [&](storage::IndexDefinitionConfigError) {
+                index_notification.code = NotificationCode::EXISTENT_INDEX;
+                index_notification.title = fmt::format("Index on label {} on properties {} already exists.", label_name,
+                                                       properties_stringified);
+              },
+              [&](storage::IndexPopulationError) {
+                index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+                index_notification.title =
+                    fmt::format("Index on label {} on properties {} was dropped during its creation.", label_name,
+                                properties_stringified);
+              },
+              [&](storage::IndexPopulationCancellation) {
+                // TODO: could also be SHUTDOWN...but this is good enough for now
+                throw HintedAbortError(AbortReason::TERMINATED);
+              },
+          };
+          std::visit(error_visitor, maybe_index_error.GetError());
         }
       };
       break;
@@ -3261,10 +3287,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
+                 invalidate_plan_cache_and_publish =
+                     std::move(invalidate_plan_cache_and_publish)](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+            properties.empty()
+                ? dba->DropIndex(label, std::move(invalidate_plan_cache_and_publish))
+                : dba->DropIndex(label, std::move(properties), std::move(invalidate_plan_cache_and_publish));
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;

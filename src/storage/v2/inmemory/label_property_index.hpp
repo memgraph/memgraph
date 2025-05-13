@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <span>
 
+#include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -25,6 +27,11 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
+
+enum class IndexPopulateError {
+  IndexAlreadyDropped,
+  Cancellation,
+};
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
@@ -124,8 +131,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
 
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {}
@@ -162,23 +170,24 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::vector<PropertyId> const &properties);
+  bool CreateIndex(LabelId label, std::span<PropertyId const> properties);
 
-  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
+  bool DropIndex(LabelId label, std::span<PropertyId const> properties,
+                 PublishIndexCallback publish_index_callback = invoke_input) override;
 
-  void UpdateIndexStatus(UpdateStatus status);
+  bool PublishIndexForUse(LabelId label, std::span<PropertyId const> properties);
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ClearIndexStats();
+  auto ClearIndexStats() -> std::vector<std::pair<LabelId, std::vector<PropertyId>>>;
 
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteIndexStats(const storage::LabelId &label);
+  auto DeleteIndexStats(const storage::LabelId &label) -> std::vector<std::pair<LabelId, std::vector<PropertyId>>>;
 
   void SetIndexStats(storage::LabelId label, std::span<storage::PropertyId const> properties,
                      storage::LabelPropertyIndexStats const &stats);
 
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-      std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const;
+  auto GetIndexStats(std::pair<storage::LabelId, std::span<storage::PropertyId const>> const &key) const
+      -> std::optional<storage::LabelPropertyIndexStats>;
 
   void RunGC();
 
@@ -190,11 +199,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
       std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-      std::function<bool()> cancel_check = []() { return false; }, const Transaction *tx = nullptr) -> bool;
+      CheckCancelFunction cancel_check = [] { return false; }, const Transaction *tx = nullptr)
+      -> utils::BasicResult<IndexPopulateError>;
 
  private:
   utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
-  utils::Synchronized<ReverseIndexContainer, utils::WritePrioritizedRWLock> indices_by_property_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
