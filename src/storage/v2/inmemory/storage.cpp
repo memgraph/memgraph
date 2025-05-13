@@ -723,6 +723,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             if (count == 0) {
               // TODO: (andi) Handle auto-creation issue
               // NOTE: plan cache is not invalidated here, becasue we are down in storage and we don't have access to it
+              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
               CreateIndex(label, invoke_input, false);
               label_indices.erase(it);
             }
@@ -742,6 +743,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // when the last one commits.
             if (count == 0) {
               // TODO: (andi) Handle silent failure
+              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
               CreateIndex(edge_type, false);
               edge_type_indices.erase(it);
             }
@@ -1713,7 +1715,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyId const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
-  auto active_indices = static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.get());
+  auto *active_indices = static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.get());
   return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
