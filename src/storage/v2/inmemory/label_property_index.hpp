@@ -28,15 +28,16 @@ namespace memgraph::storage {
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
-    IndexOrderedPropertyValues values;
+    using Values = std::variant<PropertyValue, std::vector<PropertyValue>>;
+    Values values;
     Vertex *vertex;
     uint64_t timestamp;
 
     friend auto operator<=>(Entry const &, Entry const &) = default;
     friend bool operator==(Entry const &, Entry const &) = default;
 
-    bool operator<(std::vector<PropertyValue> const &rhs) const;
-    bool operator==(std::vector<PropertyValue> const &rhs) const;
+    bool operator<(Entry::Values const &rhs) const;
+    bool operator==(Entry::Values const &rhs) const;
   };
 
  public:
