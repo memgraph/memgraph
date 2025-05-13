@@ -46,10 +46,9 @@ def wrapper(request):
     interactive_mg_runner.start_all(instances)
 
     with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
-        client.verify_connectivity()
         with client.session() as session:
-            session.run("CREATE ROLE architect;")
-            session.run("GRANT ALL PRIVILEGES TO architect;")
+            session.run("CREATE ROLE architect;").consume()
+            session.run("GRANT ALL PRIVILEGES TO architect;").consume()
 
     interactive_mg_runner.stop(instances, INSTANCE_NAME)
 
@@ -80,7 +79,7 @@ def test_sso_successful():
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
         client.verify_connectivity()
         with client.session() as session:
-            session.run("MATCH (n) RETURN n;")
+            session.run("MATCH (n) RETURN n;").consume()
             current_user_result = list(session.run("SHOW CURRENT USER;"))
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
 
@@ -92,12 +91,22 @@ def test_sso_create_owned():
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        client.verify_connectivity()
         with client.session() as session:
             session.run(
                 """CREATE TRIGGER exampleTrigger1 ON () CREATE AFTER COMMIT
                 EXECUTE UNWIND createdVertices AS newNodes SET newNodes.created = timestamp();"""
-            )
+            ).consume()
+
+
+def test_sso_ttl():
+    # Make sure TTL can be started even under SSO
+    # 1. Create an owned object (trigger) while logged in via SSO
+    response = base64.b64encode(b"dummy_value").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        with client.session() as session:
+            session.run("""ENABLE TTL AT "14:30:00";""").consume()
 
 
 if __name__ == "__main__":
