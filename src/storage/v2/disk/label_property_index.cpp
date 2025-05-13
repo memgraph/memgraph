@@ -171,8 +171,14 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  return index_.erase({label, properties[0]}) > 0U;
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::span<PropertyId const> properties,
+                                       PublishIndexCallback publish_index_callback) {
+  auto res = index_.erase({label, properties[0]}) > 0U;
+  if (res) {
+    // clear the plan cache
+    publish_index_callback([] {});
+  }
+  return res;
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ActiveIndices::ListIndices() const {

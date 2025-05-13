@@ -345,8 +345,9 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, PublishIndexCallback publish_index_callback = invoke_input,
+        bool unique_access_needed = true) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -356,7 +357,8 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
         LabelId label, std::vector<storage::PropertyId> &&properties,
-        std::function<bool()> cancel_check = []() { return false; }) override;
+        CheckCancelFunction cancel_check = []() { return false; },
+        PublishIndexCallback publish_index_callback = invoke_input) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -389,7 +391,8 @@ class InMemoryStorage final : public Storage {
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, PublishIndexCallback publish_index_callback = invoke_input) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
@@ -397,7 +400,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyId> &&properties,
+        PublishIndexCallback publish_index_callback = invoke_input) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
@@ -493,8 +497,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
