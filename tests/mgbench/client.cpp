@@ -489,6 +489,7 @@ void CreateDatabases(std::vector<std::string> const &dbs) {
     auto const create_db_query = fmt::format("CREATE DATABASE {}", db);
     client.Execute(create_db_query, {});
   }
+  client.Close();
 }
 
 int main(int argc, char **argv) {
