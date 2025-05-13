@@ -1018,7 +1018,7 @@ TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector{p1}};
+  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p1}}};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(1u, values.size());
   EXPECT_EQ(values[0], data[0].second);
@@ -1035,7 +1035,7 @@ TEST(PropertiesPermutationHelper, CanReadTwoValuesInOrderFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector{p1, p2}};
+  PropertiesPermutationHelper prop_reader(std::array{PropertyPath{p1}, PropertyPath{p2}});
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(2u, values.size());
   EXPECT_EQ(values[0], data[0].second);
@@ -1053,7 +1053,7 @@ TEST(PropertiesPermutationHelper, CanReadTwoValuesOutOfOrderFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector{p2, p1}};
+  PropertiesPermutationHelper prop_reader{std::array{PropertyPath{p2}, PropertyPath{p1}}};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(2u, values.size());
   EXPECT_EQ(values[0], data[1].second);
@@ -1075,7 +1075,8 @@ TEST(PropertiesPermutationHelper, CanReadMultipleValuesOutOfOrderFromStore) {
   PropertyStore store;
   store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector{p3, p1, p4, p2}};
+  PropertiesPermutationHelper prop_reader{
+      std::vector{PropertyPath{p3}, PropertyPath{p1}, PropertyPath{p4}, PropertyPath{p2}}};
   auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
   ASSERT_EQ(4u, values.size());
 
