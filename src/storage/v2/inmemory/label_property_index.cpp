@@ -1029,8 +1029,9 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
   }
 };
 
-void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
-                                                                    Vertex *vertex, const Transaction &tx) {
+void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId property,
+                                                                    const PropertyValue & /*value*/, Vertex *vertex,
+                                                                    const Transaction &tx) {
   auto const it = reverse_index_container.find(property);
   if (it == reverse_index_container.end()) {
     return;
