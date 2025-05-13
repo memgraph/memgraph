@@ -124,13 +124,13 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
+  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
       : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyId> &&properties)
+  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties)
       : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties)} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyPath> properties,
                 LabelPropertyIndexStats const &stats)
       : action(Action::LABEL_PROPERTIES_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
@@ -301,7 +301,7 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      std::vector<PropertyId> properties;
+      std::vector<PropertyPath> properties;
     } label_ordered_properties;
 
     struct {
@@ -316,7 +316,7 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      std::vector<PropertyId> properties;
+      std::vector<PropertyPath> properties;
       LabelPropertyIndexStats stats;
     } label_property_stats;
 
