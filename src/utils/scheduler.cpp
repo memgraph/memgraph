@@ -68,17 +68,16 @@ void Scheduler::SetInterval_(std::chrono::milliseconds pause,
   }
 
   // Function to calculate next
-  *find_next_.Lock() = [=](const auto &now, bool incr) mutable {
-    if (next_execution > now) return next_execution;
-    if (incr) {
+  *find_next_.Lock() = [=](const auto &now, const bool incr) mutable {
+    if (!incr) return std::max(now, next_execution);
+    if (now > next_execution) {
       next_execution += pause;
       // If multiple periods are missed, execute as soon as possible once
-      if (now > next_execution) {
-        next_execution = now;
-      }
-      return next_execution;
+      const auto delta = now - next_execution;
+      const int n_periods = delta / pause;
+      next_execution += n_periods * pause;  // Closest previous execution
     }
-    return std::max(now, next_execution);
+    return next_execution;
   };
 }
 
