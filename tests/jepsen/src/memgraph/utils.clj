@@ -88,11 +88,6 @@
   [node]
   (str "Node " node " is down"))
 
-(defn txn-asked-to-abort?
-  "Exception as argument. Checks if the txn was asked to abort."
-  [e]
-  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout"))
-
 (defn unique-constraint-violated?
   "Unique constraint was violated."
   [e]
