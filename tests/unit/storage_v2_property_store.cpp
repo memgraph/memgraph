@@ -264,7 +264,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   TestIsPropertyEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
-/*
+
 TEST(PropertyStore, EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
@@ -407,7 +407,7 @@ TEST(PropertyStore, FullSet) {
       TestIsPropertyEqual(props, item.first, PropertyValue());
     }
   }
-}*/
+}
 
 TEST(PropertyStore, IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
@@ -593,7 +593,6 @@ TEST(PropertyStore, IsPropertyEqualList) {
       prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test"), PropertyValue(true)})));
 }
 
-/* @TODO put back
 TEST(PropertyStore, IsPropertyEqualMap) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
@@ -626,7 +625,7 @@ TEST(PropertyStore, IsPropertyEqualMap) {
                                                {PropertyId::FromUint(2), PropertyValue(true)},
                                                {PropertyId::FromUint(3), PropertyValue("test")}})));
 }
-*/
+
 TEST(PropertyStore, IsPropertyEqualTemporalData) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
@@ -692,7 +691,6 @@ TEST(PropertyStore, IsPropertyEqualEnum) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue{diff_value}));
 }
 
-/* @TODO put back
 TEST(PropertyStore, SetMultipleProperties) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
@@ -728,7 +726,7 @@ TEST(PropertyStore, SetMultipleProperties) {
     EXPECT_FALSE(store.InitProperties(data));
   }
 }
-*/
+
 TEST(PropertyStore, HasAllProperties) {
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
       {PropertyId::FromInt(1), PropertyValue(true)},
