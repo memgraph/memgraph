@@ -592,11 +592,11 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       for (const auto &item : map) {
         auto metadata = writer->WriteMetadata();
         if (!metadata) return std::nullopt;
-        auto property_id = writer->WriteUint(item.first.AsUint());
-        if (!property_id) return std::nullopt;
+        auto property_id_size = writer->WriteUint(item.first.AsUint());
+        if (!property_id_size) return std::nullopt;
         auto ret = EncodePropertyValue(writer, item.second);
         if (!ret) return std::nullopt;
-        metadata->Set({ret->first, *property_id, ret->second});
+        metadata->Set({ret->first, *property_id_size, ret->second});
       }
       return {{Type::MAP, *size}};
     }

@@ -1528,7 +1528,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                   get_property_from_id, name_id_mapper);
@@ -1555,7 +1555,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
@@ -1575,7 +1575,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
          snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
@@ -1816,7 +1816,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                   get_property_from_id, name_id_mapper);
@@ -1843,7 +1843,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
@@ -1863,7 +1863,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
          snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
@@ -2158,7 +2158,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                   get_property_from_id, name_id_mapper);
@@ -2185,7 +2185,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
@@ -2205,7 +2205,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
          snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
@@ -2583,7 +2583,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid, schema_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                   get_property_from_id, name_id_mapper);
@@ -2610,7 +2610,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
@@ -2630,7 +2630,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, edge_count, items = config.salient.items, snapshot_has_edges,
          &get_edge_type_from_id, &highest_edge_gid, &recovery_info, schema_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
@@ -3025,7 +3025,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                   get_property_from_id, name_id_mapper);
@@ -3052,7 +3052,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &name_id_mapper](
+          [path, edges, items = config.salient.items, &get_property_from_id, name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper);
           },
@@ -3072,7 +3072,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
          snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
@@ -3519,7 +3519,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         &snapshot_info, &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         &snapshot_info, name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                   get_property_from_id, name_id_mapper, snapshot_info);
@@ -3546,7 +3546,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, &name_id_mapper](
+          [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
               const size_t /*batch_index*/, const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper,
                              snapshot_info);
@@ -3567,7 +3567,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
          snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info, &snapshot_info,
-         &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+         name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper, snapshot_info);
@@ -4057,7 +4057,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-           &snapshot_info, &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info, name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
             const auto last_vertex_gid_in_batch =
                 LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                     get_property_from_id, name_id_mapper, snapshot_info);
@@ -4086,7 +4086,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, &name_id_mapper](
+            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
                 const size_t /*batch_index*/, const BatchInfo &batch) {
               LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper,
                                snapshot_info);
@@ -4109,7 +4109,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           config.durability.recovery_thread_count,
           [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
            snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info, &snapshot_info,
-           &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info,
                                                         batch.offset, batch.count, items, snapshot_has_edges,
                                                         get_edge_type_from_id, name_id_mapper, snapshot_info);
