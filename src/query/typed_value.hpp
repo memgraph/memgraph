@@ -126,7 +126,7 @@ class TypedValue {
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::select_on_container_copy_construction(other.memory_).
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
@@ -134,18 +134,18 @@ class TypedValue {
   TypedValue(const TypedValue &other)
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.alloc_)) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   TypedValue(const TypedValue &other, allocator_type alloc);
 
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * set to Null.
    */
   TypedValue(TypedValue &&other) noexcept;
 
   /**
-   * Construct with the value of other, but use the given utils::MemoryResource.
+   * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
    * If `*memory != *other.get_allocator()`, then a copy is made instead of
    * a move.
@@ -212,7 +212,7 @@ class TypedValue {
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::
    *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that
@@ -221,11 +221,11 @@ class TypedValue {
   explicit TypedValue(const TString &other)
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   TypedValue(const TString &other, allocator_type alloc)
       : alloc_{alloc}, string_v{other, alloc_}, type_(Type::String) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   explicit TypedValue(const std::vector<TypedValue> &value, allocator_type alloc = {})
       : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
 
@@ -236,7 +236,7 @@ class TypedValue {
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::
    *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that
@@ -245,16 +245,16 @@ class TypedValue {
   explicit TypedValue(const TVector &other)
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   TypedValue(const TVector &value, allocator_type alloc) : alloc_{alloc}, list_v{value, alloc_}, type_(Type::List) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   explicit TypedValue(const std::map<std::string, TypedValue> &value, allocator_type alloc = {})
       : alloc_{alloc}, map_v{value.begin(), value.end(), alloc_}, type_(Type::Map) {}
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::
    *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that
@@ -263,7 +263,7 @@ class TypedValue {
   explicit TypedValue(const TMap &other)
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   TypedValue(const TMap &value, allocator_type alloc) : alloc_{alloc}, map_v{value, alloc_}, type_(Type::Map) {}
 
   explicit TypedValue(const VertexAccessor &vertex, allocator_type alloc = {})
@@ -280,14 +280,14 @@ class TypedValue {
   /** Construct a copy using default utils::NewDeleteResource() */
   explicit TypedValue(const storage::PropertyValue &value);
 
-  /** Construct a copy using the given utils::MemoryResource */
+  /** Construct a copy given allocator_type */
   TypedValue(const storage::PropertyValue &value, allocator_type alloc);
 
   // move constructors for non-primitive types
 
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * left in unspecified state.
    */
   explicit TypedValue(TString &&other) noexcept : TypedValue(std::move(other), other.get_allocator()) {}
@@ -313,7 +313,7 @@ class TypedValue {
 
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * left empty.
    */
   explicit TypedValue(TVector &&other) noexcept : TypedValue(std::move(other), other.get_allocator()) {}
@@ -342,7 +342,7 @@ class TypedValue {
   TypedValue(std::map<std::string, TypedValue> &&other, allocator_type alloc);
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * left empty.
    */
   explicit TypedValue(TMap &&other);
@@ -362,7 +362,7 @@ class TypedValue {
 
   /**
    * Construct with the value of path.
-   * utils::MemoryResource is obtained from path. After the move, path will be
+   * allocator_type is obtained from path. After the move, path will be
    * left empty.
    */
   explicit TypedValue(Path &&path);
@@ -376,7 +376,7 @@ class TypedValue {
 
   /**
    * Construct with the value of graph.
-   * utils::MemoryResource is obtained from graph. After the move, graph will be
+   * allocator_type is obtained from graph. After the move, graph will be
    * left empty.
    */
   explicit TypedValue(Graph &&graph);
@@ -399,7 +399,7 @@ class TypedValue {
   explicit TypedValue(storage::PropertyValue &&other);
 
   /**
-   * Construct with the value of other, but use the given utils::MemoryResource.
+   * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
    */
   TypedValue(storage::PropertyValue &&other, allocator_type alloc);
@@ -426,10 +426,10 @@ class TypedValue {
   TypedValue &operator=(const storage::Enum &);
   TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
-  /** Copy assign other, utils::MemoryResource of `this` is used */
+  /** Copy assign other, allocator_type of `this` is used */
   TypedValue &operator=(const TypedValue &other);
 
-  /** Move assign other, utils::MemoryResource of `this` is used. */
+  /** Move assign other, allocator_type of `this` is used. */
   TypedValue &operator=(TypedValue &&other) noexcept(false);
 
   // move assignment operators
