@@ -115,6 +115,8 @@ class TypedValue {
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::flat_map<TString, TypedValue>;
 
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
+
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
 
@@ -208,8 +210,8 @@ class TypedValue {
     point_3d_v = value;
   }
 
-  // conversion function to storage::PropertyValue
-  explicit operator storage::PropertyValue() const;
+  // conversion function to storage::ExternalPropertyValue
+  explicit operator storage::ExternalPropertyValue() const;
 
   // copy constructors for non-primitive types
   explicit TypedValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -319,10 +321,16 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value);
+  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
+
+  /** Construct a copy using default utils::NewDeleteResource() */
+  explicit TypedValue(const storage::ExternalPropertyValue &value);
+
+  /** Construct a copy using the given utils::MemoryResource */
+  TypedValue(const storage::ExternalPropertyValue &value, utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
 
@@ -455,13 +463,26 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other);
+  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
+
+  /**
+   * Construct with the value of other.
+   * Default utils::NewDeleteResource() is used for allocations. After the move,
+   * other will be set to Null.
+   */
+  explicit TypedValue(storage::ExternalPropertyValue &&other);
+
+  /**
+   * Construct with the value of other, but use the given utils::MemoryResource.
+   * After the move, other will be set to Null.
+   */
+  TypedValue(storage::ExternalPropertyValue &&other, utils::MemoryResource *memory);
 
   // copy assignment operators
   TypedValue &operator=(const char *);

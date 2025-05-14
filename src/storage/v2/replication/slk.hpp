@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,6 @@ void Load(storage::Point3d *point3d_val, slk::Reader *reader);
 void Save(const storage::Gid &gid, slk::Builder *builder);
 void Load(storage::Gid *gid, slk::Reader *reader);
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder);
-void Load(storage::PropertyValue *value, slk::Reader *reader);
-
+void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder);
+void Load(storage::ExternalPropertyValue *value, slk::Reader *reader);
 }  // namespace memgraph::slk

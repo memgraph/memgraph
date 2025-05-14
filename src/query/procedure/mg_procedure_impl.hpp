@@ -81,7 +81,8 @@ struct mgp_value {
 
   /// Construct by copying memgraph::storage::PropertyValue using memgraph::utils::MemoryResource.
   /// @throw std::bad_alloc
-  mgp_value(const memgraph::storage::PropertyValue &, memgraph::utils::MemoryResource *);
+  mgp_value(const memgraph::storage::PropertyValue &, memgraph::storage::NameIdMapper *,
+            memgraph::utils::MemoryResource *);
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_value(const mgp_value &) = delete;
@@ -655,7 +656,8 @@ struct mgp_properties_iterator {
           },
           graph->impl);
 
-      current.emplace(value, mgp_value(current_it->second, memory));
+      current.emplace(value,
+                      mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), memory));
       property.name = current->first.c_str();
       property.value = &current->second;
     }

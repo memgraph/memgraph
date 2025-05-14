@@ -20,6 +20,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/string_helpers.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
@@ -109,6 +110,8 @@ void PrintObject(std::ostream *out, AllPropertiesLookup *apl);
 void PrintObject(std::ostream *out, const DbAccessor *dba, Identifier *expr);
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value);
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::ExternalPropertyValue &value);
 
 template <typename T>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec);
@@ -223,6 +226,54 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, value.ValuePoint2d());
       break;
     case storage::PropertyValue::Type::Point3d:
+      PrintObject(out, value.ValuePoint3d());
+  }
+}
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::ExternalPropertyValue &value) {
+  switch (value.type()) {
+    case storage::ExternalPropertyValue::Type::Null:
+      *out << "null";
+      break;
+
+    case storage::ExternalPropertyValue::Type::String:
+      PrintObject(out, dba, value.ValueString());
+      break;
+
+    case storage::ExternalPropertyValue::Type::Bool:
+      *out << (value.ValueBool() ? "true" : "false");
+      break;
+
+    case storage::ExternalPropertyValue::Type::Int:
+      PrintObject(out, dba, value.ValueInt());
+      break;
+
+    case storage::ExternalPropertyValue::Type::Double:
+      PrintObject(out, dba, value.ValueDouble());
+      break;
+
+    case storage::ExternalPropertyValue::Type::List:
+      PrintObject(out, dba, value.ValueList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::Map:
+      PrintObject(out, dba, value.ValueMap());
+      break;
+
+    case storage::ExternalPropertyValue::Type::TemporalData:
+      PrintObject(out, dba, value.ValueTemporalData());
+      break;
+
+    case storage::ExternalPropertyValue::Type::ZonedTemporalData:
+      PrintObject(out, dba, value.ValueZonedTemporalData());
+      break;
+    case storage::ExternalPropertyValue::Type::Enum:
+      PrintObject(out, dba, value.ValueEnum());
+      break;
+    case storage::ExternalPropertyValue::Type::Point2d:
+      PrintObject(out, value.ValuePoint2d());
+      break;
+    case storage::ExternalPropertyValue::Type::Point3d:
       PrintObject(out, value.ValuePoint3d());
   }
 }

@@ -139,10 +139,10 @@ struct WalVertexAddLabel : VertexLabelOpInfo {};
 struct WalVertexRemoveLabel : VertexLabelOpInfo {};
 struct WalVertexSetProperty {
   friend bool operator==(const WalVertexSetProperty &, const WalVertexSetProperty &) = default;
-  using ctr_types = std::tuple<Gid, std::string, PropertyValue>;
+  using ctr_types = std::tuple<Gid, std::string, ExternalPropertyValue>;
   Gid gid;
   std::string property;
-  PropertyValue value;
+  ExternalPropertyValue value;
 };
 struct WalEdgeSetProperty {
   friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
@@ -150,10 +150,11 @@ struct WalEdgeSetProperty {
     // check it)
     return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
   }
-  using ctr_types = std::tuple<Gid, std::string, PropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+  using ctr_types =
+      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
   Gid gid;
   std::string property;
-  PropertyValue value;
+  ExternalPropertyValue value;
   std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
 };
 struct WalEdgeCreate : EdgeOpInfo {};
@@ -367,14 +368,14 @@ void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, En
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                           std::vector<PropertyId> const &properties);
+                           std::span<PropertyPath const> properties);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties);
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
                           TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats);
+                              std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);

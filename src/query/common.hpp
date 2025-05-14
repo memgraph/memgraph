@@ -192,9 +192,10 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
+                                       storage::NameIdMapper *name_id_mapper) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
+    auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
     if (maybe_old_value.HasError()) {
       ProcessError(maybe_old_value.GetError());
     }

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -166,7 +166,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
     values.reserve(order_value_pair.second.size());
-    for (const auto &v : order_value_pair.second) values.emplace_back(v);
+    for (const auto &v : order_value_pair.second) values.emplace_back(v, storage_dba->GetNameIdMapper());
     // empty database
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
       ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
@@ -190,7 +190,8 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
 
     // create the vertices
     for (const auto &value : shuffled)
-      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(value)).HasValue());
+      ASSERT_TRUE(
+          dba.InsertVertex().SetProperty(prop, value.ToPropertyValue(storage_dba->GetNameIdMapper())).HasValue());
     dba.AdvanceCommand();
 
     // order by and collect results

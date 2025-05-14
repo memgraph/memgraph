@@ -3174,9 +3174,9 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
     for (size_t i = 0; i < expected.size(); i++) {
       bool local_check = false;
       for (size_t j = 0; j < results.size(); j++) {
-        bool local_equal =
-            (TypedValue(*results[j][0].ValueVertex().GetProperty(memgraph::storage::View::OLD, prop)) == expected[i])
-                .ValueBool();
+        bool local_equal = (TypedValue(*results[j][0].ValueVertex().GetProperty(memgraph::storage::View::OLD, prop),
+                                       storage_dba->GetNameIdMapper()) == expected[i])
+                               .ValueBool();
         if (local_equal) {
           local_check = true;
           break;
@@ -3217,7 +3217,8 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
     for (const auto &value_b : values) {
       if (!are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
                           static_cast<memgraph::storage::PropertyValue>(value_b).type())) {
-        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
+        check(TypedValue(value_a, storage_dba->GetNameIdMapper()), Bound::Type::INCLUSIVE,
+              TypedValue(value_b, storage_dba->GetNameIdMapper()), Bound::Type::INCLUSIVE, {});
       }
     }
   }
@@ -3260,7 +3261,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
   auto vertex = row[0].ValueVertex();
-  TypedValue value(*vertex.GetProperty(memgraph::storage::View::OLD, prop));
+  TypedValue value(*vertex.GetProperty(memgraph::storage::View::OLD, prop), storage_dba->GetNameIdMapper());
   TypedValue::BoolEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }

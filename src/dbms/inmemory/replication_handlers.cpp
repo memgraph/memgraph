@@ -898,7 +898,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), data.value);
+          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property),
+                                         ToPropertyValue(data.value, storage->name_id_mapper_.get()));
           if (ret.HasError()) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
@@ -1036,7 +1037,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           });
 
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
-          auto ret = ea.SetProperty(transaction->NameToProperty(data.property), data.value);
+          auto ret = ea.SetProperty(transaction->NameToProperty(data.property),
+                                    ToPropertyValue(data.value, storage->name_id_mapper_.get()));
           if (ret.HasError()) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
@@ -1089,7 +1091,16 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
 
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
-          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
+
+          // @TODO for POC, just convert the non-nested properties into nested
+          // by converting each element into a vector.
+          auto non_nested_props = properties |
+                                  r::views::transform([](auto &&composite_index_property) -> storage::PropertyPath {
+                                    return {composite_index_property};
+                                  }) |
+                                  r::to_vector;
+
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(non_nested_props)).HasError())
 
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
                                         properties_stringified);
@@ -1100,7 +1111,16 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
                         properties_stringified);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
-          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {
+
+          // @TODO for POC, just convert the non-nested properties into nested
+          // by converting each element into a vector.
+          auto non_nested_props = properties |
+                                  r::views::transform([](auto &&composite_index_property) -> storage::PropertyPath {
+                                    return {composite_index_property};
+                                  }) |
+                                  r::to_vector;
+
+          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(non_nested_props)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
                                         properties_stringified);
           }
@@ -1115,7 +1135,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
           }
-          transaction->SetIndexStats(label, std::move(properties), stats);
+          // TODO: put back...
+          // transaction->SetIndexStats(label, std::move(properties), stats);
         },
         [&](WalLabelPropertyIndexStatsClear const &data) {
           spdlog::trace("   Delta {}. Clear label-property index statistics on :{}", current_delta_idx, data.label);

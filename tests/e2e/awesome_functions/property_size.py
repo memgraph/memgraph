@@ -169,12 +169,11 @@ def test_property_size_on_map_prop(memgraph):
     # for every map element:
     #   - 1 byte for metadata
     #   - 1, 2, 4 or 8 bytes for the key length (read from the metadata payload) -> this case 1
-    #   - Y bytes for the key content -> this case 4
-    #   - Z amount of bytes for the type
+    #   - Y amount of bytes for the type
     #       - for 'value' -> 1 byte for size and 5 for length
     #       - for 4 -> 1 byte for content read from payload
-    # total: 1 + 1 + (1 + 1 + 4 + (1 + 5)) + (1 + 1 + 4 + (1))
-    assert map_bytes == 22
+    # total: 1 + 1 + (1 + 1 + (1 + 5)) + (1 + 1 + (1))
+    assert map_bytes == 14
 
 
 def test_property_size_on_date_prop(memgraph):

@@ -19,6 +19,7 @@
 #include "query/query_logger.hpp"
 #include "query/stream.hpp"
 #include "system/transaction.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
@@ -187,7 +188,7 @@ struct PreparedQuery {
  * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
  */
 struct QueryExtras {
-  storage::PropertyValue::map_t metadata_pv{};
+  storage::ExternalPropertyValue::map_t metadata_pv{};
   std::optional<int64_t> tx_timeout{};
   bool is_read{false};
 };
@@ -270,7 +271,7 @@ class Interpreter final {
 
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
-  std::optional<storage::PropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
+  std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);

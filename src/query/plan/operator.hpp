@@ -27,7 +27,6 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/bound.hpp"
-#include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/synchronized.hpp"
@@ -57,7 +56,8 @@ struct ExpressionRange {
   static auto IsNotNull() -> ExpressionRange;
 
   auto Evaluate(ExpressionEvaluator &evaluator) const -> storage::PropertyValueRange;
-  auto ResolveAtPlantime(Parameters const &params) const -> std::optional<storage::PropertyValueRange>;
+  auto ResolveAtPlantime(Parameters const &params, storage::NameIdMapper *name_id_mapper) const
+      -> std::optional<storage::PropertyValueRange>;
 
   ExpressionRange(ExpressionRange const &other, AstStorage &storage);
 
@@ -783,14 +783,14 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
    * @param view storage::View used when obtaining vertices.
    */
   ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                           std::vector<storage::PropertyId> properties, std::vector<ExpressionRange> expression_ranges,
-                           storage::View view = storage::View::OLD);
+                           std::vector<storage::PropertyPath> properties,
+                           std::vector<ExpressionRange> expression_ranges, storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
-  std::vector<storage::PropertyId> properties_;
+  std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
 
   std::string ToString() const override;

@@ -176,7 +176,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, qu
       *os << "{";
       const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [&](auto &os, const auto &kv) {
-        os << EscapeName(kv.first) << ": ";
+        os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
         DumpPropertyValue(&os, kv.second, dba);
       });
       *os << "}";
@@ -306,11 +306,16 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                              std::span<storage::PropertyId const> properties) {
-  auto prop_names =
-      properties | rv::transform([&](auto &&property) { return EscapeName(dba->PropertyToName(property)); });
+                              std::span<storage::PropertyPath const> properties) {
+  auto const concat_nested_props = [&](auto &&path) {
+    return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+           rv::join(".");
+  };
 
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << utils::Join(prop_names, ", ") << ");";
+  auto prop_names = properties | rv::transform([&](auto &&path) { return concat_nested_props(path); }) |
+                    rv::join(", ") | r::to<std::string>();
+
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
