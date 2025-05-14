@@ -30,30 +30,37 @@
 
 namespace memgraph::query {
 
+TypedValue::TypedValue(std::vector<TypedValue> &&other, allocator_type alloc)
+    : alloc_{alloc},
+      list_v{
+          std::make_move_iterator(other.begin()),
+          std::make_move_iterator(other.end()),
+          alloc_,
+      },
+      type_(Type::List) {}
+
 TypedValue::TypedValue(TMap &&other) : TypedValue(std::move(other), other.get_allocator()) {}
 
 TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, allocator_type alloc)
-    : alloc_{alloc}, type_(Type::Map) {
-  std::construct_at(&map_v, alloc_);
-  for (auto &kv : other) map_v.emplace(TString(kv.first, alloc_), std::move(kv.second));
-}
+    : alloc_{alloc},
+      map_v{std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()), alloc_},
+      type_(Type::Map) {}
 
-TypedValue::TypedValue(TMap &&other, allocator_type alloc) : alloc_{alloc}, type_(Type::Map) {
-  std::construct_at(&map_v, std::move(other), alloc_);
-}
+TypedValue::TypedValue(TMap &&other, allocator_type alloc)
+    : alloc_{alloc}, map_v{std::move(other), alloc_}, type_(Type::Map) {}
 
 TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.get_allocator()) {}
 
 TypedValue::TypedValue(Path &&path, allocator_type alloc) : alloc_{alloc}, type_(Type::Path) {
   auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(std::move(path));
-  std::construct_at(&path_v, path_ptr);
+  alloc_trait::construct(alloc_, &path_v, path_ptr);
 }
 
 TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.get_allocator()) {}
 
 TypedValue::TypedValue(Graph &&graph, allocator_type alloc) : alloc_{alloc}, type_(Type::Graph) {
   auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(std::move(graph));
-  std::construct_at(&graph_v, graph_ptr);
+  alloc_trait::construct(alloc_, &graph_v, graph_ptr);
 }
 
 TypedValue::TypedValue(const storage::PropertyValue &value)
@@ -79,21 +86,18 @@ TypedValue::TypedValue(const storage::PropertyValue &value, allocator_type alloc
       return;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(value.ValueString(), alloc_);
+      alloc_trait::construct(alloc_, &string_v, value.ValueString());
       return;
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
-      new (&list_v) TVector(alloc_);
-      list_v.reserve(vec.size());
-      for (const auto &v : vec) list_v.emplace_back(v);
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
-      std::construct_at(&map_v, alloc_);
-      for (const auto &kv : map) map_v.emplace(TString(kv.first, alloc_), kv.second);
+      alloc_trait::construct(alloc_, &map_v, map.cbegin(), map.cend());
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -101,22 +105,22 @@ TypedValue::TypedValue(const storage::PropertyValue &value, allocator_type alloc
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) utils::Date(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_date_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) utils::Duration(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &duration_v, temporal_data.microseconds);
           break;
         }
       }
@@ -127,7 +131,8 @@ TypedValue::TypedValue(const storage::PropertyValue &value, allocator_type alloc
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
+                                 zoned_temporal_data.timezone);
           break;
         }
       }
@@ -135,17 +140,17 @@ TypedValue::TypedValue(const storage::PropertyValue &value, allocator_type alloc
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      new (&enum_v) storage::Enum(value.ValueEnum());
+      alloc_trait::construct(alloc_, &enum_v, value.ValueEnum());
       return;
     }
     case storage::PropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
-      new (&point_2d_v) storage::Point2d(value.ValuePoint2d());
+      alloc_trait::construct(alloc_, &point_2d_v, value.ValuePoint2d());
       return;
     }
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
-      new (&point_3d_v) storage::Point3d(value.ValuePoint3d());
+      alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
       return;
     }
   }
@@ -175,19 +180,21 @@ TypedValue::TypedValue(storage::PropertyValue &&other, allocator_type alloc) : a
       break;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(other.ValueString(), alloc_);
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &string_v, other.ValueString());
       break;
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), alloc_);
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
-      std::construct_at(&map_v, alloc_);
-      for (auto &kv : map) map_v.emplace(TString(kv.first, alloc_), std::move(kv.second));
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &map_v, map.cbegin(), map.cend());
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -195,22 +202,22 @@ TypedValue::TypedValue(storage::PropertyValue &&other, allocator_type alloc) : a
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) utils::Date(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_date_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) utils::Duration(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &duration_v, temporal_data.microseconds);
           break;
         }
       }
@@ -221,7 +228,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, allocator_type alloc) : a
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
+                                 zoned_temporal_data.timezone);
           break;
         }
       }
@@ -229,17 +237,17 @@ TypedValue::TypedValue(storage::PropertyValue &&other, allocator_type alloc) : a
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      new (&enum_v) storage::Enum(other.ValueEnum());
+      alloc_trait::construct(alloc_, &enum_v, other.ValueEnum());
       break;
     }
     case storage::PropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
-      new (&point_2d_v) storage::Point2d(other.ValuePoint2d());
+      alloc_trait::construct(alloc_, &point_2d_v, other.ValuePoint2d());
       break;
     }
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
-      new (&point_3d_v) storage::Point3d(other.ValuePoint3d());
+      alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
   }
@@ -261,56 +269,56 @@ TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{a
       this->double_v = other.double_v;
       return;
     case TypedValue::Type::String:
-      new (&string_v) TString(other.string_v, alloc_);
+      alloc_trait::construct(alloc_, &string_v, other.string_v);
       return;
     case Type::List:
-      new (&list_v) TVector(other.list_v, alloc_);
+      alloc_trait::construct(alloc_, &list_v, other.list_v);
       return;
     case Type::Map: {
-      std::construct_at(&map_v, other.map_v, alloc_);
+      alloc_trait::construct(alloc_, &map_v, other.map_v);
       return;
     }
     case Type::Vertex:
-      new (&vertex_v) VertexAccessor(other.vertex_v);
+      alloc_trait::construct(alloc_, &vertex_v, other.vertex_v);
       return;
     case Type::Edge:
-      new (&edge_v) EdgeAccessor(other.edge_v);
+      alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       return;
     case Type::Path: {
       auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(*other.path_v);
-      std::construct_at(&path_v, path_ptr);
+      alloc_trait::construct(alloc_, &path_v, path_ptr);
       return;
     }
     case Type::Date:
-      new (&date_v) utils::Date(other.date_v);
+      alloc_trait::construct(alloc_, &date_v, other.date_v);
       return;
     case Type::LocalTime:
-      new (&local_time_v) utils::LocalTime(other.local_time_v);
+      alloc_trait::construct(alloc_, &local_time_v, other.local_time_v);
       return;
     case Type::LocalDateTime:
-      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+      alloc_trait::construct(alloc_, &local_date_time_v, other.local_date_time_v);
       return;
     case Type::ZonedDateTime:
-      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      alloc_trait::construct(alloc_, &zoned_date_time_v, other.zoned_date_time_v);
       return;
     case Type::Duration:
-      new (&duration_v) utils::Duration(other.duration_v);
+      alloc_trait::construct(alloc_, &duration_v, other.duration_v);
       return;
     case Type::Enum:
-      new (&enum_v) storage::Enum(other.enum_v);
+      alloc_trait::construct(alloc_, &enum_v, other.enum_v);
       return;
     case Type::Point2d:
-      new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      alloc_trait::construct(alloc_, &point_2d_v, other.point_2d_v);
       return;
     case Type::Point3d:
-      new (&point_3d_v) storage::Point3d(other.point_3d_v);
+      alloc_trait::construct(alloc_, &point_3d_v, other.point_3d_v);
       return;
     case Type::Function:
-      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+      alloc_trait::construct(alloc_, &function_v, other.function_v);
       return;
     case Type::Graph:
       auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(*other.graph_v);
-      new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+      alloc_trait::construct(alloc_, &graph_v, graph_ptr);
       return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
@@ -323,72 +331,72 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
     case TypedValue::Type::Null:
       break;
     case TypedValue::Type::Bool:
-      std::construct_at(&bool_v, other.bool_v);
+      alloc_trait::construct(alloc_, &bool_v, other.bool_v);
       break;
     case Type::Int:
-      std::construct_at(&int_v, other.int_v);
+      alloc_trait::construct(alloc_, &int_v, other.int_v);
       break;
     case Type::Double:
-      std::construct_at(&double_v, other.double_v);
+      alloc_trait::construct(alloc_, &double_v, other.double_v);
       break;
     case TypedValue::Type::String:
-      std::construct_at(&string_v, std::move(other.string_v), alloc_);
+      alloc_trait::construct(alloc_, &string_v, std::move(other.string_v));
       break;
     case Type::List:
-      std::construct_at(&list_v, std::move(other.list_v), alloc_);
+      alloc_trait::construct(alloc_, &list_v, std::move(other.list_v));
       break;
     case Type::Map: {
-      std::construct_at(&map_v, std::move(other.map_v), alloc_);
+      alloc_trait::construct(alloc_, &map_v, std::move(other.map_v));
       break;
     }
     case Type::Vertex:
-      std::construct_at(&vertex_v, other.vertex_v);
+      alloc_trait::construct(alloc_, &vertex_v, other.vertex_v);
       break;
     case Type::Edge:
-      std::construct_at(&edge_v, other.edge_v);
+      alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       break;
     case Type::Path: {
       if (other.alloc_ == alloc_) {
-        std::construct_at(&path_v, std::move(other.path_v));
+        alloc_trait::construct(alloc_, &path_v, std::move(other.path_v));
       } else {
         auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(std::move(*other.path_v));
-        std::construct_at(&path_v, path_ptr);
+        alloc_trait::construct(alloc_, &path_v, path_ptr);
       }
       break;
     }
     case Type::Date:
-      std::construct_at(&date_v, other.date_v);
+      alloc_trait::construct(alloc_, &date_v, other.date_v);
       break;
     case Type::LocalTime:
-      std::construct_at(&local_time_v, other.local_time_v);
+      alloc_trait::construct(alloc_, &local_time_v, other.local_time_v);
       break;
     case Type::LocalDateTime:
-      std::construct_at(&local_date_time_v, other.local_date_time_v);
+      alloc_trait::construct(alloc_, &local_date_time_v, other.local_date_time_v);
       break;
     case Type::ZonedDateTime:
-      std::construct_at(&zoned_date_time_v, other.zoned_date_time_v);
+      alloc_trait::construct(alloc_, &zoned_date_time_v, other.zoned_date_time_v);
       break;
     case Type::Duration:
-      std::construct_at(&duration_v, other.duration_v);
+      alloc_trait::construct(alloc_, &duration_v, other.duration_v);
       break;
     case Type::Enum:
-      std::construct_at(&enum_v, other.enum_v);
+      alloc_trait::construct(alloc_, &enum_v, other.enum_v);
       break;
     case Type::Point2d:
-      std::construct_at(&point_2d_v, other.point_2d_v);
+      alloc_trait::construct(alloc_, &point_2d_v, other.point_2d_v);
       break;
     case Type::Point3d:
-      std::construct_at(&point_3d_v, other.point_3d_v);
+      alloc_trait::construct(alloc_, &point_3d_v, other.point_3d_v);
       break;
     case Type::Function:
-      std::construct_at(&function_v, std::move(other.function_v));
+      alloc_trait::construct(alloc_, &function_v, std::move(other.function_v));
       break;
     case Type::Graph:
       if (other.alloc_ == alloc_) {
-        std::construct_at(&graph_v, std::move(other.graph_v));
+        alloc_trait::construct(alloc_, &graph_v, std::move(other.graph_v));
       } else {
         auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(std::move(*other.graph_v));
-        std::construct_at(&graph_v, graph_ptr);
+        alloc_trait::construct(alloc_, &graph_v, graph_ptr);
       }
   }
 }
@@ -406,7 +414,7 @@ TypedValue::operator storage::PropertyValue() const {
     case TypedValue::Type::String:
       return storage::PropertyValue(std::string(string_v));
     case TypedValue::Type::List:
-      return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
+      return storage::PropertyValue(storage::PropertyValue::list_t(list_v.cbegin(), list_v.cend()));
     case TypedValue::Type::Map: {
       storage::PropertyValue::map_t map;
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
@@ -685,8 +693,11 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TVector, List, list_v)
 
 TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   if (type_ == Type::List) {
+    list_v.clear();
     list_v.reserve(other.size());
-    list_v.assign(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
+    for (auto &elem : other) {
+      list_v.emplace_back(std::move(elem));
+    }
   } else {
     *this = TypedValue(std::move(other), alloc_);
   }
@@ -698,7 +709,9 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TMap, Map, map_v)
 TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
   if (type_ == Type::Map) {
     map_v.clear();
-    for (auto &kv : other) map_v.emplace(TString(kv.first, alloc_), std::move(kv.second));
+    for (auto &[key, value] : other) {
+      map_v.emplace(TString(key, alloc_), TypedValue(std::move(value), alloc_));
+    }
   } else {
     *this = TypedValue(std::move(other), alloc_);
   }
@@ -711,7 +724,7 @@ TypedValue &TypedValue::operator=(Path &&other) {
     if (path) {
       utils::Allocator<Path>(alloc_).delete_object(path);
     }
-    path_v = std::make_unique<Path>(std::move(other));
+    path_v = std::make_unique<Path>(std::move(other), alloc_);
   } else {
     *this = TypedValue(std::move(other), alloc_);
   }

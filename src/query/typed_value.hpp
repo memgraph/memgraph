@@ -201,17 +201,14 @@ class TypedValue {
   explicit operator storage::PropertyValue() const;
 
   // copy constructors for non-primitive types
-  explicit TypedValue(const std::string &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::String) {
-    std::construct_at(&string_v, value, alloc_);
-  }
+  explicit TypedValue(const std::string &value, allocator_type alloc = {})
+      : alloc_{alloc}, string_v{value, alloc_}, type_(Type::String) {}
 
-  explicit TypedValue(const char *value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::String) {
-    std::construct_at(&string_v, value, alloc_);
-  }
+  explicit TypedValue(const char *value, allocator_type alloc = {})
+      : alloc_{alloc}, string_v{value, alloc_}, type_(Type::String) {}
 
-  explicit TypedValue(const std::string_view value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::String) {
-    std::construct_at(&string_v, value, alloc_);
-  }
+  explicit TypedValue(const std::string_view value, allocator_type alloc = {})
+      : alloc_{alloc}, string_v{value, alloc_}, type_(Type::String) {}
 
   /**
    * Construct a copy of other.
@@ -225,21 +222,17 @@ class TypedValue {
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TString &other, allocator_type alloc) : alloc_{alloc}, type_(Type::String) {
-    std::construct_at(&string_v, other, alloc_);
-  }
+  TypedValue(const TString &other, allocator_type alloc)
+      : alloc_{alloc}, string_v{other, alloc_}, type_(Type::String) {}
 
   /** Construct a copy using the given utils::MemoryResource */
   explicit TypedValue(const std::vector<TypedValue> &value, allocator_type alloc = {})
-      : alloc_{alloc}, type_(Type::List) {
-    std::construct_at(&list_v, value.begin(), value.end(), alloc_);
-  }
+      : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
 
   template <class T>
   requires TypedValueValidPrimativeType<T>
-  explicit TypedValue(const std::vector<T> &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::List) {
-    std::construct_at(&list_v, value.begin(), value.end(), alloc_);
-  }
+  explicit TypedValue(const std::vector<T> &value, allocator_type alloc = {})
+      : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
 
   /**
    * Construct a copy of other.
@@ -253,15 +246,11 @@ class TypedValue {
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TVector &value, allocator_type alloc) : alloc_{alloc}, type_(Type::List) {
-    std::construct_at(&list_v, value, alloc_);
-  }
+  TypedValue(const TVector &value, allocator_type alloc) : alloc_{alloc}, list_v{value, alloc_}, type_(Type::List) {}
 
   /** Construct a copy using the given utils::MemoryResource */
   explicit TypedValue(const std::map<std::string, TypedValue> &value, allocator_type alloc = {})
-      : alloc_{alloc}, type_(Type::Map) {
-    std::construct_at(&map_v, value.begin(), value.end(), alloc_);
-  }
+      : alloc_{alloc}, map_v{value.begin(), value.end(), alloc_}, type_(Type::Map) {}
 
   /**
    * Construct a copy of other.
@@ -275,21 +264,17 @@ class TypedValue {
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TMap &value, allocator_type alloc) : alloc_{alloc}, type_(Type::Map) {
-    std::construct_at(&map_v, value, alloc_);
-  }
+  TypedValue(const TMap &value, allocator_type alloc) : alloc_{alloc}, map_v{value, alloc_}, type_(Type::Map) {}
 
-  explicit TypedValue(const VertexAccessor &vertex, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Vertex) {
-    std::construct_at(&vertex_v, vertex);
-  }
+  explicit TypedValue(const VertexAccessor &vertex, allocator_type alloc = {})
+      : alloc_{alloc}, vertex_v{vertex}, type_(Type::Vertex) {}
 
-  explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Edge) {
-    std::construct_at(&edge_v, edge);
-  }
+  explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {})
+      : alloc_{alloc}, edge_v{edge}, type_(Type::Edge) {}
 
   explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
     auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
-    std::construct_at(&path_v, path_ptr);
+    alloc_trait::construct(alloc_, &path_v, path_ptr);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
@@ -311,9 +296,8 @@ class TypedValue {
    * Construct with the value of other and use the given MemoryResource
    * After the move, other will be left in unspecified state.
    */
-  TypedValue(TString &&other, allocator_type alloc) : alloc_{alloc}, type_(Type::String) {
-    std::construct_at(&string_v, std::move(other), alloc_);
-  }
+  TypedValue(TString &&other, allocator_type alloc)
+      : alloc_{alloc}, string_v{std::move(other), alloc_}, type_(Type::String) {}
 
   /**
    * Perform an element-wise move using default utils::NewDeleteResource().
@@ -325,9 +309,7 @@ class TypedValue {
    * Perform an element-wise move of the other and use the given MemoryResource.
    * Other will be not be left empty, though elements may be Null.
    */
-  TypedValue(std::vector<TypedValue> &&other, allocator_type alloc) : alloc_{alloc}, type_(Type::List) {
-    std::construct_at(&list_v, std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()), alloc_);
-  }
+  TypedValue(std::vector<TypedValue> &&other, allocator_type alloc);
 
   /**
    * Construct with the value of other.
@@ -341,9 +323,8 @@ class TypedValue {
    * If `other.get_allocator() != *memory`, this call will perform an
    * element-wise move and other is not guaranteed to be empty.
    */
-  TypedValue(TVector &&other, allocator_type alloc) : alloc_{alloc}, type_(Type::List) {
-    std::construct_at(&list_v, std::move(other), alloc_);
-  }
+  TypedValue(TVector &&other, allocator_type alloc)
+      : alloc_{alloc}, list_v{std::move(other), alloc_}, type_(Type::List) {}
 
   /**
    * Perform an element-wise move using default utils::NewDeleteResource().
@@ -373,13 +354,11 @@ class TypedValue {
    */
   TypedValue(TMap &&other, allocator_type alloc);
 
-  explicit TypedValue(VertexAccessor &&vertex, allocator_type alloc) noexcept : alloc_{alloc}, type_(Type::Vertex) {
-    std::construct_at(&vertex_v, std::move(vertex));
-  }
+  explicit TypedValue(VertexAccessor &&vertex, allocator_type alloc) noexcept
+      : alloc_{alloc}, vertex_v{std::move(vertex)}, type_(Type::Vertex) {}
 
-  explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept : alloc_{alloc}, type_(Type::Edge) {
-    std::construct_at(&edge_v, std::move(edge));
-  }
+  explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept
+      : alloc_{alloc}, edge_v{std::move(edge)}, type_(Type::Edge) {}
 
   /**
    * Construct with the value of path.
