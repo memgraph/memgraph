@@ -15,7 +15,6 @@
 #include <sstream>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -36,6 +35,34 @@ bool IsOnlyOneType(const PropertyValueImpl<Alloc, KeyType> &pv) {
   auto count = pv.IsNull() + pv.IsBool() + pv.IsInt() + pv.IsDouble() + pv.IsString() + pv.IsList() + pv.IsMap() +
                pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d();
   return count == 1;
+}
+
+template <typename TPropertyValue, typename MapKey>
+std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
+  std::vector<TPropertyValue> vec{TPropertyValue(true), TPropertyValue(123)};
+  typename TPropertyValue::map_t map{{map_key, TPropertyValue(false)}};
+  const auto zdt_dur = memgraph::utils::AsSysTime(23);
+  Enum enum_val{EnumTypeId{2}, EnumValueId{42}};
+
+  return {
+      TPropertyValue(),
+      TPropertyValue(true),
+      TPropertyValue(123),
+      TPropertyValue(123.5),
+      TPropertyValue("nandare"),
+      TPropertyValue(vec),
+      TPropertyValue(map),
+      TPropertyValue{TemporalData(TemporalType::Date, 23)},
+      TPropertyValue{
+          ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))},
+      TPropertyValue{ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
+                                       memgraph::utils::Timezone(std::chrono::minutes{-60}))},
+      TPropertyValue{enum_val},
+      TPropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+      TPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      TPropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+      TPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+  };
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -581,7 +608,7 @@ TEST(PropertyValue, MapMove) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(ExternalPropertyValue, MapCopy) {
+TEST(PropertyValue, ExternalMapCopy) {
   ExternalPropertyValue::map_t map{{"nandare", ExternalPropertyValue(123)}};
   ExternalPropertyValue pv(map);
 
@@ -636,7 +663,7 @@ TEST(ExternalPropertyValue, MapCopy) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(ExternalPropertyValue, MapMove) {
+TEST(PropertyValue, ExternalMapMove) {
   ExternalPropertyValue::map_t map{{"nandare", ExternalPropertyValue(123)}};
   ExternalPropertyValue pv(std::move(map));
 
@@ -779,27 +806,8 @@ TEST(PropertyValue, Point3d) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyConstructor) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
-  const auto zdt_dur = memgraph::utils::AsSysTime(23);
-  std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
-      PropertyValue(map),
-      PropertyValue(TemporalData(TemporalType::Date, 23)),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
-                                      memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-      PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
-      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
-      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
-      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-  };
+  auto property_id = PropertyId::FromUint(1);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
 
   for (const auto &item : data) {
     PropertyValue pv(item);
@@ -847,27 +855,8 @@ TEST(PropertyValue, CopyConstructor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveConstructor) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
-  const auto zdt_dur = memgraph::utils::AsSysTime(23);
-  std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
-      PropertyValue(map),
-      PropertyValue(TemporalData(TemporalType::Date, 23)),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
-                                      memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-      PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
-      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
-      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
-      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-  };
+  auto property_id = PropertyId::FromUint(1);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
 
   for (auto &item : data) {
     PropertyValue copy(item);
@@ -916,27 +905,8 @@ TEST(PropertyValue, MoveConstructor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignment) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
-  const auto zdt_dur = memgraph::utils::AsSysTime(23);
-  std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
-      PropertyValue(map),
-      PropertyValue(TemporalData(TemporalType::Date, 23)),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
-                                      memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-      PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
-      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
-      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
-      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-  };
+  auto property_id = PropertyId::FromUint(1);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
 
   for (const auto &item : data) {
     PropertyValue pv(123);
@@ -985,27 +955,8 @@ TEST(PropertyValue, CopyAssignment) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignment) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  PropertyValue::map_t map{{PropertyId::FromUint(1), PropertyValue(false)}};
-  const auto zdt_dur = memgraph::utils::AsSysTime(23);
-  std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
-      PropertyValue(map),
-      PropertyValue(TemporalData(TemporalType::Date, 23)),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
-      PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
-                                      memgraph::utils::Timezone(std::chrono::minutes{-60}))),
-      PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
-      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
-      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
-      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-  };
+  auto property_id = PropertyId::FromUint(1);
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
 
   for (auto &item : data) {
     PropertyValue copy(item);
@@ -1077,27 +1028,30 @@ TEST(PropertyValue, MoveAssignmentSelf) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Equal) {
-  std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  auto map = PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue(false)}};
-  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
-  std::vector<PropertyValue> data{
-      PropertyValue(),
-      PropertyValue(true),
-      PropertyValue(123),
-      PropertyValue(123.5),
-      PropertyValue("nandare"),
-      PropertyValue(vec),
-      PropertyValue(map),
-      PropertyValue{enum_val},
-      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
-      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+  auto property_id = PropertyId::FromUint(1);
+  const auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+
+  auto same_type = [](const auto &a, const auto &b) { return a.type() == b.type(); };
+  auto same_point2d = [](const auto &a, const auto &b) { return a.ValuePoint2d().crs() == b.ValuePoint2d().crs(); };
+  auto same_point3d = [](const auto &a, const auto &b) { return a.ValuePoint3d().crs() == b.ValuePoint3d().crs(); };
+  auto same_zoned_temporal = [](const auto &a, const auto &b) {
+    return a.ValueZonedTemporalData().timezone == b.ValueZonedTemporalData().timezone;
   };
-  for (const auto &item1 : data) {
-    for (const auto &item2 : data) {
-      if (item1.type() == item2.type()) {
-        ASSERT_TRUE(item1 == item2);
+
+  for (const auto &a : data) {
+    for (const auto &b : data) {
+      if (!same_type(a, b)) {
+        ASSERT_FALSE(a == b);
+        continue;
+      }
+      if (a.IsPoint2d()) {
+        ASSERT_EQ(a == b, same_point2d(a, b));
+      } else if (a.IsPoint3d()) {
+        ASSERT_EQ(a == b, same_point3d(a, b));
+      } else if (a.IsZonedTemporalData()) {
+        ASSERT_EQ(a == b, same_zoned_temporal(a, b));
       } else {
-        ASSERT_FALSE(item1 == item2);
+        ASSERT_TRUE(a == b);
       }
     }
   }
@@ -1120,7 +1074,7 @@ TEST(PropertyValue, EqualMap) {
   ASSERT_NE(c, b);
 }
 
-TEST(ExternalPropertyValue, EqualMap) {
+TEST(PropertyValue, ExternalEqualMap) {
   auto a = ExternalPropertyValue(ExternalPropertyValue::map_t());
   auto b = ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(5)}});
   auto c = ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(10)}});
@@ -1168,7 +1122,7 @@ TEST(PropertyValue, Less) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(ExternalPropertyValue, Less) {
+TEST(PropertyValue, ExternalLess) {
   std::vector<ExternalPropertyValue> vec{ExternalPropertyValue(true), ExternalPropertyValue(123)};
   auto map = ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
@@ -1315,5 +1269,109 @@ TEST(PMRPropertyValue, InteropWithPropertyValue) {
     ASSERT_EQ(as_pmr_pv.ValueMap().size(), 1);
     ASSERT_TRUE(as_pmr_pv.ValueMap().contains(property_id));
     ASSERT_EQ(as_pmr_pv.ValueMap().at(property_id).ValueInt(), raw_test_int);
+  }
+}
+
+TEST(PropertyValue, PropertyValueToExternalPropertyValue) {
+  memgraph::storage::NameIdMapper name_id_mapper;
+  auto property_id = PropertyId::FromUint(name_id_mapper.NameToId("id"));
+  auto data = MakeTestPropertyValues<ExternalPropertyValue>("id");
+
+  for (const auto &val : data) {
+    auto pv = ToPropertyValue(val, &name_id_mapper);
+    ASSERT_EQ(pv.type(), val.type());
+    switch (pv.type()) {
+      case PropertyValue::Type::Null:
+        ASSERT_TRUE(pv.IsNull());
+        break;
+      case PropertyValue::Type::Bool:
+        ASSERT_EQ(pv.ValueBool(), val.ValueBool());
+        break;
+      case PropertyValue::Type::Int:
+        ASSERT_EQ(pv.ValueInt(), val.ValueInt());
+        break;
+      case PropertyValue::Type::Double:
+        ASSERT_EQ(pv.ValueDouble(), val.ValueDouble());
+        break;
+      case PropertyValue::Type::String:
+        ASSERT_EQ(pv.ValueString(), val.ValueString());
+        break;
+      case PropertyValue::Type::List:
+        ASSERT_EQ(pv.ValueList().size(), 2);
+        ASSERT_EQ(pv.ValueList()[0].ValueBool(), true);
+        ASSERT_EQ(pv.ValueList()[1].ValueInt(), 123);
+        break;
+      case PropertyValue::Type::Map:
+        ASSERT_EQ(pv.ValueMap().size(), 1);
+        ASSERT_EQ(pv.ValueMap().at(property_id).ValueBool(), false);
+        break;
+      case PropertyValue::Type::TemporalData:
+        ASSERT_EQ(pv.ValueTemporalData(), val.ValueTemporalData());
+        break;
+      case PropertyValue::Type::ZonedTemporalData:
+        ASSERT_EQ(pv.ValueZonedTemporalData(), val.ValueZonedTemporalData());
+        break;
+      case PropertyValue::Type::Enum:
+        ASSERT_EQ(pv.ValueEnum(), val.ValueEnum());
+        break;
+      case PropertyValue::Type::Point2d:
+        ASSERT_EQ(pv.ValuePoint2d(), val.ValuePoint2d());
+        break;
+      case PropertyValue::Type::Point3d:
+        ASSERT_EQ(pv.ValuePoint3d(), val.ValuePoint3d());
+        break;
+    }
+  }
+}
+
+TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
+  memgraph::storage::NameIdMapper name_id_mapper;
+  auto property_id = PropertyId::FromUint(name_id_mapper.NameToId("id"));
+  auto data = MakeTestPropertyValues<PropertyValue>(property_id);
+
+  for (const auto &val : data) {
+    auto pv = ToExternalPropertyValue(val, &name_id_mapper);
+    ASSERT_EQ(pv.type(), val.type());
+    switch (pv.type()) {
+      case PropertyValue::Type::Null:
+        ASSERT_TRUE(pv.IsNull());
+        break;
+      case PropertyValue::Type::Bool:
+        ASSERT_EQ(pv.ValueBool(), val.ValueBool());
+        break;
+      case PropertyValue::Type::Int:
+        ASSERT_EQ(pv.ValueInt(), val.ValueInt());
+        break;
+      case PropertyValue::Type::Double:
+        ASSERT_EQ(pv.ValueDouble(), val.ValueDouble());
+        break;
+      case PropertyValue::Type::String:
+        ASSERT_EQ(pv.ValueString(), val.ValueString());
+        break;
+      case PropertyValue::Type::List:
+        ASSERT_EQ(pv.ValueList().size(), 2);
+        ASSERT_EQ(pv.ValueList()[0].ValueBool(), true);
+        ASSERT_EQ(pv.ValueList()[1].ValueInt(), 123);
+        break;
+      case PropertyValue::Type::Map:
+        ASSERT_EQ(pv.ValueMap().size(), 1);
+        ASSERT_EQ(pv.ValueMap().at("id").ValueBool(), false);
+        break;
+      case PropertyValue::Type::TemporalData:
+        ASSERT_EQ(pv.ValueTemporalData(), val.ValueTemporalData());
+        break;
+      case PropertyValue::Type::ZonedTemporalData:
+        ASSERT_EQ(pv.ValueZonedTemporalData(), val.ValueZonedTemporalData());
+        break;
+      case PropertyValue::Type::Enum:
+        ASSERT_EQ(pv.ValueEnum(), val.ValueEnum());
+        break;
+      case PropertyValue::Type::Point2d:
+        ASSERT_EQ(pv.ValuePoint2d(), val.ValuePoint2d());
+        break;
+      case PropertyValue::Type::Point3d:
+        ASSERT_EQ(pv.ValuePoint3d(), val.ValuePoint3d());
+        break;
+    }
   }
 }
