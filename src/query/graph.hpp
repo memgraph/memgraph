@@ -32,25 +32,26 @@ class Graph final {
  public:
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<Graph>;
+  using alloc_traits = std::allocator_traits<allocator_type>;
 
   /**
    * Create the graph with no elements
    * Allocations are done using the given MemoryResource.
    */
-  explicit Graph(utils::MemoryResource *memory);
+  explicit Graph(allocator_type alloc);
 
   /**
    * Construct a copy of other.
    * utils::MemoryResource is obtained by calling
    * std::allocator_traits<>::
-   *     select_on_container_copy_construction(other.GetMemoryResource()).
+   *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that we
    * will default to utils::NewDeleteResource().
    */
   Graph(const Graph &other);
 
   /** Construct a copy using the given utils::MemoryResource */
-  Graph(const Graph &other, utils::MemoryResource *memory);
+  Graph(const Graph &other, allocator_type alloc);
 
   /**
    * Construct with the value of other.
@@ -62,10 +63,10 @@ class Graph final {
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other may not be empty if `*memory !=
-   * *other.GetMemoryResource()`, because an element-wise move will be
+   * *other.get_allocator()`, because an element-wise move will be
    * performed.
    */
-  Graph(Graph &&other, utils::MemoryResource *memory);
+  Graph(Graph &&other, allocator_type alloc);
 
   /** Expands the graph with the given path. */
   void Expand(const Path &path);
@@ -108,7 +109,7 @@ class Graph final {
   const utils::pmr::unordered_set<VertexAccessor> &vertices() const;
   const utils::pmr::unordered_set<EdgeAccessor> &edges() const;
 
-  utils::MemoryResource *GetMemoryResource() const;
+  auto get_allocator() const -> allocator_type;
 
  private:
   // Contains all the vertices in the Graph.
