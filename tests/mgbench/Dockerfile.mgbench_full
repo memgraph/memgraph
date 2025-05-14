@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS mg_bench_client_build_base
 SHELL ["/bin/bash", "-c"]
 ARG TOOLCHAIN_VERSION
 ARG TARGETARCH
-ARG GIT_REF=""
+ARG GIT_REF
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -16,17 +16,19 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERS
     -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz \
     && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz -C /opt
 
-    RUN set -eux; \
+RUN git clone https://github.com/memgraph/memgraph.git
+RUN set -eux; \
     if [ -n "${GIT_REF}" ]; then \
       echo "Checking out ${GIT_REF}"; \
-      cd /opt/memgraph && \
+      cd /memgraph && \
       git fetch --all --tags && \
       git rev-parse --verify --quiet "${GIT_REF}" \
         && git checkout "${GIT_REF}" \
         || (echo "Ref '${GIT_REF}' not found" >&2; exit 1); \
     else \
       echo "No GIT_REF provided; staying on default branch"; \
-    fi
+    fi && \
+    cd ..
 
 WORKDIR memgraph
 
