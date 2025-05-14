@@ -115,6 +115,10 @@ std::unique_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(auth::SynchedA
   return std::make_unique<QueryUserOrRole>(auth);
 }
 
+std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenEmptyUser() const {
+  return std::make_shared<QueryUserOrRole>(auth_);
+}
+
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     std::shared_ptr<query::QueryUserOrRole> user_or_role, const memgraph::query::DbAccessor *dba) const {

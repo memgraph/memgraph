@@ -95,7 +95,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   // Temporary empty user
   // TODO: Double check with buda
   memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
-  auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  auto tmp_user = tmp_auth_checker.GenEmptyUser();
   interpreter.SetUser(tmp_user);
 
   std::ifstream file(cypherl_file_path);
