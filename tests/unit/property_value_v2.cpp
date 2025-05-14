@@ -471,6 +471,117 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
+  auto property_id = PropertyId::FromUint(1);
+  PropertyValue::map_t map{{property_id, PropertyValue(123)}};
+  PropertyValue pv(map);
+
+  ASSERT_EQ(map.size(), 1);
+  ASSERT_EQ(map.at(property_id).ValueInt(), 123);
+
+  ASSERT_EQ(pv.type(), PropertyValue::Type::Map);
+
+  ASSERT_TRUE(pv.IsMap());
+  ASSERT_TRUE(IsOnlyOneType(pv));
+
+  ASSERT_THROW(pv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), PropertyValueException);
+  {
+    const auto &ret = pv.ValueMap();
+    ASSERT_EQ(ret.size(), 1);
+    ASSERT_EQ(ret.at(property_id).ValueInt(), 123);
+  }
+  ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
+
+  const auto &cpv = pv;
+
+  ASSERT_THROW(cpv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), PropertyValueException);
+  {
+    const auto &ret = cpv.ValueMap();
+    ASSERT_EQ(ret.size(), 1);
+    ASSERT_EQ(ret.at(property_id).ValueInt(), 123);
+  }
+  ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
+
+  {
+    std::stringstream ss;
+    ss << pv.type();
+    ASSERT_EQ(ss.str(), "map");
+  }
+  {
+    std::stringstream ss;
+    ss << pv;
+    ASSERT_EQ(ss.str(), "{1: 123}");
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PropertyValue, MapMove) {
+  auto property_id = PropertyId::FromUint(1);
+  PropertyValue::map_t map{{property_id, PropertyValue(123)}};
+  PropertyValue pv(std::move(map));
+
+  ASSERT_EQ(map.size(), 0);
+
+  ASSERT_EQ(pv.type(), PropertyValue::Type::Map);
+
+  ASSERT_TRUE(pv.IsMap());
+  ASSERT_TRUE(IsOnlyOneType(pv));
+
+  ASSERT_THROW(pv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), PropertyValueException);
+  {
+    const auto &ret = pv.ValueMap();
+    ASSERT_EQ(ret.size(), 1);
+    ASSERT_EQ(ret.at(property_id).ValueInt(), 123);
+  }
+  ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
+
+  const auto &cpv = pv;
+
+  ASSERT_THROW(cpv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), PropertyValueException);
+  {
+    const auto &ret = cpv.ValueMap();
+    ASSERT_EQ(ret.size(), 1);
+    ASSERT_EQ(ret.at(property_id).ValueInt(), 123);
+  }
+  ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
+
+  {
+    std::stringstream ss;
+    ss << pv.type();
+    ASSERT_EQ(ss.str(), "map");
+  }
+  {
+    std::stringstream ss;
+    ss << pv;
+    ASSERT_EQ(ss.str(), "{1: 123}");
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(ExternalPropertyValue, MapCopy) {
   ExternalPropertyValue::map_t map{{"nandare", ExternalPropertyValue(123)}};
   ExternalPropertyValue pv(map);
 
@@ -525,7 +636,7 @@ TEST(PropertyValue, MapCopy) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(PropertyValue, MapMove) {
+TEST(ExternalPropertyValue, MapMove) {
   ExternalPropertyValue::map_t map{{"nandare", ExternalPropertyValue(123)}};
   ExternalPropertyValue pv(std::move(map));
 
@@ -1009,6 +1120,23 @@ TEST(PropertyValue, EqualMap) {
   ASSERT_NE(c, b);
 }
 
+TEST(ExternalPropertyValue, EqualMap) {
+  auto a = ExternalPropertyValue(ExternalPropertyValue::map_t());
+  auto b = ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(5)}});
+  auto c = ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(10)}});
+
+  ASSERT_EQ(a, a);
+  ASSERT_EQ(b, b);
+  ASSERT_EQ(c, c);
+
+  ASSERT_NE(a, b);
+  ASSERT_NE(a, c);
+  ASSERT_NE(b, a);
+  ASSERT_NE(b, c);
+  ASSERT_NE(c, a);
+  ASSERT_NE(c, b);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Less) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
@@ -1025,6 +1153,36 @@ TEST(PropertyValue, Less) {
       PropertyValue{enum_val},
       PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+  };
+  for (size_t i = 0; i < data.size(); ++i) {
+    for (size_t j = 0; j < data.size(); ++j) {
+      auto item1 = data[i];
+      auto item2 = data[j];
+      if (i < j) {
+        ASSERT_TRUE(item1 < item2);
+      } else {
+        ASSERT_FALSE(item1 < item2);
+      }
+    }
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(ExternalPropertyValue, Less) {
+  std::vector<ExternalPropertyValue> vec{ExternalPropertyValue(true), ExternalPropertyValue(123)};
+  auto map = ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}};
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  std::vector<ExternalPropertyValue> data{
+      ExternalPropertyValue(),
+      ExternalPropertyValue(true),
+      ExternalPropertyValue(123),
+      ExternalPropertyValue(123.5),
+      ExternalPropertyValue("nandare"),
+      ExternalPropertyValue(vec),
+      ExternalPropertyValue(ExternalPropertyValue::map_t{{"id", ExternalPropertyValue(false)}}),
+      ExternalPropertyValue{enum_val},
+      ExternalPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      ExternalPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
