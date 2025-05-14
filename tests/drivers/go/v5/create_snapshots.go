@@ -180,7 +180,7 @@ func main() {
         log.Fatalf("Failed to clear database: %s", err)
     }
 
-    if err := write_task(neo4j_ops, "UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();"); err != nil {
+    if err := write_task(neo4j_ops, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();"); err != nil {
         log.Fatalf("Failed to write initial data: %s", err)
     }
 
@@ -231,7 +231,7 @@ func main() {
     wg.Add(1)
     go func() {
         defer wg.Done()
-        err := write_task(neo4j_ops, "UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();")
+        err := write_task(neo4j_ops, "create (:l)-[:e]->();")
         if err == nil {
             log.Fatalf("Write explicit transaction should have failed but did not")
         } else {

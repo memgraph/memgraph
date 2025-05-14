@@ -88,7 +88,7 @@ async function main() {
         await setupSession.close();
 
         // Setup (needs some data for snapshot)
-        await writeTask(neo4jOps, "UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();");
+        await writeTask(neo4jOps, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();");
 
         let failed = 0;
         // Check that a read_only (snapshot) tx allows reads but not writes
@@ -109,7 +109,7 @@ async function main() {
         }
 
         try {
-            await writeTask(neo4jOps, "UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();");
+            await writeTask(neo4jOps, "create (:l)-[:e]->();");
         } catch (e) {
             console.log(`Write explicit transaction failed as expected: ${e}`);
             failed++;

@@ -78,7 +78,7 @@ def main():
                 print("Analytical mode.")
 
             # Setup (needs some data for snapshot)
-            write_task(neo4j_ops, "UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();")
+            write_task(neo4j_ops, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();")
 
             # TODO Check that a write tx allows reads and writes, but not read-only (create snapshot)
             #   Currently only cypher queries can timeout, uncomment this when CREATE SNAPSHOT can timeout
@@ -119,14 +119,14 @@ def main():
             impl_read_future = executor.submit(implicit_task, neo4j_ops, "MATCH(n) RETURN n LIMIT 1")
             time.sleep(0.1)
             try:
-                # Needs to timeout
+                # Needs to fail
                 implicit_task(neo4j_ops, "CREATE ()")
             except Exception as e:
                 print(f"Write implicit transaction failed as expected: {e}")
                 failed += 1
             try:
-                # Needs to timeout
-                write_task(neo4j_ops, "UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();")
+                # Needs to fail
+                write_task(neo4j_ops, "create (:l)-[:e]->();")
             except Exception as e:
                 print(f"Write explicit transaction failed as expected: {e}")
                 failed += 1
