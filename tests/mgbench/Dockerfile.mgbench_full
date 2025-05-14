@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS mg_bench_client_build_base
 SHELL ["/bin/bash", "-c"]
 ARG TOOLCHAIN_VERSION
 ARG TARGETARCH
-ARG GIT_REF
+ARG GIT_REF=""
 
 ENV DEBIAN_FRONTEND=noninteractive
 
