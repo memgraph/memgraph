@@ -1397,19 +1397,23 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties, CheckCancelFunction cancel_check,
     PublishIndexCallback publish_index_callback) {
-  MG_ASSERT(type() == READ_ONLY, "Creating label-property index requires a read only access to the storage!");
-  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  // NOTE: Analytical requires UNIQUE, it does not have MVCC that would allow concurrent Population
+  // NOTE: TTL currently creates multiple indexes...ATM we can't downgrade until we split Register+Populate+Publish
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Creating label-property index requires a read only or unique access to the storage!");
   auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, properties)) {
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
+  if (!mem_label_property_index->RegisterIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // We have done the metadata change that requires no writers, downgrade to read to allow new writer txns while
   // we populate the index
-  DowngradeToRead();
-  auto const res =
-      mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
-                                              std::nullopt, std::move(cancel_check), &transaction_);
+  if (type() == READ_ONLY) {
+    DowngradeToRead();
+  }
+  auto const res = mem_label_property_index->PopulateIndex(
+      label, properties, static_cast<InMemoryStorage *>(storage_)->vertices_.access(), std::nullopt, std::nullopt,
+      std::move(cancel_check), &transaction_);
   if (res.HasError()) {
     switch (res.GetError()) {
       case IndexPopulateError::IndexAlreadyDropped:
@@ -1422,7 +1426,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   publish_index_callback([&] {
     // This will be called while the plan cache is locked and cleared
     // ensuring next planning will include this index in its consideration
-    mem_label_property_index->PublishIndexForUse(label, properties);
+    mem_label_property_index->PublishIndex(label, properties);
   });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
@@ -1501,7 +1505,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyId> &&properties, PublishIndexCallback publish_index_callback) {
   // TODO: use the weaker READ
-  MG_ASSERT(type() == READ_ONLY, "Dropping label-property index requires read-only access to the storage!");
+  // NOTE: TTL currently drops with UNIQUE access
+  MG_ASSERT(type() == READ_ONLY || type() == UNIQUE,
+            "Dropping label-property index requires a read only or unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
