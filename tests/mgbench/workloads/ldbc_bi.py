@@ -204,10 +204,14 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_2_analytical(self):
         memgraph = (
@@ -267,13 +271,17 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_3_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH
                 (:Country {name: $country})<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-
@@ -294,8 +302,14 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__bi__query_5_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (tag:Tag {name: $tag})<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person:Person)
             OPTIONAL MATCH (message)<-[likes:LIKES]-(:Person)
@@ -319,8 +333,14 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__bi__query_6_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (tag:Tag {name: $tag})<-[:HAS_TAG]-(message1:Message)-[:HAS_CREATOR]->(person1:Person)
             OPTIONAL MATCH (message1)<-[:LIKES]-(person2:Person)
@@ -337,6 +357,12 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_7_analytical(self):
         memgraph = (
@@ -377,10 +403,14 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_9_analytical(self):
         memgraph = (
@@ -427,13 +457,17 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_11_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (a:Person)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country:Country {name: $country}),
                 (a)-[k1:KNOWS]-(b:Person)
@@ -457,8 +491,14 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__bi__query_12_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (person:Person)
             OPTIONAL MATCH (person)<-[:HAS_CREATOR]-(message:Message)-[:REPLY_OF*0..]->(post:Post)
@@ -480,6 +520,12 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_13_analytical(self):
         memgraph = (
@@ -590,13 +636,16 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__bi__query_14_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH
                 (country1:Country {name: $country1})<-[:IS_PART_OF]-(city1:City)<-[:IS_LOCATED_IN]-(person1:Person),
@@ -633,6 +682,12 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__bi__query_18_analytical(self):
         memgraph = (
             """
@@ -661,7 +716,11 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")

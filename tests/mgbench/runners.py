@@ -23,7 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkClientLanguage, BenchmarkInstallationType
+from constants import BenchmarkClientLanguage, BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -95,10 +95,18 @@ class BaseClient(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._vendor = benchmark_context.vendor_name
 
     @abstractmethod
     def execute(self):
         pass
+
+    def get_check_db_query(self) -> str:
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                return "SELECT 1 AS result;"
+            case _:
+                return "RETURN 0;"
 
 
 class BoltClient(BaseClient):
@@ -129,7 +137,7 @@ class BoltClient(BaseClient):
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -269,7 +277,7 @@ class BoltClientDocker(BaseClient):
 
         check_file = Path(self._directory.name) / "check.json"
         with open(check_file, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self._get, {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -373,7 +381,6 @@ class BoltClientDocker(BaseClient):
 class PythonClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext, database_port: int):
         super().__init__(benchmark_context=benchmark_context)
-        self._vendor = benchmark_context.vendor_name
         self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
@@ -398,7 +405,7 @@ class PythonClient(BaseClient):
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -1321,7 +1328,9 @@ class FalkorDBDocker(BaseRunner):
             used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
 
             # Convert memory to bytes for consistency
-            if used_memory_unit == "KiB":
+            if used_memory_unit == "B":
+                return int(float(used_memory_value))  # Bytes
+            elif used_memory_unit == "KiB":
                 return int(float(used_memory_value) * 1024)  # KiB to Bytes
             elif used_memory_unit == "MiB":
                 return int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
@@ -1371,3 +1380,131 @@ class FalkorDBDocker(BaseRunner):
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         time.sleep(3)
         return ret
+
+
+class PostgreSQLDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context)
+        self._container_name = f"{benchmark_context.vendor_name}_benchmark"
+        self._port = benchmark_context.vendor_args.get("port", 5432)
+        self._user = benchmark_context.vendor_args.get("user", "postgres")
+        self._password = benchmark_context.vendor_args.get("password", "postgres")
+        self._database = benchmark_context.vendor_args.get("database", "postgres")
+        self._image = "postgres:15"
+        _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
+
+    def start_db_init(self, message):
+        command = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "-e",
+            f"POSTGRES_USER={self._user}",
+            "-e",
+            f"POSTGRES_PASSWORD={self._password}",
+            "-e",
+            f"POSTGRES_DB={self._database}",
+            "-p",
+            f"{self._port}:{self._port}/tcp",
+            self._image,
+        ]
+        self._run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+    def start_db(self, message):
+        log.init("Starting database for benchmark...")
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database (init)...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def fetch_client(self) -> BaseClient:
+        return PythonClient(self.benchmark_context, self._port)
+
+    def remove_container(self, container_name):
+        command = ["docker", "rm", "-f", container_name]
+        self._run_command(command)
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def _get_cpu_memory_usage(self):
+        command = ["docker", "stats", self._container_name, "--no-stream", "--format", "{{.CPUPerc}},{{.MemUsage}}"]
+        ret = self._run_command(command)
+        if not ret:
+            return {"cpu": 0, "memory": 0}
+        cpu_perc, mem_usage = ret[0].split(",")
+        cpu_perc = float(cpu_perc.strip("%")) / 100
+
+        memory_usage = mem_usage.split(" / ")
+
+        if len(memory_usage) == 2:
+            used_memory = memory_usage[0].strip()  # e.g., "79.52MiB"
+            used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
+
+            # Convert memory to bytes for consistency
+            if used_memory_unit == "B":
+                used_memory_value = int(float(used_memory_value))  # Bytes
+            elif used_memory_unit == "KiB":
+                used_memory_value = int(float(used_memory_value) * 1024)  # KiB to Bytes
+            elif used_memory_unit == "MiB":
+                used_memory_value = int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
+            elif used_memory_unit == "GiB":
+                used_memory_value = int(float(used_memory_value) * 1024 * 1024 * 1024)  # GiB to Bytes
+            elif used_memory_unit == "TiB":
+                used_memory_value = int(float(used_memory_value) * 1024 * 1024 * 1024 * 1024)  # TiB to Bytes
+            else:
+                raise Exception(f"Unrecognized used memory: {used_memory}")
+
+            return {"cpu": cpu_perc, "memory": used_memory_value}
+        else:
+            raise Exception(f"Unrecognized memory usage: {memory_usage}")
+
+    def _run_command(self, command):
+        ret = subprocess.run(command, capture_output=True, text=True)
+        if ret.returncode != 0:
+            return None
+        return ret.stdout.strip().split("\n")
+
+    def _wait_for_postgres_ready(self, host, port, user, password, database, timeout=30):
+        import psycopg2
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+                conn.close()
+                return
+            except psycopg2.OperationalError as e:
+                if "authentication failed" in str(e):
+                    raise e  # Credentials are actually wrong
+                time.sleep(0.5)
+        raise TimeoutError("PostgreSQL did not become ready in time.")
