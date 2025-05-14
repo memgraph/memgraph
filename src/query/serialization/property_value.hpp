@@ -38,7 +38,4 @@ std::vector<storage::ExternalPropertyValue> DeserializeExternalPropertyValueList
 storage::ExternalPropertyValue::map_t DeserializeExternalPropertyValueMap(nlohmann::json::object_t const &data,
                                                                           storage::Storage::Accessor *storage_acc);
 
-storage::IntermediatePropertyValue::map_t DeserializeIntermediatePropertyValueMap(
-    nlohmann::json::object_t const &data, storage::Storage::Accessor *storage_acc);
-
 }  // namespace memgraph::query::serialization

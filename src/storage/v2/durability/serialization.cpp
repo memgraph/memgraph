@@ -513,7 +513,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
         if (!key) return std::nullopt;
         auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
-        value.emplace(name_id_mapper->NameToId(*key), std::move(*item));
+        value.emplace(std::move(*key), std::move(*item));
       }
       return ExternalPropertyValue(std::move(value));
     }

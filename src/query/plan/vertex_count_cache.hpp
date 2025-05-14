@@ -122,11 +122,9 @@ class VertexCountCache {
 
   int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) {
     auto &value_edge_count = edge_property_value_edge_count_[property];
-    // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(value, db_->GetStorageAccessor()->GetNameIdMapper());
-    if (value_edge_count.find(tv_value) == value_edge_count.end())
-      value_edge_count[tv_value] = db_->EdgesCount(property, value);
-    return value_edge_count.at(tv_value);
+    if (value_edge_count.find(value) == value_edge_count.end())
+      value_edge_count[value] = db_->EdgesCount(property, value);
+    return value_edge_count.at(value);
   }
 
   int64_t EdgesCount(storage::PropertyId property, const std::optional<utils::Bound<storage::PropertyValue>> &lower,
