@@ -1950,7 +1950,7 @@ class ExpandVariableCursor : public Cursor {
       upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_) : std::numeric_limits<int64_t>::max();
 
       if (upper_bound_ > 0) {
-        auto *memory = edges_.get_allocator().GetMemoryResource();
+        auto *memory = edges_.get_allocator().resource();
         edges_.emplace_back(
             ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
         edges_it_.emplace_back(edges_.back().begin());
@@ -2078,7 +2078,7 @@ class ExpandVariableCursor : public Cursor {
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size()) && !context.hops_limit.IsLimitReached()) {
-        auto *memory = edges_.get_allocator().GetMemoryResource();
+        auto *memory = edges_.get_allocator().resource();
         edges_.emplace_back(
             ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
         edges_it_.emplace_back(edges_.back().begin());
@@ -4630,7 +4630,7 @@ class AccumulateCursor : public Cursor {
     // cache all the input
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
-        utils::pmr::vector<TypedValue> row(cache_.get_allocator().GetMemoryResource());
+        utils::pmr::vector<TypedValue> row(cache_.get_allocator().resource());
         row.reserve(self_.symbols_.size());
         for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
         cache_.emplace_back(std::move(row));
@@ -4902,7 +4902,7 @@ class AggregateCursor : public Cursor {
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
     }
-    auto *mem = aggregation_.get_allocator().GetMemoryResource();
+    auto *mem = aggregation_.get_allocator().resource();
     auto res = aggregation_.try_emplace(reused_group_by_, mem);
     auto &agg_value = res.first->second;
     if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
@@ -4920,7 +4920,7 @@ class AggregateCursor : public Cursor {
     agg_value->values_.reserve(num_of_aggregations);
     agg_value->unique_values_.reserve(num_of_aggregations);
 
-    auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
+    auto *mem = agg_value->values_.get_allocator().resource();
     for (const auto &agg_elem : self_.aggregations_) {
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
       agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
@@ -5318,7 +5318,7 @@ class OrderByCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       auto *pull_mem = context.evaluation_context.memory;
-      auto *query_mem = cache_.get_allocator().GetMemoryResource();
+      auto *query_mem = cache_.get_allocator().resource();
 
       utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(pull_mem);  // Not cached, pull memory
       utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);   // Cached, query memory
@@ -5696,7 +5696,7 @@ class DistinctCursor : public Cursor {
         return false;
       }
 
-      utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
+      utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().resource());
       row.reserve(self_.value_symbols_.size());
 
       for (const auto &symbol : self_.value_symbols_) {
@@ -6142,7 +6142,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
     auto subgraph_value = args_list.front().ValueGraph();
-    subgraph = query::Graph(std::move(subgraph_value), subgraph_value.GetMemoryResource());
+    subgraph = query::Graph(std::move(subgraph_value), subgraph_value.get_allocator());
     args_list.erase(args_list.begin());
 
     db_acc = query::SubgraphDbAccessor(*std::get<query::DbAccessor *>(graph.impl), &*subgraph);
@@ -6502,7 +6502,7 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
 };
 
 TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::string> &nullif) {
-  auto *mem = row.get_allocator().GetMemoryResource();
+  auto *mem = row.get_allocator().resource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
@@ -6518,7 +6518,7 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row, std::optional<utils::pmr::st
 TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header,
                             std::optional<utils::pmr::string> &nullif) {
   // a valid row has the same number of elements as the header
-  auto *mem = row.get_allocator().GetMemoryResource();
+  auto *mem = row.get_allocator().resource();
   TypedValue::TMap m{mem};
   for (auto i = 0; i < row.size(); ++i) {
     if (!nullif.has_value() || row[i] != nullif.value()) {

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,10 +23,12 @@ namespace memgraph::query {
 
 class Frame {
  public:
+  using allocator_type = utils::Allocator<TypedValue>;
+
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
   explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()) { MG_ASSERT(size >= 0); }
 
-  Frame(int64_t size, utils::MemoryResource *memory) : elems_(size, memory) { MG_ASSERT(size >= 0); }
+  Frame(int64_t size, allocator_type alloc) : elems_(size, alloc) { MG_ASSERT(size >= 0); }
 
   TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
@@ -36,7 +38,7 @@ class Frame {
 
   auto &elems() { return elems_; }
 
-  utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
+  auto get_allocator() const -> allocator_type { return elems_.get_allocator(); }
 
  private:
   utils::pmr::vector<TypedValue> elems_;
