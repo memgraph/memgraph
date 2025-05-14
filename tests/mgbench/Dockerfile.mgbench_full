@@ -17,9 +17,9 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERS
     && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz -C /opt
 
 RUN git clone https://github.com/memgraph/memgraph.git && \
-    if [ -n "$GIT_REF" ]; then \
+    if [ -n "${GIT_REF}" ]; then \
         cd memgraph && \
-        git checkout "$GIT_REF" \
+        git checkout "${GIT_REF}" \
         cd .. \
     fi
 
