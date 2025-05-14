@@ -30,37 +30,44 @@
 
 namespace memgraph::query {
 
-TypedValue::TypedValue(TMap &&other) : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
+TypedValue::TypedValue(std::vector<TypedValue> &&other, allocator_type alloc)
+    : alloc_{alloc},
+      list_v{
+          std::make_move_iterator(other.begin()),
+          std::make_move_iterator(other.end()),
+          alloc_,
+      },
+      type_(Type::List) {}
 
-TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
-    : memory_(memory), type_(Type::Map) {
-  std::construct_at(&map_v, memory_);
-  for (auto &kv : other) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
+TypedValue::TypedValue(TMap &&other) : TypedValue(std::move(other), other.get_allocator()) {}
+
+TypedValue::TypedValue(std::map<std::string, TypedValue> &&other, allocator_type alloc)
+    : alloc_{alloc},
+      map_v{std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()), alloc_},
+      type_(Type::Map) {}
+
+TypedValue::TypedValue(TMap &&other, allocator_type alloc)
+    : alloc_{alloc}, map_v{std::move(other), alloc_}, type_(Type::Map) {}
+
+TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.get_allocator()) {}
+
+TypedValue::TypedValue(Path &&path, allocator_type alloc) : alloc_{alloc}, type_(Type::Path) {
+  auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(std::move(path));
+  alloc_trait::construct(alloc_, &path_v, path_ptr);
 }
 
-TypedValue::TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-  std::construct_at(&map_v, std::move(other), memory_);
-}
+TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.get_allocator()) {}
 
-TypedValue::TypedValue(Path &&path) : TypedValue(std::move(path), path.GetMemoryResource()) {}
-
-TypedValue::TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
-  auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(std::move(path));
-  std::construct_at(&path_v, path_ptr);
-}
-
-TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
-
-TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-  auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
-  std::construct_at(&graph_v, graph_ptr);
+TypedValue::TypedValue(Graph &&graph, allocator_type alloc) : alloc_{alloc}, type_(Type::Graph) {
+  auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(std::move(graph));
+  alloc_trait::construct(alloc_, &graph_v, graph_ptr);
 }
 
 TypedValue::TypedValue(const storage::PropertyValue &value)
     // TODO: MemoryResource in storage::PropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(const storage::PropertyValue &value, allocator_type alloc) : alloc_{alloc} {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -79,21 +86,18 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       return;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(value.ValueString(), memory_);
+      alloc_trait::construct(alloc_, &string_v, value.ValueString());
       return;
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
-      new (&list_v) TVector(memory_);
-      list_v.reserve(vec.size());
-      for (const auto &v : vec) list_v.emplace_back(v);
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
-      std::construct_at(&map_v, memory_);
-      for (const auto &kv : map) map_v.emplace(TString(kv.first, memory_), kv.second);
+      alloc_trait::construct(alloc_, &map_v, map.cbegin(), map.cend());
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -101,22 +105,22 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) utils::Date(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_date_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) utils::Duration(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &duration_v, temporal_data.microseconds);
           break;
         }
       }
@@ -127,7 +131,8 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
+                                 zoned_temporal_data.timezone);
           break;
         }
       }
@@ -135,17 +140,17 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      new (&enum_v) storage::Enum(value.ValueEnum());
+      alloc_trait::construct(alloc_, &enum_v, value.ValueEnum());
       return;
     }
     case storage::PropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
-      new (&point_2d_v) storage::Point2d(value.ValuePoint2d());
+      alloc_trait::construct(alloc_, &point_2d_v, value.ValuePoint2d());
       return;
     }
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
-      new (&point_3d_v) storage::Point3d(value.ValuePoint3d());
+      alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
       return;
     }
   }
@@ -156,7 +161,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
     // TODO: MemoryResource in storage::PropertyValue, so this can be noexcept
     : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(storage::PropertyValue &&other, allocator_type alloc) : alloc_{alloc} {
   switch (other.type()) {
     case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -175,19 +180,21 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       break;
     case storage::PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(other.ValueString(), memory_);
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &string_v, other.ValueString());
       break;
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
-      std::construct_at(&map_v, memory_);
-      for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &map_v, map.cbegin(), map.cend());
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
@@ -195,22 +202,22 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) utils::Date(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_date_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) utils::Duration(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &duration_v, temporal_data.microseconds);
           break;
         }
       }
@@ -221,7 +228,8 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
+                                 zoned_temporal_data.timezone);
           break;
         }
       }
@@ -229,17 +237,17 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      new (&enum_v) storage::Enum(other.ValueEnum());
+      alloc_trait::construct(alloc_, &enum_v, other.ValueEnum());
       break;
     }
     case storage::PropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
-      new (&point_2d_v) storage::Point2d(other.ValuePoint2d());
+      alloc_trait::construct(alloc_, &point_2d_v, other.ValuePoint2d());
       break;
     }
     case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
-      new (&point_3d_v) storage::Point3d(other.ValuePoint3d());
+      alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
   }
@@ -247,12 +255,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
   other = storage::PropertyValue();
 }
 
-TypedValue::TypedValue(const TypedValue &other)
-    : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
-                            other.memory_)
-                            .GetMemoryResource()) {}
-
-TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) : memory_(memory), type_(other.type_) {
+TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       return;
@@ -266,134 +269,134 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       this->double_v = other.double_v;
       return;
     case TypedValue::Type::String:
-      new (&string_v) TString(other.string_v, memory_);
+      alloc_trait::construct(alloc_, &string_v, other.string_v);
       return;
     case Type::List:
-      new (&list_v) TVector(other.list_v, memory_);
+      alloc_trait::construct(alloc_, &list_v, other.list_v);
       return;
     case Type::Map: {
-      std::construct_at(&map_v, other.map_v, memory_);
+      alloc_trait::construct(alloc_, &map_v, other.map_v);
       return;
     }
     case Type::Vertex:
-      new (&vertex_v) VertexAccessor(other.vertex_v);
+      alloc_trait::construct(alloc_, &vertex_v, other.vertex_v);
       return;
     case Type::Edge:
-      new (&edge_v) EdgeAccessor(other.edge_v);
+      alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       return;
     case Type::Path: {
-      auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(*other.path_v);
-      std::construct_at(&path_v, path_ptr);
+      auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(*other.path_v);
+      alloc_trait::construct(alloc_, &path_v, path_ptr);
       return;
     }
     case Type::Date:
-      new (&date_v) utils::Date(other.date_v);
+      alloc_trait::construct(alloc_, &date_v, other.date_v);
       return;
     case Type::LocalTime:
-      new (&local_time_v) utils::LocalTime(other.local_time_v);
+      alloc_trait::construct(alloc_, &local_time_v, other.local_time_v);
       return;
     case Type::LocalDateTime:
-      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+      alloc_trait::construct(alloc_, &local_date_time_v, other.local_date_time_v);
       return;
     case Type::ZonedDateTime:
-      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      alloc_trait::construct(alloc_, &zoned_date_time_v, other.zoned_date_time_v);
       return;
     case Type::Duration:
-      new (&duration_v) utils::Duration(other.duration_v);
+      alloc_trait::construct(alloc_, &duration_v, other.duration_v);
       return;
     case Type::Enum:
-      new (&enum_v) storage::Enum(other.enum_v);
+      alloc_trait::construct(alloc_, &enum_v, other.enum_v);
       return;
     case Type::Point2d:
-      new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      alloc_trait::construct(alloc_, &point_2d_v, other.point_2d_v);
       return;
     case Type::Point3d:
-      new (&point_3d_v) storage::Point3d(other.point_3d_v);
+      alloc_trait::construct(alloc_, &point_3d_v, other.point_3d_v);
       return;
     case Type::Function:
-      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+      alloc_trait::construct(alloc_, &function_v, other.function_v);
       return;
     case Type::Graph:
-      auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
-      new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+      auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(*other.graph_v);
+      alloc_trait::construct(alloc_, &graph_v, graph_ptr);
       return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
 
-TypedValue::TypedValue(TypedValue &&other) noexcept : TypedValue(std::move(other), other.memory_) {}
+TypedValue::TypedValue(TypedValue &&other) noexcept : TypedValue(std::move(other), other.alloc_) {}
 
-TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memory_(memory), type_(other.type_) {
+TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       break;
     case TypedValue::Type::Bool:
-      std::construct_at(&bool_v, other.bool_v);
+      alloc_trait::construct(alloc_, &bool_v, other.bool_v);
       break;
     case Type::Int:
-      std::construct_at(&int_v, other.int_v);
+      alloc_trait::construct(alloc_, &int_v, other.int_v);
       break;
     case Type::Double:
-      std::construct_at(&double_v, other.double_v);
+      alloc_trait::construct(alloc_, &double_v, other.double_v);
       break;
     case TypedValue::Type::String:
-      std::construct_at(&string_v, std::move(other.string_v), memory_);
+      alloc_trait::construct(alloc_, &string_v, std::move(other.string_v));
       break;
     case Type::List:
-      std::construct_at(&list_v, std::move(other.list_v), memory_);
+      alloc_trait::construct(alloc_, &list_v, std::move(other.list_v));
       break;
     case Type::Map: {
-      std::construct_at(&map_v, std::move(other.map_v), memory_);
+      alloc_trait::construct(alloc_, &map_v, std::move(other.map_v));
       break;
     }
     case Type::Vertex:
-      std::construct_at(&vertex_v, other.vertex_v);
+      alloc_trait::construct(alloc_, &vertex_v, other.vertex_v);
       break;
     case Type::Edge:
-      std::construct_at(&edge_v, other.edge_v);
+      alloc_trait::construct(alloc_, &edge_v, other.edge_v);
       break;
     case Type::Path: {
-      if (other.GetMemoryResource() == memory_) {
-        std::construct_at(&path_v, std::move(other.path_v));
+      if (other.alloc_ == alloc_) {
+        alloc_trait::construct(alloc_, &path_v, std::move(other.path_v));
       } else {
-        auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(std::move(*other.path_v));
-        std::construct_at(&path_v, path_ptr);
+        auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(std::move(*other.path_v));
+        alloc_trait::construct(alloc_, &path_v, path_ptr);
       }
       break;
     }
     case Type::Date:
-      std::construct_at(&date_v, other.date_v);
+      alloc_trait::construct(alloc_, &date_v, other.date_v);
       break;
     case Type::LocalTime:
-      std::construct_at(&local_time_v, other.local_time_v);
+      alloc_trait::construct(alloc_, &local_time_v, other.local_time_v);
       break;
     case Type::LocalDateTime:
-      std::construct_at(&local_date_time_v, other.local_date_time_v);
+      alloc_trait::construct(alloc_, &local_date_time_v, other.local_date_time_v);
       break;
     case Type::ZonedDateTime:
-      std::construct_at(&zoned_date_time_v, other.zoned_date_time_v);
+      alloc_trait::construct(alloc_, &zoned_date_time_v, other.zoned_date_time_v);
       break;
     case Type::Duration:
-      std::construct_at(&duration_v, other.duration_v);
+      alloc_trait::construct(alloc_, &duration_v, other.duration_v);
       break;
     case Type::Enum:
-      std::construct_at(&enum_v, other.enum_v);
+      alloc_trait::construct(alloc_, &enum_v, other.enum_v);
       break;
     case Type::Point2d:
-      std::construct_at(&point_2d_v, other.point_2d_v);
+      alloc_trait::construct(alloc_, &point_2d_v, other.point_2d_v);
       break;
     case Type::Point3d:
-      std::construct_at(&point_3d_v, other.point_3d_v);
+      alloc_trait::construct(alloc_, &point_3d_v, other.point_3d_v);
       break;
     case Type::Function:
-      std::construct_at(&function_v, std::move(other.function_v));
+      alloc_trait::construct(alloc_, &function_v, std::move(other.function_v));
       break;
     case Type::Graph:
-      if (other.GetMemoryResource() == memory_) {
-        std::construct_at(&graph_v, std::move(other.graph_v));
+      if (other.alloc_ == alloc_) {
+        alloc_trait::construct(alloc_, &graph_v, std::move(other.graph_v));
       } else {
-        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
-        std::construct_at(&graph_v, graph_ptr);
+        auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(std::move(*other.graph_v));
+        alloc_trait::construct(alloc_, &graph_v, graph_ptr);
       }
   }
 }
@@ -411,7 +414,7 @@ TypedValue::operator storage::PropertyValue() const {
     case TypedValue::Type::String:
       return storage::PropertyValue(std::string(string_v));
     case TypedValue::Type::List:
-      return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
+      return storage::PropertyValue(storage::PropertyValue::list_t(list_v.cbegin(), list_v.cend()));
     case TypedValue::Type::Map: {
       storage::PropertyValue::map_t map;
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
@@ -614,7 +617,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
     if (this->type_ == TypedValue::Type::typed_value_type) {                     \
       this->member = other;                                                      \
     } else {                                                                     \
-      *this = TypedValue(other, memory_);                                        \
+      *this = TypedValue(other, alloc_);                                         \
     }                                                                            \
                                                                                  \
     return *this;                                                                \
@@ -633,7 +636,7 @@ TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
     list_v.reserve(other.size());
     list_v.assign(other.begin(), other.end());
   } else {
-    *this = TypedValue(other, memory_);
+    *this = TypedValue(other, alloc_);
   }
   return *this;
 }
@@ -643,9 +646,9 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TMap &, Map, map_v)
 TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other) {
   if (type_ == Type::Map) {
     map_v.clear();
-    for (const auto &kv : other) map_v.emplace(TString(kv.first, memory_), kv.second);
+    for (const auto &kv : other) map_v.emplace(TString(kv.first, alloc_), kv.second);
   } else {
-    *this = TypedValue(other, memory_);
+    *this = TypedValue(other, alloc_);
   }
   return *this;
 }
@@ -663,12 +666,12 @@ TypedValue &TypedValue::operator=(const Path &other) {
   if (type_ == Type::Path) {
     auto path = path_v.release();
     if (path) {
-      utils::Allocator<Path>(memory_).delete_object(path);
+      utils::Allocator<Path>(alloc_).delete_object(path);
     }
-    auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(other);
+    auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(other);
     path_v = std::unique_ptr<Path>(path_ptr);
   } else {
-    *this = TypedValue(other, memory_);
+    *this = TypedValue(other, alloc_);
   }
   return *this;
 }
@@ -680,7 +683,7 @@ TypedValue &TypedValue::operator=(const Path &other) {
     if (this->type_ == TypedValue::Type::typed_value_type) {                     \
       this->member = std::move(other);                                           \
     } else {                                                                     \
-      *this = TypedValue(std::move(other), memory_);                             \
+      *this = TypedValue(std::move(other), alloc_);                              \
     }                                                                            \
     return *this;                                                                \
   }
@@ -690,10 +693,13 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::TVector, List, list_v)
 
 TypedValue &TypedValue::operator=(std::vector<TypedValue> &&other) {
   if (type_ == Type::List) {
+    list_v.clear();
     list_v.reserve(other.size());
-    list_v.assign(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
+    for (auto &elem : other) {
+      list_v.emplace_back(std::move(elem));
+    }
   } else {
-    *this = TypedValue(std::move(other), memory_);
+    *this = TypedValue(std::move(other), alloc_);
   }
   return *this;
 }
@@ -703,9 +709,11 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TMap, Map, map_v)
 TypedValue &TypedValue::operator=(std::map<std::string, TypedValue> &&other) {
   if (type_ == Type::Map) {
     map_v.clear();
-    for (auto &kv : other) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
+    for (auto &[key, value] : other) {
+      map_v.emplace(TString(key, alloc_), TypedValue(std::move(value), alloc_));
+    }
   } else {
-    *this = TypedValue(std::move(other), memory_);
+    *this = TypedValue(std::move(other), alloc_);
   }
   return *this;
 }
@@ -714,11 +722,11 @@ TypedValue &TypedValue::operator=(Path &&other) {
   if (type_ == Type::Path) {
     auto path = path_v.release();
     if (path) {
-      utils::Allocator<Path>(memory_).delete_object(path);
+      utils::Allocator<Path>(alloc_).delete_object(path);
     }
-    path_v = std::make_unique<Path>(std::move(other));
+    path_v = std::make_unique<Path>(std::move(other), alloc_);
   } else {
-    *this = TypedValue(std::move(other), memory_);
+    *this = TypedValue(std::move(other), alloc_);
   }
   return *this;
 }
@@ -726,10 +734,9 @@ TypedValue &TypedValue::operator=(Path &&other) {
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
 TypedValue &TypedValue::operator=(const TypedValue &other) {
-  static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_copy_assignment::value,
-                "Allocator propagation not implemented");
+  static_assert(!alloc_trait::propagate_on_container_copy_assignment::value, "Allocator propagation not implemented");
   if (this != &other) {
-    if (type_ == other.type_ && memory_ == other.memory_) {
+    if (type_ == other.type_ && alloc_ == other.alloc_) {
       // same type, copy assign value
       switch (type_) {
         case Type::Null:
@@ -762,10 +769,10 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
-            utils::Allocator<Path>(memory_).delete_object(path);
+            utils::Allocator<Path>(alloc_).delete_object(path);
           }
           if (other.path_v) {
-            auto *path_ptr = utils::Allocator<Path>(memory_).new_object<Path>(*other.path_v);
+            auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(*other.path_v);
             path_v = std::unique_ptr<Path>(path_ptr);
           }
           break;
@@ -788,10 +795,10 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         case Type::Graph: {
           auto *graph = graph_v.release();
           if (graph) {
-            utils::Allocator<Graph>(memory_).delete_object(graph);
+            utils::Allocator<Graph>(alloc_).delete_object(graph);
           }
           if (other.graph_v) {
-            auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+            auto *graph_ptr = utils::Allocator<Graph>(alloc_).new_object<Graph>(*other.graph_v);
             graph_v = std::unique_ptr<Graph>(graph_ptr);
           }
           break;
@@ -812,10 +819,11 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       return *this;
     }
     // destroy + construct
-    auto *orig_mem = memory_;
-    std::destroy_at(this);
+    auto alloc = alloc_;
+    alloc_trait::destroy(alloc, this);
+    alloc_trait::construct(alloc, std::launder(this), other);
     // NOLINTNEXTLINE(cppcoreguidelines-c-copy-assignment-signature,misc-unconventional-assign-operator)
-    return *std::construct_at(std::launder(this), other, orig_mem);
+    return *std::launder(this);
   }
   return *this;
 }
@@ -824,7 +832,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
                 "Allocator propagation not implemented");
   if (this != &other) {
-    if (type_ == other.type_ && memory_ == other.memory_) {
+    if (type_ == other.type_ && alloc_ == other.alloc_) {
       // same type, move assign value
       switch (type_) {
         case Type::Null:
@@ -857,7 +865,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Path: {
           auto *path = path_v.release();
           if (path) {
-            utils::Allocator<Path>(memory_).delete_object(path);
+            utils::Allocator<Path>(alloc_).delete_object(path);
           }
           path_v = std::move(other.path_v);
           break;
@@ -880,7 +888,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Graph: {
           auto *graph = graph_v.release();
           if (graph) {
-            utils::Allocator<Graph>(memory_).delete_object(graph);
+            utils::Allocator<Graph>(alloc_).delete_object(graph);
           }
           graph_v = std::move(other.graph_v);
           break;
@@ -902,7 +910,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       return *this;
     }
     // destroy + construct
-    auto *orig_mem = memory_;
+    auto orig_mem = alloc_;
     std::destroy_at(this);
     // NOLINTNEXTLINE(cppcoreguidelines-c-copy-assignment-signature,misc-unconventional-assign-operator)
     return *std::construct_at(std::launder(this), std::move(other), orig_mem);
@@ -941,7 +949,7 @@ TypedValue::~TypedValue() {
       auto *path = path_v.release();
       std::destroy_at(&path_v);
       if (path) {
-        utils::Allocator<Path>(memory_).delete_object(path);
+        utils::Allocator<Path>(alloc_).delete_object(path);
       }
       break;
     }
@@ -962,7 +970,7 @@ TypedValue::~TypedValue() {
       auto *graph = graph_v.release();
       std::destroy_at(&graph_v);
       if (graph) {
-        utils::Allocator<Graph>(memory_).delete_object(graph);
+        utils::Allocator<Graph>(alloc_).delete_object(graph);
       }
       break;
     }
@@ -1030,14 +1038,14 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   }
 
   if (a.IsNull() || b.IsNull()) {
-    return TypedValue(a.GetMemoryResource());
+    return TypedValue(a.alloc_);
   }
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
       throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     } else {
-      return TypedValue(a.ValueString() < b.ValueString(), a.GetMemoryResource());
+      return TypedValue(a.ValueString() < b.ValueString(), a.alloc_);
     }
   }
 
@@ -1049,19 +1057,19 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     switch (a.type()) {
       case TypedValue::Type::Date:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDate() < b.ValueDate(), a.GetMemoryResource());
+        return TypedValue(a.ValueDate() < b.ValueDate(), a.alloc_);
       case TypedValue::Type::LocalTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.GetMemoryResource());
+        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.alloc_);
       case TypedValue::Type::LocalDateTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.GetMemoryResource());
+        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.alloc_);
       case TypedValue::Type::ZonedDateTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.GetMemoryResource());
+        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.alloc_);
       case TypedValue::Type::Duration:
         // NOLINTNEXTLINE(modernize-use-nullptr)
-        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.GetMemoryResource());
+        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.alloc_);
       default:
         LOG_FATAL("Invalid temporal type");
     }
@@ -1069,35 +1077,35 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) < ToDouble(b), a.GetMemoryResource());
+    return TypedValue(ToDouble(a) < ToDouble(b), a.alloc_);
   } else {
-    return TypedValue(a.ValueInt() < b.ValueInt(), a.GetMemoryResource());
+    return TypedValue(a.ValueInt() < b.ValueInt(), a.alloc_);
   }
 }
 
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
 
   // check we have values that can be compared
   // this means that either they're the same type, or (int, double) combo
-  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return TypedValue(false, a.GetMemoryResource());
+  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return TypedValue(false, a.alloc_);
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return TypedValue(a.ValueBool() == b.ValueBool(), a.GetMemoryResource());
+      return TypedValue(a.ValueBool() == b.ValueBool(), a.alloc_);
     case TypedValue::Type::Int:
       if (b.IsDouble())
-        return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
+        return TypedValue(ToDouble(a) == ToDouble(b), a.alloc_);
       else
-        return TypedValue(a.ValueInt() == b.ValueInt(), a.GetMemoryResource());
+        return TypedValue(a.ValueInt() == b.ValueInt(), a.alloc_);
     case TypedValue::Type::Double:
-      return TypedValue(ToDouble(a) == ToDouble(b), a.GetMemoryResource());
+      return TypedValue(ToDouble(a) == ToDouble(b), a.alloc_);
     case TypedValue::Type::String:
-      return TypedValue(a.ValueString() == b.ValueString(), a.GetMemoryResource());
+      return TypedValue(a.ValueString() == b.ValueString(), a.alloc_);
     case TypedValue::Type::Vertex:
-      return TypedValue(a.ValueVertex() == b.ValueVertex(), a.GetMemoryResource());
+      return TypedValue(a.ValueVertex() == b.ValueVertex(), a.alloc_);
     case TypedValue::Type::Edge:
-      return TypedValue(a.ValueEdge() == b.ValueEdge(), a.GetMemoryResource());
+      return TypedValue(a.ValueEdge() == b.ValueEdge(), a.alloc_);
     case TypedValue::Type::List: {
       // We are not compatible with neo4j at this point. In neo4j 2 = [2]
       // compares
@@ -1109,45 +1117,44 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       // 2 = [2] compares to false.
       const auto &list_a = a.ValueList();
       const auto &list_b = b.ValueList();
-      if (list_a.size() != list_b.size()) return TypedValue(false, a.GetMemoryResource());
+      if (list_a.size() != list_b.size()) return TypedValue(false, a.alloc_);
       // two arrays are considered equal (by neo) if all their
       // elements are bool-equal. this means that:
       //    [1] == [null] -> false
       //    [null] == [null] -> true
       // in that sense array-comparison never results in Null
-      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(), TypedValue::BoolEqual{}),
-                        a.GetMemoryResource());
+      return TypedValue(std::equal(list_a.begin(), list_a.end(), list_b.begin(), TypedValue::BoolEqual{}), a.alloc_);
     }
     case TypedValue::Type::Map: {
       const auto &map_a = a.ValueMap();
       const auto &map_b = b.ValueMap();
-      if (map_a.size() != map_b.size()) return TypedValue(false, a.GetMemoryResource());
+      if (map_a.size() != map_b.size()) return TypedValue(false, a.alloc_);
       for (const auto &kv_a : map_a) {
         auto found_b_it = map_b.find(kv_a.first);
-        if (found_b_it == map_b.end()) return TypedValue(false, a.GetMemoryResource());
+        if (found_b_it == map_b.end()) return TypedValue(false, a.alloc_);
         TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.IsNull() || !comparison.ValueBool()) return TypedValue(false, a.GetMemoryResource());
+        if (comparison.IsNull() || !comparison.ValueBool()) return TypedValue(false, a.alloc_);
       }
-      return TypedValue(true, a.GetMemoryResource());
+      return TypedValue(true, a.alloc_);
     }
     case TypedValue::Type::Path:
-      return TypedValue(a.ValuePath() == b.ValuePath(), a.GetMemoryResource());
+      return TypedValue(a.ValuePath() == b.ValuePath(), a.alloc_);
     case TypedValue::Type::Date:
-      return TypedValue(a.ValueDate() == b.ValueDate(), a.GetMemoryResource());
+      return TypedValue(a.ValueDate() == b.ValueDate(), a.alloc_);
     case TypedValue::Type::LocalTime:
-      return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.GetMemoryResource());
+      return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.alloc_);
     case TypedValue::Type::LocalDateTime:
-      return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.GetMemoryResource());
+      return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.alloc_);
     case TypedValue::Type::ZonedDateTime:
-      return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.GetMemoryResource());
+      return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.alloc_);
     case TypedValue::Type::Duration:
-      return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
+      return TypedValue(a.ValueDuration() == b.ValueDuration(), a.alloc_);
     case TypedValue::Type::Enum:
-      return TypedValue(a.ValueEnum() == b.ValueEnum(), a.GetMemoryResource());
+      return TypedValue(a.ValueEnum() == b.ValueEnum(), a.alloc_);
     case TypedValue::Type::Point2d:
-      return TypedValue(a.ValuePoint2d() == b.ValuePoint2d(), a.GetMemoryResource());
+      return TypedValue(a.ValuePoint2d() == b.ValuePoint2d(), a.alloc_);
     case TypedValue::Type::Point3d:
-      return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.GetMemoryResource());
+      return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.alloc_);
     case TypedValue::Type::Graph:
       throw TypedValueException("Unsupported comparison operator");
     case TypedValue::Type::Function:
@@ -1157,8 +1164,8 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
 }
 
 TypedValue operator!(const TypedValue &a) {
-  if (a.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (a.IsBool()) return TypedValue(!a.ValueBool(), a.GetMemoryResource());
+  if (a.IsNull()) return TypedValue(a.alloc_);
+  if (a.IsBool()) return TypedValue(!a.ValueBool(), a.alloc_);
   throw TypedValueException("Invalid logical not operand type (!{})", a.type());
 }
 
@@ -1169,7 +1176,7 @@ TypedValue operator!(const TypedValue &a) {
  * @return A string.
  */
 std::string ValueToString(const TypedValue &value) {
-  // TODO: Should this allocate a string through value.GetMemoryResource()?
+  // TODO: Should this allocate a string through value.alloc_?
   if (value.IsString()) return std::string(value.ValueString());
   if (value.IsInt()) return std::to_string(value.ValueInt());
   if (value.IsDouble()) return fmt::format("{}", value.ValueDouble());
@@ -1178,17 +1185,17 @@ std::string ValueToString(const TypedValue &value) {
 }
 
 TypedValue operator-(const TypedValue &a) {
-  if (a.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (a.IsInt()) return TypedValue(-a.ValueInt(), a.GetMemoryResource());
-  if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.GetMemoryResource());
-  if (a.IsDuration()) return TypedValue(-a.ValueDuration(), a.GetMemoryResource());
+  if (a.IsNull()) return TypedValue(a.alloc_);
+  if (a.IsInt()) return TypedValue(-a.ValueInt(), a.alloc_);
+  if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.alloc_);
+  if (a.IsDuration()) return TypedValue(-a.ValueDuration(), a.alloc_);
   throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
 }
 
 TypedValue operator+(const TypedValue &a) {
-  if (a.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (a.IsInt()) return TypedValue(+a.ValueInt(), a.GetMemoryResource());
-  if (a.IsDouble()) return TypedValue(+a.ValueDouble(), a.GetMemoryResource());
+  if (a.IsNull()) return TypedValue(a.alloc_);
+  if (a.IsInt()) return TypedValue(+a.ValueInt(), a.alloc_);
+  if (a.IsDouble()) return TypedValue(+a.ValueDouble(), a.alloc_);
   throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
 }
 
@@ -1294,10 +1301,10 @@ std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, co
 }  // namespace
 
 TypedValue operator+(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
 
   if (a.IsList() || b.IsList()) {
-    TypedValue::TVector list(a.GetMemoryResource());
+    TypedValue::TVector list(a.alloc_);
 
     size_t const new_list_size{(a.IsList() ? a.ValueList().size() : 1) + (b.IsList() ? b.ValueList().size() : 1)};
     list.reserve(new_list_size);
@@ -1312,7 +1319,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     };
     append_list(a);
     append_list(b);
-    return TypedValue(std::move(list), a.GetMemoryResource());
+    return TypedValue(std::move(list), a.alloc_);
   }
 
   if (const auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
@@ -1322,71 +1329,71 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
-  if (a.IsString() || b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.GetMemoryResource());
+  if (a.IsString() || b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.alloc_);
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) + ToDouble(b), a.GetMemoryResource());
+    return TypedValue(ToDouble(a) + ToDouble(b), a.alloc_);
   }
-  return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
+  return TypedValue(a.ValueInt() + b.ValueInt(), a.alloc_);
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
     return *maybe_sub;
   }
   EnsureArithmeticallyOk(a, b, true, "subraction");
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
+    return TypedValue(ToDouble(a) - ToDouble(b), a.alloc_);
   }
-  return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
+  return TypedValue(a.ValueInt() - b.ValueInt(), a.alloc_);
 }
 
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   EnsureArithmeticallyOk(a, b, false, "division");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) / ToDouble(b), a.GetMemoryResource());
+    return TypedValue(ToDouble(a) / ToDouble(b), a.alloc_);
   } else {
     if (b.ValueInt() == 0LL) throw TypedValueException("Division by zero");
-    return TypedValue(a.ValueInt() / b.ValueInt(), a.GetMemoryResource());
+    return TypedValue(a.ValueInt() / b.ValueInt(), a.alloc_);
   }
 }
 
 TypedValue operator*(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   EnsureArithmeticallyOk(a, b, false, "multiplication");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(ToDouble(a) * ToDouble(b), a.GetMemoryResource());
+    return TypedValue(ToDouble(a) * ToDouble(b), a.alloc_);
   } else {
-    return TypedValue(a.ValueInt() * b.ValueInt(), a.GetMemoryResource());
+    return TypedValue(a.ValueInt() * b.ValueInt(), a.alloc_);
   }
 }
 
 TypedValue operator%(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   EnsureArithmeticallyOk(a, b, false, "modulo");
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
-    return TypedValue(static_cast<double>(fmod(ToDouble(a), ToDouble(b))), a.GetMemoryResource());
+    return TypedValue(static_cast<double>(fmod(ToDouble(a), ToDouble(b))), a.alloc_);
   } else {
     if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
-    return TypedValue(a.ValueInt() % b.ValueInt(), a.GetMemoryResource());
+    return TypedValue(a.ValueInt() % b.ValueInt(), a.alloc_);
   }
 }
 
 TypedValue pow(const TypedValue &a, const TypedValue &b) {
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   EnsureArithmeticallyOk(a, b, false, "^");
 
-  return TypedValue(std::pow(ToDouble(a), ToDouble(b)), a.GetMemoryResource());
+  return TypedValue(std::pow(ToDouble(a), ToDouble(b)), a.alloc_);
 }
 
 inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const std::string &op_name) {
@@ -1399,31 +1406,31 @@ TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical AND");
   // at this point we only have null and bool
   // if either operand is false, the result is false
-  if (a.IsBool() && !a.ValueBool()) return TypedValue(false, a.GetMemoryResource());
-  if (b.IsBool() && !b.ValueBool()) return TypedValue(false, a.GetMemoryResource());
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsBool() && !a.ValueBool()) return TypedValue(false, a.alloc_);
+  if (b.IsBool() && !b.ValueBool()) return TypedValue(false, a.alloc_);
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   // neither is false, neither is null, thus both are true
-  return TypedValue(true, a.GetMemoryResource());
+  return TypedValue(true, a.alloc_);
 }
 
 TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical OR");
   // at this point we only have null and bool
   // if either operand is true, the result is true
-  if (a.IsBool() && a.ValueBool()) return TypedValue(true, a.GetMemoryResource());
-  if (b.IsBool() && b.ValueBool()) return TypedValue(true, a.GetMemoryResource());
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsBool() && a.ValueBool()) return TypedValue(true, a.alloc_);
+  if (b.IsBool() && b.ValueBool()) return TypedValue(true, a.alloc_);
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
   // neither is true, neither is null, thus both are false
-  return TypedValue(false, a.GetMemoryResource());
+  return TypedValue(false, a.alloc_);
 }
 
 TypedValue operator^(const TypedValue &a, const TypedValue &b) {
   EnsureLogicallyOk(a, b, "logical XOR");
   // at this point we only have null and bool
   if (a.IsNull() || b.IsNull())
-    return TypedValue(a.GetMemoryResource());
+    return TypedValue(a.alloc_);
   else
-    return TypedValue(static_cast<bool>(a.ValueBool() ^ b.ValueBool()), a.GetMemoryResource());
+    return TypedValue(static_cast<bool>(a.ValueBool() ^ b.ValueBool()), a.alloc_);
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs, const TypedValue &rhs) const {
@@ -1499,6 +1506,21 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       throw TypedValueException("Unsupported hash function for Graph");
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
+}
+
+auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem> {
+  switch (tv.type()) {
+    using enum TypedValue::Type;
+    case Point2d: {
+      return tv.point_2d_v.crs();
+    }
+    case Point3d: {
+      return tv.point_3d_v.crs();
+    }
+    default: {
+      return std::nullopt;
+    }
+  }
 }
 
 }  // namespace memgraph::query

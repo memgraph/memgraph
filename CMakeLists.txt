@@ -202,6 +202,7 @@ add_compile_options(
         -Werror=switch-bool
         -Werror=return-type
         -Werror=return-stack-address
+        -Werror=non-power-of-two-alignment
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
         -Wno-c99-designator
         -Werror=implicit-fallthrough

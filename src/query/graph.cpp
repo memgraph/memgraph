@@ -19,20 +19,18 @@ namespace memgraph::query {
 namespace r = std::ranges;
 namespace rv = r::views;
 
-Graph::Graph(utils::MemoryResource *memory) : vertices_(memory), edges_(memory) {}
+Graph::Graph(allocator_type alloc) : vertices_(alloc), edges_(alloc) {}
 
-Graph::Graph(const Graph &other, utils::MemoryResource *memory)
-    : vertices_(other.vertices_, memory), edges_(other.edges_, memory) {}
+Graph::Graph(const Graph &other, allocator_type alloc)
+    : vertices_(other.vertices_, alloc), edges_(other.edges_, alloc) {}
 
-Graph::Graph(Graph &&other) noexcept : Graph(std::move(other), other.GetMemoryResource()) {}
+Graph::Graph(Graph &&other) noexcept : Graph(std::move(other), other.get_allocator()) {}
 
 Graph::Graph(const Graph &other)
-    : Graph(other,
-            std::allocator_traits<allocator_type>::select_on_container_copy_construction(other.GetMemoryResource())
-                .GetMemoryResource()) {}
+    : Graph(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())) {}
 
-Graph::Graph(Graph &&other, utils::MemoryResource *memory)
-    : vertices_(std::move(other.vertices_), memory), edges_(std::move(other.edges_), memory) {}
+Graph::Graph(Graph &&other, allocator_type alloc)
+    : vertices_(std::move(other.vertices_), alloc), edges_(std::move(other.edges_), alloc) {}
 
 void Graph::Expand(const Path &path) {
   const auto &path_vertices_ = path.vertices();
@@ -92,6 +90,6 @@ utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() { return edges_; }
 const utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() const { return vertices_; }
 const utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() const { return edges_; }
 
-utils::MemoryResource *Graph::GetMemoryResource() const { return vertices_.get_allocator().GetMemoryResource(); }
+auto Graph::get_allocator() const -> allocator_type { return vertices_.get_allocator(); }
 
 }  // namespace memgraph::query
