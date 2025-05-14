@@ -169,13 +169,25 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   InMemoryLabelPropertyIndex() = default;
 
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::span<PropertyId const> properties);
+  /// Part of a 3 part interface
+  /// - RegisterIndex: initialised the index (available for insertion)
+  /// - PopulateIndex: fills index (snapshot isolation via transaction)
+  /// - PublishIndex: finalises index (available for use in queries)
+  bool RegisterIndex(LabelId label, std::span<PropertyId const> properties);
+
+  /// see @RegisterIndex
+  auto PopulateIndex(
+      LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+      CheckCancelFunction cancel_check = [] { return false; }, const Transaction *tx = nullptr)
+      -> utils::BasicResult<IndexPopulateError>;
+
+  /// see @RegisterIndex
+  bool PublishIndex(LabelId label, std::span<PropertyId const> properties);
 
   bool DropIndex(LabelId label, std::span<PropertyId const> properties,
                  PublishIndexCallback publish_index_callback = invoke_input) override;
-
-  bool PublishIndexForUse(LabelId label, std::span<PropertyId const> properties);
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -194,13 +206,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
   auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
-
-  auto PopulateIndex(
-      LabelId label, std::vector<PropertyId> const &properties, utils::SkipList<Vertex>::Accessor vertices,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-      CheckCancelFunction cancel_check = [] { return false; }, const Transaction *tx = nullptr)
-      -> utils::BasicResult<IndexPopulateError>;
 
  private:
   utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;

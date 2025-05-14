@@ -189,7 +189,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}));
+  ASSERT_TRUE(label_prop_idx.RegisterIndex(label, std::vector{prop}));
   ASSERT_NO_THROW(
       label_prop_idx.PopulateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -214,7 +214,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}));
+  ASSERT_TRUE(label_prop_idx.RegisterIndex(label, std::vector{prop}));
   ASSERT_NO_THROW(
       label_prop_idx.PopulateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -241,7 +241,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop_c, prop_a, prop_b}));
+  ASSERT_TRUE(label_prop_idx.RegisterIndex(label, std::vector{prop_c, prop_a, prop_b}));
   ASSERT_NO_THROW(label_prop_idx.PopulateIndex(label, std::vector{prop_c, prop_a, prop_b}, vertices.access(),
                                                par_schema_info, snapshot_info));
 }
@@ -268,7 +268,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}));
+  ASSERT_TRUE(label_prop_idx.RegisterIndex(label, std::vector{prop}));
   ASSERT_NO_THROW(
       label_prop_idx.PopulateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -297,7 +297,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop_c, prop_a, prop_b}));
+  ASSERT_TRUE(label_prop_idx.RegisterIndex(label, std::vector{prop_c, prop_a, prop_b}));
   ASSERT_NO_THROW(label_prop_idx.PopulateIndex(label, std::vector{prop_c, prop_a, prop_b}, vertices.access(),
                                                par_schema_info, snapshot_info));
 }

@@ -6158,7 +6158,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CreateEnumQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(AlterEnumAddValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(TtlQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(TtlQuery &) override {
+    // Ideally this would be READ ONLY downgrading to READ. Because it interanally creates/drops concurrent indexes.
+    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+  }
   void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
 
   // Read access required

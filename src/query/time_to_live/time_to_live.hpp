@@ -244,10 +244,10 @@ class TTL final {
   template <typename TDbAccess>
   void Setup_(TDbAccess db, InterpreterContext *interpreter_context, bool should_run_edge_ttl);
 
-  utils::Scheduler ttl_;      //!< background thread
-  TtlInfo info_{};            //!< configuration
-  bool enabled_{false};       //!< feature enabler
-  kvstore::KVStore storage_;  //!< durability
+  utils::Scheduler ttl_;              //!< background thread
+  TtlInfo info_{};                    //!< configuration
+  std::atomic<bool> enabled_{false};  //!< feature enabler
+  kvstore::KVStore storage_;          //!< durability
 };
 
 }  // namespace ttl

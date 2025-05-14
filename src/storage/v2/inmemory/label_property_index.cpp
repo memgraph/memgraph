@@ -251,7 +251,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   index_accessor.insert({std::move(ordered_values), &vertex, tx.start_timestamp});
 }
 
-bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, std::span<PropertyId const> properties) {
+bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, std::span<PropertyId const> properties) {
   return index_.WithLock([&](IndexContainer &index) {
     auto [it1, _] = index.try_emplace(label);
     auto &properties_map = it1->second;
@@ -1053,7 +1053,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
   }
 }
 
-bool InMemoryLabelPropertyIndex::PublishIndexForUse(LabelId label, std::span<PropertyId const> properties) {
+bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, std::span<PropertyId const> properties) {
   return index_.WithLock([&](IndexContainer &index) {
     auto it = index.find(label);
     if (it == index.end()) return false;
