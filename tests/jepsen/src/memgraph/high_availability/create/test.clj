@@ -293,9 +293,6 @@
                                      (utils/main-unwriteable? e)
                                      (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
 
-                                     (utils/txn-asked-to-abort? e)
-                                     (assoc op :type :ok :value {:str "Txn was asked to abort"})
-
                                      (utils/unique-constraint-violated? e)
                                      (assoc op :type :ok :value {:str "Unique constraint was violated."})
 
@@ -322,12 +319,7 @@
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
-                                   (cond
-                                     (utils/txn-asked-to-abort? e)
-                                     (assoc op :type :ok :value {:str "Txn was asked to abort"})
-
-                                     :else
-                                     (assoc op :type :fail :value (str e)))))
+                                   (assoc op :type :fail :value (str e))))
 
                                (assoc op :type :info :value "Not coordinator"))
         :setup-cluster
