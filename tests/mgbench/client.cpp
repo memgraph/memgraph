@@ -18,6 +18,7 @@
 #include <map>
 #include <numeric>
 #include <ostream>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -53,6 +54,7 @@ DEFINE_bool(queries_json, false,
             "that should be executed and the second element should be a dictionary of "
             "query parameters for that query.");
 
+DEFINE_string(databases, "memgraph", "Comma-separated list of databases");
 DEFINE_string(input, "", "Input file. By default stdin is used.");
 DEFINE_string(output, "", "Output file. By default stdout is used.");
 DEFINE_bool(validation, false,
@@ -66,12 +68,22 @@ DEFINE_int64(time_dependent_execution, 0,
 
 using bolt_map_t = memgraph::communication::bolt::map_t;
 
+std::random_device rd;
+std::mt19937 gen(rd());  // Mersenne Twister RNG
+
+std::string GetRandomDB(std::vector<std::string> const &dbs) {
+  std::uniform_int_distribution<> dis(0, dbs.size() - 1);
+  auto const rnd_index = dis(gen);
+  return dbs[rnd_index];
+}
+
 std::pair<bolt_map_t, uint64_t> ExecuteNTimesTillSuccess(memgraph::communication::bolt::Client *client,
                                                          const std::string &query, const bolt_map_t &params,
-                                                         int max_attempts) {
+                                                         int max_attempts, std::string const &db) {
+  bolt_map_t const extras{{"db", db}};
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
-      auto ret = client->Execute(query, params);
+      auto ret = client->Execute(query, params, extras);
 
       return {std::move(ret.metadata), i};
     } catch (const memgraph::utils::BasicException &e) {
@@ -88,10 +100,12 @@ std::pair<bolt_map_t, uint64_t> ExecuteNTimesTillSuccess(memgraph::communication
 // Validation returns results and metadata
 std::pair<bolt_map_t, std::vector<std::vector<memgraph::communication::bolt::Value>>>
 ExecuteValidationNTimesTillSuccess(memgraph::communication::bolt::Client *client, const std::string &query,
-                                   const bolt_map_t &params, int max_attempts) {
+                                   const bolt_map_t &params, int max_attempts, std::string const &db) {
+  bolt_map_t const extras{{"db", db}};
+
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
-      auto ret = client->Execute(query, params);
+      auto ret = client->Execute(query, params, extras);
       return {std::move(ret.metadata), std::move(ret.records)};
     } catch (const memgraph::utils::BasicException &e) {
       if (i == max_attempts - 1) {
@@ -224,8 +238,8 @@ nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_
   return statistics;
 }
 
-void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries,
-                                  std::ostream *stream) {
+void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream,
+                                  std::vector<std::string> const &dbs) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -273,8 +287,9 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
           pos = position.fetch_add(1, std::memory_order_acq_rel);
         }
         const auto &query = queries[pos];
+        auto const random_db = GetRandomDB(dbs);
         memgraph::utils::Timer query_timer;
-        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
+        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, random_db);
         query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
@@ -328,7 +343,8 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   (*stream) << summary.dump() << '\n';
 }
 
-void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream) {
+void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream,
+                     std::vector<std::string> const &dbs) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -364,8 +380,9 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) break;
         const auto &query = queries[pos];
+        auto const random_db = GetRandomDB(dbs);
         memgraph::utils::Timer query_timer;
-        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
+        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, random_db);
         query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
@@ -421,7 +438,8 @@ nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::commun
 }
 
 /// Validation mode works on single thread with 1 query.
-void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream) {
+void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream,
+                       std::vector<std::string> const &dbs) {
   spdlog::info("Running validation mode, number of workers forced to 1");
   FLAGS_num_workers = 1;
 
@@ -436,10 +454,11 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
   memgraph::communication::bolt::Client client(context);
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
-  memgraph::utils::Timer timer;
+  auto const random_db = GetRandomDB(dbs);
   if (size == 1) {
     const auto &query = queries[0];
-    auto ret = ExecuteValidationNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
+    memgraph::utils::Timer timer;
+    auto ret = ExecuteValidationNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, random_db);
     metadata.Append(ret.first);
     results = ret.second;
     duration = timer.Elapsed().count();
@@ -458,6 +477,21 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
   (*stream) << summary.dump() << '\n';
 }
 
+void CreateDatabases(std::vector<std::string> const &dbs) {
+  memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(context);
+  client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  for (auto const &db : dbs) {
+    if (db == "memgraph") {
+      continue;
+    }
+    auto const create_db_query = fmt::format("CREATE DATABASE {}", db);
+    client.Execute(create_db_query, {});
+  }
+  client.Close();
+}
+
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
@@ -473,7 +507,7 @@ int main(int argc, char **argv) {
   spdlog::info("Input: {}", FLAGS_input);
   spdlog::info("Output: {}", FLAGS_output);
   spdlog::info("Validation: {}", FLAGS_validation);
-  spdlog::info("Time dependend execution: {}", FLAGS_time_dependent_execution);
+  spdlog::info("Time dependent execution: {}", FLAGS_time_dependent_execution);
 
   memgraph::communication::SSLInit sslInit;
 
@@ -494,6 +528,9 @@ int main(int argc, char **argv) {
     ostream = &ofile;
   }
 
+  auto const dbs = memgraph::utils::Split(FLAGS_databases, ",");
+  CreateDatabases(dbs);
+
   std::vector<std::pair<std::string, bolt_map_t>> queries;
   if (!FLAGS_queries_json) {
     // Load simple queries.
@@ -501,7 +538,7 @@ int main(int argc, char **argv) {
     while (std::getline(*istream, query)) {
       auto trimmed = memgraph::utils::Trim(query);
       if (trimmed == "" || trimmed == ";") {
-        ExecuteWorkload(queries, ostream);
+        ExecuteWorkload(queries, ostream, dbs);
         queries.clear();
         continue;
       }
@@ -517,7 +554,7 @@ int main(int argc, char **argv) {
                 "array!");
       MG_ASSERT(data.is_array() && data.size() == 2, "Each item of the loaded JSON queries must be an array!");
       if (data.size() == 0) {
-        ExecuteWorkload(queries, ostream);
+        ExecuteWorkload(queries, ostream, dbs);
         queries.clear();
         continue;
       }
@@ -536,11 +573,11 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_validation) {
-    ExecuteValidation(queries, ostream);
+    ExecuteValidation(queries, ostream, dbs);
   } else if (FLAGS_time_dependent_execution > 0) {
-    ExecuteTimeDependentWorkload(queries, ostream);
+    ExecuteTimeDependentWorkload(queries, ostream, dbs);
   } else {
-    ExecuteWorkload(queries, ostream);
+    ExecuteWorkload(queries, ostream, dbs);
   }
 
   return 0;

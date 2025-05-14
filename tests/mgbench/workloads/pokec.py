@@ -71,6 +71,14 @@ class Pokec(Workload):
     def benchmark__arango__single_vertex_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
+    def benchmark__arango__unwind_range_vertex_write(self):
+        return (
+            "UNWIND range(1, 100) as x CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
+            'p3: "Here is some text that is not extremely short", '
+            'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
+            {},
+        )
+
     def benchmark__arango__single_vertex_write(self):
         return (
             "CREATE (n:UserTemp {id : $id}) RETURN n",
