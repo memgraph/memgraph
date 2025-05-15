@@ -294,6 +294,9 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
       storage->timestamp_ =
           std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
       spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());
+
+      // Mark all up to timestamp + timestamp
+      static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedUpToId(storage->timestamp_);
     });
 
     // STEP 4) Resume TTL
