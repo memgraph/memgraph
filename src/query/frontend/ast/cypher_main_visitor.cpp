@@ -378,8 +378,11 @@ antlrcpp::Any CypherMainVisitor::visitVectorIndexQuery(MemgraphCypher::VectorInd
 
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
+
   index_query->action_ = IndexQuery::Action::CREATE;
+
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+
   index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
   for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
     auto nested_properties = nested_property_key_names->propertyKeyName() |
@@ -390,11 +393,16 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
     index_query->properties_.emplace_back(std::move(nested_properties));
   }
 
-  // @TODO add test for uniqueness of composite nested indices.
-  auto const properties_are_unique{
-      std::set<std::vector<PropertyIx>>{index_query->properties_.begin(), index_query->properties_.end()}.size() ==
-      index_query->properties_.size()};
-  if (!properties_are_unique) {
+  // Check composite properties are unique, and in the case of nested properties,
+  // that the prefix is also unique (e.g. if we have `a.b`, `a.b.c` is
+  // disallowed because the index already exists on the outer `a.b` property.)
+  // By sorting, any potential prefix conflicts will be adjacent.
+  std::vector<std::vector<PropertyIx>> sorted_properties = index_query->properties_;
+  std::ranges::sort(sorted_properties);
+  if (std::ranges::adjacent_find(sorted_properties, [](auto &&lhs, auto &&rhs) {
+        auto min_length = std::min(lhs.size(), rhs.size());
+        return std::ranges::equal(lhs.cbegin(), lhs.cbegin() + min_length, rhs.cbegin(), rhs.cbegin() + min_length);
+      }) != sorted_properties.end()) {
     throw SyntaxException("Properties cannot be repeated in a composite index.");
   }
 
