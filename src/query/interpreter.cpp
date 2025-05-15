@@ -3043,7 +3043,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   auto prop_path_to_name = [execution_db_accessor](auto const &property_path) {
     return property_path |
            rv::transform([&](auto &&property_id) { return execution_db_accessor->PropertyToName(property_id); }) |
-           rv::join(".") | r::to<std::string>();
+           rv::join('.') | r::to<std::string>();
   };
 
   std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
@@ -3143,7 +3143,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
     return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
                         return execution_db_accessor->PropertyToName(property_id);
                       }) |
-                      rv::join(".") | r::to<std::string>()};
+                      rv::join('.') | r::to<std::string>()};
   };
 
   std::transform(
@@ -4811,7 +4811,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
                                 return storage->PropertyToName(property_id);
                               }) |
-                              rv::join(".") | r::to<std::string>()};
+                              rv::join('.') | r::to<std::string>()};
           };
           auto props = properties | ranges::views::transform(prop_path_to_name) | ranges::to_vector;
           results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
