@@ -25,11 +25,13 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
 
+#include "filesystem_helpers.hpp"
+
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
 constexpr auto testSuite = "database_v2_get_info";
-const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
+const auto storage_directory = tests::generate_unique_temp_directory(testSuite);
 
 struct TestConfig {};
 struct DefaultConfig : TestConfig {};
@@ -73,8 +75,16 @@ class InfoTest : public testing::Test {
     std::filesystem::remove_all(storage_directory);
   }
 
-  StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
-                                                            : StorageMode::IN_MEMORY_TRANSACTIONAL};
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
+      return (*this->db_acc_)->ReadOnlyAccess();
+    } else {
+      return (*this->db_acc_)->UniqueAccess();
+    }
+  }
+
+  constexpr static StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
+                                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
 #ifdef MG_ENTERPRISE
   memgraph::auth::SynchedAuth auth_{storage_directory, memgraph::auth::Auth::Config {}};
@@ -152,48 +162,48 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = db_acc->UniqueAccess();
+    ASSERT_FALSE(acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
   }
 
   {
-    auto unique_acc = db_acc->UniqueAccess();
-    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = this->CreateIndexAccessor();
+      ASSERT_FALSE(acc->DropIndex(lbl, {prop2, prop}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
   }
 

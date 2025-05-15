@@ -771,6 +771,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
   constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
   constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
+  // TODO: add when concurrent index creation can actually replicate using READ_ONLY
+  // constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
   auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
@@ -1053,6 +1055,10 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
+          // TODO: NOTE for concurrent index creation when we do kReadOnlyAccess
+          //           problem when mixed with data deltas
+          //           we need to fix auto-indexing to have its own txn,
+          //           so that replication deltas are not mixed with data deltas
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
@@ -1086,8 +1092,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
+          // ATM this could come from a TTL operation, in combination with other operations hence ATM we must use the
+          // strongest access of Unique
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
 
@@ -1098,6 +1105,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
+          // ATM this could come from a TTL operation, in combination with other operations hence ATM we must use the
+          // strongest access of Unique
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {

@@ -24,6 +24,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace memgraph::storage {
 
@@ -68,10 +69,10 @@ struct Indices {
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
-    void Process(Indices &indices, uint64_t start_timestamp);
+    void Process(Indices &indices, Transaction &tx);
   };
 
-  auto GetAbortProcessor() const -> AbortProcessor;
+  auto GetAbortProcessor(Transaction const &transaction) const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`
@@ -79,14 +80,13 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const;
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) const;
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

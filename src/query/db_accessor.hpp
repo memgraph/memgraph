@@ -628,13 +628,17 @@ class DbAccessor final {
 
   const std::string &id() const { return accessor_->id(); }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label) {
-    return accessor_->CreateIndex(label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
+      storage::LabelId label, storage::PublishIndexCallback publish_index_callback = storage::invoke_input) {
+    return accessor_->CreateIndex(label, std::move(publish_index_callback));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
-    return accessor_->CreateIndex(label, std::move(properties));
+      storage::LabelId label, std::vector<storage::PropertyId> &&properties,
+      storage::CheckCancelFunction cancel_check = []() { return false; },
+      storage::PublishIndexCallback publish_index_callback = storage::invoke_input) {
+    return accessor_->CreateIndex(label, std::move(properties), std::move(cancel_check),
+                                  std::move(publish_index_callback));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {
@@ -650,13 +654,15 @@ class DbAccessor final {
     return accessor_->CreateGlobalEdgeIndex(property);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
-    return accessor_->DropIndex(label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
+      storage::LabelId label, storage::PublishIndexCallback publish_index_callback = storage::invoke_input) {
+    return accessor_->DropIndex(label, std::move(publish_index_callback));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
-    return accessor_->DropIndex(label, std::move(properties));
+      storage::LabelId label, std::vector<storage::PropertyId> &&properties,
+      storage::PublishIndexCallback publish_index_callback = storage::invoke_input) {
+    return accessor_->DropIndex(label, std::move(properties), std::move(publish_index_callback));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {
