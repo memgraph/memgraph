@@ -10,6 +10,14 @@ Feature: Indices
             | index type       | label | property        | count |
             | 'label+property' | 'L1'  | ['a', 'b', 'c'] | 0     |
 
+    Scenario: Cannot create a composite index with duplicate keys
+        Given an empty graph
+        When executing query:
+            """
+            CREATE INDEX ON :L1(a, b, a)
+            """
+        Then an error should be raised
+
     Scenario: Creating a nested index
         Given an empty graph
         And with new index :L1(a.b, c.d.e, f)
@@ -20,6 +28,49 @@ Feature: Indices
         Then the result should be:
             | index type       | label | property              | count |
             | 'label+property' | 'L1'  | ['a.b', 'c.d.e', 'f'] | 0     |
+
+    Scenario: Can create a nested index with duplicate top-most properties
+        Given an empty graph
+        And with new index :L1(a.b, a.c, a.d)
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type       | label | property              | count |
+            | 'label+property' | 'L1'  | ['a.b', 'a.c', 'a.d'] | 0     |
+
+    Scenario: Cannot create a nested index with duplicate path prefixes 01
+        Given an empty graph
+        When executing query:
+            """
+            CREATE INDEX ON :L1(a, a.b)
+            """
+        Then an error should be raised
+
+    Scenario: Cannot create a nested index with duplicate path prefixes 02
+        Given an empty graph
+        When executing query:
+            """
+            CREATE INDEX ON :L1(a, a.b.c)
+            """
+        Then an error should be raised
+
+    Scenario: Cannot create a nested index with duplicate path prefixes 03
+        Given an empty graph
+        When executing query:
+            """
+            CREATE INDEX ON :L1(a.b, a.b.c)
+            """
+        Then an error should be raised
+
+    Scenario: Cannot create a nested index with duplicate path prefixes 04
+        Given an empty graph
+        When executing query:
+            """
+            CREATE INDEX ON :L1(a.b, a.b.c.d)
+            """
+        Then an error should be raised
 
     Scenario: Stats are created for all prefixes of a composite index
         Given an empty graph
