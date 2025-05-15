@@ -33,7 +33,18 @@ namespace memgraph::rpc {
 
 using namespace std::string_view_literals;
 
-/// Client is thread safe, but it is recommended to use thread_local clients.
+/** Client is thread safe, but it is recommended to use thread_local clients.
+ * This class represents a communication link from the client's side. It is something between a fair-loss link (fll)
+ * and perfect link (pl) (see Introduction to Reliable and Secure Distributed Programming book). It's not a perfect link
+ * because we don't guarantee that a message sent once will be always eventually delivered to the process.
+ * Fair-loss property:
+ *   If a client sends infinitely often a message m to a correct (non-Byzantine) process q, the Session from
+ * rpc/protocol.hpp should deliver a message an infinite number of times to the server_. We rely on TCP for that. No
+ * creation: If the class Session from rpc/protocol.hpp delivers the message m to the server_, it means that the message
+ * m was previously sent from the Client. No duplication: For this property, we rely on TCP protocol. It says that a
+ * message sent from here won't be delivered to the server_ more than once. This class is responsible for handling a
+ * single client connection.
+ */
 class Client {
  public:
   inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
@@ -44,9 +55,9 @@ class Client {
       {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
       {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
       {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
-      {"StateCheckReq"sv, 10000},             // coordinator to data instances
+      {"StateCheckReq"sv, 5000},              // coordinator to data instances
       {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
-      {"FrequentHeartbeatReq"sv, 10000},      // coord to data instances
+      {"FrequentHeartbeatReq"sv, 5000},       // coord to data instances
       {"HeartbeatReq"sv, 10000},              // main to replica
       {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
       {"AppendDeltasReq"sv, 30000},    // Waiting 30'' on a progress/final response
@@ -77,7 +88,7 @@ class Client {
     // NOLINTNEXTLINE
     StreamHandler(StreamHandler &&other) noexcept
         : self_{std::exchange(other.self_, nullptr)},
-          timeout_ms_{std::move(other.timeout_ms_)},
+          timeout_ms_{other.timeout_ms_},
           defunct_{std::exchange(other.defunct_, true)},
           guard_{std::move(other.guard_)},
           req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_)},
@@ -87,7 +98,7 @@ class Client {
     StreamHandler &operator=(StreamHandler &&other) noexcept {
       if (&other != this) {
         self_ = std::exchange(other.self_, nullptr);
-        timeout_ms_ = std::move(other.timeout_ms_);
+        timeout_ms_ = other.timeout_ms_;
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
         req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this, timeout_ms_)));
@@ -103,7 +114,7 @@ class Client {
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
-    typename TRequestResponse::Response AwaitResponseWhileInProgress() {
+    typename TRequestResponse::Response SendAndWaitProgress() {
       auto final_res_type = TRequestResponse::Response::kType;
       auto req_type = TRequestResponse::Request::kType;
 
@@ -189,7 +200,7 @@ class Client {
       }
     }
 
-    typename TRequestResponse::Response AwaitResponse() {
+    typename TRequestResponse::Response SendAndWait() {
       auto res_type = TRequestResponse::Response::kType;
       auto req_type = TRequestResponse::Request::kType;
 
@@ -368,7 +379,7 @@ class Client {
   template <class TRequestResponse, class... Args>
   typename TRequestResponse::Response Call(Args &&...args) {
     auto stream = Stream<TRequestResponse>(std::forward<Args>(args)...);
-    return stream.AwaitResponse();
+    return stream.SendAndWait();
   }
 
   /// Same as `Call` but the first argument is a response loading function.
@@ -376,7 +387,7 @@ class Client {
   typename TRequestResponse::Response CallWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> load, Args &&...args) {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
-    return stream.AwaitResponse();
+    return stream.SendAndWait();
   }
 
   /// Call this function from another thread to abort a pending RPC call.

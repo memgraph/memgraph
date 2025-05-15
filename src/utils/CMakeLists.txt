@@ -26,6 +26,7 @@ target_sources(mg-utils
     string.cpp
     scheduler.cpp
     skip_list.cpp
+    priority_thread_pool.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -40,6 +41,8 @@ target_sources(mg-utils
     logging.hpp
     string.hpp
     scheduler.hpp
+    priority_thread_pool.hpp
+    barrier.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

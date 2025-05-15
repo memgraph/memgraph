@@ -35,6 +35,8 @@ class AuthChecker {
   virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
                                                         const std::optional<std::string> &rolename) const = 0;
 
+  virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
+
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       std::shared_ptr<QueryUserOrRole> user, const DbAccessor *db_accessor) const = 0;
@@ -113,9 +115,11 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
   std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &name,
                                                        const std::optional<std::string> & /*role*/) const override {
-    if (name) return std::make_shared<User>(std::move(*name));
+    if (name) return std::make_shared<User>(*name);
     return std::make_shared<User>();
   }
+
+  std::shared_ptr<QueryUserOrRole> GenEmptyUser() const override { return std::make_shared<User>(); }
 
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(std::shared_ptr<QueryUserOrRole> /*user*/,

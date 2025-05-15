@@ -1,6 +1,6 @@
 # MemGraph CMake configuration
 
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.23)
 cmake_policy(SET CMP0076 NEW)
 cmake_policy(SET CMP0135 NEW)
 
@@ -202,6 +202,7 @@ add_compile_options(
         -Werror=switch-bool
         -Werror=return-type
         -Werror=return-stack-address
+        -Werror=non-power-of-two-alignment
         -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
         -Wno-c99-designator
         -Werror=implicit-fallthrough
