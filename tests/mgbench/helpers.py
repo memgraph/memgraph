@@ -37,7 +37,7 @@ def get_binary_path(path, base=""):
     binary_path = os.path.join(dirpath, path)
     if not os.path.isfile(binary_path):
         # attempt to locate binary within $PATH
-        path_binary = os.path.join((os.getenv("PATH"), os.path.basename(path)))
+        path_binary = os.path.join(os.getenv("PATH"), os.path.basename(path))
         if os.path.isfile(path_binary):
             print(f"Found client binary in {path_binary}")
             binary_path = path_binary
