@@ -186,6 +186,8 @@ class BoltClient(BaseClient):
             databases=self._databases,
         )
 
+        log.info("Client args: {}".format(args))
+
         ret = None
         try:
             ret = subprocess.run(args, capture_output=True)

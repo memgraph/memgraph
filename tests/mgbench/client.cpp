@@ -71,8 +71,15 @@ using bolt_map_t = memgraph::communication::bolt::map_t;
 std::random_device rd;
 std::mt19937 gen(rd());  // Mersenne Twister RNG
 
-std::string GetRandomDB(std::vector<std::string> const &dbs) {
-  std::uniform_int_distribution<> dis(0, dbs.size() - 1);
+// Max db idx is exclusive
+std::string GetRandomDB(std::vector<std::string> const &dbs, int const min_db_idx, int const max_db_idx) {
+  if (dbs.size() == 1) {
+    return dbs[0];
+  }
+  if (min_db_idx == max_db_idx) {
+    return dbs[min_db_idx];
+  }
+  std::uniform_int_distribution<> dis(min_db_idx, max_db_idx - 1);
   auto const rnd_index = dis(gen);
   return dbs[rnd_index];
 }
@@ -238,8 +245,8 @@ nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_
   return statistics;
 }
 
-void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream,
-                                  std::vector<std::string> const &dbs) {
+void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries,
+                                  std::ostream *stream) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -287,9 +294,8 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
           pos = position.fetch_add(1, std::memory_order_acq_rel);
         }
         const auto &query = queries[pos];
-        auto const random_db = GetRandomDB(dbs);
         memgraph::utils::Timer query_timer;
-        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, random_db);
+        auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, "memgraph");
         query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
@@ -360,8 +366,13 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   std::atomic<bool> run(false);
   std::atomic<uint64_t> ready(0);
   std::atomic<uint64_t> position(0);
-  for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
-    threads.emplace_back([&, worker]() {
+  auto const num_workers = FLAGS_num_workers;
+  auto const num_dbs = dbs.size();
+  for (int worker_id = 0; worker_id < num_workers; ++worker_id) {
+    auto const min_db_idx = worker_id * num_dbs / num_workers;
+    auto const max_db_idx = (worker_id + 1) * num_dbs / num_workers;
+
+    threads.emplace_back([&, worker_id, min_db_idx, max_db_idx]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);
@@ -370,17 +381,17 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
       ready.fetch_add(1, std::memory_order_acq_rel);
       while (!run.load(std::memory_order_acquire)) std::this_thread::yield();
 
-      auto &retries = worker_retries[worker];
-      auto &metadata = worker_metadata[worker];
-      auto &duration = worker_duration[worker];
-      auto &query_duration = worker_query_durations[worker];
+      auto &retries = worker_retries[worker_id];
+      auto &metadata = worker_metadata[worker_id];
+      auto &duration = worker_duration[worker_id];
+      auto &query_duration = worker_query_durations[worker_id];
 
       memgraph::utils::Timer worker_timer;
       while (true) {
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) break;
         const auto &query = queries[pos];
-        auto const random_db = GetRandomDB(dbs);
+        auto const random_db = GetRandomDB(dbs, min_db_idx, max_db_idx);
         memgraph::utils::Timer query_timer;
         auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, random_db);
         query_duration.emplace_back(query_timer.Elapsed().count());
@@ -438,8 +449,7 @@ nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::commun
 }
 
 /// Validation mode works on single thread with 1 query.
-void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream,
-                       std::vector<std::string> const &dbs) {
+void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream) {
   spdlog::info("Running validation mode, number of workers forced to 1");
   FLAGS_num_workers = 1;
 
@@ -454,11 +464,10 @@ void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &qu
   memgraph::communication::bolt::Client client(context);
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
-  auto const random_db = GetRandomDB(dbs);
   if (size == 1) {
     const auto &query = queries[0];
     memgraph::utils::Timer timer;
-    auto ret = ExecuteValidationNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, random_db);
+    auto ret = ExecuteValidationNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries, "memgraph");
     metadata.Append(ret.first);
     results = ret.second;
     duration = timer.Elapsed().count();
@@ -573,9 +582,9 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_validation) {
-    ExecuteValidation(queries, ostream, dbs);
+    ExecuteValidation(queries, ostream);
   } else if (FLAGS_time_dependent_execution > 0) {
-    ExecuteTimeDependentWorkload(queries, ostream, dbs);
+    ExecuteTimeDependentWorkload(queries, ostream);
   } else {
     ExecuteWorkload(queries, ostream, dbs);
   }
