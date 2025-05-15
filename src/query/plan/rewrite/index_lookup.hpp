@@ -74,7 +74,7 @@ struct IndexHints {
           auto const join_nested_property_name = [](auto &&property_path) {
             return property_path |
                    ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; }) |
-                   ranges::views::join(".");
+                   ranges::views::join('.');
           };
           auto property_names = index_hint.property_ixs_ |
                                 ranges::views::transform([&](auto &&path) { return join_nested_property_name(path); }) |
