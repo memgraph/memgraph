@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 namespace memgraph::storage {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 
-CommitLog::CommitLog(uint64_t oldest_active) : allocator_(utils::NewDeleteResource()) {
+CommitLog::CommitLog(uint64_t const oldest_active) : allocator_(utils::NewDeleteResource()) {
   head_ = allocator_.allocate(1);
   allocator_.construct(head_);
   head_start_ = oldest_active / kIdsInBlock * kIdsInBlock;
@@ -47,11 +47,42 @@ CommitLog::~CommitLog() {
   }
 }
 
-void CommitLog::MarkFinished(uint64_t id) {
+void CommitLog::MarkFinished(uint64_t const id) {
   auto guard = std::lock_guard{lock_};
 
   Block *block = FindOrCreateBlock(id);
   block->field[(id % kIdsInBlock) / kIdsInField] |= 1ULL << (id % kIdsInField);
+  if (id == oldest_active_) {
+    UpdateOldestActive();
+  }
+}
+
+void CommitLog::MarkFinishedUpToId(uint64_t const id) {
+  auto guard = std::lock_guard{lock_};
+  // 1. Mark finished all blocks with smaller IDs than the id
+  Block *current = head_;
+  uint64_t current_start = head_start_;
+
+  while (id >= current_start + kIdsInBlock) {
+    for (auto &field_idx : current->field) {
+      field_idx = std::numeric_limits<uint64_t>::max();
+    }
+    current = current->next;
+    current_start += kIdsInBlock;
+  }
+
+  // 2. Mark all fields of the block as finished
+  const auto field_idx = (id % kIdsInBlock) / kIdsInField;
+  for (size_t i = 0; i < field_idx; ++i) {
+    current->field[i] = std::numeric_limits<uint64_t>::max();
+  }
+
+  // 3. Mark bits up to and including the bit for `id`
+  const auto idx_in_field = id % kIdsInField;
+  current->field[field_idx] = std::numeric_limits<uint64_t>::max();
+  current->field[field_idx] >>= kIdsInField - (idx_in_field + 1);
+
+  // Shouldn't be but just in case
   if (id == oldest_active_) {
     UpdateOldestActive();
   }
@@ -110,4 +141,5 @@ CommitLog::Block *CommitLog::FindOrCreateBlock(const uint64_t id) {
 
   return current;
 }
+
 }  // namespace memgraph::storage

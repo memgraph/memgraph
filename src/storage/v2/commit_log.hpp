@@ -49,11 +49,19 @@ class CommitLog final {
   /// @throw std::bad_alloc
   void MarkFinished(uint64_t id);
 
+  /**
+   * Marks a transaction finished including all timestamps up to the current id.
+   * @param id Timestamp
+   * @param id_included Whether to mark finished id
+   */
+  void MarkFinishedUpToId(uint64_t id);
+
   /// Retrieve the oldest transaction still not marked as finished.
   uint64_t OldestActive();
 
  private:
   static constexpr uint64_t kBlockSize = 8192;
+  // 64 bits
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
   static constexpr uint64_t kIdsInBlock = kBlockSize * kIdsInField;
 
