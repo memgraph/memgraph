@@ -1468,7 +1468,7 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
   }
 
   if (args[0].IsString()) {
-    const auto &[date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(args[0].ValueString());
+    const auto &[date_parameters, local_time_parameters] = utils::ParseLocalDateTimeParameters(args[0].ValueString());
     return TypedValue(utils::LocalDateTime(date_parameters, local_time_parameters), ctx.memory);
   }
 
@@ -1494,7 +1494,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<String, Map>>("duration", args, nargs);
 
   if (args[0].IsString()) {
-    return TypedValue(utils::Duration(ParseDurationParameters(args[0].ValueString())), ctx.memory);
+    return TypedValue(utils::Duration(utils::ParseDurationParameters(args[0].ValueString())), ctx.memory);
   }
 
   utils::DurationParameters duration_parameters;
@@ -1537,7 +1537,7 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   }
 
   if (args[0].IsString()) {
-    const auto &zoned_date_time_parameters = ParseZonedDateTimeParameters(args[0].ValueString());
+    const auto &zoned_date_time_parameters = utils::ParseZonedDateTimeParameters(args[0].ValueString());
     return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
   }
 
@@ -1587,7 +1587,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
 
   for (auto const &[k, v] : input) {
     if (v.IsNull()) {
-      return TypedValue{ctx.memory};
+      return TypedValue(ctx.memory);
     }
   }
 

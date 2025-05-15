@@ -1176,8 +1176,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       if (int cmp_res = compare_indices(found, new_stats, vertex_count);
           cmp_res == -1 ||
-          cmp_res == 0 && (vertex_count < found->vertex_count ||
-                           vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))) {
+          (cmp_res == 0 && (vertex_count < found->vertex_count ||
+                            (vertex_count == found->vertex_count && is_better_type(candidate.filters_, *found))))) {
         found = make_label_property_index();
       }
     }

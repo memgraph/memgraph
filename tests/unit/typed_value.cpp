@@ -704,12 +704,12 @@ TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue> values_with_custom_memory;
   for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_constructed_value(value, &monotonic_memory);
-    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.get_allocator().resource(), &monotonic_memory);
     values_with_custom_memory.emplace_back(std::move(copy_constructed_value));
     const auto &move_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(move_constructed_value.get_allocator().resource(), &monotonic_memory);
   }
 }
 
@@ -717,15 +717,15 @@ TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
 TYPED_TEST(AllTypesFixture, AssignmentWithMemoryResource) {
   std::vector<TypedValue> values_with_default_memory;
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
-  for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+  for (TypedValue const &value : this->values_) {
+    ASSERT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_assigned_value(&monotonic_memory);
     copy_assigned_value = value;
-    EXPECT_EQ(copy_assigned_value.GetMemoryResource(), &monotonic_memory);
+    ASSERT_TRUE(copy_assigned_value.get_allocator().resource()->is_equal(monotonic_memory)) << value.type();
     values_with_default_memory.emplace_back(memgraph::utils::NewDeleteResource());
     auto &move_assigned_value = values_with_default_memory.back();
     move_assigned_value = std::move(copy_assigned_value);
-    EXPECT_EQ(move_assigned_value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    ASSERT_EQ(move_assigned_value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
   }
 }
 
@@ -734,15 +734,15 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue, memgraph::utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
   for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(value);
     const auto &copy_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.get_allocator().resource(), &monotonic_memory);
     TypedValue copy(values_with_custom_memory.back());
-    EXPECT_EQ(copy.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(copy.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(std::move(copy));
     const auto &move_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(move_constructed_value.get_allocator().resource(), &monotonic_memory);
     if (value.type() == TypedValue::Type::List) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
       const auto &original = value.ValueList();
@@ -751,9 +751,9 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       ASSERT_EQ(moved.size(), original.size());
       ASSERT_EQ(copied.size(), original.size());
       for (size_t i = 0; i < value.ValueList().size(); ++i) {
-        EXPECT_EQ(original[i].GetMemoryResource(), memgraph::utils::NewDeleteResource());
-        EXPECT_EQ(moved[i].GetMemoryResource(), &monotonic_memory);
-        EXPECT_EQ(copied[i].GetMemoryResource(), &monotonic_memory);
+        EXPECT_EQ(original[i].get_allocator().resource(), memgraph::utils::NewDeleteResource());
+        EXPECT_EQ(moved[i].get_allocator().resource(), &monotonic_memory);
+        EXPECT_EQ(copied[i].get_allocator().resource(), &monotonic_memory);
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
       }
@@ -763,8 +763,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &moved = move_constructed_value.ValueMap();
       const auto &copied = copy_constructed_value.ValueMap();
       auto expect_allocator = [](const auto &kv, auto *memory_resource) {
-        EXPECT_EQ(*kv.first.get_allocator().GetMemoryResource(), *memory_resource);
-        EXPECT_EQ(*kv.second.GetMemoryResource(), *memory_resource);
+        EXPECT_EQ(*kv.first.get_allocator().resource(), *memory_resource);
+        EXPECT_EQ(*kv.second.get_allocator().resource(), *memory_resource);
       };
       for (const auto &kv : original) {
         expect_allocator(kv, memgraph::utils::NewDeleteResource());
@@ -782,25 +782,25 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &original = value.ValuePath();
       const auto &moved = move_constructed_value.ValuePath();
       const auto &copied = copy_constructed_value.ValuePath();
-      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(original.get_allocator().resource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
-      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(moved.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(copied.vertices(), original.vertices());
       EXPECT_EQ(copied.edges(), original.edges());
-      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     } else if (value.type() == TypedValue::Type::Graph) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
       const auto &original = value.ValueGraph();
       const auto &moved = move_constructed_value.ValueGraph();
       const auto &copied = copy_constructed_value.ValueGraph();
-      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(original.get_allocator().resource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
-      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(moved.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(copied.vertices(), original.vertices());
       EXPECT_EQ(copied.edges(), original.edges());
-      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     }
   }
 }

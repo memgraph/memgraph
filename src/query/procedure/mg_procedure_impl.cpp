@@ -81,7 +81,7 @@ void *MgpAlignedAllocImpl(memgraph::utils::MemoryResource &memory, const size_t 
   const size_t alloc_size = bytes_for_header + size_in_bytes;
   if (alloc_size < size_in_bytes) return nullptr;
 
-  void *ptr = memory.Allocate(alloc_size, alloc_align);
+  void *ptr = memory.allocate(alloc_size, alloc_align);
   char *data = reinterpret_cast<char *>(ptr) + bytes_for_header;
   std::memcpy(data - sizeof(size_in_bytes), &size_in_bytes, sizeof(size_in_bytes));
   std::memcpy(data - sizeof(size_in_bytes) - sizeof(alloc_align), &alloc_align, sizeof(alloc_align));
@@ -105,7 +105,7 @@ void MgpFreeImpl(memgraph::utils::MemoryResource &memory, void *const p) noexcep
     const size_t alloc_size = bytes_for_header + size_in_bytes;
     // Get the original ptr we allocated.
     void *const original_ptr = data - bytes_for_header;
-    memory.Deallocate(original_ptr, alloc_size, alloc_align);
+    memory.deallocate(original_ptr, alloc_size, alloc_align);
   } catch (const memgraph::utils::BasicException &be) {
     spdlog::error("BasicException during the release of memory for query modules: {}", be.what());
   } catch (const std::exception &e) {
@@ -269,6 +269,11 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
+U *NewRawMgpObject(memgraph::utils::Allocator<U> allocator, TArgs &&...args) {
+  return allocator.template new_object<U>(std::forward<TArgs>(args)...);
+}
+
+template <class U, class... TArgs>
 U *NewRawMgpObject(memgraph::utils::MemoryResource *memory, TArgs &&...args) {
   memgraph::utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
@@ -394,44 +399,47 @@ memgraph::storage::NameIdMapper *GetNameIdMapper(const mgp_graph *graph) {
   return graph->getImpl()->GetStorageAccessor()->GetNameIdMapper();
 }
 
-memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory) {
+memgraph::storage::NameIdMapper *GetNameIdMapper(const mgp_graph *graph) {
+  return graph->getImpl()->GetStorageAccessor()->GetNameIdMapper();
+}
+memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::Allocator<mgp_value> alloc) {
   switch (val.type) {
     case MGP_VALUE_TYPE_NULL:
-      return memgraph::query::TypedValue(memory);
+      return memgraph::query::TypedValue(alloc);
     case MGP_VALUE_TYPE_BOOL:
-      return memgraph::query::TypedValue(val.bool_v, memory);
+      return memgraph::query::TypedValue(val.bool_v, alloc);
     case MGP_VALUE_TYPE_INT:
-      return memgraph::query::TypedValue(val.int_v, memory);
+      return memgraph::query::TypedValue(val.int_v, alloc);
     case MGP_VALUE_TYPE_DOUBLE:
-      return memgraph::query::TypedValue(val.double_v, memory);
+      return memgraph::query::TypedValue(val.double_v, alloc);
     case MGP_VALUE_TYPE_STRING:
-      return {val.string_v, memory};
+      return {val.string_v, alloc};
     case MGP_VALUE_TYPE_LIST: {
       const auto *list = val.list_v;
-      memgraph::query::TypedValue::TVector tv_list(memory);
+      memgraph::query::TypedValue::TVector tv_list(alloc);
       tv_list.reserve(list->elems.size());
       for (const auto &elem : list->elems) {
-        tv_list.emplace_back(ToTypedValue(elem, memory));
+        tv_list.emplace_back(ToTypedValue(elem, alloc));
       }
       return memgraph::query::TypedValue(std::move(tv_list));
     }
     case MGP_VALUE_TYPE_MAP: {
       const auto *map = val.map_v;
-      memgraph::query::TypedValue::TMap tv_map(memory);
+      memgraph::query::TypedValue::TMap tv_map(alloc);
       for (const auto &item : map->items) {
-        tv_map.emplace(item.first, ToTypedValue(item.second, memory));
+        tv_map.emplace(item.first, ToTypedValue(item.second, alloc));
       }
       return memgraph::query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
-      return memgraph::query::TypedValue(val.vertex_v->getImpl(), memory);
+      return memgraph::query::TypedValue(val.vertex_v->getImpl(), alloc);
     case MGP_VALUE_TYPE_EDGE:
-      return memgraph::query::TypedValue(val.edge_v->impl, memory);
+      return memgraph::query::TypedValue(val.edge_v->impl, alloc);
     case MGP_VALUE_TYPE_PATH: {
       const auto *path = val.path_v;
       MG_ASSERT(!path->vertices.empty());
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
-      memgraph::query::Path tv_path(path->vertices[0].getImpl(), memory);
+      memgraph::query::Path tv_path(path->vertices[0].getImpl(), alloc);
       for (size_t i = 0; i < path->edges.size(); ++i) {
         tv_path.Expand(path->edges[i].impl);
         tv_path.Expand(path->vertices[i + 1].getImpl());
@@ -439,77 +447,83 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return memgraph::query::TypedValue(std::move(tv_path));
     }
     case MGP_VALUE_TYPE_DATE:
-      return memgraph::query::TypedValue(val.date_v->date, memory);
+      return memgraph::query::TypedValue(val.date_v->date, alloc);
     case MGP_VALUE_TYPE_LOCAL_TIME:
-      return memgraph::query::TypedValue(val.local_time_v->local_time, memory);
+      return memgraph::query::TypedValue(val.local_time_v->local_time, alloc);
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
-      return memgraph::query::TypedValue(val.local_date_time_v->local_date_time, memory);
+      return memgraph::query::TypedValue(val.local_date_time_v->local_date_time, alloc);
     case MGP_VALUE_TYPE_DURATION:
-      return memgraph::query::TypedValue(val.duration_v->duration, memory);
+      return memgraph::query::TypedValue(val.duration_v->duration, alloc);
   }
 }
 
-mgp_value::mgp_value(memgraph::utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_NULL), memory(m) {}
+mgp_value::mgp_value(allocator_type alloc) noexcept : type(MGP_VALUE_TYPE_NULL), alloc(alloc) {}
 
-mgp_value::mgp_value(bool val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_BOOL), memory(m), bool_v(val) {}
+mgp_value::mgp_value(bool val, allocator_type alloc) noexcept : type(MGP_VALUE_TYPE_BOOL), alloc(alloc), bool_v(val) {}
 
-mgp_value::mgp_value(int64_t val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_INT), memory(m), int_v(val) {}
+mgp_value::mgp_value(int64_t val, allocator_type alloc) noexcept : type(MGP_VALUE_TYPE_INT), alloc(alloc), int_v(val) {}
 
-mgp_value::mgp_value(double val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_DOUBLE), memory(m), double_v(val) {}
+mgp_value::mgp_value(double val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_DOUBLE), alloc(alloc), double_v(val) {}
 
-mgp_value::mgp_value(const char *val, memgraph::utils::MemoryResource *m)
-    : type(MGP_VALUE_TYPE_STRING), memory(m), string_v(val, m) {}
+mgp_value::mgp_value(const char *val, allocator_type alloc)
+    : type(MGP_VALUE_TYPE_STRING), alloc(alloc), string_v(val, alloc) {}
 
-mgp_value::mgp_value(mgp_list *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_LIST), memory(m), list_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_list *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_LIST), alloc(alloc), list_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_map *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_MAP), memory(m), map_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_map *val, allocator_type alloc) noexcept : type(MGP_VALUE_TYPE_MAP), alloc(alloc), map_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_vertex *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_VERTEX), memory(m), vertex_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_vertex *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_VERTEX), alloc(alloc), vertex_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_edge *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_EDGE), memory(m), edge_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_edge *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_EDGE), alloc(alloc), edge_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_path *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_PATH), memory(m), path_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_path *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_PATH), alloc(alloc), path_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_date *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_DATE), memory(m), date_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_date *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_DATE), alloc(alloc), date_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_local_time *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_LOCAL_TIME), memory(m), local_time_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_local_time *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_LOCAL_TIME), alloc(alloc), local_time_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_local_date_time *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_LOCAL_DATE_TIME), memory(m), local_date_time_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_local_date_time *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_LOCAL_DATE_TIME), alloc(alloc), local_date_time_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_duration *val, memgraph::utils::MemoryResource *m) noexcept
-    : type(MGP_VALUE_TYPE_DURATION), memory(m), duration_v(val) {
-  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+mgp_value::mgp_value(mgp_duration *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_DURATION), alloc(alloc), duration_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, memgraph::utils::MemoryResource *m)
-    : type(FromTypedValueType(tv.type())), memory(m) {
+mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc)
+    : type(FromTypedValueType(tv.type())), alloc(alloc) {
   switch (type) {
     case MGP_VALUE_TYPE_NULL:
       break;
@@ -523,19 +537,19 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       double_v = tv.ValueDouble();
       break;
     case MGP_VALUE_TYPE_STRING:
-      new (&string_v) memgraph::utils::pmr::string(tv.ValueString(), m);
+      new (&string_v) memgraph::utils::pmr::string(tv.ValueString(), alloc);
       break;
     case MGP_VALUE_TYPE_LIST: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      memgraph::utils::pmr::vector<mgp_value> elems(m);
+      memgraph::utils::pmr::vector<mgp_value> elems(alloc);
       elems.reserve(tv.ValueList().size());
       for (const auto &elem : tv.ValueList()) {
         elems.emplace_back(elem, graph);
       }
-      memgraph::utils::Allocator<mgp_list> allocator(m);
+      memgraph::utils::Allocator<mgp_list> allocator(alloc);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
@@ -544,16 +558,16 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(m);
+      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(alloc);
       for (const auto &item : tv.ValueMap()) {
-        items.emplace(item.first, mgp_value(item.second, graph, m));
+        items.emplace(item.first, mgp_value(item.second, graph, alloc));
       }
-      memgraph::utils::Allocator<mgp_map> allocator(m);
+      memgraph::utils::Allocator<mgp_map> allocator(alloc);
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      memgraph::utils::Allocator<mgp_vertex> allocator(m);
+      memgraph::utils::Allocator<mgp_vertex> allocator(alloc);
       vertex_v = std::visit(
           memgraph::utils::Overloaded{
               [&](memgraph::query::DbAccessor *) { return allocator.new_object<mgp_vertex>(tv.ValueVertex(), graph); },
@@ -566,7 +580,7 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       break;
     }
     case MGP_VALUE_TYPE_EDGE: {
-      memgraph::utils::Allocator<mgp_edge> allocator(m);
+      memgraph::utils::Allocator<mgp_edge> allocator(alloc);
 
       edge_v = std::visit(
           memgraph::utils::Overloaded{
@@ -590,7 +604,7 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      mgp_path tmp_path(m);
+      mgp_path tmp_path(alloc);
       tmp_path.vertices.reserve(tv.ValuePath().vertices().size());
       for (const auto &v : tv.ValuePath().vertices()) {
         std::visit(
@@ -612,27 +626,27 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
                        }},
                    graph->impl);
       }
-      memgraph::utils::Allocator<mgp_path> allocator(m);
+      memgraph::utils::Allocator<mgp_path> allocator(alloc);
       path_v = allocator.new_object<mgp_path>(std::move(tmp_path));
       break;
     }
     case MGP_VALUE_TYPE_DATE: {
-      memgraph::utils::Allocator<mgp_date> allocator(m);
+      memgraph::utils::Allocator<mgp_date> allocator(alloc);
       date_v = allocator.new_object<mgp_date>(tv.ValueDate());
       break;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
-      memgraph::utils::Allocator<mgp_local_time> allocator(m);
+      memgraph::utils::Allocator<mgp_local_time> allocator(alloc);
       local_time_v = allocator.new_object<mgp_local_time>(tv.ValueLocalTime());
       break;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
-      memgraph::utils::Allocator<mgp_local_date_time> allocator(m);
+      memgraph::utils::Allocator<mgp_local_date_time> allocator(alloc);
       local_date_time_v = allocator.new_object<mgp_local_date_time>(tv.ValueLocalDateTime());
       break;
     }
     case MGP_VALUE_TYPE_DURATION: {
-      memgraph::utils::Allocator<mgp_duration> allocator(m);
+      memgraph::utils::Allocator<mgp_duration> allocator(alloc);
       duration_v = allocator.new_object<mgp_duration>(tv.ValueDuration());
       break;
     }
@@ -640,8 +654,8 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
 }
 
 mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::storage::NameIdMapper *name_id_mapper,
-                     memgraph::utils::MemoryResource *m)
-    : memory(m) {
+                     allocator_type alloc)
+    : alloc(alloc) {
   switch (pv.type()) {
     case memgraph::storage::PropertyValue::Type::Null:
       type = MGP_VALUE_TYPE_NULL;
@@ -660,7 +674,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       break;
     case memgraph::storage::PropertyValue::Type::String:
       type = MGP_VALUE_TYPE_STRING;
-      new (&string_v) memgraph::utils::pmr::string(pv.ValueString(), m);
+      new (&string_v) memgraph::utils::pmr::string(pv.ValueString(), alloc);
       break;
     case memgraph::storage::PropertyValue::Type::List: {
       // Fill the stack allocated container and then construct the actual member
@@ -668,12 +682,12 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       // something and our destructor doesn't get called so member value isn't
       // released.
       type = MGP_VALUE_TYPE_LIST;
-      memgraph::utils::pmr::vector<mgp_value> elems(m);
+      memgraph::utils::pmr::vector<mgp_value> elems(alloc);
       elems.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
         elems.emplace_back(elem, name_id_mapper);
       }
-      memgraph::utils::Allocator<mgp_list> allocator(m);
+      memgraph::utils::Allocator<mgp_list> allocator(alloc);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
@@ -683,13 +697,13 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       // something and our destructor doesn't get called so member value isn't
       // released.
       type = MGP_VALUE_TYPE_MAP;
-      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(m);
+      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(alloc);
       for (const auto &item : pv.ValueMap()) {
         auto key_as_name = name_id_mapper->IdToName(item.first.AsUint());
         auto value = mgp_value(item.second, name_id_mapper, m);
         items.emplace(std::move(key_as_name), std::move(value));
       }
-      memgraph::utils::Allocator<mgp_map> allocator(m);
+      memgraph::utils::Allocator<mgp_map> allocator(alloc);
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
@@ -698,22 +712,22 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       switch (temporal_data.type) {
         case memgraph::storage::TemporalType::Date: {
           type = MGP_VALUE_TYPE_DATE;
-          date_v = NewRawMgpObject<mgp_date>(m, temporal_data.microseconds);
+          date_v = NewRawMgpObject<mgp_date>(alloc.resource(), temporal_data.microseconds);
           break;
         }
         case memgraph::storage::TemporalType::LocalTime: {
           type = MGP_VALUE_TYPE_LOCAL_TIME;
-          local_time_v = NewRawMgpObject<mgp_local_time>(m, temporal_data.microseconds);
+          local_time_v = NewRawMgpObject<mgp_local_time>(alloc.resource(), temporal_data.microseconds);
           break;
         }
         case memgraph::storage::TemporalType::LocalDateTime: {
           type = MGP_VALUE_TYPE_LOCAL_DATE_TIME;
-          local_date_time_v = NewRawMgpObject<mgp_local_date_time>(m, temporal_data.microseconds);
+          local_date_time_v = NewRawMgpObject<mgp_local_date_time>(alloc.resource(), temporal_data.microseconds);
           break;
         }
         case memgraph::storage::TemporalType::Duration: {
           type = MGP_VALUE_TYPE_DURATION;
-          duration_v = NewRawMgpObject<mgp_duration>(m, temporal_data.microseconds);
+          duration_v = NewRawMgpObject<mgp_duration>(alloc.resource(), temporal_data.microseconds);
           break;
         }
       }
@@ -744,7 +758,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
   }
 }
 
-mgp_value::mgp_value(const mgp_value &other, memgraph::utils::MemoryResource *m) : type(other.type), memory(m) {
+mgp_value::mgp_value(const mgp_value &other, allocator_type alloc) : type(other.type), alloc(alloc) {
   switch (other.type) {
     case MGP_VALUE_TYPE_NULL:
       break;
@@ -758,47 +772,42 @@ mgp_value::mgp_value(const mgp_value &other, memgraph::utils::MemoryResource *m)
       double_v = other.double_v;
       break;
     case MGP_VALUE_TYPE_STRING:
-      new (&string_v) memgraph::utils::pmr::string(other.string_v, m);
+      new (&string_v) memgraph::utils::pmr::string(other.string_v, alloc);
       break;
     case MGP_VALUE_TYPE_LIST: {
-      memgraph::utils::Allocator<mgp_list> allocator(m);
-      list_v = allocator.new_object<mgp_list>(*other.list_v);
+      list_v = NewRawMgpObject<mgp_list>(alloc, *other.list_v);
       break;
     }
     case MGP_VALUE_TYPE_MAP: {
-      memgraph::utils::Allocator<mgp_map> allocator(m);
-      map_v = allocator.new_object<mgp_map>(*other.map_v);
+      map_v = NewRawMgpObject<mgp_map>(alloc, *other.map_v);
       break;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      memgraph::utils::Allocator<mgp_vertex> allocator(m);
-      vertex_v = allocator.new_object<mgp_vertex>(*other.vertex_v);
+      vertex_v = NewRawMgpObject<mgp_vertex>(alloc, *other.vertex_v);
       break;
     }
     case MGP_VALUE_TYPE_EDGE: {
-      memgraph::utils::Allocator<mgp_edge> allocator(m);
-      edge_v = allocator.new_object<mgp_edge>(*other.edge_v);
+      edge_v = NewRawMgpObject<mgp_edge>(alloc, *other.edge_v);
       break;
     }
     case MGP_VALUE_TYPE_PATH: {
-      memgraph::utils::Allocator<mgp_path> allocator(m);
-      path_v = allocator.new_object<mgp_path>(*other.path_v);
+      path_v = NewRawMgpObject<mgp_path>(alloc, *other.path_v);
       break;
     }
     case MGP_VALUE_TYPE_DATE: {
-      date_v = NewRawMgpObject<mgp_date>(m, *other.date_v);
+      date_v = NewRawMgpObject<mgp_date>(alloc, *other.date_v);
       break;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
-      local_time_v = NewRawMgpObject<mgp_local_time>(m, *other.local_time_v);
+      local_time_v = NewRawMgpObject<mgp_local_time>(alloc, *other.local_time_v);
       break;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
-      local_date_time_v = NewRawMgpObject<mgp_local_date_time>(m, *other.local_date_time_v);
+      local_date_time_v = NewRawMgpObject<mgp_local_date_time>(alloc, *other.local_date_time_v);
       break;
     }
     case MGP_VALUE_TYPE_DURATION: {
-      duration_v = NewRawMgpObject<mgp_duration>(m, *other.duration_v);
+      duration_v = NewRawMgpObject<mgp_duration>(alloc, *other.duration_v);
       break;
     }
   }
@@ -851,7 +860,7 @@ void DeleteValueMember(mgp_value *value) noexcept {
 
 }  // namespace
 
-mgp_value::mgp_value(mgp_value &&other, memgraph::utils::MemoryResource *m) : type(other.type), memory(m) {
+mgp_value::mgp_value(mgp_value &&other, allocator_type alloc) : type(other.type), alloc(alloc) {
   switch (other.type) {
     case MGP_VALUE_TYPE_NULL:
       break;
@@ -865,93 +874,93 @@ mgp_value::mgp_value(mgp_value &&other, memgraph::utils::MemoryResource *m) : ty
       double_v = other.double_v;
       break;
     case MGP_VALUE_TYPE_STRING:
-      new (&string_v) memgraph::utils::pmr::string(std::move(other.string_v), m);
+      new (&string_v) memgraph::utils::pmr::string(std::move(other.string_v), alloc);
       break;
     case MGP_VALUE_TYPE_LIST:
       static_assert(std::is_pointer_v<decltype(list_v)>, "Expected to move list_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (other.alloc == alloc) {
         list_v = other.list_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        memgraph::utils::Allocator<mgp_list> allocator(m);
+        memgraph::utils::Allocator<mgp_list> allocator(alloc);
         list_v = allocator.new_object<mgp_list>(std::move(*other.list_v));
       }
       break;
     case MGP_VALUE_TYPE_MAP:
       static_assert(std::is_pointer_v<decltype(map_v)>, "Expected to move map_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         map_v = other.map_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        memgraph::utils::Allocator<mgp_map> allocator(m);
+        memgraph::utils::Allocator<mgp_map> allocator(alloc);
         map_v = allocator.new_object<mgp_map>(std::move(*other.map_v));
       }
       break;
     case MGP_VALUE_TYPE_VERTEX:
       static_assert(std::is_pointer_v<decltype(vertex_v)>, "Expected to move vertex_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         vertex_v = other.vertex_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        memgraph::utils::Allocator<mgp_vertex> allocator(m);
+        memgraph::utils::Allocator<mgp_vertex> allocator(alloc);
         vertex_v = allocator.new_object<mgp_vertex>(std::move(*other.vertex_v));
       }
       break;
     case MGP_VALUE_TYPE_EDGE:
       static_assert(std::is_pointer_v<decltype(edge_v)>, "Expected to move edge_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         edge_v = other.edge_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        memgraph::utils::Allocator<mgp_edge> allocator(m);
+        memgraph::utils::Allocator<mgp_edge> allocator(alloc);
         edge_v = allocator.new_object<mgp_edge>(std::move(*other.edge_v));
       }
       break;
     case MGP_VALUE_TYPE_PATH:
       static_assert(std::is_pointer_v<decltype(path_v)>, "Expected to move path_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         path_v = other.path_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        memgraph::utils::Allocator<mgp_path> allocator(m);
+        memgraph::utils::Allocator<mgp_path> allocator(alloc);
         path_v = allocator.new_object<mgp_path>(std::move(*other.path_v));
       }
       break;
     case MGP_VALUE_TYPE_DATE:
       static_assert(std::is_pointer_v<decltype(date_v)>, "Expected to move date_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         date_v = other.date_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        date_v = NewRawMgpObject<mgp_date>(m, *other.date_v);
+        date_v = NewRawMgpObject<mgp_date>(alloc.resource(), *other.date_v);
       }
       break;
     case MGP_VALUE_TYPE_LOCAL_TIME:
       static_assert(std::is_pointer_v<decltype(local_time_v)>, "Expected to move local_time_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         local_time_v = other.local_time_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        local_time_v = NewRawMgpObject<mgp_local_time>(m, *other.local_time_v);
+        local_time_v = NewRawMgpObject<mgp_local_time>(alloc.resource(), *other.local_time_v);
       }
       break;
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       static_assert(std::is_pointer_v<decltype(local_date_time_v)>,
                     "Expected to move local_date_time_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         local_date_time_v = other.local_date_time_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        local_date_time_v = NewRawMgpObject<mgp_local_date_time>(m, *other.local_date_time_v);
+        local_date_time_v = NewRawMgpObject<mgp_local_date_time>(alloc.resource(), *other.local_date_time_v);
       }
       break;
     case MGP_VALUE_TYPE_DURATION:
       static_assert(std::is_pointer_v<decltype(duration_v)>, "Expected to move duration_v by copying pointers.");
-      if (*other.GetMemoryResource() == *m) {
+      if (*other.GetMemoryResource() == *alloc.resource()) {
         duration_v = other.duration_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        duration_v = NewRawMgpObject<mgp_duration>(m, *other.duration_v);
+        duration_v = NewRawMgpObject<mgp_duration>(alloc.resource(), *other.duration_v);
       }
       break;
   }
@@ -1662,20 +1671,19 @@ mgp_error mgp_duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory
 mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
   return WrapExceptions([=] {
     memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker{};
-    auto *memory = res->rows.get_allocator().GetMemoryResource();
-    res->error_msg.emplace(msg, memory);
+    res->error_msg.emplace(msg, res->rows.get_allocator());
   });
 }
 
 mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
   return WrapExceptions(
       [res] {
-        auto *memory = res->rows.get_allocator().GetMemoryResource();
+        auto allocator = res->rows.get_allocator();
         res->rows.push_back(
             mgp_result_record{.signature = &res->signature,
                               .values =
                                   memgraph::utils::pmr::vector<memgraph::query::TypedValue>{
-                                      res->signature.size(), memgraph::query::TypedValue(memory), memory},
+                                      res->signature.size(), memgraph::query::TypedValue(allocator), allocator},
                               .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
@@ -1688,7 +1696,7 @@ mgp_error mgp_result_reserve(mgp_result *res, size_t n) {
 
 mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   return WrapExceptions([=] {
-    auto *memory = record->values.get_allocator().GetMemoryResource();
+    auto allocator = record->values.get_allocator();
     // Validate field_name & val satisfy the procedure's result signature.
     MG_ASSERT(record->signature, "Expected to have a valid signature");
     auto find_it = record->signature->find(field_name);
@@ -1706,7 +1714,7 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
           fmt::format("The type of value doesn't satisfy the type '{}'!", field_type->GetPresentableName())};
     }
 
-    record->values[field_id] = ToTypedValue(*val, memory);
+    record->values[field_id] = ToTypedValue(*val, allocator);
   });
 }
 
@@ -2003,7 +2011,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
       trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), prop_key, old_value);
       return;
     }
-    const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    const auto new_value = ToTypedValue(*property_value, property_value->alloc);
     trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), prop_key, old_value, new_value);
   });
 }
@@ -2636,7 +2644,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
       e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
       return;
     }
-    const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    const auto new_value = ToTypedValue(*property_value, property_value->alloc);
     e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value, new_value);
   });
 }
@@ -3801,8 +3809,8 @@ void NextPermitted(mgp_vertices_iterator &it) {
 #endif
 
 /// @throw anything VerticesIterable may throw
-mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-    : memory(memory),
+mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc)
+    : alloc(alloc),
       graph(graph),
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
       current_it(vertices.begin()) {
@@ -3815,9 +3823,9 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::
   if (current_it != vertices.end()) {
     std::visit(
         memgraph::utils::Overloaded{
-            [this, graph, memory](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, memory); },
-            [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
-              current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph, memory);
+            [this, graph, alloc](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, alloc); },
+            [this, graph, alloc](memgraph::query::SubgraphDbAccessor *impl) {
+              current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph, alloc);
             }},
         graph->impl);
   }
@@ -3942,7 +3950,7 @@ mgp_error mgp_type_list(mgp_type *type, mgp_type **result) {
         CypherTypePtr impl(
             alloc.new_object<ListType>(
                 // Just obtain the pointer to original impl, don't own it.
-                CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.GetMemoryResource()),
+                CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.resource()),
             [alloc](CypherType *base_ptr) mutable { alloc.delete_object(static_cast<ListType *>(base_ptr)); });
         return &gListTypes.emplace(type, mgp_type{std::move(impl)}).first->second;
       },
@@ -3960,8 +3968,7 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
         if (found_it != gNullableTypes.end()) return &found_it->second;
 
         auto alloc = gNullableTypes.get_allocator();
-        auto impl =
-            NullableType::Create(CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.GetMemoryResource());
+        auto impl = NullableType::Create(CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.resource());
         return &gNullableTypes.emplace(type, mgp_type{std::move(impl)}).first->second;
       },
       result);
@@ -3978,7 +3985,7 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
     throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
   };
 
-  auto *memory = module->procedures.get_allocator().GetMemoryResource();
+  auto *memory = module->procedures.get_allocator().resource();
   return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
 
@@ -3992,7 +3999,7 @@ mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, m
   if (module->procedures.find(name) != module->procedures.end()) {
     throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
   };
-  auto *memory = module->procedures.get_allocator().GetMemoryResource();
+  auto *memory = module->procedures.get_allocator().resource();
   return &module->procedures.emplace(name, mgp_proc(name, cb_batch, initializer, cleanup, memory, procedure_info))
               .first->second;
 }
@@ -4094,7 +4101,7 @@ mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, 
       throw std::logic_error{fmt::format("The default value of argument '{}' for {} '{}' doesn't satisfy type '{}'",
                                          name, type_name, callable.name, type.impl->GetPresentableName())};
     }
-    auto *memory = callable.opt_args.get_allocator().GetMemoryResource();
+    auto *memory = callable.opt_args.get_allocator().resource();
     callable.opt_args.emplace_back(memgraph::utils::pmr::string(name, memory), type.impl.get(),
                                    ToTypedValue(default_value, memory));
   });
@@ -4131,7 +4138,7 @@ mgp_error AddResultToProp(T *prop, const char *name, mgp_type *type, bool is_dep
     if (prop->results.find(name) != prop->results.end()) {
       throw std::logic_error{fmt::format("Result already exists with name '{}' for procedure '{}'", name, prop->name)};
     };
-    auto *memory = prop->results.get_allocator().GetMemoryResource();
+    auto *memory = prop->results.get_allocator().resource();
     prop->results.emplace(memgraph::utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
   });
 }
@@ -4435,7 +4442,7 @@ mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mg
     if (module->transformations.find(name) != module->transformations.end()) {
       throw std::logic_error{fmt::format("Transformation already exists with name '{}'", name)};
     };
-    auto *memory = module->transformations.get_allocator().GetMemoryResource();
+    auto *memory = module->transformations.get_allocator().resource();
     module->transformations.emplace(name, mgp_trans(name, cb, memory));
   });
 }
@@ -4449,7 +4456,7 @@ mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func
         if (module->functions.find(name) != module->functions.end()) {
           throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name)};
         };
-        auto *memory = module->functions.get_allocator().GetMemoryResource();
+        auto *memory = module->functions.get_allocator().resource();
 
         return &module->functions.emplace(name, mgp_func(name, cb, memory)).first->second;
       },
@@ -4555,8 +4562,8 @@ struct mgp_execution_result::pImplMgpExecutionResult {
   std::unique_ptr<mgp_execution_headers> headers;
 };
 
-mgp_execution_result::mgp_execution_result(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-    : pImpl(std::make_unique<pImplMgpExecutionResult>()), memory(memory) {
+mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type alloc)
+    : pImpl(std::make_unique<pImplMgpExecutionResult>()), alloc(alloc) {
   auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
   pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, instance.dbms_handler->Get(
 #ifdef MG_ENTERPRISE
@@ -4580,7 +4587,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
-        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph, memory->impl);
+        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
 
         instance.interpreters.WithLock(

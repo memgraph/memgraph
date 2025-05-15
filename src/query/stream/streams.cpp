@@ -518,7 +518,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control and rely only on
     // the global auth_checker used in the stream itself
     // TODO: Fix auth inconsistency
-    interpreter->SetUser(interpreter_context->auth_checker->GenQueryUser(std::nullopt, std::nullopt));
+    interpreter->SetUser(interpreter_context->auth_checker->GenEmptyUser());
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
