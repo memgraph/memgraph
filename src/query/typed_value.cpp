@@ -92,20 +92,22 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
-      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(TypedValue(v, name_id_mapper, alloc));
+      }
       return;
     }
     case storage::PropertyValue::Type::Map: {
-      type_ = Type::Map;
-      const auto &map = value.ValueMap();
-      std::construct_at(&map_v, memory_);
       if (!name_id_mapper) {
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
       }
+      type_ = Type::Map;
+      const auto &map = value.ValueMap();
+      alloc_trait::construct(alloc, &map_v);
       for (const auto &kv : map) {
-        auto typed_value = TypedValue(kv.second, name_id_mapper, memory_);
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
-        map_v.emplace(TString(key, memory_), std::move(typed_value));
+        map_v.emplace(TString(key, alloc), TypedValue(kv.second, name_id_mapper, alloc));
       }
       return;
     }
@@ -197,7 +199,10 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       type_ = Type::List;
       auto &vec = other.ValueList();
       // PropertyValue uses std::allocator, hence copy here
-      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(TypedValue(v, name_id_mapper, alloc));
+      }
       break;
     }
     case storage::PropertyValue::Type::Map: {
@@ -206,11 +211,11 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       }
       type_ = Type::Map;
       auto &map = other.ValueMap();
-      std::construct_at(&map_v, memory_);
-      for (auto &kv : map) {
-        auto typed_value = TypedValue(std::move(kv.second), name_id_mapper, memory_);
+      alloc_trait::construct(alloc_, &map_v);
+      // PropertyValue uses std::allocator, hence copy here
+      for (const auto &kv : map) {
         auto key = name_id_mapper->IdToName(kv.first.AsUint());
-        map_v.emplace(TString(key, memory_), std::move(typed_value));
+        map_v.emplace(TString(key, alloc), TypedValue(kv.second, name_id_mapper, alloc));
       }
       break;
     }
@@ -276,92 +281,90 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value)
     // TODO: MemoryResource in storage::ExternalPropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const storage::ExternalPropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_type alloc) : alloc_{alloc} {
   switch (value.type()) {
-    case storage::ExternalPropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
       return;
-    case storage::ExternalPropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = value.ValueBool();
       return;
-    case storage::ExternalPropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = value.ValueInt();
       return;
-    case storage::ExternalPropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = value.ValueDouble();
       return;
-    case storage::ExternalPropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(value.ValueString(), memory_);
+      alloc_trait::construct(alloc_, &string_v, value.ValueString());
       return;
-    case storage::ExternalPropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
-      new (&list_v) TVector(memory_);
-      list_v.reserve(vec.size());
-      for (const auto &v : vec) list_v.emplace_back(v);
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
-    case storage::ExternalPropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
-      std::construct_at(&map_v, memory_);
-      for (const auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
+      alloc_trait::construct(alloc_, &map_v, map.cbegin(), map.cend());
       return;
     }
-    case storage::ExternalPropertyValue::Type::TemporalData: {
+    case storage::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = value.ValueTemporalData();
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) utils::Date(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_date_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) utils::Duration(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &duration_v, temporal_data.microseconds);
           break;
         }
       }
       return;
     }
-    case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
+    case storage::PropertyValue::Type::ZonedTemporalData: {
       const auto &zoned_temporal_data = value.ValueZonedTemporalData();
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
+                                 zoned_temporal_data.timezone);
           break;
         }
       }
       return;
     }
-    case storage::ExternalPropertyValue::Type::Enum: {
+    case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      new (&enum_v) storage::Enum(value.ValueEnum());
+      alloc_trait::construct(alloc_, &enum_v, value.ValueEnum());
       return;
     }
-    case storage::ExternalPropertyValue::Type::Point2d: {
+    case storage::PropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
-      new (&point_2d_v) storage::Point2d(value.ValuePoint2d());
+      alloc_trait::construct(alloc_, &point_2d_v, value.ValuePoint2d());
       return;
     }
-    case storage::ExternalPropertyValue::Type::Point3d: {
+    case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
-      new (&point_3d_v) storage::Point3d(value.ValuePoint3d());
+      alloc_trait::construct(alloc_, &point_3d_v, value.ValuePoint3d());
       return;
     }
   }
@@ -372,90 +375,93 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other) /* noexcept */
     // TODO: MemoryResource in storage::ExternalPropertyValue, so this can be noexcept
     : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(storage::ExternalPropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type alloc) : alloc_{alloc} {
   switch (other.type()) {
-    case storage::ExternalPropertyValue::Type::Null:
+    case storage::PropertyValue::Type::Null:
       type_ = Type::Null;
       break;
-    case storage::ExternalPropertyValue::Type::Bool:
+    case storage::PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = other.ValueBool();
       break;
-    case storage::ExternalPropertyValue::Type::Int:
+    case storage::PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = other.ValueInt();
       break;
-    case storage::ExternalPropertyValue::Type::Double:
+    case storage::PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = other.ValueDouble();
       break;
-    case storage::ExternalPropertyValue::Type::String:
+    case storage::PropertyValue::Type::String:
       type_ = Type::String;
-      new (&string_v) TString(other.ValueString(), memory_);
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &string_v, other.ValueString());
       break;
-    case storage::ExternalPropertyValue::Type::List: {
+    case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       break;
     }
-    case storage::ExternalPropertyValue::Type::Map: {
+    case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
-      std::construct_at(&map_v, memory_);
-      for (auto &kv : map) map_v.emplace(TString(kv.first, memory_), std::move(kv.second));
+      // PropertyValue uses std::allocator, hence copy here
+      alloc_trait::construct(alloc_, &map_v, map.cbegin(), map.cend());
       break;
     }
-    case storage::ExternalPropertyValue::Type::TemporalData: {
+    case storage::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = other.ValueTemporalData();
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) utils::Date(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &date_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &local_date_time_v, temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) utils::Duration(temporal_data.microseconds);
+          alloc_trait::construct(alloc_, &duration_v, temporal_data.microseconds);
           break;
         }
       }
       break;
     }
-    case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
+    case storage::PropertyValue::Type::ZonedTemporalData: {
       const auto &zoned_temporal_data = other.ValueZonedTemporalData();
       switch (zoned_temporal_data.type) {
         case storage::ZonedTemporalType::ZonedDateTime: {
           type_ = Type::ZonedDateTime;
-          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          alloc_trait::construct(alloc_, &zoned_date_time_v, zoned_temporal_data.microseconds,
+                                 zoned_temporal_data.timezone);
           break;
         }
       }
       break;
     }
-    case storage::ExternalPropertyValue::Type::Enum: {
+    case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      new (&enum_v) storage::Enum(other.ValueEnum());
+      alloc_trait::construct(alloc_, &enum_v, other.ValueEnum());
       break;
     }
-    case storage::ExternalPropertyValue::Type::Point2d: {
+    case storage::PropertyValue::Type::Point2d: {
       type_ = Type::Point2d;
-      new (&point_2d_v) storage::Point2d(other.ValuePoint2d());
+      alloc_trait::construct(alloc_, &point_2d_v, other.ValuePoint2d());
       break;
     }
-    case storage::ExternalPropertyValue::Type::Point3d: {
+    case storage::PropertyValue::Type::Point3d: {
       type_ = Type::Point3d;
-      new (&point_3d_v) storage::Point3d(other.ValuePoint3d());
+      alloc_trait::construct(alloc_, &point_3d_v, other.ValuePoint3d());
       break;
     }
   }
@@ -672,8 +678,14 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(double_v);
     case TypedValue::Type::String:
       return storage::PropertyValue(std::string(string_v));
-    case TypedValue::Type::List:
-      return storage::PropertyValue(storage::PropertyValue::list_t(list_v.cbegin(), list_v.cend()));
+    case TypedValue::Type::List: {
+      storage::PropertyValue::list_t list;
+      list.reserve(list_v.size());
+      for (const auto &v : list_v) {
+        list.emplace_back(v.ToPropertyValue(name_id_mapper));
+      }
+      return storage::PropertyValue(std::move(list));
+    }
     case TypedValue::Type::Map: {
       if (!name_id_mapper) {
         throw TypedValueException("NameIdMapper is required for TypedValue::Map");

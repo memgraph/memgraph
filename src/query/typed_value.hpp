@@ -283,7 +283,7 @@ class TypedValue {
   explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, allocator_type alloc);
 
   /** Construct a copy using default utils::NewDeleteResource() */
   explicit TypedValue(const storage::ExternalPropertyValue &value);
@@ -407,14 +407,10 @@ class TypedValue {
   explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
 
   /**
-   * Construct with the value of other, but use the given utils::MemoryResource.
+   * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::ExternalPropertyValue &&other, utils::MemoryResource *memory);
-
-  TypedValue(storage::PropertyValue &&other, allocator_type alloc);
-
-  TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper, utils::MemoryResource *memory);
+  TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper, allocator_type alloc);
 
   /**
    * Construct with the value of other.
@@ -427,7 +423,7 @@ class TypedValue {
    * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::ExternalPropertyValue &&other, allocator_type alloc);
 
   // copy assignment operators
   TypedValue &operator=(const char *);

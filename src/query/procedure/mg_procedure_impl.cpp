@@ -398,10 +398,6 @@ bool ContainsDeleted(const mgp_value *val) {
 memgraph::storage::NameIdMapper *GetNameIdMapper(const mgp_graph *graph) {
   return graph->getImpl()->GetStorageAccessor()->GetNameIdMapper();
 }
-
-memgraph::storage::NameIdMapper *GetNameIdMapper(const mgp_graph *graph) {
-  return graph->getImpl()->GetStorageAccessor()->GetNameIdMapper();
-}
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::Allocator<mgp_value> alloc) {
   switch (val.type) {
     case MGP_VALUE_TYPE_NULL:
@@ -700,7 +696,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(alloc);
       for (const auto &item : pv.ValueMap()) {
         auto key_as_name = name_id_mapper->IdToName(item.first.AsUint());
-        auto value = mgp_value(item.second, name_id_mapper, m);
+        auto value = mgp_value(item.second, name_id_mapper, alloc);
         items.emplace(std::move(key_as_name), std::move(value));
       }
       memgraph::utils::Allocator<mgp_map> allocator(alloc);
