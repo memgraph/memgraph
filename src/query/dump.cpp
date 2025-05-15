@@ -148,7 +148,7 @@ void DumpPoint3d(std::ostream &os, const storage::Point3d &value) { os << query:
 
 }  // namespace
 
-void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, query::DbAccessor *dba) {
+void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &value, query::DbAccessor *dba) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       *os << "Null";
@@ -176,7 +176,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, qu
       *os << "{";
       const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [&](auto &os, const auto &kv) {
-        os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
+        os << EscapeName(kv.first) << ": ";
         DumpPropertyValue(&os, kv.second, dba);
       });
       *os << "}";
@@ -215,7 +215,11 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
-    DumpPropertyValue(&os, kv.second, dba);
+
+    // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
+    // compatibility with previous database dumps.
+    DumpPropertyValue(&os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()),
+                      dba);
   });
   *os << "}";
 }
