@@ -19,6 +19,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 
 using namespace memgraph::query;
@@ -112,7 +113,7 @@ class QueryCostEstimator : public ::testing::Test {
   template <typename TValue>
   Expression *Parameter(TValue value) {
     int token_position = parameters_.size();
-    parameters_.Add(token_position, memgraph::storage::PropertyValue(value));
+    parameters_.Add(token_position, memgraph::storage::ExternalPropertyValue(value));
     return storage_.Create<ParameterLookup>(token_position);
   }
 

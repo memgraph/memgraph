@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,7 @@ void EXPECT_PROP_TRUE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue:
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a == b); }
 
-void EXPECT_PROP_EQ(const memgraph::storage::PropertyValue &a, const TypedValue &b) {
+void EXPECT_PROP_EQ(const memgraph::storage::ExternalPropertyValue &a, const TypedValue &b) {
   EXPECT_PROP_EQ(TypedValue(a), b);
 }
 

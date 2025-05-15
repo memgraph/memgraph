@@ -276,14 +276,14 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<PropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, PropertyValue, void> {
+auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, ExternalPropertyValue, void> {
   if constexpr (is_read) {
-    auto str = decoder->ReadPropertyValue();
+    auto str = decoder->ReadExternalPropertyValue();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
     return *std::move(str);
   } else {
-    if (!decoder->SkipPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->SkipExternalPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -657,7 +657,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WritePropertyValue(vertex.properties.GetProperty(delta.property.key));
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -706,7 +707,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
+      encoder->WriteExternalPropertyValue(
+          ToExternalPropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
       break;
@@ -810,11 +812,12 @@ std::optional<RecoveryInfo> LoadWal(
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(data.value)}, old_type);
+          schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        vertex->properties.SetProperty(property_id, data.value);
+        vertex->properties.SetProperty(property_id, property_value);
       },
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
@@ -895,6 +898,7 @@ std::optional<RecoveryInfo> LoadWal(
         auto edge = edge_acc.find(data.gid);
         if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
         if (schema_info) {
           const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
@@ -916,11 +920,11 @@ std::optional<RecoveryInfo> LoadWal(
           });
 
           const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
-          schema_info->SetProperty(edge_type, from_vertex, to_vertex, property_id, ExtendedPropertyType{data.value},
+          schema_info->SetProperty(edge_type, from_vertex, to_vertex, property_id, ExtendedPropertyType{property_value},
                                    old_type, items.properties_on_edges);
         }
 
-        edge->properties.SetProperty(property_id, data.value);
+        edge->properties.SetProperty(property_id, property_value);
       },
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {

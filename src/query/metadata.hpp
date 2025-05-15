@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <map>
 #include <string>
-#include <string_view>
 #include <type_traits>
 
 #include "query/typed_value.hpp"

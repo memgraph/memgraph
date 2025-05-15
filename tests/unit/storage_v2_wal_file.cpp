@@ -24,6 +24,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
@@ -128,7 +129,8 @@ class DeltaGenerator final {
               ASSERT_NE(vertex, gen_->vertices_.end());
               auto property_id =
                   memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(set_property->property));
-              set_property->value = vertex->properties.GetProperty(property_id);
+              set_property->value = memgraph::storage::ToExternalPropertyValue(
+                  vertex->properties.GetProperty(property_id), &gen_->mapper_);
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
