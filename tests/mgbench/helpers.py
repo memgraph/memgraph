@@ -41,6 +41,8 @@ def get_binary_path(path, base=""):
         if os.path.isfile(path_binary):
             print(f"Found client binary in {path_binary}")
             binary_path = path_binary
+    else:
+        print(f"Apparently this exists: {binary_path}")
     return binary_path
 
 def download_file(url, path):
