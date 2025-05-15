@@ -313,7 +313,7 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
                               std::span<storage::PropertyPath const> properties) {
   auto const concat_nested_props = [&](auto &&path) {
     return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
-           rv::join(".");
+           rv::join('.');
   };
 
   auto prop_names = properties | rv::transform([&](auto &&path) { return concat_nested_props(path); }) |

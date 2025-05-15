@@ -404,7 +404,7 @@ json ToJson(storage::LabelId label, const DbAccessor &dba) { return dba.LabelToN
 json ToJson(storage::PropertyId property, const DbAccessor &dba) { return dba.PropertyToName(property); }
 
 json ToJson(storage::PropertyPath path, const DbAccessor &dba) {
-  return path | rv::transform([&](auto &&property_id) { return dba.PropertyToName(property_id); }) | rv::join(".") |
+  return path | rv::transform([&](auto &&property_id) { return dba.PropertyToName(property_id); }) | rv::join('.') |
          r::to<std::string>;
 }
 
