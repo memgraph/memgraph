@@ -37,16 +37,16 @@ bool IsOnlyOneType(const PropertyValueImpl<Alloc, KeyType> &pv) {
   return count == 1;
 }
 
-template <typename TPropertyValue>
+template <typename Alloc, typename KeyType>
 struct PropertyTestCase {
-  TPropertyValue value;
+  PropertyValueImpl<Alloc, KeyType> value;
   PropertyValue::Type expected_type;
   std::string expected_type_str;
   std::string expected_value_str;
 };
 
-template <typename TPropertyValue>
-void RunCommonPropertyValueChecks(const PropertyTestCase<TPropertyValue> &tc) {
+template <typename Alloc, typename KeyType>
+void RunCommonPropertyValueChecks(const PropertyTestCase<Alloc, KeyType> &tc) {
   const auto &pv = tc.value;
   ASSERT_EQ(pv.type(), tc.expected_type);
   ASSERT_TRUE(IsOnlyOneType(pv));
@@ -113,7 +113,9 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Null) {
-  RunCommonPropertyValueChecks<PropertyValue>({PropertyValue(), PropertyValue::Type::Null, "null", "null"});
+  // RunCommonPropertyValueChecks({PropertyValue(), PropertyValue::Type::Null, "null", "null"});
+  PropertyTestCase tc{PropertyValue(), PropertyValue::Type::Null, "null", "null"};
+  RunCommonPropertyValueChecks(tc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -121,10 +123,12 @@ TEST(PropertyValue, Bool) {
   {
     PropertyValue pvfalse(false);
     EXPECT_EQ(pvfalse.ValueBool(), false);
-    RunCommonPropertyValueChecks<PropertyValue>({pvfalse, PropertyValue::Type::Bool, "bool", "false"});
+    PropertyTestCase tc{pvfalse, PropertyValue::Type::Bool, "bool", "false"};
+    RunCommonPropertyValueChecks(tc);
     auto &cpvfalse = pvfalse;
     EXPECT_EQ(cpvfalse.ValueBool(), false);
-    RunCommonPropertyValueChecks<PropertyValue>({cpvfalse, PropertyValue::Type::Bool, "bool", "false"});
+    PropertyTestCase ctc{cpvfalse, PropertyValue::Type::Bool, "bool", "false"};
+    RunCommonPropertyValueChecks(ctc);
   }
   {
     PropertyValue pvtrue(true);
@@ -138,10 +142,12 @@ TEST(PropertyValue, Bool) {
 TEST(PropertyValue, Int) {
   {
     PropertyValue pv(123L);
-    RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::Int, "int", "123"});
+    PropertyTestCase tc{pv, PropertyValue::Type::Int, "int", "123"};
+    RunCommonPropertyValueChecks(tc);
 
     const auto &cpv = pv;
-    RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::Int, "int", "123"});
+    PropertyTestCase ctc{cpv, PropertyValue::Type::Int, "int", "123"};
+    RunCommonPropertyValueChecks(ctc);
   }
   {
     PropertyValue pvint(123);
@@ -152,20 +158,24 @@ TEST(PropertyValue, Int) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Double) {
   PropertyValue pv(123.5);
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::Double, "double", "123.5"});
+  PropertyTestCase tc{pv, PropertyValue::Type::Double, "double", "123.5"};
+  RunCommonPropertyValueChecks(tc);
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::Double, "double", "123.5"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::Double, "double", "123.5"};
+  RunCommonPropertyValueChecks(ctc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Enum) {
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   PropertyValue pv(enum_val);
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::Enum, "enum", "{ type: 2, value: 42 }"});
+  PropertyTestCase tc{pv, PropertyValue::Type::Enum, "enum", "{ type: 2, value: 42 }"};
+  RunCommonPropertyValueChecks(tc);
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::Enum, "enum", "{ type: 2, value: 42 }"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::Enum, "enum", "{ type: 2, value: 42 }"};
+  RunCommonPropertyValueChecks(ctc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -173,11 +183,13 @@ TEST(PropertyValue, StringCopy) {
   std::string str("nandare");
   PropertyValue pv(str);
   ASSERT_EQ(str, "nandare");
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::String, "string", "\"nandare\""});
+  PropertyTestCase tc{pv, PropertyValue::Type::String, "string", "\"nandare\""};
+  RunCommonPropertyValueChecks(tc);
 
   const auto &cpv = pv;
   ASSERT_EQ(cpv.ValueString(), "nandare");
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::String, "string", "\"nandare\""});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::String, "string", "\"nandare\""};
+  RunCommonPropertyValueChecks(ctc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -185,11 +197,13 @@ TEST(PropertyValue, StringMove) {
   std::string str = "nandare";
   PropertyValue pv(std::move(str));
   ASSERT_EQ(str, "");
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::String, "string", "\"nandare\""});
+  PropertyTestCase tc{pv, PropertyValue::Type::String, "string", "\"nandare\""};
+  RunCommonPropertyValueChecks(tc);
   ASSERT_EQ(pv.ValueString(), "nandare");
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::String, "string", "\"nandare\""});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::String, "string", "\"nandare\""};
+  RunCommonPropertyValueChecks(ctc);
   ASSERT_EQ(cpv.ValueString(), "nandare");
 }
 
@@ -201,7 +215,8 @@ TEST(PropertyValue, ListCopy) {
   ASSERT_EQ(vec.size(), 2);
   ASSERT_EQ(vec[0].ValueString(), "nandare");
   ASSERT_EQ(vec[1].ValueInt(), 123);
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::List, "list", R"(["nandare", 123])"});
+  PropertyTestCase tc{pv, PropertyValue::Type::List, "list", R"(["nandare", 123])"};
+  RunCommonPropertyValueChecks(tc);
   {
     const auto &ret = pv.ValueList();
     ASSERT_EQ(ret.size(), 2);
@@ -210,7 +225,8 @@ TEST(PropertyValue, ListCopy) {
   }
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::List, "list", R"(["nandare", 123])"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::List, "list", R"(["nandare", 123])"};
+  RunCommonPropertyValueChecks(ctc);
   {
     const auto &ret = cpv.ValueList();
     ASSERT_EQ(ret.size(), 2);
@@ -226,7 +242,8 @@ TEST(PropertyValue, ListMove) {
 
   ASSERT_EQ(vec.size(), 0);
   ASSERT_TRUE(pv.IsList());
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::List, "list", R"(["nandare", 123])"});
+  PropertyTestCase tc{pv, PropertyValue::Type::List, "list", R"(["nandare", 123])"};
+  RunCommonPropertyValueChecks(tc);
   {
     const auto &ret = pv.ValueList();
     ASSERT_EQ(ret.size(), 2);
@@ -235,7 +252,8 @@ TEST(PropertyValue, ListMove) {
   }
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::List, "list", R"(["nandare", 123])"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::List, "list", R"(["nandare", 123])"};
+  RunCommonPropertyValueChecks(ctc);
   {
     const auto &ret = cpv.ValueList();
     ASSERT_EQ(ret.size(), 2);
@@ -253,7 +271,8 @@ TEST(PropertyValue, MapCopy) {
   ASSERT_EQ(map.size(), 1);
   ASSERT_EQ(map.at(property_id).ValueInt(), 123);
   ASSERT_TRUE(pv.IsMap());
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::Map, "map", "{1: 123}"});
+  PropertyTestCase tc{pv, PropertyValue::Type::Map, "map", "{1: 123}"};
+  RunCommonPropertyValueChecks(tc);
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -261,7 +280,8 @@ TEST(PropertyValue, MapCopy) {
   }
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::Map, "map", "{1: 123}"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::Map, "map", "{1: 123}"};
+  RunCommonPropertyValueChecks(ctc);
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -276,7 +296,8 @@ TEST(PropertyValue, MapMove) {
   PropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
-  RunCommonPropertyValueChecks<PropertyValue>({pv, PropertyValue::Type::Map, "map", "{1: 123}"});
+  PropertyTestCase tc{pv, PropertyValue::Type::Map, "map", "{1: 123}"};
+  RunCommonPropertyValueChecks(tc);
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -284,7 +305,8 @@ TEST(PropertyValue, MapMove) {
   }
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>({cpv, PropertyValue::Type::Map, "map", "{1: 123}"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::Map, "map", "{1: 123}"};
+  RunCommonPropertyValueChecks(ctc);
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -300,7 +322,8 @@ TEST(PropertyValue, ExternalMapCopy) {
   ASSERT_EQ(map.size(), 1);
   ASSERT_EQ(map.at("nandare").ValueInt(), 123);
   ASSERT_TRUE(pv.IsMap());
-  RunCommonPropertyValueChecks<ExternalPropertyValue>({pv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"});
+  PropertyTestCase tc{pv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"};
+  RunCommonPropertyValueChecks(tc);
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -308,7 +331,8 @@ TEST(PropertyValue, ExternalMapCopy) {
   }
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<ExternalPropertyValue>({cpv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"});
+  PropertyTestCase ctc{cpv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"};
+  RunCommonPropertyValueChecks(ctc);
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -323,7 +347,8 @@ TEST(PropertyValue, ExternalMapMove) {
 
   ASSERT_EQ(map.size(), 0);
   ASSERT_TRUE(pv.IsMap());
-  RunCommonPropertyValueChecks<ExternalPropertyValue>({pv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"});
+  PropertyTestCase tc{pv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"};
+  RunCommonPropertyValueChecks(tc);
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -331,7 +356,8 @@ TEST(PropertyValue, ExternalMapMove) {
   }
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<ExternalPropertyValue>({cpv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"});
+  PropertyTestCase ctc{cpv, ExternalPropertyValue::Type::Map, "map", "{nandare: 123}"};
+  RunCommonPropertyValueChecks(ctc);
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -345,13 +371,13 @@ TEST(PropertyValue, Point2d) {
   PropertyValue pv(point_val);
 
   ASSERT_TRUE(pv.IsPoint2d());
-  RunCommonPropertyValueChecks<PropertyValue>(
-      {pv, PropertyValue::Type::Point2d, "point", "point({ x:1, y:2, srid:4326 })"});
+  PropertyTestCase tc{pv, PropertyValue::Type::Point2d, "point", "point({ x:1, y:2, srid:4326 })"};
+  RunCommonPropertyValueChecks(tc);
   ASSERT_EQ(pv.ValuePoint2d(), point_val);
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>(
-      {cpv, PropertyValue::Type::Point2d, "point", "point({ x:1, y:2, srid:4326 })"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::Point2d, "point", "point({ x:1, y:2, srid:4326 })"};
+  RunCommonPropertyValueChecks(ctc);
   ASSERT_EQ(cpv.ValuePoint2d(), point_val);
 }
 
@@ -361,13 +387,13 @@ TEST(PropertyValue, Point3d) {
   PropertyValue pv(point_val);
 
   ASSERT_TRUE(pv.IsPoint3d());
-  RunCommonPropertyValueChecks<PropertyValue>(
-      {pv, PropertyValue::Type::Point3d, "point", "point({ x:1, y:2, z:3, srid:4979 })"});
+  PropertyTestCase tc{pv, PropertyValue::Type::Point3d, "point", "point({ x:1, y:2, z:3, srid:4979 })"};
+  RunCommonPropertyValueChecks(tc);
   ASSERT_EQ(pv.ValuePoint3d(), point_val);
 
   const auto &cpv = pv;
-  RunCommonPropertyValueChecks<PropertyValue>(
-      {cpv, PropertyValue::Type::Point3d, "point", "point({ x:1, y:2, z:3, srid:4979 })"});
+  PropertyTestCase ctc{cpv, PropertyValue::Type::Point3d, "point", "point({ x:1, y:2, z:3, srid:4979 })"};
+  RunCommonPropertyValueChecks(ctc);
   ASSERT_EQ(cpv.ValuePoint3d(), point_val);
 }
 
