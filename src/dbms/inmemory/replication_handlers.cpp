@@ -1096,8 +1096,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
-          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
-
+          // ATM this could come from a TTL operation, in combination with other operations hence ATM we must use the
+          // strongest access of Unique
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(properties)).HasError())
 
@@ -1108,7 +1109,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto properties_stringified = utils::Join(data.properties, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
-          auto *transaction = get_replication_accessor(delta_timestamp, kReadOnlyAccess);
+          // ATM this could come from a TTL operation, in combination with other operations hence ATM we must use the
+          // strongest access of Unique
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
           if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(properties)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
