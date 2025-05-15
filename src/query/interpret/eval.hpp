@@ -691,7 +691,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       res = function.function_(arguments.data(), arguments.size(), function_ctx);
     }
-    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
       return TypedValue(ctx_->memory);
     }
@@ -792,7 +792,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
           frame_exists_value.type());
     }
-    TypedValue result{ctx_->memory};
+    TypedValue result(ctx_->memory);
     frame_exists_value.ValueFunction()(&result);
     return result;
   }

@@ -10,38 +10,12 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <time.h>
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
 
+#include "utils/yielder.hpp"
+
 namespace memgraph::utils {
-namespace {
-/// A helper for RWSpinLock, allows a contended spin lock to yield to another thread.
-struct yielder {
-  void operator()() noexcept {
-#if defined(__i386__) || defined(__x86_64__)
-    __builtin_ia32_pause();
-#elif defined(__aarch64__)
-    asm volatile("YIELD");
-#else
-#error("no PAUSE/YIELD instructions for unknown architecture");
-#endif
-    ++count;
-    if (count > 8) [[unlikely]] {
-      count = 0;
-      nanosleep(&shortpause, nullptr);
-      // Increase the backoff
-      shortpause.tv_nsec = std::min<decltype(shortpause.tv_nsec)>(shortpause.tv_nsec << 1, 512);
-    }
-  }
-
- private:
-  uint_fast32_t count{0};
-  timespec shortpause = {.tv_sec = 0, .tv_nsec = 1};
-};
-}  // namespace
-
 /**
  * A reader/writer spin lock.
  * Stores in a uint32_t,

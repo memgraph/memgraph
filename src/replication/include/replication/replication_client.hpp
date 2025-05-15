@@ -59,7 +59,7 @@ struct ReplicationClient {
                              try {
                                {
                                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-                                 stream.AwaitResponse();
+                                 stream.SendAndWait();
                                }
                                succ_cb(*this);
                                failed_attempts = 0U;
@@ -92,7 +92,7 @@ struct ReplicationClient {
           return false;
         }
         try {
-          if (check(stream.AwaitResponse())) {
+          if (check(stream.SendAndWait())) {
             return true;
           }
         } catch (rpc::GenericRpcFailedException const &) {

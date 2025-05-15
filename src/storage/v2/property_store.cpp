@@ -891,6 +891,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
   }
+  // in case of corrupt storage, handle unknown types
+  return false;
 }
 
 [[nodiscard]] std::optional<PropertyValue> DecodePropertyValue(Reader *reader, Type type, Size payload_size) {
