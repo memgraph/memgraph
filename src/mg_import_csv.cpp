@@ -566,7 +566,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
       if (relationship_type) throw LoadException("Only one relationship TYPE must be specified");
       relationship_type = value;
     } else if (field.type != "IGNORE") {
-      auto [it, inserted] = properties.emplace(field.name, StringToValue(value, field.type));
+      auto [it, inserted] = properties.emplace(store->NameToProperty(field.name), StringToValue(value, field.type));
       if (!inserted) throw LoadException("The property '{}' already exists", field.name);
     }
   }
@@ -584,15 +584,15 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
   if (!relationship.HasValue()) throw LoadException("Couldn't create the relationship");
 
   for (const auto &property : properties) {
-    auto ret = relationship.GetValue().SetProperty(acc->NameToProperty(property.first), property.second);
+    auto ret = relationship.GetValue().SetProperty(property.first, property.second);
     if (!ret.HasValue()) {
       if (ret.GetError() != memgraph::storage::Error::PROPERTIES_DISABLED) {
-        throw LoadException("Couldn't add property '{}' to the relationship", property.first);
+        throw LoadException("Couldn't add property '{}' to the relationship", acc->PropertyToName(property.first));
       } else {
         throw LoadException(
             "Couldn't add property '{}' to the relationship because properties "
             "on edges are disabled",
-            property.first);
+            acc->PropertyToName(property.first));
       }
     }
   }
