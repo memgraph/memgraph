@@ -34,8 +34,14 @@ def get_binary_path(path, base=""):
         dirpath = os.path.join(dirpath, "build_release")
     else:
         dirpath = os.path.join(dirpath, "build")
-    return os.path.join(dirpath, path)
-
+    binary_path = os.path.join(dirpath, path)
+    if not os.path.isfile(binary_path):
+        # attempt to locate binary within $PATH
+        path_binary = os.path.join((os.getenv("PATH"), os.path.basename(path)))
+        if os.path.isfile(path_binary):
+            print(f"Found client binary in {path_binary}")
+            binary_path = path_binary
+    return binary_path
 
 def download_file(url, path):
     ret = subprocess.run(
