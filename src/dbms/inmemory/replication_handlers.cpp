@@ -773,8 +773,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   auto vertex_acc = storage->vertices_.access();
 
   constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
-  constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
   constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
+  // TODO: add when concurrent index creation can actually replicate using READ_ONLY
+  // constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
   auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
