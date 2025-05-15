@@ -94,7 +94,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       const auto &vec = value.ValueList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        list_v.emplace_back(TypedValue(v, name_id_mapper, alloc));
+        list_v.emplace_back(v, name_id_mapper);
       }
       return;
     }
@@ -201,7 +201,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       // PropertyValue uses std::allocator, hence copy here
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        list_v.emplace_back(TypedValue(v, name_id_mapper, alloc));
+        list_v.emplace_back(v, name_id_mapper);
       }
       break;
     }
