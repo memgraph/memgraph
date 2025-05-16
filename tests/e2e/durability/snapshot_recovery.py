@@ -9,10 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import datetime
 import os
 import shutil
 import sys
 import tempfile
+import time
 
 import interactive_mg_runner
 import pytest
@@ -27,14 +29,17 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 TMP_DIR = "/tmp/e2e_snapshot_recovery"
 
+import datetime
+import os
+
 
 def get_snapshots():
     snapshot_dir = TMP_DIR + "/snapshots"
     entries = (os.path.join(snapshot_dir, entry) for entry in os.listdir(snapshot_dir))
     files = [f for f in entries if os.path.isfile(f)]
     if files:
-        # Save last snapshot
-        files.sort(key=os.path.getctime, reverse=True)
+        # Sort by creation time (ns), most recent first
+        files.sort(key=lambda f: os.stat(f).st_ctime_ns, reverse=True)
         return files
     return None
 
@@ -90,6 +95,8 @@ def generate_tmp_snapshot():
         execute_and_fetch_all(cursor, f"CREATE ({{p: {i}}});")
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
 
+    time.sleep(0.1)
+
     for i in range(5, 10):
         execute_and_fetch_all(cursor, f"CREATE ({{p: {i}}});")
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
@@ -107,7 +114,7 @@ def data_check(cursor, max):
     result = execute_and_fetch_all(cursor, "MATCH(n) RETURN n.p ORDER BY n.p ASC;")
     for i in result:
         assert i[0] == index, f"Expecting {index} but got {i[0]}"
-        index = index + step
+        index += step
     assert index == max, f"Expecting maximum {max} but got {index}"
 
 
@@ -204,7 +211,7 @@ def mt_cursor(connection, database):
 
 @pytest.mark.parametrize("database", ["memgraph", "other_db"])
 def test_empty(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
+    assert global_snapshot is not None, "To snapshot to recover from"
     data_directory = tempfile.TemporaryDirectory()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
     mt_setup()
