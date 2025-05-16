@@ -947,7 +947,7 @@ if __name__ == "__main__":
 
     temp_dir = pathlib.Path.cwd() / ".temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    print(f"args: {args}")
+
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
         client_bolt_address=args.client_bolt_address,

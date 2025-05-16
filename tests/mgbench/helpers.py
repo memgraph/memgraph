@@ -16,10 +16,11 @@ import importlib
 import inspect
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-import shutil
+
 import log
 import workloads
 from benchmark_context import BenchmarkContext
@@ -39,11 +40,9 @@ def get_binary_path(path, base=""):
         # attempt to locate binary within $PATH
         found = shutil.which(os.path.basename(path))
         if found:
-            print(f"Found client binary in {found}")
             binary_path = found
-    else:
-        print(f"Apparently this exists: {binary_path}")
     return binary_path
+
 
 def download_file(url, path):
     ret = subprocess.run(
