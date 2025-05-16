@@ -70,7 +70,7 @@ jobs:
           --build-arg TOOLCHAIN_VERSION=toolchain-v6 \
           --tag ${{ env.REPO_TAG }} \
           --file ${{ env.DOCKERFILE }} \
-          --load tests/mgbench
+          --load .
 
       - name: Check if specified version is already pushed
         if: ${{ inputs.push_to_dockerhub }}
