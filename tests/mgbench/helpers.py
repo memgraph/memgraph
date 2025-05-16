@@ -16,6 +16,7 @@ import importlib
 import inspect
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +35,13 @@ def get_binary_path(path, base=""):
         dirpath = os.path.join(dirpath, "build_release")
     else:
         dirpath = os.path.join(dirpath, "build")
-    return os.path.join(dirpath, path)
+    binary_path = os.path.join(dirpath, path)
+    if not os.path.isfile(binary_path):
+        # attempt to locate binary within $PATH
+        found = shutil.which(os.path.basename(path))
+        if found:
+            binary_path = found
+    return binary_path
 
 
 def download_file(url, path):

@@ -10,13 +10,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY . /memgraph
 WORKDIR /memgraph
 
-# Install runtime and build dependencies for memgraph and mgbench
+# Install runtime and build dependencies for memgraph and mgbench client
 USER root
 RUN apt-get update && apt-get install -y \
     ca-certificates wget git curl python3-pip python3 \
   && rm -rf /var/lib/apt/lists/*
 
-# Install build dependencies using Memgraph scripts
+# Install Node.js 20 (for mgbench frontend or scripts)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get update && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
+
+# Set up build dependencies and environment via provided scripts
+# Uses TARGETARCH to choose appropriate scripts
 RUN cd /memgraph && \
     if [ "$TARGETARCH" = "amd64" ]; then \
       ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
@@ -24,18 +30,13 @@ RUN cd /memgraph && \
       ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
     fi
 
-# Install Node.js 20 if needed by benchmarks
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-  && apt-get update && apt-get install -y nodejs \
-  && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user for build
+# Create a build user
 RUN useradd --create-home --shell /bin/bash memgraph \
   && chown -R memgraph:memgraph /memgraph
 USER memgraph
 ENV HOME=/home/memgraph
 
-# Initialize and build mgbench client
+# Build mgbench client
 RUN source /opt/toolchain-v6/activate && \
     ./init && \
     rm -rf build && mkdir build && cd build && \
@@ -45,10 +46,12 @@ RUN source /opt/toolchain-v6/activate && \
 # --- Final image ---
 FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install -y wget libcurl4 && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    wget libcurl4 python3 \
+  && rm -rf /var/lib/apt/lists/*
 
-# Copy mgbench client binary
+# Copy mgbench client binary and tests
 COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /bin
+COPY --from=mg_bench_client_build_base /memgraph/tests/mgbench /mgbench
 
-ENTRYPOINT ["/bin/client"]
+ENTRYPOINT ["python3", "/mgbench/benchmark.py"]
