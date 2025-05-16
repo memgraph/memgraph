@@ -344,10 +344,7 @@ auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::millis
   using std::chrono::milliseconds;
 
   auto const peer_info = raft_server_->get_peer_info(srv_id);
-  auto const elapsed_time_ms = duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
-  spdlog::trace("Elapsed time in milliseconds since last successful response from coordinator_{}: {}", srv_id,
-                elapsed_time_ms.count());
-  return elapsed_time_ms;
+  return duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
 }
 
 auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData> {

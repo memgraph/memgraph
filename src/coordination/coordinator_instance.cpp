@@ -210,14 +210,12 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
   };
 
   auto const coordinators = raft_state_->GetCoordinatorInstancesAux();
-  spdlog::trace("Found {} coordinators.", coordinators.size());
   auto const curr_leader_id = raft_state_->GetLeaderId();
 
   std::vector<InstanceStatus> results;
   results.reserve(coordinators.size());
 
   for (auto const &coordinator : coordinators) {
-    spdlog::trace("Found coordinator with id {}", coordinator.id);
     results.emplace_back(InstanceStatus{
         .instance_name = fmt::format("coordinator_{}", coordinator.id),
         .coordinator_server = coordinator.coordinator_server,
