@@ -1,5 +1,6 @@
 # Use Memgraph build image with toolchain pre-installed
-FROM memgraph/mgbuild:v6_ubuntu-24.04 AS mg_bench_client_build_base
+ARG MGBUILD_IMAGE
+FROM $MGBUILD_IMAGE as mg_bench_client_build_base
 
 SHELL ["/bin/bash", "-c"]
 ARG TARGETARCH
