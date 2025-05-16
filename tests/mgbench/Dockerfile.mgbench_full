@@ -1,75 +1,53 @@
-FROM ubuntu:24.04 AS mg_bench_client_build_base
+# Use Memgraph build image with toolchain pre-installed
+FROM memgraph/mgbuild:v6_ubuntu-24.04 AS mg_bench_client_build_base
 
 SHELL ["/bin/bash", "-c"]
-ARG TOOLCHAIN_VERSION
 ARG TARGETARCH
-ARG GIT_REF=""
-
 ENV DEBIAN_FRONTEND=noninteractive
 
-USER root
-
-RUN apt update && apt install -y \
-    ca-certificates wget git
-
-RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz \
-    -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz \
-    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-${TARGETARCH}.tar.gz -C /opt
-
-RUN set -eux; \
-    echo "Cloning memgraph…"; \
-    git clone https://github.com/memgraph/memgraph.git /memgraph; \
-    \
-    if [ -n "${GIT_REF}" ]; then \
-      echo "Checking out '${GIT_REF}'…"; \
-      cd /memgraph; \
-      git fetch --all --tags; \
-      \
-      # 2a) Local refs (branches or tags) first  
-      if git rev-parse --verify --quiet "${GIT_REF}"; then \
-        git checkout "${GIT_REF}"; \
-      # 2b) Remote-only branches next  
-      elif git rev-parse --verify --quiet "origin/${GIT_REF}"; then \
-        git checkout --track "origin/${GIT_REF}"; \
-      else \
-        echo "ERROR: ref '${GIT_REF}' not found in memgraph" >&2; \
-        exit 1; \
-      fi; \
-    else \
-      echo "No GIT_REF provided; staying on default branch"; \
-    fi
-
+# Copy repository into the build context
+COPY . /memgraph
 WORKDIR /memgraph
 
-RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS ; else ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS ; fi
-RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-24.04.sh install MEMGRAPH_BUILD_DEPS ; else ./environment/os/ubuntu-24.04-arm.sh install MEMGRAPH_BUILD_DEPS ; fi
+# Install runtime and build dependencies for memgraph and mgbench client
+USER root
+RUN apt-get update && apt-get install -y \
+    ca-certificates wget git curl python3-pip python3 \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get update && \
-    apt-get install -y nodejs
+# Install Node.js 20 (for mgbench frontend or scripts)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get update && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
 
+# Set up build dependencies and environment via provided scripts
+# Uses TARGETARCH to choose appropriate scripts
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
+    else \
+      ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
+    fi
+
+# Create a build user
 RUN useradd --create-home --shell /bin/bash memgraph \
-    && chown -R memgraph:memgraph /memgraph
-
+  && chown -R memgraph:memgraph /memgraph
 USER memgraph
 ENV HOME=/home/memgraph
 
-RUN source /opt/${TOOLCHAIN_VERSION}/activate && \
-    ./init  && \
-    rm -r build && \
-    mkdir build && \
-    cd build && \
+# Build mgbench client
+RUN mkdir -p build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=release .. && \
     make -j$(nproc) memgraph__mgbench__client && \
-    make .
+    make
 
-
+# --- Final image ---
 FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install -y wget libcurl4 python3 && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    wget libcurl4 python3 \
+  && rm -rf /var/lib/apt/lists/*
 
-# Copy mgbench client to clean image
+# Copy mgbench client binary and tests
 COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /bin
 COPY --from=mg_bench_client_build_base /memgraph/tests/mgbench /mgbench
 
