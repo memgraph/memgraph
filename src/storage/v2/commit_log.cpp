@@ -59,6 +59,12 @@ void CommitLog::MarkFinished(uint64_t const id) {
 
 void CommitLog::MarkFinishedUpToId(uint64_t const id) {
   auto guard = std::lock_guard{lock_};
+
+  // Just starting, nothing to mark
+  if (head_ == nullptr) {
+    return;
+  }
+
   // 1. Mark finished all blocks with smaller IDs than the id
   Block *current = head_;
   uint64_t current_start = head_start_;
@@ -82,8 +88,7 @@ void CommitLog::MarkFinishedUpToId(uint64_t const id) {
   current->field[field_idx] = std::numeric_limits<uint64_t>::max();
   current->field[field_idx] >>= kIdsInField - (idx_in_field + 1);
 
-  // Shouldn't be but just in case
-  if (id == oldest_active_) {
+  if (id >= oldest_active_) {
     UpdateOldestActive();
   }
 }

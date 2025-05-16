@@ -297,6 +297,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
 
       // Mark all up to timestamp + timestamp
       static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedUpToId(storage->timestamp_);
+      spdlog::trace("Commit log marked finished up to id: {}", storage->timestamp_);
     });
 
     // STEP 4) Resume TTL
