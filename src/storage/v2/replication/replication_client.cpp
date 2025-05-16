@@ -180,7 +180,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   spdlog::trace("Current timestamp on replica {} for db {} is {}.", client_.name_, main_db_name,
                 heartbeat_res.current_commit_timestamp);
   spdlog::trace("Current durable timestamp on main for db {} is {}", main_db_name,
-                replStorageState.last_durable_timestamp_.load());
+                replStorageState.last_durable_timestamp_.load(std::memory_order_acquire));
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime
@@ -201,7 +201,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
   TimestampInfo info;
-  auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
   info.current_timestamp_of_replica = last_known_ts_.load(std::memory_order::acquire);
   info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_timestamp;
   return info;
@@ -537,7 +537,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // replica state to ready. When the next txn starts, we are in state ready without
   // actually sending data to replica
   auto lock = std::lock_guard{main_storage->engine_lock_};
-  const auto last_durable_timestamp = main_storage->repl_storage_state_.last_durable_timestamp_.load();
+  const auto last_durable_timestamp =
+      main_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
   spdlog::info("Replica: {} DB: {} Timestamp: {}, Last main durable commit: {}", client_.name_, main_db_name,
                replica_last_commit_ts, last_durable_timestamp);
   last_known_ts_.store(replica_last_commit_ts, std::memory_order_release);
@@ -562,8 +563,8 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const ui
                              utils::UUID main_uuid)
     : storage_{storage},
       stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          main_uuid, storage->uuid(), storage->repl_storage_state_.last_durable_timestamp_.load(),
-          current_wal_seq_num)),
+          main_uuid, storage->uuid(),
+          storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), current_wal_seq_num)),
       main_uuid_(main_uuid) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
