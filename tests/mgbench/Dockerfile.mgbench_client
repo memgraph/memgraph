@@ -40,8 +40,7 @@ RUN source /opt/toolchain-v6/activate && \
     ./init && \
     rm -rf build && mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=release .. && \
-    make -j$(nproc) memgraph__mgbench__client && \
-    make
+    make -j$(nproc) memgraph__mgbench__client
 
 # --- Final image ---
 FROM ubuntu:24.04
@@ -50,6 +49,6 @@ RUN apt-get update && apt-get install -y wget libcurl4 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy mgbench client binary
-COPY --from=mg_bench_full_build_base /memgraph/build/tests/mgbench /bin
+COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /bin
 
 ENTRYPOINT ["/bin/client"]
