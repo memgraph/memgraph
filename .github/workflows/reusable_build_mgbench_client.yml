@@ -26,6 +26,7 @@ on:
 
 jobs:
   mgbench_docker_publish:
+    name: "Build mgbench image"
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64", "Linux"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64", "Linux"]') }}
     env:
       DOCKER_ORGANIZATION_NAME: memgraph

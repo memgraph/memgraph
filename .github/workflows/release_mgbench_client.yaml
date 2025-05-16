@@ -1,4 +1,7 @@
-name: "Mgbench Bolt Client Publish Docker Image"
+name: "Mgbench Bolt Client Build and Publish Docker Image"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 on:
   workflow_dispatch:
@@ -18,6 +21,7 @@ on:
 jobs:
   build_images:
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd, arm]
         image_type: [client, full]
