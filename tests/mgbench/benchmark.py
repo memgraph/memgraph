@@ -204,6 +204,12 @@ def parse_args():
         help="Vendor specific arguments that can be applied to each vendor, format: [key=value, key=value ...]",
     )
 
+    benchmark_parser.add_argument(
+        "--databases",
+        default="memgraph",
+        help="Comma-separated list of databases",
+    )
+
     subparsers = parser.add_subparsers(help="Subparsers", dest="run_option")
 
     parser_vendor_native = subparsers.add_parser(
@@ -950,6 +956,7 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
+        databases=args.databases,
         client_bolt_address=args.client_bolt_address,
         external_vendor=args.run_option == "external-vendor",
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else helpers.get_binary_path("memgraph"),
