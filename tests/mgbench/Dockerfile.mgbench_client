@@ -16,7 +16,8 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 # Install build dependencies using Memgraph scripts
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
+RUN cd /memgraph && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
       ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
     else \
       ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \

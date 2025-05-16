@@ -22,7 +22,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # Set up build dependencies and environment via provided scripts
 # Uses TARGETARCH to choose appropriate scripts
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
+RUN cd /memgraph && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
       ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
     else \
       ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
