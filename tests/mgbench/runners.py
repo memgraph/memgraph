@@ -1233,10 +1233,6 @@ class FalkorDBDocker(BaseRunner):
     def clean_db(self):
         self.remove_container(self._container_name)
 
-    def fetch_client(self) -> BaseClient:
-        # FalkorDB supports only the Python client
-        return PythonClient(self.benchmark_context, self._falkordb_port)
-
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]
         self._run_command(command)
