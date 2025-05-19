@@ -17,6 +17,7 @@
 #include <nlohmann/json_fwd.hpp>
 #include <utility>
 #include <variant>
+#include "auth/profiles/user_profiles.hpp"
 #include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
@@ -455,6 +456,8 @@ class Role {
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
   std::optional<UserImpersonation> user_impersonation_;
+  // TODO...
+  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
 };
 
@@ -495,15 +498,21 @@ class User final {
   /// @throw AuthException if unable to set the password.
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
-
   void UpdateHash(HashedPassword hashed_password);
 
-  void SetRole(const Role &role);
-
-  void ClearRole();
+  const std::string &username() const;
 
   Permissions GetPermissions() const;
+  const Permissions &permissions() const;
+  Permissions &permissions();
 
+  const Role *role() const;
+  void SetRole(const Role &role);
+  void ClearRole();
+
+  const utils::UUID &uuid() const { return uuid_; }
+
+  // Fine grained access control
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
@@ -514,13 +523,8 @@ class User final {
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
 #endif
-  const std::string &username() const;
 
-  const Permissions &permissions() const;
-  Permissions &permissions();
-
-  const Role *role() const;
-
+  // Multi-tenant access
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
@@ -538,6 +542,7 @@ class User final {
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
+// Impersonate user
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user) const {
     if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
@@ -570,7 +575,17 @@ class User final {
   const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
-  const utils::UUID &uuid() const { return uuid_; }
+// User profiles
+#ifdef MG_ENTERPRISE
+  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
+  std::optional<UserProfiles::Profile> profile() { return profile_; }
+  std::optional<UserProfiles::Profile> GetProfile() const {
+    // TODO Combine with role_
+    return profile_;
+  }
+  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
+  void ClearProfile() { profile_ = std::nullopt; }
+#endif
 
   nlohmann::json Serialize() const;
 
@@ -583,13 +598,14 @@ class User final {
   std::string username_;
   std::optional<HashedPassword> password_hash_;
   Permissions permissions_;
+  std::optional<Role> role_;
+  utils::UUID uuid_{};  // To uniquely identify a user
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases database_access_{};
   std::optional<UserImpersonation> user_impersonation_{};
+  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
-  std::optional<Role> role_;
-  utils::UUID uuid_{};  // To uniquely identify a user
 };
 
 bool operator==(const User &first, const User &second);

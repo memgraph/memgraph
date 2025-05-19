@@ -6085,6 +6085,97 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                        RWType::R, current_db.db_acc_->get()->name()};
 }
 
+PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                      Interpreter *interpreter) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "user-profiles"));
+  }
+
+  auto *query = utils::Downcast<UserProfileQuery>(parsed_query.query);
+  const bool is_replica = interpreter_context->repl_state.ReadLock()->IsReplica();
+
+  Callback callback;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parsed_query.parameters;
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  auto evaluate_literals = [&evaluator](UserProfileQuery::limits_t &limits) {
+    for (auto &[_, limit_value] : limits) {
+      switch (limit_value.type) {
+        case query::UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+          // Nothing to evaluate
+          break;
+        case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+          const auto val = limit_value.mem_limit.expr->Accept(evaluator);
+          if (val.IsInt()) {
+            limit_value.mem_limit.value = val.ValueInt();
+          } else {
+            throw QueryException("Expected integer value for memory limit.");
+          }
+        } break;
+        case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
+          const auto val = limit_value.quantity.expr->Accept(evaluator);
+          if (val.IsInt()) {
+            limit_value.quantity.value = val.ValueInt();
+          } else {
+            throw QueryException("Expected integer value for quantity limit.");
+          }
+        } break;
+      }
+    }
+  };
+
+  switch (query->action_) {
+    case UserProfileQuery::Action::CREATE: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      if (!interpreter->system_transaction_) {
+        throw QueryException("Expected to be in a system transaction");
+      }
+      // Evaluate expressions and update limits with values (has to be done before callback)
+      evaluate_literals(query->limits_);
+      callback.fn = [auth = interpreter_context->auth, profile_name = query->profile_name_,
+                     limits = std::move(query->limits_), system_transaction = &*interpreter->system_transaction_]() {
+        auth->CreateProfile(profile_name, limits, system_transaction);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+    } break;
+    default:
+      // todo
+      return {};
+  }
+
+  return PreparedQuery{
+      std::move(callback.header), std::move(parsed_query.required_privileges),
+      [callback = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        // First run -> execute
+        if (!pull_plan) {
+          pull_plan = std::make_shared<PullPlanVector>(callback());
+        }
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::W,
+      ""  // No target DB possible
+  };
+#else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  (void)interpreter;
+  throw EnterpriseOnlyException();
+#endif
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -6376,9 +6467,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->summary["cost_estimate"] = 0.0;
 
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
-    bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
-                          utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ReplicationQuery>(parsed_query.query);
+    bool system_queries =
+        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
+        utils::Downcast<ReplicationQuery>(parsed_query.query) || utils::Downcast<UserProfileQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
@@ -6615,6 +6706,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
+    } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
+      prepared_query = PrepareUserProfileQuery(std::move(parsed_query), interpreter_context_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
