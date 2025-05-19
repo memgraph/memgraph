@@ -296,28 +296,26 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
 
 void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                                      const Transaction &tx) {
-  {
-    auto const it = indices_by_property_.find(property);
-    if (it == indices_by_property_.end()) {
-      return;
-    }
+  auto const it = indices_by_property_.find(property);
+  if (it == indices_by_property_.end()) {
+    return;
+  }
 
-    auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
-    auto const has_property = [&](auto &&each) {
-      auto &ids = *std::get<NestedPropertiesIds const *>(each.second);
-      return r::find_if(ids, [&](auto &&path) { return path[0] == property; }) != ids.cend();
-    };
-    auto const relevant_index = [&](auto &&each) { return has_label(each) && has_property(each); };
+  auto const has_label = [&](auto &&each) { return r::find(vertex->labels, each.first) != vertex->labels.cend(); };
+  auto const has_property = [&](auto &&each) {
+    auto &ids = *std::get<NestedPropertiesIds const *>(each.second);
+    return r::find_if(ids, [&](auto &&path) { return path[0] == property; }) != ids.cend();
+  };
+  auto const relevant_index = [&](auto &&each) { return has_label(each) && has_property(each); };
 
-    for (auto &lookup : it->second | rv::filter(relevant_index)) {
-      auto &[property_ids, index] = lookup.second;
+  for (auto &lookup : it->second | rv::filter(relevant_index)) {
+    auto &[property_ids, index] = lookup.second;
 
-      auto values = index->permutations_helper.Extract(vertex->properties);
-      if (r::any_of(values, [](auto &&value) { return !value.IsNull(); })) {
-        auto acc = index->skiplist.access();
-        TraceIndexEntry(values);
-        acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
-      }
+    auto values = index->permutations_helper.Extract(vertex->properties);
+    if (r::any_of(values, [](auto &&value) { return !value.IsNull(); })) {
+      auto acc = index->skiplist.access();
+      TraceIndexEntry(values);
+      acc.insert({index->permutations_helper.ApplyPermutation(std::move(values)), vertex, tx.start_timestamp});
     }
   }
 }
