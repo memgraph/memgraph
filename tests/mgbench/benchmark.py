@@ -675,7 +675,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
         log.info("Using workload information for importing dataset and creating indices")
         log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-        imported = workload.custom_import()
+        imported = workload.custom_import(client)
         if not imported:
             client.execute(file_path=workload.get_index(), num_workers=1)
             log.info("Finished setting up indexes.")

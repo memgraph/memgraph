@@ -58,9 +58,10 @@ class LDBC_BI(Workload):
         "sf10": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/parameters-2022-10-01.zip",
     }
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         importer = ImporterLDBCBI(
             benchmark_context=self.benchmark_context,
+            client=client,
             dataset_name=self.NAME,
             variant=self._variant,
             index_file=self._file_index,

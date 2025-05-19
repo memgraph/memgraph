@@ -1107,7 +1107,9 @@ class Neo4jDocker(BaseRunner):
                 self._bolt_port + ":" + self._bolt_port,
                 "--env",
                 "NEO4J_AUTH=none",
-                "neo4j:5.6.0",
+                "--env",
+                "NEO4J_ACCEPT_LICENSE_AGREEMENT=yes",
+                "neo4j:5.26-enterprise",
             ]
             command.extend(self._get_args(**self._vendor_args))
             ret = self._run_command(command)
