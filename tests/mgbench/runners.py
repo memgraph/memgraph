@@ -1359,6 +1359,9 @@ class FalkorDBDocker(BaseRunner):
     def get_database_port(self):
         return self._falkordb_port
 
+    def get_database_port(self):
+        return self._falkordb_port
+
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
 
