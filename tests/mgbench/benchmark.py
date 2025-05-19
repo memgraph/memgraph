@@ -700,6 +700,7 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     rss_db = workload.NAME + workload.get_variant() + "_" + EMPTY_DB
     vendor_runner.start_db_init(rss_db)
     usage = vendor_runner.stop_db(rss_db)
+    vendor_runner.clean_db()
     if usage is None:
         usage = {"memory": 0, "cpu": 0}
     key = [workload.NAME, workload.get_variant(), EMPTY_DB]
