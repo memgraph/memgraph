@@ -519,6 +519,9 @@ class BaseRunner(ABC):
     def clean_db(self):
         pass
 
+    def get_database_port(self):
+        return self._bolt_port
+
 
 class ExternalVendor(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -1237,6 +1240,9 @@ class FalkorDBDocker(BaseRunner):
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]
         self._run_command(command)
+
+    def get_database_port(self):
+        return self._falkordb_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)

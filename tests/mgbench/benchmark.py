@@ -790,14 +790,24 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
                 )
 
 
+def get_runner_client(runner, benchmark_context):
+    if benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+        if (
+            benchmark_context.vendor_name is None
+            or benchmark_context.installation_type != BenchmarkInstallationType.DOCKER
+        ):
+            return runners.BoltClient(benchmark_context=benchmark_context)
+        return runners.BoltClientDocker(benchmark_context=benchmark_context)
+    elif benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+        return runners.PythonClient(benchmark_context=benchmark_context, database_port=runner.get_database_port())
+    else:
+        raise Exception("Unknown runner client type!")
+
+
 def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
     log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
     disk_vendor_runner = client_runner_factory(benchmark_context)
-    disk_client = (
-        runners.BoltClient(benchmark_context=benchmark_context)
-        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
-        else runners.BoltClientDocker(benchmark_context=benchmark_context)
-    )
+    disk_client = get_runner_client(disk_vendor_runner, benchmark_context)
 
     disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
     disk_client.execute(queries=SETUP_DISK_STORAGE)
@@ -811,11 +821,7 @@ def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queri
 def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_queries, in_memory_analytical_results):
     log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
     in_memory_analytical_vendor_runner = client_runner_factory(benchmark_context)
-    in_memory_analytical_client = (
-        runners.BoltClient(benchmark_context=benchmark_context)
-        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
-        else runners.BoltClientDocker(benchmark_context=benchmark_context)
-    )
+    in_memory_analytical_client = get_runner_client(in_memory_analytical_vendor_runner, benchmark_context)
 
     in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
     in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
@@ -835,11 +841,7 @@ def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_querie
 def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, in_memory_txn_results):
     log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
     in_memory_txn_vendor_runner = client_runner_factory(benchmark_context)
-    in_memory_txn_client = (
-        runners.BoltClient(benchmark_context=benchmark_context)
-        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
-        else runners.BoltClientDocker(benchmark_context=benchmark_context)
-    )
+    in_memory_txn_client = get_runner_client(in_memory_txn_vendor_runner, benchmark_context)
 
     run_target_workload(
         benchmark_context,
