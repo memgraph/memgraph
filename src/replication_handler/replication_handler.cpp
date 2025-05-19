@@ -118,7 +118,6 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     switch (instance_client.GetError()) {
       case RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
-        return {};
       case RegisterReplicaStatus::NAME_EXISTS:
         return query::RegisterReplicaError::NAME_EXISTS;
       case RegisterReplicaStatus::ENDPOINT_EXISTS:
@@ -289,15 +288,19 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
       auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = epoch;
 
+      // Modifying storage->timestamp_ needs to be done under the lock
+      auto lock = std::lock_guard{storage->engine_lock_};
+
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
-      storage->timestamp_ =
-          std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
-      spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());
-
-      // Mark all up to timestamp + timestamp
-      static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedUpToId(storage->timestamp_);
-      spdlog::trace("Commit log marked finished up to id: {}", storage->timestamp_);
+      if (auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+          ldt >= storage->timestamp_) {
+        // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
+        static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
+        spdlog::trace("Txn IDs in ranges [{},{}] marked as finished", storage->timestamp_, ldt);
+        storage->timestamp_ = ldt + 1;
+      }
+      spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
     // STEP 4) Resume TTL

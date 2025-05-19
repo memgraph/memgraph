@@ -57,45 +57,98 @@ void CommitLog::MarkFinished(uint64_t const id) {
   }
 }
 
-void CommitLog::MarkFinishedUpToId(uint64_t const id) {
+void CommitLog::MarkFinishedInRange(uint64_t const start_id, uint64_t const end_id) {
   auto guard = std::lock_guard{lock_};
 
-  // Just starting, nothing to mark
-  if (head_ == nullptr) {
+  if (end_id < start_id) {
     return;
   }
 
-  // 1. Mark finished all blocks with smaller IDs than the id
-  Block *current = head_;
-  uint64_t current_start = head_start_;
+  // Start info
+  auto const start_field_idx = (start_id % kIdsInBlock) / kIdsInField;
+  auto const start_idx_in_field = start_id % kIdsInField;
 
-  while (id >= current_start + kIdsInBlock) {
-    for (auto &field_idx : current->field) {
-      field_idx = std::numeric_limits<uint64_t>::max();
+  // End info
+  auto const end_field_idx = (end_id % kIdsInBlock) / kIdsInField;
+  auto const end_idx_in_field = end_id % kIdsInField;
+
+  // This will also create all intermediate blocks if one of them doesn't exist
+  Block *end_block = FindOrCreateBlock(end_id);
+  Block *start_block = FindOrCreateBlock(start_id);
+
+  if (start_block == end_block && start_field_idx == end_field_idx) {
+    uint64_t const combined_mask = ((1ULL << (end_idx_in_field - start_idx_in_field + 1)) - 1) << start_idx_in_field;
+    start_block->field[start_field_idx] |= combined_mask;
+    return;
+  }
+
+  // Apply start mask on start_field_idx
+  uint64_t const start_mask = std::numeric_limits<uint64_t>::max() << start_idx_in_field;
+  uint64_t const end_mask = (1ULL << (end_idx_in_field + 1)) - 1;
+  start_block->field[start_field_idx] |= start_mask;
+
+  if (start_block == end_block) {
+    // Mark all intermediate fields as finished
+    for (auto i = start_field_idx + 1; i < end_field_idx; ++i) {
+      start_block->field[i] = std::numeric_limits<uint64_t>::max();
     }
-    current = current->next;
-    current_start += kIdsInBlock;
+  } else {
+    // Mark all fields > start_field_idx as finished
+    for (size_t i = start_field_idx + 1; i < kBlockSize; ++i) {
+      start_block->field[i] = std::numeric_limits<uint64_t>::max();
+    }
+
+    // find block after start
+    uint64_t current_start = ((start_id / kIdsInBlock) + 1) * kIdsInBlock;
+    Block *current = start_block->next;
+
+    // mark intermediate blocks as finished
+    while (current_start + kIdsInBlock < end_id) {
+      // Mark whole block as finished
+      for (auto i = 0; i < kBlockSize; ++i) {
+        current->field[i] = std::numeric_limits<uint64_t>::max();
+      }
+      current = current->next;
+      current_start += kIdsInBlock;
+    }
+
+    MG_ASSERT(current == end_block, "Same path leads to two different end blocks in commit log");
+
+    // Mark all fields < end_field_idx as finished
+    for (size_t i = 0; i < end_field_idx; ++i) {
+      end_block->field[i] = std::numeric_limits<uint64_t>::max();
+    }
   }
 
-  // 2. Mark all fields of the block as finished
-  const auto field_idx = (id % kIdsInBlock) / kIdsInField;
-  for (size_t i = 0; i < field_idx; ++i) {
-    current->field[i] = std::numeric_limits<uint64_t>::max();
-  }
-
-  // 3. Mark bits up to and including the bit for `id`
-  const auto idx_in_field = id % kIdsInField;
-  current->field[field_idx] = std::numeric_limits<uint64_t>::max();
-  current->field[field_idx] >>= kIdsInField - (idx_in_field + 1);
-
-  if (id >= oldest_active_) {
-    UpdateOldestActive();
-  }
+  // Apply the mask on the end field idx
+  end_block->field[end_field_idx] |= end_mask;
 }
 
 uint64_t CommitLog::OldestActive() {
   auto guard = std::lock_guard{lock_};
   return oldest_active_;
+}
+
+bool CommitLog::IsFinished(uint64_t const id) const {
+  if (!head_) {
+    return false;
+  }
+
+  Block *current = head_;
+  auto current_start = head_start_;
+
+  while (current_start + kIdsInBlock <= id) {
+    current = current->next;
+    if (current == nullptr) {
+      return false;
+    }
+    current_start += kIdsInBlock;
+  }
+
+  auto const field_idx = (id % kIdsInBlock) / kIdsInField;
+  auto const bit_idx = id % kIdsInField;
+
+  return current->field[field_idx] & (1ULL << bit_idx);
 }
 
 void CommitLog::UpdateOldestActive() {

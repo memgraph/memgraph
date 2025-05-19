@@ -17,6 +17,8 @@ namespace {
 inline constexpr size_t ids_per_block = 8192 * 64;
 }  // namespace
 
+using memgraph::storage::CommitLog;
+
 TEST(CommitLog, Simple) {
   memgraph::storage::CommitLog log;
   EXPECT_EQ(log.OldestActive(), 0);
@@ -75,9 +77,75 @@ TEST(CommitLog, TrackAfterInitialId) {
   }
 }
 
-TEST(CommitLog, MarkUpToId) {
-  memgraph::storage::CommitLog commit_log{25};
-  ASSERT_EQ(commit_log.OldestActive(), 25);
-  commit_log.MarkFinishedUpToId(28);
-  ASSERT_EQ(commit_log.OldestActive(), 29);
+TEST(CommitLog, MarkAsFinishedTxn) {
+  CommitLog log;
+  log.MarkFinished(1);
+  EXPECT_FALSE(log.IsFinished(0));
+  EXPECT_TRUE(log.IsFinished(1));
+  EXPECT_FALSE(log.IsFinished(2));
+}
+
+TEST(CommitLog, MarkSingleTransaction) {
+  CommitLog log;
+  log.MarkFinishedInRange(100, 100);
+  EXPECT_TRUE(log.IsFinished(100));
+  EXPECT_FALSE(log.IsFinished(99));
+  EXPECT_FALSE(log.IsFinished(101));
+}
+
+TEST(CommitLog, MarkRangeWithinSameField) {
+  CommitLog log;
+  log.MarkFinishedInRange(200, 203);
+  for (uint64_t id = 200; id <= 203; ++id) {
+    EXPECT_TRUE(log.IsFinished(id));
+  }
+  EXPECT_FALSE(log.IsFinished(199));
+  EXPECT_FALSE(log.IsFinished(204));
+}
+
+TEST(CommitLog, MarkRangeAcrossFieldsInSameBlock) {
+  constexpr uint64_t start = 60;  // Field 0
+  constexpr uint64_t end = 70;    // Field 1
+  CommitLog log;
+  log.MarkFinishedInRange(start, end);
+  for (uint64_t id = start; id <= end; ++id) {
+    EXPECT_TRUE(log.IsFinished(id));
+  }
+  EXPECT_FALSE(log.IsFinished(59));
+  EXPECT_FALSE(log.IsFinished(71));
+}
+
+TEST(CommitLog, MarkRangeAcrossBlocks) {
+  // Assuming block size = 8192 * 64 = 524288 IDs per block
+  constexpr uint64_t block_size = 8192 * 64;
+  constexpr uint64_t start = block_size - 2;
+  constexpr uint64_t end = block_size + 2;
+
+  CommitLog log;
+
+  log.MarkFinishedInRange(start, end);
+  for (uint64_t id = start; id <= end; ++id) {
+    EXPECT_TRUE(log.IsFinished(id));
+  }
+  EXPECT_FALSE(log.IsFinished(start - 1));
+  EXPECT_FALSE(log.IsFinished(end + 1));
+}
+
+TEST(CommitLog, MarkRangeWithEndBeforeStartIsNoOp) {
+  CommitLog log;
+  log.MarkFinishedInRange(1000, 999);  // Invalid range
+  EXPECT_FALSE(log.IsFinished(999));
+  EXPECT_FALSE(log.IsFinished(1000));
+}
+
+TEST(CommitLog, MarkZeroToMaxIntRangeIsSafe) {
+  constexpr uint64_t start = 0;
+  constexpr uint64_t end = start + 10000;
+  CommitLog log;
+  log.MarkFinishedInRange(start, end);
+
+  for (uint64_t id = start; id <= end; ++id) {
+    EXPECT_TRUE(log.IsFinished(id));
+  }
+  EXPECT_FALSE(log.IsFinished(end + 1));
 }
