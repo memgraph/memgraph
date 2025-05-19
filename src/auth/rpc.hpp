@@ -15,6 +15,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "rpc/messages.hpp"
 #include "slk/streams.hpp"
 
@@ -37,12 +38,20 @@ struct UpdateAuthDataReq {
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         role{std::move(role)} {}
+  UpdateAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
+                    auth::UserProfiles::Profile profile)
+      : main_uuid(main_uuid),
+        epoch_id{std::move(epoch_id)},
+        expected_group_timestamp{expected_ts},
+        new_group_timestamp{new_ts},
+        profile{std::move(profile)} {}
 
   utils::UUID main_uuid;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   std::optional<auth::User> user;
   std::optional<auth::Role> role;
+  std::optional<auth::UserProfiles::Profile> profile{};
 };
 
 struct UpdateAuthDataRes {
@@ -67,7 +76,7 @@ struct DropAuthDataReq {
   static void Save(const DropAuthDataReq &self, memgraph::slk::Builder *builder);
   DropAuthDataReq() = default;
 
-  enum class DataType { USER, ROLE };
+  enum class DataType { USER, ROLE, PROFILE };
 
   DropAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, DataType const type,
                   std::string_view const name)

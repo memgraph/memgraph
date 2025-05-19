@@ -52,6 +52,7 @@ constexpr auto kUserImpGranted = "user_imp_granted";
 constexpr auto kUserImpDenied = "user_imp_denied";
 constexpr auto kUserImpId = "user_imp_id";
 constexpr auto kUserImpName = "user_imp_name";
+constexpr auto kUserProfile = "user_profile";
 #endif
 
 // Constant list of all available permissions.
@@ -708,10 +709,10 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
       permissions_(permissions),
+      uuid_(uuid),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
       database_access_(std::move(db_access)),
-      user_impersonation_{std::move(usr_imp)},
-      uuid_(uuid) {}
+      user_impersonation_{std::move(usr_imp)} {}
 #endif
 
 bool User::CheckPassword(const std::string &password) {
@@ -904,6 +905,7 @@ FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grai
 #endif
 
 nlohmann::json User::Serialize() const {
+  // NOTE: Role and Profile are stored as links to the role and profile lists.
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
   data[kUUID] = uuid_;
