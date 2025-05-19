@@ -205,8 +205,8 @@ class Workload(ABC):
                 if vendor in self._vendor:
                     self._url_index = url
                     return
-        else:
-            self._url_index = None
+
+        self._url_index = None
 
     def prepare(self, directory):
         if self.disk_workload and self._vendor != GraphVendors.NEO4J:

@@ -181,7 +181,7 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
-        if self._vendor == "memgraph":
+        if self._vendor == GraphVendors.MEMGRAPH:
             return memgraph
         elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
@@ -203,7 +203,7 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
-        if self._vendor == "memgraph":
+        if self._vendor == GraphVendors.MEMGRAPH:
             return memgraph
         elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
@@ -223,7 +223,7 @@ class Pokec(Workload):
             "RETURN [node in nodes(p) | node.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
-        if self._vendor == "memgraph":
+        if self._vendor == GraphVendors.MEMGRAPH:
             return memgraph
         elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j
@@ -436,7 +436,7 @@ class Pokec(Workload):
             "RETURN [n in nodes(p) | n.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
-        if self._vendor == "memgraph":
+        if self._vendor == GraphVendors.MEMGRAPH:
             return memgraph
         elif self._vendor in [GraphVendors.NEO4J, GraphVendors.FALKORDB]:
             return neo4j

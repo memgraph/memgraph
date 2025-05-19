@@ -29,6 +29,7 @@ class PythonClient(ABC):
 
 class FalkorDBClient(PythonClient):
     GRAPH_NAME = "benchmark_graph"
+    MILLISECOND_MULTIPLIER = 1000
 
     def __init__(self, host, port):
         super().__init__()
@@ -40,7 +41,7 @@ class FalkorDBClient(PythonClient):
         result = self._graph.query(query, params)
         end = time.time()
         _ = list(result.result_set)  # Force client to pull results
-        return (end - start) * 1000
+        return (end - start) * self.MILLISECOND_MULTIPLIER
 
 
 class Neo4jClient(PythonClient):
@@ -155,8 +156,7 @@ def execute_time_dependent_task(
             pos = position.value
             if pos >= size:
                 pos = 0
-                position.value = 0
-                position.value += 1
+                position.value = 1
 
         query, params = queries[pos]
         query_start_time = time.time()

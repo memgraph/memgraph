@@ -1280,6 +1280,7 @@ class FalkorDBDocker(BaseRunner):
             raise Exception(f"Unrecognized memory usage: {memory_usage}")
 
     def _get_cpu_usage(self):
+        # Get the contents of /proc/1/stat from inside the container.
         command = [
             "docker",
             "exec",
@@ -1291,6 +1292,7 @@ class FalkorDBDocker(BaseRunner):
         ]
         stat = self._run_command(command).stdout.strip("\n")
 
+        # Get the number of clock ticks per second (used to convert CPU time units to seconds).
         command = [
             "docker",
             "exec",
@@ -1302,6 +1304,15 @@ class FalkorDBDocker(BaseRunner):
         ]
         CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
 
+        # /proc/[pid]/stat contains a lot of fields; after the process name (inside parentheses),
+        # the following fields are of interest for CPU time:
+        # - field 14 (index 11): utime  = time in user mode
+        # - field 15 (index 12): stime  = time in kernel mode
+        # - field 16 (index 13): cutime = user mode time of children
+        # - field 17 (index 14): cstime = kernel mode time of children
+        #
+        # These are all expressed in clock ticks. To convert to seconds,
+        # we sum them up and divide by CLK_TCK.
         cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         return cpu_time
 
