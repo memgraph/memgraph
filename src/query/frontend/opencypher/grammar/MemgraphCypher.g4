@@ -243,6 +243,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | userProfileQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -738,3 +739,14 @@ typeConstraintType : BOOLEAN
              | ENUM
              | POINT
              ;
+
+
+memoryLimitValue : literal ( MB | KB ) ;
+
+limitValue : UNLIMITED | mem_limit=memoryLimitValue | quantity=literal ;
+
+limitKV : key=symbolicName val=limitValue ;
+
+listOfLimits : limitKV (',' limitKV )* ;
+
+userProfileQuery : ( CREATE | UPDATE | DROP ) PROFILE profile=symbolicName LIMIT list=listOfLimits ;
