@@ -80,8 +80,8 @@ class PropertyStore {
 
   /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
   /// represented by Null. The time complexity of this function is O(n).
-  /// @param ordered_properties: a pre-sorted collection of `PropertyId`
-  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyId const> ordered_properties) const;
+  /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
+  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
