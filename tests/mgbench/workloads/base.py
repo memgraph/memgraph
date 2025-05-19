@@ -212,8 +212,8 @@ class Workload(ABC):
                 if vendor in self._vendor:
                     self._url_index = url
                     return
-        else:
-            self._url_index = None
+
+        self._url_index = None
 
     def _get_dataset_file_extension(self) -> str:
         if self.benchmark_context.vendor_name == GraphVendors.POSTGRESQL:
