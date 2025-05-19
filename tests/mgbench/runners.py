@@ -567,6 +567,37 @@ class Memgraph(BaseRunner):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
+    def _set_args(self, **kwargs):
+        data_directory = os.path.join(self._directory.name, "memgraph")
+        kwargs["bolt_port"] = self._bolt_port
+        kwargs["data_directory"] = data_directory
+        kwargs["storage_properties_on_edges"] = True
+        kwargs["bolt_num_workers"] = self._bolt_num_workers
+        for key, value in self._vendor_args.items():
+            kwargs[key] = value
+        return _convert_args_to_flags(self._memgraph_binary, **kwargs)
+
+    def _start(self, **kwargs):
+        if self._proc_mg is not None:
+            raise Exception("The database process is already running!")
+        args = self._set_args(**kwargs)
+        self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
+        time.sleep(0.2)
+        if self._proc_mg.poll() is not None:
+            self._proc_mg = None
+            raise Exception("The database process died prematurely!")
+        _wait_for_server_socket(self._bolt_port)
+        ret = self._proc_mg.poll()
+
+    def _cleanup(self):
+        if self._proc_mg is None:
+            return 0
+        usage = _get_usage(self._proc_mg.pid)
+        self._proc_mg.terminate()
+        ret = self._proc_mg.wait()
+        self._proc_mg = None
+        return ret, usage
+
     def start_db_init(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
@@ -575,6 +606,13 @@ class Memgraph(BaseRunner):
             p.start()
         self._start(storage_snapshot_on_exit=True, **self._vendor_args)
 
+    def stop_db_init(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        return usage
+
     def start_db(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
@@ -582,13 +620,6 @@ class Memgraph(BaseRunner):
             self._rss.clear()
             p.start()
         self._start(data_recovery_on_startup=True, **self._vendor_args)
-
-    def stop_db_init(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        return usage
 
     def stop_db(self, workload):
         if self._performance_tracking:
@@ -709,6 +740,30 @@ class Neo4j(BaseRunner):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
+    def _start(self, **kwargs):
+        if self._neo4j_pid.exists():
+            raise Exception("The database process is already running!")
+        args = _convert_args_to_flags(self._neo4j_binary, "start", **kwargs)
+        start_proc = subprocess.run(args, check=True)
+        time.sleep(0.5)
+        if self._neo4j_pid.exists():
+            print("Neo4j started!")
+        else:
+            raise Exception("The database process died prematurely!")
+        print("Run server check:")
+        _wait_for_server_socket(self._bolt_port)
+
+    def _cleanup(self):
+        if self._neo4j_pid.exists():
+            pid = self._neo4j_pid.read_text()
+            print("Clean up: " + pid)
+            usage = _get_usage(pid)
+
+            exit_proc = subprocess.run(args=[self._neo4j_binary, "stop"], capture_output=True, check=True)
+            return exit_proc.returncode, usage
+        else:
+            return 0, 0
+
     def start_db_init(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
@@ -720,6 +775,15 @@ class Neo4j(BaseRunner):
 
         if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
+
+    def stop_db_init(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.get_memory_usage("stop_" + workload)
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        self.dump_db(path=self._neo4j_dump.parent)
+        return usage
 
     def start_db(self, workload):
         if self._performance_tracking:
@@ -743,15 +807,6 @@ class Neo4j(BaseRunner):
 
         if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
-
-    def stop_db_init(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.get_memory_usage("stop_" + workload)
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        self.dump_db(path=self._neo4j_dump.parent)
-        return usage
 
     def stop_db(self, workload):
         if self._performance_tracking:
@@ -868,6 +923,9 @@ class MemgraphDocker(BaseRunner):
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
 
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
     def start_db_init(self, message):
         log.init("Starting database for import...")
         try:
@@ -907,14 +965,6 @@ class MemgraphDocker(BaseRunner):
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
 
-    def start_db(self, message):
-        log.init("Starting database for benchmark...")
-        command = ["docker", "start", self._container_name]
-        self._run_command(command)
-        ip_address = _get_docker_container_ip(self._container_name)
-        _wait_for_server_socket(self._bolt_port, delay=0.5)
-        log.log("Database started.")
-
     def stop_db_init(self, message):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
@@ -936,6 +986,14 @@ class MemgraphDocker(BaseRunner):
         log.log("Database stopped.")
         return usage
 
+    def start_db(self, message):
+        log.init("Starting database for benchmark...")
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
+        ip_address = _get_docker_container_ip(self._container_name)
+        _wait_for_server_socket(self._bolt_port, delay=0.5)
+        log.log("Database started.")
+
     def stop_db(self, message):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
@@ -950,9 +1008,6 @@ class MemgraphDocker(BaseRunner):
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
         self._run_command(command)
-
-    def _get_args(self, **kwargs):
-        return _convert_args_to_flags(**kwargs)
 
     def _replace_config_args(self, argument):
         config_lines = []
@@ -1033,6 +1088,9 @@ class Neo4jDocker(BaseRunner):
         self._config_file = None
         _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
 
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
     def start_db_init(self, message):
         log.init("Starting database for initialization...")
         try:
@@ -1062,13 +1120,6 @@ class Neo4jDocker(BaseRunner):
         _wait_for_server_socket(self._bolt_port, delay=5)
         log.log("Database started.")
 
-    def start_db(self, message):
-        log.init("Starting database...")
-        command = ["docker", "start", self._container_name]
-        self._run_command(command)
-        _wait_for_server_socket(self._bolt_port, delay=5)
-        log.log("Database started.")
-
     def stop_db_init(self, message):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
@@ -1078,6 +1129,13 @@ class Neo4jDocker(BaseRunner):
         log.log("Database stopped.")
 
         return usage
+
+    def start_db(self, message):
+        log.init("Starting database...")
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
+        _wait_for_server_socket(self._bolt_port, delay=5)
+        log.log("Database started.")
 
     def stop_db(self, message):
         log.init("Stopping database...")
@@ -1094,9 +1152,6 @@ class Neo4jDocker(BaseRunner):
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
         self._run_command(command)
-
-    def _get_args(self, **kwargs):
-        return _convert_args_to_flags(**kwargs)
 
     def _get_cpu_memory_usage(self):
         command = [
