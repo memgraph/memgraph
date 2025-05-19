@@ -54,6 +54,9 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   if (this == &other) {
     return *this;
   }
+
+  auto lock = std::lock_guard{app_lock_};
+
   data_instances_ = std::move(other.data_instances_);
   coordinator_instances_ = std::move(other.coordinator_instances_);
   current_main_uuid_ = other.current_main_uuid_;
