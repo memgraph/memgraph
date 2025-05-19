@@ -56,6 +56,12 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // Update
     if (req.user) auth->SaveUser(*req.user);
     if (req.role) auth->SaveRole(*req.role);
+    if (req.profile) {
+      if (!auth->CreateProfile(req.profile->name, req.profile->limits)) {
+        // Profile already exists, update it
+        auth->UpdateProfile(req.profile->name, req.profile->limits);
+      }
+    }
     // Success
     system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = UpdateAuthDataRes(true);
@@ -102,6 +108,9 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
         break;
       case replication::DropAuthDataReq::DataType::ROLE:
         auth->RemoveRole(req.name);
+        break;
+      case replication::DropAuthDataReq::DataType::PROFILE:
+        auth->DropProfile(req.name);
         break;
     }
     // Success

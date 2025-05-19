@@ -16,6 +16,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
@@ -401,6 +402,26 @@ class Auth final {
     return res;
   }
 
+// user profiles
+#ifdef MG_ENTERPRISE
+  bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                     system::Transaction *system_tx = nullptr);
+  bool UpdateProfile(const std::string &profile_name, const UserProfiles::limits_t &updated_limits,
+                     system::Transaction *system_tx = nullptr);
+  bool DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
+
+  std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
+  std::vector<UserProfiles::Profile> AllProfiles() const;
+
+  bool SetProfile(const std::string &profile_name, const std::string &name, system::Transaction *system_tx = nullptr);
+  void SetProfile(const UserProfiles::Profile &profile, User &user, system::Transaction *system_tx = nullptr);
+  void SetProfile(const UserProfiles::Profile &profile, Role &role, system::Transaction *system_tx = nullptr);
+
+  bool RevokeProfile(const std::string &name, system::Transaction *system_tx = nullptr);
+  void RevokeProfile(User &user, system::Transaction *system_tx = nullptr);
+  void RevokeProfile(Role &role, system::Transaction *system_tx = nullptr);
+#endif
+
  private:
   /**
    * @brief
@@ -446,6 +467,7 @@ class Auth final {
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
+  UserProfiles user_profiles_{storage_};
   std::unordered_map<std::string, auth::Module> modules_;
   Config config_;
   Epoch epoch_{kStartEpoch};
