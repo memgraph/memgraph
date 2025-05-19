@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -202,19 +203,22 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   // Recover label+property indices.
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   {
-    // @TODO put recovery back for nested indices
-    // spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
-    // for (auto const &[label, properties] : indices_metadata.label_properties) {
-    //   if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
-    //                                              snapshot_info))
-    //     throw RecoveryFailure("The label+property index must be created here!");
+    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
+    for (auto const &[label, properties] : indices_metadata.label_properties) {
+      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
+                                                 snapshot_info))
+        throw RecoveryFailure("The label+property index must be created here!");
 
-    //   auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
-    //   auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
-
-    //   spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-    //                properties_string);
-    // }
+      auto path_to_name = [&](const PropertyPath &path) {
+        return path | ranges::views::transform([&](const auto &property_id) {
+                 return name_id_mapper->IdToName(property_id.AsUint());
+               }) |
+               ranges::views::join(". ") | ranges::_to_::to<std::string>;
+      };
+      auto const properties_str = utils::Join(properties | rv::transform(path_to_name), ", ");
+      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                   properties_str);
+    }
     spdlog::info("Label+property indices are recreated.");
   }
 
@@ -226,10 +230,14 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       const auto label_id = item.first;
       const auto &property_ids = item.second.first;
       const auto &stats = item.second.second;
-      // TODO: put back...
-      // mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
-      auto id_to_name = [&](PropertyId prop) { return name_id_mapper->IdToName(prop.AsUint()); };
-      auto const properties_str = utils::Join(property_ids | rv::transform(id_to_name), ", ");
+      mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
+      auto path_to_name = [&](const PropertyPath &path) {
+        return path | ranges::views::transform([&](const auto &property_id) {
+                 return name_id_mapper->IdToName(property_id.AsUint());
+               }) |
+               ranges::views::join(". ") | ranges::_to_::to<std::string>;
+      };
+      auto const properties_str = utils::Join(property_ids | rv::transform(path_to_name), ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
                    name_id_mapper->IdToName(label_id.AsUint()), properties_str);
     }

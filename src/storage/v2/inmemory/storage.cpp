@@ -3054,9 +3054,8 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-  // TODO: put back...
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
-  //                                     std::vector(properties.begin(), properties.end()), stats);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
+                                      std::vector(properties.begin(), properties.end()), stats);
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {

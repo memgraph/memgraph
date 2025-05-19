@@ -27,8 +27,11 @@
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
+#include <range/v3/algorithm/for_each.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
+#include <string>
+#include <vector>
 
 #include "storage/v2/durability/paths.hpp"
 
@@ -841,6 +844,15 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
     // NOLINTNEXTLINE (google-build-using-namespace)
     auto to_propertyid = [&](std::string_view prop_name) { return storage->NameToProperty(prop_name); };
+    auto to_property_paths = [&](const auto &properties) {
+      std::vector<storage::PropertyPath> property_paths;
+      property_paths.reserve(properties.size());
+      for (const auto &property_path_as_string : properties) {
+        auto property_ids = property_path_as_string | rv::transform(to_propertyid) | r::to_vector;
+        property_paths.emplace_back(std::move(property_ids));
+      }
+      return property_paths;
+    };
     using namespace memgraph::storage::durability;
     auto delta_apply = utils::Overloaded{
         [&](WalVertexCreate const &data) {
@@ -1088,42 +1100,33 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           }
         },
         [&](WalLabelPropertyIndexCreate const &data) {
-          auto properties_stringified = utils::Join(data.properties, ", ");
+          auto paths_as_strings =
+              rv::transform(data.properties,
+                            [](const auto &property_path) { return utils::Join(property_path, "."); }) |
+              r::to_vector;
+          auto properties_stringified = utils::Join(paths_as_strings, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto property_paths = to_property_paths(data.properties);
 
-          auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
-
-          // @TODO for POC, just convert the non-nested properties into nested
-          // by converting each element into a vector.
-          auto non_nested_props = properties |
-                                  r::views::transform([](auto &&composite_index_property) -> storage::PropertyPath {
-                                    return {composite_index_property};
-                                  }) |
-                                  r::to_vector;
-
-          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(non_nested_props)).HasError())
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError())
 
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
                                         properties_stringified);
         },
         [&](WalLabelPropertyIndexDrop const &data) {
-          auto properties_stringified = utils::Join(data.properties, ", ");
+          auto paths_as_strings =
+              rv::transform(data.properties,
+                            [](const auto &property_path) { return utils::Join(property_path, "."); }) |
+              r::to_vector;
+          auto properties_stringified = utils::Join(paths_as_strings, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         properties_stringified);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
+          auto property_paths = to_property_paths(data.properties);
 
-          // @TODO for POC, just convert the non-nested properties into nested
-          // by converting each element into a vector.
-          auto non_nested_props = properties |
-                                  r::views::transform([](auto &&composite_index_property) -> storage::PropertyPath {
-                                    return {composite_index_property};
-                                  }) |
-                                  r::to_vector;
-
-          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(non_nested_props)).HasError()) {
+          if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
                                         properties_stringified);
           }
@@ -1133,13 +1136,12 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp);
           const auto label = storage->NameToLabel(data.label);
-          auto properties = data.properties | rv::transform(to_propertyid) | r::to_vector;
+          auto property_paths = to_property_paths(data.properties);
           LabelPropertyIndexStats stats{};
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
           }
-          // TODO: put back...
-          // transaction->SetIndexStats(label, std::move(properties), stats);
+          transaction->SetIndexStats(label, std::move(property_paths), stats);
         },
         [&](WalLabelPropertyIndexStatsClear const &data) {
           spdlog::trace("   Delta {}. Clear label-property index statistics on :{}", current_delta_idx, data.label);
