@@ -2712,7 +2712,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_ = recovery_info.next_vertex_id;
     edge_id_ = recovery_info.next_edge_id;
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_ = recovered_snapshot.snapshot_info.durable_timestamp;
+    repl_storage_state_.last_durable_timestamp_.store(recovered_snapshot.snapshot_info.durable_timestamp,
+                                                      std::memory_order_release);
+    commit_log_->MarkFinishedInRange(0, recovered_snapshot.snapshot_info.durable_timestamp);
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     storage::durability::RecoverIndicesStatsAndConstraints(
