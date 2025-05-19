@@ -19,6 +19,7 @@
 #include <nlohmann/json_fwd.hpp>
 #include <utility>
 #include <variant>
+#include "auth/profiles/user_profiles.hpp"
 #include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
@@ -482,6 +483,8 @@ class Role {
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
   std::optional<UserImpersonation> user_impersonation_;
+  // TODO...
+  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
 };
 
@@ -667,7 +670,6 @@ class User final {
   /// @throw AuthException if unable to set the password.
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
-
   void UpdateHash(HashedPassword hashed_password);
 
   [[deprecated("Use SetRoles instead")]] void SetRole(const Role &role);
@@ -685,6 +687,7 @@ class User final {
   void ClearMultiTenantRoles(const std::string &db_name);
 #endif
 
+  // Fine grained access control
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
@@ -706,6 +709,7 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
+  // Multi-tenant access
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
@@ -721,6 +725,7 @@ class User final {
   }
 #endif
 
+// Impersonate user
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
@@ -798,6 +803,18 @@ class User final {
 
   const utils::UUID &uuid() const { return uuid_; }
 
+// User profiles
+#ifdef MG_ENTERPRISE
+  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
+  std::optional<UserProfiles::Profile> profile() { return profile_; }
+  std::optional<UserProfiles::Profile> GetProfile() const {
+    // TODO Combine with role_
+    return profile_;
+  }
+  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
+  void ClearProfile() { profile_ = std::nullopt; }
+#endif
+
   // Read-only API that combines rolenames from all roles
   std::vector<std::string> rolenames() const { return roles_.rolenames(); }
 
@@ -818,6 +835,7 @@ class User final {
   std::optional<UserImpersonation> user_impersonation_{};
   std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map_{};  // Map of database name to role name
   std::unordered_map<std::string, std::unordered_set<std::string>> role_db_map_{};  // Map of role name to database name
+  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
   Roles roles_;
   utils::UUID uuid_{};  // To uniquely identify a user

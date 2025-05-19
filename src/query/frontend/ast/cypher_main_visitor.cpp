@@ -32,6 +32,7 @@
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/user_profile.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -68,6 +69,36 @@ std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit
   }
 
   return std::make_pair(memory_limit, memory_scale);
+}
+
+template <typename TVisitor>
+UserProfileQuery::LimitValueResult VisitLimitValue(MemgraphCypher::LimitValueContext *limit_ctx, TVisitor *visitor) {
+  MG_ASSERT(limit_ctx);
+  UserProfileQuery::LimitValueResult result;
+
+  if (limit_ctx->UNLIMITED()) {
+    result.type = UserProfileQuery::LimitValueResult::Type::UNLIMITED;
+  } else if (limit_ctx->mem_limit) {
+    auto *memory_limit_ctx = limit_ctx->mem_limit;
+    auto *memory_limit = std::any_cast<Expression *>(memory_limit_ctx->literal()->accept(visitor));
+    size_t memory_scale = 1024U;
+    if (memory_limit_ctx->MB()) {
+      memory_scale = 1024U * 1024U;
+    } else {
+      MG_ASSERT(memory_limit_ctx->KB());
+      memory_scale = 1024U;
+    }
+    result.mem_limit.type = UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+    result.mem_limit.expr = memory_limit;
+    result.mem_limit.scale = memory_scale;
+  } else if (limit_ctx->quantity) {
+    auto *quantity_limit_ctx = limit_ctx->quantity;
+    auto *quantity = std::any_cast<Expression *>(quantity_limit_ctx->accept(visitor));
+    result.quantity.type = UserProfileQuery::LimitValueResult::Type::QUANTITY;
+    result.quantity.expr = quantity;
+  }
+
+  return result;
 }
 
 std::string JoinTokens(const auto &tokens, const auto &string_projection, const auto &separator) {
@@ -3776,6 +3807,39 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
   query_ = session_trace_query;
 
   return session_trace_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLimitKV(MemgraphCypher::LimitKVContext *ctx) {
+  auto key = std::any_cast<std::string>(ctx->key->accept(this));
+  auto value = VisitLimitValue(ctx->val, this);
+  return std::pair{std::move(key), std::move(value)};
+}
+
+antlrcpp::Any CypherMainVisitor::visitListOfLimits(MemgraphCypher::ListOfLimitsContext *ctx) {
+  UserProfileQuery::limits_t limits;
+  for (auto *limit : ctx->limitKV()) {
+    limits.push_back(std::any_cast<UserProfileQuery::limit_t>(limit->accept(this)));
+  }
+  return limits;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUserProfileQuery(MemgraphCypher::UserProfileQueryContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  if (ctx->CREATE())
+    profile_query->action_ = UserProfileQuery::Action::CREATE;
+  else if (ctx->UPDATE())
+    profile_query->action_ = UserProfileQuery::Action::UPDATE;
+  else if (ctx->DROP())
+    profile_query->action_ = UserProfileQuery::Action::DROP;
+  else
+    throw SemanticException("Unknown user profile action");
+
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  profile_query->limits_ =
+      std::any_cast<std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>>(ctx->list->accept(this));
+
+  query_ = profile_query;
+  return query_;
 }
 
 Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {

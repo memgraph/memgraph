@@ -17,7 +17,9 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "dbms/constants.hpp"
+#include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
@@ -997,5 +999,51 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
   }
 }
 #endif
+
+void AuthQueryHandler::CreateProfile(const std::string &profile_name,
+                                     const query::UserProfileQuery::limits_t &defined_limits,
+                                     system::Transaction *system_tx) {
+  auto name_to_limit = [](const auto &name) {
+    uint8_t enum_i = 0;
+    for (const auto &limit : auth::UserProfiles::kLimits) {
+      if (name == limit) break;
+      ++enum_i;
+    }
+    if (enum_i == auth::UserProfiles::kLimits.size()) {
+      throw memgraph::query::QueryRuntimeException("Unknown limit '{}'.", name);
+    }
+    return auth::UserProfiles::Limits{enum_i};
+  };
+  auth::UserProfiles::limits_t limits;
+  for (const auto &[limit_name, limit_value] : defined_limits) {
+    const auto limit_type = name_to_limit(limit_name);
+    switch (limit_value.type) {
+      case query::UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+        limits.emplace(limit_type, auth::UserProfiles::unlimitted_t{});
+        break;
+      case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+        limits.emplace(limit_type, limit_value.mem_limit.value * limit_value.mem_limit.scale);
+      } break;
+      case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
+        limits.emplace(limit_type, limit_value.quantity.value);
+      } break;
+    }
+  }
+  auto locked_auth = auth_->Lock();
+  if (!locked_auth->CreateProfile(profile_name, std::move(limits), system_tx)) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' already exists.", profile_name);
+  }
+}
+
+void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
+                                     const query::UserProfileQuery::limits_t &updated_limits,
+                                     system::Transaction *system_tx) {}
+void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {}
+std::optional<query::UserProfileQuery::limits_t> AuthQueryHandler::GetProfile(std::string_view name) { return {}; }
+std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles() { return {}; }
+void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                                  system::Transaction *system_tx) {}
+void AuthQueryHandler::RevokeProfile(const std::string &profile_name, const std::string &user_or_role,
+                                     system::Transaction *system_tx) {}
 
 }  // namespace memgraph::glue

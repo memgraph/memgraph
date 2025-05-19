@@ -1237,6 +1237,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) override;
 
+  /**
+   * @return std::pair<std::string, UserProfileQuery::LimitValueResult>
+   */
+  antlrcpp::Any visitLimitKV(MemgraphCypher::LimitKVContext *ctx) override;
+
+  /**
+   * @return std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>
+   */
+  antlrcpp::Any visitListOfLimits(MemgraphCypher::ListOfLimitsContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitUserProfileQuery(MemgraphCypher::UserProfileQueryContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
