@@ -333,6 +333,28 @@ auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *d
 }
 
 template <bool is_read>
+auto Decode(utils::tag_type<std::vector<std::vector<std::string>>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::vector<std::vector<std::string>>, void> {
+  if constexpr (is_read) {
+    const auto count = decoder->ReadUint();
+    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+    std::vector<std::vector<std::string>> strings;
+    strings.reserve(*count);
+    for (uint64_t i = 0; i < *count; ++i) {
+      auto str = Decode<true>(utils::tag_t<std::vector<std::string>>, decoder, 0);
+      strings.emplace_back(std::move(str));
+    }
+    return strings;
+  } else {
+    const auto count = decoder->ReadUint();
+    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+    for (uint64_t i = 0; i < *count; ++i) {
+      Decode<false>(utils::tag_t<std::vector<std::string>>, decoder, 0);
+    }
+  }
+}
+
+template <bool is_read>
 auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
@@ -982,15 +1004,29 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
+        auto names_to_path = [&](std::span<const std::string> names) {
+          PropertyPath property_path;
+          property_path.reserve(names.size());
+          for (const auto &name : names) {
+            property_path.insert(PropertyId::FromUint(name_id_mapper->NameToId(name)));
+          }
+          return property_path;
+        };
+        auto prop_ids = data.properties | rv::transform(names_to_path) | r::to_vector;
         AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
+        auto names_to_path = [&](std::span<const std::string> names) {
+          PropertyPath property_path;
+          property_path.reserve(names.size());
+          for (const auto &name : names) {
+            property_path.insert(PropertyId::FromUint(name_id_mapper->NameToId(name)));
+          }
+          return property_path;
+        };
+        auto prop_ids = data.properties | rv::transform(names_to_path) | r::to_vector;
         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
@@ -1008,15 +1044,21 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto properties = data.properties | rv::transform(name_to_id) | r::to_vector;
-
+        auto names_to_path = [&](std::span<const std::string> names) {
+          PropertyPath property_path;
+          property_path.reserve(names.size());
+          for (const auto &name : names) {
+            property_path.insert(PropertyId::FromUint(name_id_mapper->NameToId(name)));
+          }
+          return property_path;
+        };
+        auto prop_ids = data.properties | rv::transform(names_to_path) | r::to_vector;
         LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
           throw RecoveryFailure("Failed to read statistics!");
         }
         indices_constraints->indices.label_property_stats.emplace_back(label_id,
-                                                                       std::make_pair(std::move(properties), stats));
+                                                                       std::make_pair(std::move(prop_ids), stats));
       },
       [&](WalLabelPropertyIndexStatsClear const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));

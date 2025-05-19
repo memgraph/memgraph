@@ -80,6 +80,7 @@ struct LabelPropKey {
  * not explicit so we can implicitly wrap one or more `PropertyId`s.
  */
 struct PropertyPath {
+  PropertyPath() = default;
   PropertyPath(std::vector<PropertyId> properties) : properties_{std::move(properties)} {}
   PropertyPath(std::initializer_list<PropertyId> properties) : properties_{properties} {}
   PropertyPath(PropertyId property) : properties_{{property}} {}
@@ -91,6 +92,8 @@ struct PropertyPath {
   auto end() const { return properties_.end(); }
   auto cbegin() const { return properties_.cbegin(); }
   auto cend() const { return properties_.cend(); }
+  auto insert(PropertyId property_id) { return properties_.push_back(property_id); }
+  auto reserve(std::size_t size) { return properties_.reserve(size); }
   bool operator==(PropertyPath const &rhs) const = default;
   auto operator<=>(PropertyPath const &rhs) const = default;
 
