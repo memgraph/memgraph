@@ -28,6 +28,8 @@ class AuthChecker : public query::AuthChecker {
   static std::unique_ptr<query::QueryUserOrRole> GenQueryUser(auth::SynchedAuth *auth,
                                                               const std::optional<auth::UserOrRole> &user_or_role);
 
+  std::shared_ptr<query::QueryUserOrRole> GenEmptyUser() const override;
+
 #ifdef MG_ENTERPRISE
   std::unique_ptr<query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(std::shared_ptr<query::QueryUserOrRole> user,
                                                                            const query::DbAccessor *dba) const override;

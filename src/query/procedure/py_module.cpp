@@ -507,7 +507,7 @@ PyObject *PyCallableAddOptArg(TCall *self, PyObject *args) {
   PyObject *py_value = nullptr;
   if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
   auto *type = py_type->type;
-  mgp_memory memory{self->callable->opt_args.get_allocator().GetMemoryResource()};
+  mgp_memory memory{self->callable->opt_args.get_allocator().resource()};
   mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
   if (value == nullptr) {
     return nullptr;
@@ -1300,7 +1300,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  auto *memory = self->module->procedures.get_allocator().resource();
   mgp_proc proc(name,
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
                   CallPythonProcedure(py_cb, args, graph, result, memory, false);
@@ -1341,7 +1341,7 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
     PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  auto *memory = self->module->procedures.get_allocator().resource();
   mgp_proc proc(
       name,
       [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
@@ -1394,7 +1394,7 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Transformation name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->transformations.get_allocator().GetMemoryResource();
+  auto *memory = self->module->transformations.get_allocator().resource();
   mgp_trans trans(
       name,
       [py_cb](mgp_messages *msgs, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
@@ -1423,7 +1423,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Function name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->functions.get_allocator().GetMemoryResource();
+  auto *memory = self->module->functions.get_allocator().resource();
   mgp_func func(
       name,
       [py_cb](mgp_list *args, mgp_func_context *func_ctx, mgp_func_result *result, mgp_memory *memory) {

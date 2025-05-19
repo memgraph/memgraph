@@ -49,7 +49,7 @@ inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
+const std::map<std::string, storage::ExternalPropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -518,7 +518,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control and rely only on
     // the global auth_checker used in the stream itself
     // TODO: Fix auth inconsistency
-    interpreter->SetUser(interpreter_context->auth_checker->GenQueryUser(std::nullopt, std::nullopt));
+    interpreter->SetUser(interpreter_context->auth_checker->GenEmptyUser());
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
@@ -538,8 +538,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       result.rows.clear();
       interpreter->Abort();
     }};
-
-    const static storage::PropertyValue::map_t empty_parameters{};
+    const static storage::ExternalPropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
@@ -548,7 +547,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
               ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
-          storage::PropertyValue params_prop{params_value};
+          storage::ExternalPropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result = interpreter->Prepare(

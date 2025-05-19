@@ -53,7 +53,7 @@ add_concurrent_test(spin_lock.cpp)
 target_link_libraries(${test_prefix}spin_lock mg-utils)
 
 add_concurrent_test(storage_indices.cpp)
-target_link_libraries(${test_prefix}storage_indices mg-utils mg-storage-v2)
+target_link_libraries(${test_prefix}storage_indices mg-utils mg::storage)
 
 add_concurrent_test(storage_unique_constraints.cpp)
-target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg-storage-v2)
+target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg::storage)

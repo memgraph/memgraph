@@ -40,6 +40,10 @@ namespace memgraph::storage {
     friend bool operator==(const name &, const name &) = default;                         \
     friend bool operator<(const name &, const name &) = default;                          \
     friend std::strong_ordering operator<=>(const name &, const name &) = default;        \
+    friend std::ostream &operator<<(std::ostream &os, const name &id) {                   \
+      os << id.ToString();                                                                \
+      return os;                                                                          \
+    }                                                                                     \
                                                                                           \
    private:                                                                               \
     type_store id_;                                                                       \

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include <boost/asio/io_context.hpp>
 
 #include "utils/logging.hpp"
+#include "utils/thread.hpp"
 
 namespace memgraph::communication::v2 {
 
@@ -29,7 +30,8 @@ class IOContextThreadPool final {
   using IOContextGuard = boost::asio::executor_work_guard<boost::asio::io_context::executor_type>;
 
  public:
-  explicit IOContextThreadPool(size_t pool_size) : guard_{io_context_.get_executor()}, pool_size_{pool_size} {
+  explicit IOContextThreadPool(size_t pool_size)
+      : io_context_(pool_size), guard_{io_context_.get_executor()}, pool_size_{pool_size} {
     MG_ASSERT(pool_size != 0, "Pool size must be greater then 0!");
   }
 
@@ -44,6 +46,7 @@ class IOContextThreadPool final {
     running_ = true;
     for (size_t i = 0; i < pool_size_; ++i) {
       background_threads_.emplace_back([this]() {
+        utils::ThreadSetName("io context");
         while (running_) {
           try {
             io_context_.run();

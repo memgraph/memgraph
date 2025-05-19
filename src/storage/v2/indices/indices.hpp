@@ -14,7 +14,6 @@
 #include <memory>
 #include <span>
 
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"

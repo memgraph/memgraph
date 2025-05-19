@@ -118,6 +118,7 @@ class BoltClient(BaseClient):
         self._bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
+        self._bolt_address = benchmark_context.client_bolt_address
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -141,7 +142,7 @@ class BoltClient(BaseClient):
             json.dump(query, f)
             f.write("\n")
 
-        check_db_args = self._get_args(
+        client_args = self._get_args(
             input=check_db_query,
             num_workers=1,
             max_retries=max_retries,
@@ -149,13 +150,16 @@ class BoltClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._bolt_port,
+            address=self._bolt_address,
             validation=False,
             time_dependent_execution=time_dependent_execution,
         )
 
+        log.info("Client args: {}".format(client_args))
+
         while True:
             try:
-                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                subprocess.run(client_args, capture_output=True, text=True, check=True)
                 break
             except subprocess.CalledProcessError as e:
                 log.log("Checking if database is up and running failed...")
@@ -205,7 +209,6 @@ class BoltClient(BaseClient):
 
 class BoltClientDocker(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
-        self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
@@ -483,6 +486,9 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
+        if benchmark_context.external_vendor:
+            return ExternalVendor(benchmark_context=benchmark_context)
+
         subclass_name = (
             benchmark_context.vendor_name
             if benchmark_context.installation_type == BenchmarkInstallationType.NATIVE
@@ -501,27 +507,43 @@ class BaseRunner(ABC):
         self.benchmark_context = benchmark_context
 
     @abstractmethod
-    def start_db_init(self):
+    def start_db_init(self, arg):
         pass
 
     @abstractmethod
-    def start_db(self):
+    def stop_db_init(self, arg):
         pass
 
     @abstractmethod
-    def stop_db_init(self):
+    def start_db(self, arg):
         pass
 
     @abstractmethod
-    def stop_db(self):
+    def stop_db(self, arg):
         pass
 
     @abstractmethod
     def clean_db(self):
         pass
 
-    @abstractmethod
-    def fetch_client(self) -> BaseClient:
+
+class ExternalVendor(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+
+    def start_db_init(self, arg):
+        pass
+
+    def stop_db_init(self, arg):
+        pass
+
+    def start_db(self, arg):
+        pass
+
+    def stop_db(self, arg):
+        pass
+
+    def clean_db(self):
         pass
 
 
@@ -610,44 +632,6 @@ class Memgraph(BaseRunner):
                 f.write(str(rss))
                 f.write("\n")
             f.close()
-
-    def fetch_client(self) -> BaseClient:
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClient(self.benchmark_context)
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(self.benchmark_context, self._bolt_port)
-        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
-
-    def _get_args(self, **kwargs):
-        data_directory = os.path.join(self._directory.name, "memgraph")
-        kwargs["bolt_port"] = self._bolt_port
-        kwargs["data_directory"] = data_directory
-        kwargs["storage_properties_on_edges"] = True
-        kwargs["bolt_num_workers"] = self._bolt_num_workers
-        for key, value in self._vendor_args.items():
-            kwargs[key] = value
-        return _convert_args_to_flags(self._memgraph_binary, **kwargs)
-
-    def _start(self, **kwargs):
-        if self._proc_mg is not None:
-            raise Exception("The database process is already running!")
-        args = self._get_args(**kwargs)
-        self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
-        time.sleep(0.2)
-        if self._proc_mg.poll() is not None:
-            self._proc_mg = None
-            raise Exception("The database process died prematurely!")
-        _wait_for_server_socket(self._bolt_port)
-        ret = self._proc_mg.poll()
-
-    def _cleanup(self):
-        if self._proc_mg is None:
-            return 0
-        usage = _get_usage(self._proc_mg.pid)
-        self._proc_mg.terminate()
-        ret = self._proc_mg.wait()
-        self._proc_mg = None
-        return ret, usage
 
 
 class Neo4j(BaseRunner):
@@ -874,37 +858,6 @@ class Neo4j(BaseRunner):
                 f.write(memory_usage.stdout)
                 f.close()
 
-    def fetch_client(self) -> BaseClient:
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClient(self.benchmark_context)
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(self.benchmark_context, self._bolt_port)
-        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
-
-    def _start(self, **kwargs):
-        if self._neo4j_pid.exists():
-            raise Exception("The database process is already running!")
-        args = _convert_args_to_flags(self._neo4j_binary, "start", **kwargs)
-        start_proc = subprocess.run(args, check=True)
-        time.sleep(0.5)
-        if self._neo4j_pid.exists():
-            print("Neo4j started!")
-        else:
-            raise Exception("The database process died prematurely!")
-        print("Run server check:")
-        _wait_for_server_socket(self._bolt_port)
-
-    def _cleanup(self):
-        if self._neo4j_pid.exists():
-            pid = self._neo4j_pid.read_text()
-            print("Clean up: " + pid)
-            usage = _get_usage(pid)
-
-            exit_proc = subprocess.run(args=[self._neo4j_binary, "stop"], capture_output=True, check=True)
-            return exit_proc.returncode, usage
-        else:
-            return 0, 0
-
 
 class MemgraphDocker(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -997,13 +950,6 @@ class MemgraphDocker(BaseRunner):
 
     def clean_db(self):
         self.remove_container(self._container_name)
-
-    def fetch_client(self) -> BaseClient:
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClientDocker(self.benchmark_context)
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(self.benchmark_context, self._bolt_port)
-        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
@@ -1148,13 +1094,6 @@ class Neo4jDocker(BaseRunner):
 
     def clean_db(self):
         self.remove_container(self._container_name)
-
-    def fetch_client(self) -> BaseClient:
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.CPP:
-            return BoltClientDocker(benchmark_context=self.benchmark_context)
-        if self.benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
-            return PythonClient(self.benchmark_context, self._bolt_port)
-        raise Exception(f"Unknown client language specified: {self.benchmark_context.client_language}")
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
