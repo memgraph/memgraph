@@ -15,7 +15,7 @@
 #include <limits>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/label_property_index.hpp"  // @TODO temp for `PropertiesPermutationHelper`
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -26,6 +26,25 @@ using testing::UnorderedElementsAre;
 
 using namespace memgraph::storage;
 using enum CoordinateReferenceSystem;
+
+namespace {
+
+/** Helper for creating nested maps easily. */
+
+/** Type for  a key-value pair.
+ */
+using KVPair = std::tuple<PropertyId, PropertyValue>;
+
+/** Creates a map from a (possibly nested) list of `KVPair`s.
+ */
+template <typename... Ts>
+auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
+  return PropertyValue{PropertyValue::map_t{
+      {std::get<0>(values),
+       std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
+};
+
+}  // end namespace
 
 ZonedTemporalData GetSampleZonedTemporal() {
   const auto common_duration =
@@ -856,9 +875,10 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull) {
     PropertyStore store;
     store.InitProperties(data);
 
-    std::vector<PropertyId> ids;
+    std::vector<PropertyPath> ids;
     ids.reserve(data.size());
-    std::ranges::transform(ids_to_read, std::back_inserter(ids), [](auto id) { return PropertyId::FromInt(id); });
+    std::ranges::transform(ids_to_read, std::back_inserter(ids),
+                           [](auto id) -> PropertyPath { return {PropertyId::FromInt(id)}; });
 
     auto const read_values = store.ExtractPropertyValuesMissingAsNull(ids);
     ASSERT_EQ(ids_to_read.size(), read_values.size());
@@ -968,12 +988,12 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
   auto const p4 = PropertyId::FromInt(4);
   auto const p5 = PropertyId::FromInt(5);
 
-  auto const make_map = [](PropertyId key, PropertyValue value) {
+  auto const MakeMap = [](PropertyId key, PropertyValue value) {
     return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
   };
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
-      {p1, make_map(p2, make_map(p3, make_map(p4, PropertyValue{"expected"})))}};
+      {p1, MakeMap(p2, MakeMap(p3, MakeMap(p4, PropertyValue{"expected"})))}};
 
   struct Test {
     PropertyPath path;
@@ -1004,8 +1024,137 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
   }
 }
 
-// @TODO test reader leaves read cursor in correct position for reading
-// successive properties.
+TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedValues) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  struct Test {
+    std::vector<PropertyPath> paths;
+    std::vector<PropertyValue> values;
+    std::vector<std::size_t> lookup;
+    std::vector<bool> result;
+  };
+
+  using PP = PropertyPath;
+  using PV = PropertyValue;
+
+  for (auto &&test : {
+           // clang-format off
+    Test{.paths = {PP{p1, p2}}, .values = {PV{"apple"}}, .lookup = {0}, .result = {true}},
+    Test{.paths = {PP{p1, p2}}, .values = {PV{"banana"}}, .lookup = {0}, .result = {false}},
+    Test{.paths = {PP{p1, p2}, PP{p1, p4}}, .values = {PV{"apple"}, PV{"banana"}}, .lookup = {0, 1}, .result = {true, true}},
+    Test{.paths = {PP{p1, p2}, PP{p1, p4}}, .values = {PV{"banana"}, PV{"apple"}}, .lookup = {1, 0}, .result = {true, true}},
+    Test{.paths = {PP{p1, p2}, PP{p1, p4}}, .values = {PV{"xapple"}, PV{"xbanana"}}, .lookup = {0, 1}, .result = {false, false}},
+    Test{.paths = {PP{p1, p4}}, .values = {PV{"banana"}}, .lookup = {0}, .result = {true}},
+    Test{.paths = {PP{p1, p4}}, .values = {PV{"xbanana"}}, .lookup = {0}, .result = {false}},
+    Test{.paths = {PP{p1, p2}, PP{p4}}, .values = {PV{"apple"}, PV{}}, .lookup = {0, 1}, .result = {true, true}},
+    Test{.paths = {PP{p1, p2}, PP{p4}}, .values = {PV{"applex"}, PV{}}, .lookup = {0, 1}, .result = {false, true}},
+    Test{.paths = {PP{p1, p2}, PP{p4}}, .values = {PV{}, PV{"applex"}}, .lookup = {1, 0}, .result = {false, true}},
+    Test{.paths = {PP{p1, p3}, PP{p1, p4}}, .values = {PV{}, PV{"banana"}}, .lookup = {0, 1}, .result = {true, true}},
+    Test{.paths = {PP{p1, p3}, PP{p1, p4}}, .values = {PV{}, PV{"xbanana"}}, .lookup = {0, 1}, .result = {true, false}},
+    Test{.paths = {PP{p1, p2}, PP{p1, p3}}, .values = {PV{"apple"}, PV{"banana"}}, .lookup = {0, 1}, .result = {true, false}},
+    Test{.paths = {PP{p1, p2}, PP{p1, p3}, PP{p1, p4}}, .values = {PV{"apple"}, PV{"banana"}, PV{"banana"}}, .lookup = {0, 1, 2}, .result = {true, false, true}},
+    Test{.paths = {PP{p1, p3}, PP{p4}}, .values = {PV{}, PV{}}, .lookup = {0, 1}, .result = {true, true}},
+    Test{.paths = {PP{p3}}, .values = {PV{}}, .lookup = {0}, .result = {true}},
+    Test{.paths = {PP{p4}}, .values = {PV{}}, .lookup = {0}, .result = {true}},
+           // clang-format on
+       }) {
+    EXPECT_EQ(store.ArePropertiesEqual(test.paths, test.values, test.lookup), test.result);
+  }
+}
+
+TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+  auto const p7 = PropertyId::FromInt(7);
+
+  auto map_prop_value_1 = MakeMap(KVPair{p3, MakeMap(KVPair{p4, PropertyValue{"apple"}})});
+  auto map_prop_value_2 = MakeMap(KVPair{p6, MakeMap(KVPair{p7, PropertyValue{"banana"}})});
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, map_prop_value_1}, KVPair{p5, map_prop_value_2})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(store.ArePropertiesEqual(std::array{PropertyPath{p1, p2}, PropertyPath{p1, p5}},
+                                     std::array{map_prop_value_1, map_prop_value_2}, std::array<std::size_t, 2>{0, 1}),
+            (std::vector{true, true}));
+}
+
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSameBranch) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})},
+                   KVPair(p5, PropertyValue("cherry")))}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
+                std::vector{PropertyPath{p1, p2, p3}, PropertyPath{p1, p2, p4}, PropertyPath{p1, p5}}),
+            (std::vector{
+                PropertyValue("apple"),
+                PropertyValue("banana"),
+                PropertyValue("cherry"),
+            }));
+}
+
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_DoesNotReadPropertiesFromWrongDepth) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  struct Test {
+    std::vector<PropertyPath> paths;
+    std::vector<PropertyValue> values;
+  };
+
+  std::vector<Test> tests = {
+      // clang format off
+      {std::vector{PropertyPath{p1, p2}}, std::vector{PropertyValue("apple")}},
+      {std::vector{PropertyPath{p1, p2}, PropertyPath{p1, p4}},
+       std::vector{PropertyValue("apple"), PropertyValue("banana")}},
+      {std::vector{PropertyPath{p1, p4}}, std::vector{PropertyValue("banana")}},
+      {std::vector{PropertyPath{p1, p2}, PropertyPath{p4}}, std::vector{PropertyValue("apple"), PropertyValue{}}},
+      {std::vector{PropertyPath{p1, p3}, PropertyPath{p1, p4}}, std::vector{PropertyValue{}, PropertyValue("banana")}},
+      {std::vector{PropertyPath{p1, p2}, PropertyPath{p1, p3}}, std::vector{PropertyValue("apple"), PropertyValue{}}},
+      {std::vector{PropertyPath{p1, p3}, PropertyPath{p4}}, std::vector{PropertyValue{}, PropertyValue{}}},
+      {std::vector{PropertyPath{p3}}, std::vector{PropertyValue{}}},
+      {std::vector{PropertyPath{p4}}, std::vector{PropertyValue{}}},
+      // clang format on
+  };
+
+  for (auto &&[paths, values] : tests) {
+    EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(paths), values);
+  }
+}
+
+//==============================================================================
 
 TEST(PropertiesPermutationHelper, CanReadOneValueFromStore) {
   auto const p1 = PropertyId::FromInt(1);
@@ -1125,12 +1274,12 @@ TEST(PropertiesPermutationHelper, CanExtractDeeplyNestedValuesFromMap) {
   auto const p3 = PropertyId::FromInt(3);
   auto const p4 = PropertyId::FromInt(4);
 
-  auto const make_map = [](PropertyId key, PropertyValue value) {
+  auto const MakeMap = [](PropertyId key, PropertyValue value) {
     return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
   };
 
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
-      {p3, make_map(p1, make_map(p4, make_map(p2, PropertyValue{"test-value"})))}};
+      {p3, MakeMap(p1, MakeMap(p4, MakeMap(p2, PropertyValue{"test-value"})))}};
 
   PropertyStore store;
   store.InitProperties(data);
@@ -1151,14 +1300,14 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   auto const p7 = PropertyId::FromInt(7);
   auto const p8 = PropertyId::FromInt(8);
 
-  auto const make_map = [](PropertyId key, PropertyValue value) {
+  auto const MakeMap = [](PropertyId key, PropertyValue value) {
     return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
   };
 
-  const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, make_map(p2, make_map(p3, PropertyValue{"apple"}))},
-                                                               {p4, make_map(p5, PropertyValue{"banana"})},
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, MakeMap(p2, MakeMap(p3, PropertyValue{"apple"}))},
+                                                               {p4, MakeMap(p5, PropertyValue{"banana"})},
                                                                {p6, PropertyValue{"cherry"}},
-                                                               {p7, make_map(p8, PropertyValue{"date"})}};
+                                                               {p7, MakeMap(p8, PropertyValue{"date"})}};
 
   PropertyStore store;
   store.InitProperties(data);
@@ -1171,6 +1320,30 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   EXPECT_EQ(values[1], PropertyValue{"banana"});
   EXPECT_EQ(values[2], PropertyValue{"apple"});
   EXPECT_EQ(values[3], PropertyValue{"cherry"});
+}
+
+TEST(PropertiesPermutationHelper, CanExtractMultipleValuesFromSameTopMostProperty) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")}, KVPair{p4, PropertyValue("banana")},
+                                      KVPair{p5, PropertyValue("cherry")})})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{
+      std::vector<PropertyPath>{PropertyPath{p1, p2, p3}, PropertyPath{p1, p2, p4}, PropertyPath{p1, p2, p5}}};
+
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(3u, values.size());
+  EXPECT_EQ(values[0], PropertyValue{"apple"});
+  EXPECT_EQ(values[1], PropertyValue{"banana"});
+  EXPECT_EQ(values[2], PropertyValue{"cherry"});
 }
 
 TEST(PropertiesPermutationHelper, MatchesValue_ProducesVectorOfPositionsAndComparisons) {
@@ -1291,6 +1464,8 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
       UnorderedElementsAre(Match(0, true)));
 }
 
+//==============================================================================
+
 TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
@@ -1310,13 +1485,9 @@ TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
   EXPECT_THAT(ReadNestedPropertyValue(value, std::array{p4}), IsNull());
 }
 
-// @TODO add test for multiple properties in same map (e.g, a.b.c, a.b.d).
-// Currently, this will not work because we can only read from the `PropertyStore`
-// using monotonically increasing `PropertyId`s. No going back to read the same
-// value (`a` in this case) twice.
+//==============================================================================
 
-// @TODO add tests for all methods in `PropertiesPermutationHelper`, such as
-// MatchValue, Matches value, etc
+// @TODO add tests for  `MatchValue`
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

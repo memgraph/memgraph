@@ -166,7 +166,7 @@ const uint8_t kShiftIdSize = 2;
 //       + type; id size is used to indicate whether the key size is encoded as
 //         `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`; payload size is used
 //         as described above for the inner payload type
-//       + encoded key size
+//       + encoded key size // @TODO not correct now as we are storing PropertyId
 //       + encoded key data
 //       + encoded value size
 //       + encoded value data
@@ -1630,53 +1630,6 @@ enum class ExpectedPropertyStatus {
   return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
 }
 
-// Function used to compare a `PropertyValue` with the current property value
-// nested (possible recursively) inside a map inside the byte stream.
-[[nodiscard]] bool CompareExpectedProperty(Reader *reader, PropertyPath const &path, const PropertyValue &value) {
-  DMG_ASSERT(!path.empty(), "path must be at least one `PropertyId` long.");
-
-  auto metadata = reader->ReadMetadata();
-  if (!metadata) return false;
-
-  auto const property_id = reader->ReadUint(metadata->id_size);
-  if (!property_id) return false;
-  if (*property_id != path[0].AsUint()) return false;
-
-  for (auto path_part : path | rv::drop(1) | rv::transform(&PropertyId::AsUint)) {
-    // Because we are looking for a nested property, and this part is not
-    // the final one, it must to be a map in order to look for the next
-    // level of nesting.
-
-    if (metadata->type != Type::MAP) return false;
-
-    auto const map_size = reader->ReadUint(metadata->payload_size);
-    if (!map_size) return false;
-
-    // Advance to the next nested property
-    for (std::size_t i = 0; i < *map_size; ++i) {
-      metadata = reader->ReadMetadata();
-      if (!metadata) return false;
-
-      auto const property_id = reader->ReadUint(metadata->id_size);
-      if (!property_id) return false;
-      auto const cmp = property_id <=> path_part;
-      if (std::is_gt(cmp)) {
-        return false;
-      } else if (std::is_lt(cmp)) {
-        reader->SkipBytes(SizeToByteSize(metadata->payload_size));
-      } else {
-        break;
-      }
-    }
-  }
-
-  // We are now at the final part of the path (i.e., given `a.b.c.d`, we are at
-  // `d`; or given just `e` we are at `e`.) Perform the comparison with the
-  // expected value.
-
-  return ComparePropertyValue(reader, metadata->type, metadata->payload_size, value);
-}
-
 // Function used to find and (selectively) get the property value of the
 // property whose ID is `property`. It relies on the fact that the properties
 // are sorted (by ID) in the buffer. If the function doesn't find the property,
@@ -2211,13 +2164,73 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
   return WithReader(get_property);
 }
 
+/**
+ * In order to read multiple nested properties with minimal backtracking, we
+ * need a history of where previously seen map properties are stored in the
+ * `PropertyStore` buffer.
+ */
+class ReaderPropPositionHistory {
+ public:
+  // The maximum history depth will always be one less than the maximum
+  // amount of nesting in properties we expect to read. For example, to
+  // read a.b.c.d, we need to store three levels of nesting (`a`, `b`, and `c`).
+  ReaderPropPositionHistory(std::size_t max_size) { history_.reserve(max_size); }
+
+  // Move the reader to a position where the expected leaf property will be
+  // located after the reader.
+  bool ScanToPropertyPathParent(Reader &reader, PropertyPath const &path) {
+    std::span<PropertyId const> parent_map{path.begin(), path.end() - 1};
+
+    auto [prev, next] = r::mismatch(history_, parent_map, {}, &History::property_id);
+
+    if (prev != history_.end()) {
+      reader.SetPosition(prev->property_end);
+      history_.erase(prev, history_.end());
+    }
+
+    for (auto inner_property_id : std::ranges::subrange(next, parent_map.end())) {
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
+      history_.emplace_back(inner_property_id, info.property_end);
+
+      reader.SetPosition(info.property_begin);
+      auto metadata = reader.ReadMetadata();
+      DMG_ASSERT(metadata, "impossible: metadata has disappeared since `FindSpecificPropertyAndBufferInfoMinimal`");
+      if (!metadata) [[unlikely]]
+        return false;
+      reader.SkipBytes(SizeToByteSize(metadata->id_size) + SizeToByteSize(metadata->payload_size));
+    }
+
+    return true;
+  }
+
+ private:
+  struct History {
+    PropertyId property_id;
+    uint32_t property_end;
+  };
+  std::vector<History> history_;
+};
+
 std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
-    std::span<PropertyId const> ordered_properties) const {
+    std::span<PropertyPath const> ordered_properties) const {
   auto get_properties = [&](Reader &reader) -> std::vector<PropertyValue> {
     auto values = std::vector<PropertyValue>{};
     values.reserve(ordered_properties.size());
 
-    auto const get_value = [](Reader &reader, PropertyId property) { return MatchSpecificProperty(&reader, property); };
+    auto max_history_depth = r::max_element(ordered_properties, {}, r::distance)->size() - 1;
+    ReaderPropPositionHistory history{max_history_depth};
+
+    auto const get_value =
+        [&](Reader &reader,
+            PropertyPath const &path) -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
+      if (!history.ScanToPropertyPathParent(reader, path)) {
+        return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
+      }
+
+      auto leaf_property_id = path[path.size() - 1];
+      return MatchSpecificProperty(&reader, leaf_property_id);
+    };
+
     auto const insert_value = [&](std::optional<PropertyValue> value) {
       if (value) {
         values.emplace_back(*std::move(value));
@@ -2227,8 +2240,8 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
     };
 
     auto safe_reader = SafeReader{reader, get_value, insert_value, std::nullopt};
-    for (auto property : ordered_properties) {
-      safe_reader(std::tuple{property}, std::tuple{});
+    for (auto &&path : ordered_properties) {
+      safe_reader(std::forward_as_tuple(path), std::tuple{});
     }
     return values;
   };
@@ -2251,16 +2264,26 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
+  auto max_history_depth = r::max_element(ordered_properties, {}, r::distance)->size() - 1;
+  ReaderPropPositionHistory history{max_history_depth};
+
   auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
     auto result = std::vector<bool>(ordered_properties.size(), false);
 
     auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
       auto const orig_reader = reader;
-      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, path[0]);
+
+      if (!history.ScanToPropertyPathParent(reader, path)) {
+        return std::pair{ExpectedPropertyStatus::MISSING_DATA, std::optional<bool>{cmp_val.IsNull()}};
+      }
+
+      auto leaf_property_id = path[path.size() - 1];
+
+      auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, leaf_property_id);
       auto property_size = info.property_size();
       if (property_size != 0) {
         auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
-        auto cmp_res = CompareExpectedProperty(&prop_reader, path, cmp_val);
+        auto cmp_res = CompareExpectedProperty(&prop_reader, leaf_property_id, cmp_val);
         return std::pair{info.status, std::optional{cmp_res}};
       } else {
         return std::pair{info.status, std::optional<bool>{cmp_val.IsNull()}};
