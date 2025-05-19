@@ -90,10 +90,20 @@ struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
   using ctr_types =
       std::tuple<std::string,
-                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
-                                            [](std::string v) { return std::vector{v}; }>>;
+                 VersionDependantUpgradable<
+                     kCompositeIndicesForLabelProperties,
+                     VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
+                                                std::vector<std::string>, [](std::string v) { return std::vector{v}; }>,
+                     std::vector<std::vector<std::string>>,
+                     [](std::vector<std::string> v) -> std::vector<std::vector<std::string>> {
+                       std::vector<std::vector<std::string>> result;
+                       for (const auto &property : v) {
+                         result.emplace_back(std::vector{property});
+                       }
+                       return result;
+                     }>>;
   std::string label;
-  std::vector<std::string> properties;
+  std::vector<std::vector<std::string>> properties;
 };
 
 struct LabelUnorderedPropertiesOpInfo {
@@ -186,11 +196,20 @@ struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
   using ctr_types =
       std::tuple<std::string,
-                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
-                                            [](std::string v) { return std::vector{v}; }>,
-                 std::string>;
+                 VersionDependantUpgradable<
+                     kCompositeIndicesForLabelProperties,
+                     VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
+                                                std::vector<std::string>, [](std::string v) { return std::vector{v}; }>,
+                     std::vector<std::vector<std::string>>,
+                     [](std::vector<std::string> v) -> std::vector<std::vector<std::string>> {
+                       std::vector<std::vector<std::string>> result;
+                       for (const auto &property : v) {
+                         result.emplace_back(std::vector{property});
+                       }
+                       return result;
+                     }>>;
   std::string label;
-  std::vector<std::string> properties;
+  std::vector<std::vector<std::string>> properties;
   std::string json_stats;
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
