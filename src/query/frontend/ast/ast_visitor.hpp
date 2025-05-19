@@ -131,6 +131,7 @@ class DropEnumQuery;
 class ShowSchemaInfoQuery;
 class TtlQuery;
 class SessionTraceQuery;
+class UserProfileQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -167,14 +168,15 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public utils::Visitor<
-          TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, PointIndexQuery, TextIndexQuery,
-          VectorIndexQuery, CreateVectorEdgeIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery,
-          DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
-          IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery, ShowSnapshotsQuery, StreamQuery, SettingQuery,
-          VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
-          UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery,
-          DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery,
-          AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery,
+                            PointIndexQuery, TextIndexQuery, VectorIndexQuery, CreateVectorEdgeIndexQuery, AuthQuery,
+                            DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery,
+                            ReplicationInfoQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery,
+                            CreateSnapshotQuery, RecoverSnapshotQuery, ShowSnapshotsQuery, StreamQuery, SettingQuery,
+                            VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
+                            MultiDatabaseQuery, UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery,
+                            EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery,
+                            AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
+                            ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, UserProfileQuery> {};
 
 }  // namespace memgraph::query
