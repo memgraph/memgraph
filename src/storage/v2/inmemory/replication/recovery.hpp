@@ -62,7 +62,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   if (replication::Encoder encoder(stream.GetBuilder()); !WriteFiles(files, encoder)) {
     return std::nullopt;
   }
-  return stream.AwaitResponseWhileInProgress();
+  return stream.SendAndWaitProgress();
 }
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,

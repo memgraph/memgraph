@@ -29,6 +29,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/cast.hpp"
@@ -198,6 +199,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   using ExpressionVisitor<TypedValue>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
+  storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
@@ -433,12 +436,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
     // lhs is Null
@@ -676,7 +679,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       res = function.function_(arguments.data(), arguments.size(), function_ctx);
     }
-    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
       return TypedValue(ctx_->memory);
     }
@@ -777,7 +780,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
           frame_exists_value.type());
     }
-    TypedValue result{ctx_->memory};
+    TypedValue result(ctx_->memory);
     frame_exists_value.ValueFunction()(&result);
     return result;
   }

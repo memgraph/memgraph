@@ -99,8 +99,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     ctx.properties = NamesToProperties(storage.properties_, &dba);
     ctx.labels = NamesToLabels(storage.labels_, &dba);
     auto value = expr->Accept(eval);
-    EXPECT_EQ(value.GetMemoryResource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
-                                                  "EvaluationContext for allocations!";
+    EXPECT_EQ(value.get_allocator().resource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
+                                                         "EvaluationContext for allocations!";
     return value;
   }
 };
@@ -191,20 +191,20 @@ TYPED_TEST(ExpressionEvaluatorTest, AndOperatorNull) {
   {
     // Null doesn't short circuit
     auto *op = this->storage.template Create<AndOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(5));
     EXPECT_THROW(this->Eval(op), QueryRuntimeException);
   }
   {
     auto *op = this->storage.template Create<AndOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(true));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     auto *op = this->storage.template Create<AndOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(false));
     auto value = this->Eval(op);
     ASSERT_TRUE(value.IsBool());
@@ -370,7 +370,7 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
   }
   {
     auto *list_literal = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(2), this->storage.template Create<PrimitiveLiteral>("a")});
     // Element doesn't exist in list with null element.
     auto *op = this->storage.template Create<InListOperator>(this->storage.template Create<PrimitiveLiteral>("x"),
@@ -382,21 +382,21 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperator) {
     // Null list.
     auto *op = this->storage.template Create<InListOperator>(
         this->storage.template Create<PrimitiveLiteral>("x"),
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal.
     auto *op = this->storage.template Create<InListOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()), list_literal);
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()), list_literal);
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal, empty list.
     auto *op = this->storage.template Create<InListOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<ListLiteral>(std::vector<Expression *>()));
     auto value = this->Eval(op);
     EXPECT_FALSE(value.ValueBool());
@@ -438,7 +438,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListIndexing) {
   {
     // Indexing with one operator being null.
     auto *op = this->storage.template Create<SubscriptOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(-2));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -479,7 +479,7 @@ TYPED_TEST(ExpressionEvaluatorTest, MapIndexing) {
   {
     // Indexing with Null.
     auto *op = this->storage.template Create<SubscriptOperator>(
-        map_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        map_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
@@ -524,7 +524,8 @@ TYPED_TEST(ExpressionEvaluatorTest, MapProjectionIndexing) {
   {
     // Indexing with Null.
     auto *op = this->storage.template Create<SubscriptOperator>(
-        map_projection_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        map_projection_literal,
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
@@ -617,12 +618,12 @@ TYPED_TEST(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   {
     // Indexing with Null.
     auto *op1 = this->storage.template Create<SubscriptOperator>(
-        vertex_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        vertex_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value1 = this->Eval(op1);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = this->storage.template Create<SubscriptOperator>(
-        edge_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        edge_id, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value2 = this->Eval(op2);
     EXPECT_TRUE(value2.IsNull());
   }
@@ -735,7 +736,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Bound of illegal type and null value bound.
     auto *op = this->storage.template Create<ListSlicingOperator>(
-        list_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        list_literal, this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>("mirko"));
     EXPECT_THROW(this->Eval(op), QueryRuntimeException);
   }
@@ -749,7 +750,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Null value list with undefined upper bound.
     auto *op = this->storage.template Create<ListSlicingOperator>(
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()),
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()),
         this->storage.template Create<PrimitiveLiteral>(-2), nullptr);
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -759,7 +760,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListSlicingOperator) {
     // Null value index.
     auto *op = this->storage.template Create<ListSlicingOperator>(
         list_literal, this->storage.template Create<PrimitiveLiteral>(-2),
-        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+        this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
     auto value = this->Eval(op);
     EXPECT_TRUE(value.IsNull());
     ;
@@ -814,7 +815,7 @@ TYPED_TEST(ExpressionEvaluatorTest, IsNullOperator) {
   auto val1 = this->Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = this->storage.template Create<IsNullOperator>(
-      this->storage.template Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+      this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue()));
   auto val2 = this->Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
 }
@@ -879,7 +880,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ListLiteral) {
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, ParameterLookup) {
-  this->ctx.parameters.Add(0, memgraph::storage::PropertyValue(42));
+  this->ctx.parameters.Add(0, memgraph::storage::ExternalPropertyValue(42));
   auto *param_lookup = this->storage.template Create<ParameterLookup>(0);
   auto value = this->Eval(param_lookup);
   ASSERT_TRUE(value.IsInt());
@@ -924,7 +925,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
-  auto *all = ALL("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *all = ALL("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   auto value = this->Eval(all);
@@ -934,7 +935,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *all = ALL("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -945,7 +946,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *all = ALL("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1000,7 +1001,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
-  auto *single = SINGLE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *single = SINGLE("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   auto value = this->Eval(single);
@@ -1010,7 +1011,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1022,7 +1023,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *single = SINGLE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1033,8 +1034,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList3) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single =
-      SINGLE("x", LIST(LITERAL(memgraph::storage::PropertyValue()), LITERAL(true), LITERAL(true)), WHERE(ident_x));
+  auto *single = SINGLE("x", LIST(LITERAL(memgraph::storage::ExternalPropertyValue()), LITERAL(true), LITERAL(true)),
+                        WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1081,7 +1082,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
   AstStorage storage;
-  auto *any = ANY("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *any = ANY("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   auto value = this->Eval(any);
@@ -1091,7 +1092,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *any = ANY("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1102,7 +1103,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *any = ANY("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1156,7 +1157,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneEmptyList) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
   AstStorage storage;
-  auto *none = NONE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
+  auto *none = NONE("x", LITERAL(memgraph::storage::ExternalPropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   auto value = this->Eval(none);
@@ -1166,7 +1167,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = NONE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *any = NONE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1177,7 +1178,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  auto *none = NONE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::ExternalPropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1212,8 +1213,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionReduce) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionExtract) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract =
-      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), ADD(ident_x, LITERAL(1)));
+  auto *extract = EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(memgraph::storage::ExternalPropertyValue())),
+                          ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1229,7 +1230,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionExtract) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionExtractNull) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract = EXTRACT("x", LITERAL(memgraph::storage::PropertyValue()), ADD(ident_x, LITERAL(1)));
+  auto *extract = EXTRACT("x", LITERAL(memgraph::storage::ExternalPropertyValue()), ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);

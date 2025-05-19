@@ -898,7 +898,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), data.value);
+          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property),
+                                         ToPropertyValue(data.value, storage->name_id_mapper_.get()));
           if (ret.HasError()) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
@@ -1036,7 +1037,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           });
 
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
-          auto ret = ea.SetProperty(transaction->NameToProperty(data.property), data.value);
+          auto ret = ea.SetProperty(transaction->NameToProperty(data.property),
+                                    ToPropertyValue(data.value, storage->name_id_mapper_.get()));
           if (ret.HasError()) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }

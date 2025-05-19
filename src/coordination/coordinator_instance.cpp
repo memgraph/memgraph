@@ -69,6 +69,7 @@ extern const Event InstanceSuccCallback_us;
 extern const Event InstanceFailCallback_us;
 extern const Event ChooseMostUpToDateInstance_us;
 extern const Event GetHistories_us;
+extern const Event DataFailover_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::coordination {
@@ -501,8 +502,7 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
-  spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
-
+  utils::MetricsTimer const timer{metrics::DataFailover_us};
   auto const maybe_most_up_to_date_instance = GetInstanceForFailover();
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");

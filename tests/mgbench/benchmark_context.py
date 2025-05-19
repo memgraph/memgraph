@@ -10,9 +10,9 @@
 # licenses/APL.txt.
 
 from workload_mode import (
-    BENCHMARK_MODE_ISOLATED,
-    BENCHMARK_MODE_MIXED,
-    BENCHMARK_MODE_REALISTIC,
+  BENCHMARK_MODE_ISOLATED,
+  BENCHMARK_MODE_MIXED,
+  BENCHMARK_MODE_REALISTIC,
 )
 
 
@@ -24,6 +24,8 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
+        client_bolt_address: str = "127.0.0.1",
+        external_vendor: bool = False,
         vendor_binary: str = None,
         vendor_name: str = None,
         installation_type: str = None,
@@ -49,6 +51,8 @@ class BenchmarkContext:
         vendor_args: dict = {},
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
+        self.external_vendor = external_vendor
+        self.client_bolt_address = client_bolt_address
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
         self.installation_type = installation_type
@@ -69,10 +73,10 @@ class BenchmarkContext:
             workload_mixed is None or workload_realistic is None
         ), "Cannot run both mixed and realistic workload, please select one!"
 
-        if workload_mixed != None:
+        if workload_mixed is not None:
             self.mode = BENCHMARK_MODE_MIXED
             self.mode_config = workload_mixed
-        elif workload_realistic != None:
+        elif workload_realistic is not None:
             self.mode = BENCHMARK_MODE_REALISTIC
             self.mode_config = workload_realistic
         else:
