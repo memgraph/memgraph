@@ -2,6 +2,7 @@ import logging
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -36,6 +37,14 @@ def wait_for_server(
             time.sleep(0.01)
 
 
+def get_output(stderr_file, stdout_file):
+    stdout_file.seek(0)
+    stderr_file.seek(0)
+    stdout_content = stdout_file.read()
+    stderr_content = stderr_file.read()
+    return stderr_content, stdout_content
+
+
 @contextmanager
 def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, timeout=10):
     """Context manager for managing the Memgraph server lifecycle."""
@@ -52,8 +61,12 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
         f"--data-directory={data_dir.resolve()}",
     ] + (extra_args if extra_args else [])
 
+    # TODO: these files ATM are not cleaned up
+    stdout_file = tempfile.NamedTemporaryFile(mode="w+", delete=False)
+    stderr_file = tempfile.NamedTemporaryFile(mode="w+", delete=False)
+
     logger.info("Starting Memgraph server...")
-    memgraph_proc = subprocess.Popen(memgraph_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    memgraph_proc = subprocess.Popen(memgraph_cmd, stdout=stdout_file, stderr=stderr_file)
 
     try:
         # Wait for the server to be ready
@@ -64,21 +77,20 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
         #      use `pkill -9 python3; pkill -9 memgraph` for now
         logger.warning("KeyboardInterrupt received during Memgraph server context.")
     finally:
-        stdout, stderr = None, None
-
         # Cleanup: send SIGINT to Memgraph to shut it down
         logger.info("Shutting down Memgraph server...")
         memgraph_proc.send_signal(signal.SIGINT)
 
         try:
-            stdout, stderr = memgraph_proc.communicate(timeout=timeout)
+            memgraph_proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             logger.error("Memgraph process is still running after terminate, force kill.")
             memgraph_proc.kill()
             try:
-                stdout, stderr = memgraph_proc.communicate(timeout=3)
+                memgraph_proc.wait(timeout=3)
+                stderr_content, stdout_content = get_output(stderr_file, stdout_file)
                 raise RuntimeError(
-                    f"Memgraph process had to be killed, durability maybe incorrect\n\nStdout:\n{stdout.decode()}\n\nStderr:\n{stderr.decode()}"
+                    f"Memgraph process had to be killed, durability maybe incorrect\n\nStdout:\n{stdout_content}\n\nStderr:\n{stderr_content}"
                 )
             except subprocess.TimeoutExpired:
                 raise RuntimeError("Memgraph process is in bad state and could not be killed.")
@@ -87,8 +99,9 @@ def memgraph_server(memgraph, data_dir: Path, port, logger, extra_args=None, tim
             raise RuntimeError("Memgraph process did not terminate properly (possibly hung after kill).")
 
         if memgraph_proc.returncode != 0:
+            stderr_content, stdout_content = get_output(stderr_file, stdout_file)
             raise RuntimeError(
-                f"Memgraph exited with non-zero return code: {memgraph_proc.returncode}\n\nStdout:\n{stdout.decode()}\n\nStderr:\n{stderr.decode()}"
+                f"Memgraph exited with non-zero return code: {memgraph_proc.returncode}\n\nStdout:\n{stdout_content}\n\nStderr:\n{stderr_content}"
             )
 
         logger.info(f"Memgraph process finished with return code: {memgraph_proc.returncode}")
