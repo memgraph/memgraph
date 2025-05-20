@@ -41,6 +41,31 @@ logger = logging.getLogger(__name__)
 #             file.write(query + "\n")
 
 
+class Collector:
+    def __init__(self):
+        self.unexpected_passes = set()  # Track queries that passed unexpectedly
+        self.new_failures = defaultdict(set)  # Track queries failures that failed unexpected
+        self.error_patterns = {
+            "parse error": re.compile(r"^Error on line", re.IGNORECASE),
+            "not implemented": re.compile(r"^Not yet implemented", re.IGNORECASE),
+            "Invalid query": re.compile(r"^Invalid query", re.IGNORECASE),
+            "Invalid types": re.compile(r"^Invalid types", re.IGNORECASE),
+            "Parameter not provided": re.compile(r"^Parameter \$.*? not provided", re.IGNORECASE),
+            "Unbound variable": re.compile(r"^Unbound variable", re.IGNORECASE),
+            "Unknown key": re.compile(r"^Unknown key", re.IGNORECASE),
+            "Missing function": re.compile(r"^Function '.*?' doesn't exist", re.IGNORECASE),
+            "Redeclaring variable": re.compile(r"^Redeclaring variable", re.IGNORECASE),
+            "There is no procedure named": re.compile(r"^There is no procedure named", re.IGNORECASE),
+        }
+
+    def classify_failure(self, query, msg):
+        for category, pattern in self.error_patterns.items():
+            if pattern.search(msg):
+                self.new_failures[category].add(query)
+                return
+        self.new_failures[msg].add(query)
+
+
 if __name__ == "__main__":
     tried_queres = 0
     passed_queries = 0
@@ -52,30 +77,9 @@ if __name__ == "__main__":
     all_items_iter = itertools.chain(dataset["train"], dataset["test"])
     total = len(dataset["train"]) + len(dataset["test"])
 
-    expected_failures = set()  # TODO: load from disk
+    expected_failures = set()  # TODO NOW: load from disk
 
-    unexpected_passes = set()  # Track queries that passed unexpectedly
-    new_failures = defaultdict(set)  # Track queries failures that failed unexpected
-
-    error_patterns = {
-        "parse error": re.compile(r"^Error on line", re.IGNORECASE),
-        "not implemented": re.compile(r"^Not yet implemented", re.IGNORECASE),
-        "Invalid query": re.compile(r"^Invalid query", re.IGNORECASE),
-        "Invalid types": re.compile(r"^Invalid types", re.IGNORECASE),
-        "Parameter not provided": re.compile(r"^Parameter \$.*? not provided", re.IGNORECASE),
-        "Unbound variable": re.compile(r"^Unbound variable", re.IGNORECASE),
-        "Unknown key": re.compile(r"^Unknown key", re.IGNORECASE),
-        "Missing function": re.compile(r"^Function '.*?' doesn't exist", re.IGNORECASE),
-        "Redeclaring variable": re.compile(r"^Redeclaring variable", re.IGNORECASE),
-        "There is no procedure named": re.compile(r"^There is no procedure named", re.IGNORECASE),
-    }
-
-    def classify_failure(query, msg):
-        for category, pattern in error_patterns.items():
-            if pattern.search(msg):
-                new_failures[category].add(query)
-                return
-        new_failures[msg].add(query)
+    collector = Collector()
 
     while True:
         try:
@@ -95,11 +99,11 @@ if __name__ == "__main__":
                     if res:
                         passed_queries += 1
                         if query in expected_failures:
-                            unexpected_passes.add(query)
+                            collector.unexpected_passes.add(query)
                     else:
                         failed_queries += 1
                         if query not in expected_failures:
-                            classify_failure(query, msg)
+                            collector.classify_failure(query, msg)
 
                     percent = (i + 1) / total * 100
                     print(f"\rProgress: {percent:.2f}% [{i + 1}/{total}]", end="", flush=True)
@@ -120,13 +124,13 @@ if __name__ == "__main__":
     print(f"The number of failed queries: {failed_queries}")
     print(f"The number of memgraph restarts: {number_of_restarts}")
 
-    for categorry, queries in new_failures.items():
+    for categorry, queries in collector.new_failures.items():
         print(f"Category: {categorry}")
         for query in queries:
             print(f"\tFAIL: {query}")
-    print(f"# of categories: {len(new_failures)}")
+    print(f"# of categories: {len(collector.new_failures)}")
     # if unexpected_passes:
     #     print(f"Some queries passed unexpectedly: {len(unexpected_passes)}")
 
-    # TODO NOW: if new failure or unxpected pass are non empty print here
-    # TODO NOW: write out the set of expected failures to disk (which reflect what we just tested)
+    # TODO NOW: if new failure or unxpected pass are non empty then
+    #           write out the set of expected failures to disk (which reflect what we just tested)
