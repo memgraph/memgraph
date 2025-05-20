@@ -33,6 +33,7 @@ jobs:
       arch:           ${{ matrix.arch }}
       version:        ${{ inputs.version }}
       push_to_dockerhub: ${{ inputs.push_to_dockerhub }}
+      test_docker_push: ${{ inputs.test_docker_push }}
       force_release:  ${{ inputs.force_release }}
       image_type:     ${{ matrix.image_type }}
     secrets: inherit
