@@ -20,9 +20,13 @@ on:
         type: boolean
         required: false
         default: false
+      cleanup_docker:
+        type: boolean
+        default: false
 
 jobs:
   build_images:
+    if: ${{ inputs.cleanup_docker == false }}
     strategy:
       fail-fast: false
       matrix:
@@ -40,9 +44,9 @@ jobs:
 
   cleanup_docker:
     runs-on: ubuntu-latest
-    if: ${{ inputs.push_to_dockerhub }}
+    if: ${{ inputs.push_to_dockerhub || inputs.cleanup_docker }}
     name: "Clean up Docker tags"
-    needs: build_images
+    #needs: build_images
     env:
       DOCKER_ORGANIZATION_NAME: memgraph
       DOCKER_REPOSITORY_NAME: mgbench-client${{ inputs.test_docker_push && '-test' || '' }}
@@ -96,11 +100,16 @@ jobs:
           docker manifest annotate $LATEST_TAG $REPO_TAG_AMD --os linux --arch amd64
           docker manifest push $LATEST_TAG
 
+      - name: Get dockerhub token
+        run: |
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
+
       - name: Delete single-arch tags
         run: |
           for t in "${REPO_TAG_ARM#*:}" "${REPO_TAG_AMD#*:}"; do
-            echo "Deleting tag → $t"
-            curl -s -X DELETE \
-              -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
+            url="https://hub.docker.com/v2/repositories/${DOCKER_ORGANIZATION_NAME}/${DOCKER_REPOSITORY_NAME}/tags/$t/"
+            echo "Deleting tag → $t from $url"
+            curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
               "https://hub.docker.com/v2/repositories/${DOCKER_ORGANIZATION_NAME}/${DOCKER_REPOSITORY_NAME}/tags/$t/"
           done
