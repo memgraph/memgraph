@@ -73,9 +73,20 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        // stream should be destroyed so that RPC lock is released
-        // before taking engine lock
         utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
+
+        // If SYNC replica, block while waiting for RPC lock
+        if (client_.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+          auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+              main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
+              std::string{replStorageState.epoch_.id()});
+          return hb_stream.SendAndWait();
+        }
+        // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
+        // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
+        // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
+        // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
+        // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
         auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
             main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
             std::string{replStorageState.epoch_.id()});
