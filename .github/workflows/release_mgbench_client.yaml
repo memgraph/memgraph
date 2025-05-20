@@ -98,11 +98,9 @@ jobs:
 
       - name: Delete single-arch tags
         run: |
-
-          curl -X DELETE \
-            -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
-            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${REPO_TAG_ARM#*:}"
-
-          curl -X DELETE \
-            -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
-            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${REPO_TAG_AMD#*:}"
+          for t in "${REPO_TAG_ARM#*:}" "${REPO_TAG_AMD#*:}"; do
+            echo "Deleting tag → $t"
+            curl -s -X DELETE \
+              -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
+              "https://hub.docker.com/v2/repositories/${DOCKER_ORGANIZATION_NAME}/${DOCKER_REPOSITORY_NAME}/tags/$t/"
+          done
