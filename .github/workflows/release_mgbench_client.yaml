@@ -101,8 +101,8 @@ jobs:
 
           curl -X DELETE \
             -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
-            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${{ env.REPO_TAG_ARM }}"
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${REPO_TAG_ARM#*:}"
 
           curl -X DELETE \
             -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
-            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${{ env.REPO_TAG_AMD }}"
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${REPO_TAG_AMD#*:}"
