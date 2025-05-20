@@ -16,6 +16,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/config.hpp"
 
@@ -30,13 +31,15 @@ struct SystemRecoveryReq {
   SystemRecoveryReq() = default;
   SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
                     std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
-                    std::vector<auth::User> users, std::vector<auth::Role> roles)
+                    std::vector<auth::User> users, std::vector<auth::Role> roles,
+                    std::vector<auth::UserProfiles::Profile> profiles)
       : main_uuid(main_uuid),
         forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
         auth_config(std::move(auth_config)),
         users{std::move(users)},
-        roles{std::move(roles)} {}
+        roles{std::move(roles)},
+        profiles{std::move(profiles)} {}
 
   utils::UUID main_uuid;
   uint64_t forced_group_timestamp;
@@ -44,6 +47,7 @@ struct SystemRecoveryReq {
   auth::Auth::Config auth_config;
   std::vector<auth::User> users;
   std::vector<auth::Role> roles;
+  std::vector<auth::UserProfiles::Profile> profiles;
 };
 
 struct SystemRecoveryRes {

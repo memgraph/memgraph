@@ -26,6 +26,7 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
   memgraph::slk::Save(self.auth_config, builder);
   memgraph::slk::Save(self.users, builder);
   memgraph::slk::Save(self.roles, builder);
+  memgraph::slk::Save(self.profiles, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
@@ -35,6 +36,7 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->auth_config, reader);
   memgraph::slk::Load(&self->users, reader);
   memgraph::slk::Load(&self->roles, reader);
+  memgraph::slk::Load(&self->profiles, reader);
 }
 
 // Serialize code for SystemRecoveryRes

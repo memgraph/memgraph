@@ -13,13 +13,17 @@
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 
 namespace memgraph::slk {
 // Serialize code for auth::Role
-void Save(const auth::Role &self, Builder *builder) { memgraph::slk::Save(self.Serialize().dump(), builder); }
+void Save(const auth::Role &self, Builder *builder) {
+  memgraph::slk::Save(self.Serialize().dump(), builder);
+  // TODO
+}
 
 namespace {
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
@@ -51,7 +55,10 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
 #ifdef MG_ENTERPRISE
   memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
 #endif
+  // User profile
+  memgraph::slk::Save(self.profile(), builder);
 }
+
 // Deserialize code for auth::User
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
@@ -86,6 +93,15 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
       continue;
     }
   }
+
+  // User profile
+  std::optional<auth::UserProfiles::Profile> profile{};
+  memgraph::slk::Load(&profile, reader);
+  if (profile) {
+    self->SetProfile(*profile);
+  } else {
+    self->ClearProfile();
+  }
 }
 
 // Serialize code for auth::Auth::Config
@@ -114,6 +130,7 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.user, builder);
   memgraph::slk::Save(self.role, builder);
+  memgraph::slk::Save(self.profile, builder);
 }
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
@@ -121,6 +138,7 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->user, reader);
   memgraph::slk::Load(&self->role, reader);
+  memgraph::slk::Load(&self->profile, reader);
 }
 
 // Serialize code for UpdateAuthDataRes
