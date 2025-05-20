@@ -4081,7 +4081,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-           &snapshot_info, &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+           &snapshot_info, name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
             const auto last_vertex_gid_in_batch =
                 LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
                                     get_property_from_id, name_id_mapper, snapshot_info);
@@ -4110,7 +4110,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
       {
         RecoverOnMultipleThreads(
             config.durability.recovery_thread_count,
-            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, &name_id_mapper](
+            [path, edges, items = config.salient.items, &get_property_from_id, &snapshot_info, name_id_mapper](
                 const size_t /*batch_index*/, const BatchInfo &batch) {
               LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, name_id_mapper,
                                snapshot_info);
@@ -4133,7 +4133,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
           config.durability.recovery_thread_count,
           [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
            snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info, &snapshot_info,
-           &name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
+           name_id_mapper](const size_t batch_index, const BatchInfo &batch) {
             const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info,
                                                         batch.offset, batch.count, items, snapshot_has_edges,
                                                         get_edge_type_from_id, name_id_mapper, snapshot_info);
