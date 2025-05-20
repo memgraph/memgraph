@@ -99,34 +99,58 @@ class Pokec(Workload):
 
     # OK
     def benchmark__arango__single_vertex_read(self):
-        return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__arango__single_vertex_write(self):
-        return (
-            "CREATE (n:UserTemp {id : $id}) RETURN n",
-            {"id": random.randint(1, self._num_vertices * 10)},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "CREATE (n:UserTemp {id : $id}) RETURN n",
+                    {"id": random.randint(1, self._num_vertices * 10)},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__arango__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
-            {"from": vertex_from, "to": vertex_to},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
+                    {"from": vertex_from, "to": vertex_to},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__arango__aggregate(self):
-        return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__arango__aggregate_with_distinct(self):
-        return ("MATCH (n:User) RETURN COUNT(DISTINCT n.age)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User) RETURN COUNT(DISTINCT n.age)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__arango__aggregate_with_filter(self):
-        return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # NOT OK
     # def benchmark__arango__expansion_1(self):
@@ -247,45 +271,73 @@ class Pokec(Workload):
             "RETURN [node in nodes(p) | node.id] AS path",
             {"from": vertex_from, "to": vertex_to},
         )
-        if self._vendor == "neo4j":
-            return neo4j
-        else:
-            return memgraph
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # Our benchmark queries
 
     # OK
     def benchmark__create__edge(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (a:User {id: $from}), (b:User {id: $to}) " "CREATE (a)-[:TempEdge]->(b)",
-            {"from": vertex_from, "to": vertex_to},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (a:User {id: $from}), (b:User {id: $to}) " "CREATE (a)-[:TempEdge]->(b)",
+                    {"from": vertex_from, "to": vertex_to},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__create__pattern(self):
-        return ("CREATE ()-[:TempEdge]->()", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("CREATE ()-[:TempEdge]->()", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__create__vertex(self):
-        return ("CREATE ()", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("CREATE ()", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__create__vertex_big(self):
-        return (
-            "CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
-            'p3: "Here is some text that is not extremely short", '
-            'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
-            {},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
+                    'p3: "Here is some text that is not extremely short", '
+                    'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
+                    {},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__aggregation__count(self):
-        return ("MATCH (n) RETURN count(n), count(n.age)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n) RETURN count(n), count(n.age)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__aggregation__min_max_avg(self):
-        return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # NOT OK
     # def benchmark__match__pattern_cycle(self):
@@ -303,50 +355,86 @@ class Pokec(Workload):
 
     # OK
     def benchmark__match__pattern_short(self):
-        return (
-            "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__match__vertex_on_label_property(self):
-        return (
-            "MATCH (n:User) WITH n WHERE n.id = $id RETURN n",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User) WITH n WHERE n.id = $id RETURN n",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__match__vertex_on_label_property_index(self):
-        return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__match__vertex_on_property(self):
-        return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__update__vertex_on_property(self):
-        return (
-            "MATCH (n {id: $id}) SET n.property = -1",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n {id: $id}) SET n.property = -1",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # Basic benchmark queries
 
     # OK
     def benchmark__basic__aggregate_aggregate(self):
-        return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__aggregate_count_aggregate(self):
-        return ("MATCH (n) RETURN count(n), count(n.age)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n) RETURN count(n), count(n.age)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__aggregate_with_filter_aggregate(self):
-        return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__min_max_avg_aggregate(self):
-        return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # NOT OK
     # def benchmark__basic__expansion_1_analytical(self):
@@ -434,47 +522,75 @@ class Pokec(Workload):
 
     # OK
     def benchmark__basic__pattern_cycle_analytical(self):
-        return (
-            "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__pattern_long_analytical(self):
-        return (
-            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__pattern_short_analytical(self):
-        return (
-            "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__single_vertex_property_update_update(self):
-        return (
-            "MATCH (n:User {id: $id}) SET n.property = -1",
-            {"id": self._get_random_vertex()},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User {id: $id}) SET n.property = -1",
+                    {"id": self._get_random_vertex()},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__single_vertex_read_read(self):
-        return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__single_vertex_write_write(self):
-        return (
-            "CREATE (n:UserTemp {id : $id}) RETURN n",
-            {"id": random.randint(1, self._num_vertices * 10)},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "CREATE (n:UserTemp {id : $id}) RETURN n",
+                    {"id": random.randint(1, self._num_vertices * 10)},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     # OK
     def benchmark__basic__single_edge_write_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
-            {"from": vertex_from, "to": vertex_to},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return (
+                    "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
+                    {"from": vertex_from, "to": vertex_to},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
