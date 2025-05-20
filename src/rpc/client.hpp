@@ -318,17 +318,46 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        std::forward<Args>(args)...);
+        /*try_lock*/ false, std::forward<Args>(args)...);
+  }
+
+  /**
+   * Tries to obtain RPC stream by try locking RPC lock, otherwise returns std::nullopt
+   * @tparam TRequestResponse RPC type
+   * @tparam Args Type of arguments to propagate to StreamWithLoad
+   * @param args  Arguments to propagate to StreamWithLoad
+   * @return nullopt if couldn't try_lock, StreamHandler otherwise
+   */
+  template <class TRequestResponse, class... Args>
+  std::optional<StreamHandler<TRequestResponse>> TryStream(Args &&...args) {
+    try {
+      return StreamWithLoad<TRequestResponse>(
+          [](auto *reader) {
+            typename TRequestResponse::Response response;
+            TRequestResponse::Response::Load(&response, reader);
+            return response;
+          },
+          /*try_lock*/ true, std::forward<Args>(args)...);
+    } catch (FailedToGetRpcStreamException const &) {
+      return std::nullopt;
+    }
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, Args &&...args) {
+      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, bool const try_lock, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
 
-    auto guard = std::unique_lock{mutex_};
+    auto guard = std::unique_lock{mutex_, std::defer_lock};
+    if (try_lock) {
+      if (!guard.try_lock()) {
+        throw FailedToGetRpcStreamException();
+      }
+    } else {
+      guard.lock();
+    }
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).

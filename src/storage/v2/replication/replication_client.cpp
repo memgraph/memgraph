@@ -71,15 +71,28 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  replication::HeartbeatRes const heartbeat_res = std::invoke([&] {
-    // stream should be destroyed so that RPC lock is released
-    // before taking engine lock
-    utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
-    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, main_storage->uuid(),
-                                                                           replStorageState.last_durable_timestamp_,
-                                                                           std::string{replStorageState.epoch_.id()});
-    return hb_stream.SendAndWait();
-  });
+  std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
+      std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
+        // stream should be destroyed so that RPC lock is released
+        // before taking engine lock
+        utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
+        auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
+            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
+            std::string{replStorageState.epoch_.id()});
+
+        std::optional<replication::HeartbeatRes> res;
+        if (hb_stream.has_value()) {
+          res.emplace(hb_stream->SendAndWait());
+        }
+        return res;
+      });
+
+  if (!maybe_heartbeat_res.has_value()) {
+    spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
+    return;
+  }
+
+  auto const &heartbeat_res = *maybe_heartbeat_res;
 
   if (heartbeat_res.success) {
     last_known_ts_.store(heartbeat_res.current_commit_timestamp, std::memory_order_release);
