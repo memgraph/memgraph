@@ -3825,16 +3825,18 @@ antlrcpp::Any CypherMainVisitor::visitListOfLimits(MemgraphCypher::ListOfLimitsC
 
 antlrcpp::Any CypherMainVisitor::visitCreateUserProfile(MemgraphCypher::CreateUserProfileContext *ctx) {
   auto *profile_query = storage_->Create<UserProfileQuery>();
-  if (ctx->CREATE())
+  if (ctx->CREATE()) {
     profile_query->action_ = UserProfileQuery::Action::CREATE;
-  else if (ctx->UPDATE())
+  } else if (ctx->UPDATE()) {
     profile_query->action_ = UserProfileQuery::Action::UPDATE;
-  else
+  } else {
     throw SemanticException("Unknown user profile action");
-
+  }
   profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
-  profile_query->limits_ =
-      std::any_cast<std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>>(ctx->list->accept(this));
+  if (ctx->LIMIT()) {
+    profile_query->limits_ =
+        std::any_cast<std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>>(ctx->list->accept(this));
+  }
 
   query_ = profile_query;
   return query_;
