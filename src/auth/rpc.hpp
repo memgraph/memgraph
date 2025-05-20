@@ -115,6 +115,8 @@ void Save(const auth::Role &self, memgraph::slk::Builder *builder);
 void Load(auth::Role *self, memgraph::slk::Reader *reader);
 void Save(const auth::User &self, memgraph::slk::Builder *builder);
 void Load(auth::User *self, memgraph::slk::Reader *reader);
+void Save(const auth::UserProfiles::Profile &self, memgraph::slk::Builder *builder);
+void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader);
 void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder);
 void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader);
 
