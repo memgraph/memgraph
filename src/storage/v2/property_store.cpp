@@ -2190,6 +2190,7 @@ class ReaderPropPositionHistory {
 
     for (auto inner_property_id : std::ranges::subrange(next, parent_map.end())) {
       auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
+      if (info.status != ExpectedPropertyStatus::EQUAL) return false;
       history_.emplace_back(inner_property_id, info.property_end);
 
       reader.SetPosition(info.property_begin);
