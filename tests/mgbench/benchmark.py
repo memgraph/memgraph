@@ -220,6 +220,12 @@ def parse_args():
     )
 
     benchmark_parser.add_argument(
+        "--databases",
+        default="memgraph",
+        help="Comma-separated list of databases",
+    )
+
+    benchmark_parser.add_argument(
         "--vendor-binary",
         type=str,
         help="Vendor binary used for benchmarking, by default it is memgraph",
@@ -952,6 +958,7 @@ if __name__ == "__main__":
         installation_type=args.installation_type,
         client_binary=args.client_binary if args.installation_type == "native" else None,
         client_language=args.client_language,
+        databases=args.databases,
         client_bolt_address=args.client_bolt_address,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,

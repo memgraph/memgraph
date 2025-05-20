@@ -111,6 +111,7 @@ class BoltClient(BaseClient):
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
         self._bolt_address = benchmark_context.client_bolt_address
+        self._databases = benchmark_context.databases
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -145,6 +146,7 @@ class BoltClient(BaseClient):
             address=self._bolt_address,
             validation=False,
             time_dependent_execution=time_dependent_execution,
+            databases=self._databases,
         )
 
         log.info("Client args: {}".format(client_args))
@@ -182,7 +184,10 @@ class BoltClient(BaseClient):
             port=self._bolt_port,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
+            databases=self._databases,
         )
+
+        log.info("Client args: {}".format(args))
 
         ret = None
         try:

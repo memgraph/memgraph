@@ -24,6 +24,7 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
+        databases: str = "memgraph",
         client_bolt_address: str = "127.0.0.1",
         external_vendor: bool = False,
         vendor_binary: str = None,
@@ -51,6 +52,7 @@ class BenchmarkContext:
         vendor_args: dict = {},
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
+        self.databases = databases
         self.external_vendor = external_vendor
         self.client_bolt_address = client_bolt_address
         self.vendor_binary = vendor_binary
