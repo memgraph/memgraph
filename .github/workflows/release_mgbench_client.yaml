@@ -90,10 +90,11 @@ jobs:
       - name: Tag latest client image
         if: ${{ matrix.image_type == 'client' }}
         run: |
-          docker manifest create $REPO_TAG:latest $REPO_TAG_AMD $REPO_TAG_ARM
-          docker manifest annotate $REPO_TAG:latest $REPO_TAG_ARM --os linux --arch arm64
-          docker manifest annotate $REPO_TAG:latest $REPO_TAG_AMD --os linux --arch amd64
-          docker manifest push $REPO_TAG:latest
+          LATEST_TAG="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest"
+          docker manifest create $LATEST_TAG $REPO_TAG_AMD $REPO_TAG_ARM
+          docker manifest annotate $LATEST_TAG $REPO_TAG_ARM --os linux --arch arm64
+          docker manifest annotate $LATEST_TAG $REPO_TAG_AMD --os linux --arch amd64
+          docker manifest push $LATEST_TAG
 
       - name: Delete single-arch tags
         run: |
