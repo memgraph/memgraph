@@ -15,6 +15,10 @@ on:
         type: boolean
         default: false
         description: "Push images to dockerhub"
+      test_docker_push:
+        type: boolean
+        default: false
+        description: "Push images to dockerhub-test"
       force_release:
         type: boolean
         required: false
@@ -30,7 +34,7 @@ jobs:
     runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64", "Linux"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64", "Linux"]') }}
     env:
       DOCKER_ORGANIZATION_NAME: memgraph
-      DOCKER_REPOSITORY_NAME: mgbench-client
+      DOCKER_REPOSITORY_NAME: mgbench-client${{ inputs.test_docker_push && '-test' || '' }}
 
     steps:
       - name: Verify image type
@@ -47,6 +51,9 @@ jobs:
             repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}-full"
             dockerfile="tests/mgbench/Dockerfile.mgbench_full"
           fi
+
+          repo_tag="${repo_tag}-${{ inputs.arch }}64"
+
           echo "Building image: ${repo_tag}"
           echo "REPO_TAG=${repo_tag}" >> $GITHUB_ENV
           echo "DOCKERFILE=${dockerfile}" >> $GITHUB_ENV
@@ -104,7 +111,3 @@ jobs:
         if: ${{ inputs.push_to_dockerhub }}
         run: |
           docker push ${{ env.REPO_TAG }}
-          if [[ "${{ inputs.image_type }}" == "client" ]]; then
-            docker tag ${{ env.REPO_TAG }} $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest
-            docker push $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest
-          fi

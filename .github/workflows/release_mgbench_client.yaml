@@ -13,6 +13,9 @@ on:
         type: boolean
         default: false
         description: "Push images to dockerhub"
+      test_docker_push:
+        type: boolean
+        default: false
       force_release:
         type: boolean
         required: false
@@ -33,3 +36,71 @@ jobs:
       force_release:  ${{ inputs.force_release }}
       image_type:     ${{ matrix.image_type }}
     secrets: inherit
+
+  cleanup_docker:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.push_to_dockerhub }}
+    name: "Clean up Docker tags"
+    needs: build_images
+    env:
+      DOCKER_ORGANIZATION_NAME: memgraph
+      DOCKER_REPOSITORY_NAME: mgbench-client${{ inputs.test_docker_push && '-test' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image_type: [client, full]
+    steps:
+      - name: Log in to Docker Hub
+        if: ${{ inputs.push_to_dockerhub }}
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest for version
+        run: |
+
+          if [[ "${{ matrix.image_type }}" == "client" ]]; then
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}"
+          else
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}-full"
+          fi
+
+          repo_tag_arm="${repo_tag}-arm64"
+          repo_tag_amd="${repo_tag}-amd64"
+
+          echo "REPO_TAG=${repo_tag}" >> $GITHUB_ENV
+          echo "REPO_TAG_ARM=${repo_tag_arm}" >> $GITHUB_ENV
+          echo "REPO_TAG_AMD=${repo_tag_amd}" >> $GITHUB_ENV
+
+      - name: Create and push multi-arch manifest for version
+        run: |
+          # pull them
+          docker pull $REPO_TAG_ARM
+          docker pull $REPO_TAG_AMD
+
+          # create version manifest
+          docker manifest create $REPO_TAG \
+            $REPO_TAG_ARM $REPO_TAG_AMD
+          docker manifest annotate $REPO_TAG $REPO_TAG_ARM --os linux --arch arm64
+          docker manifest annotate $REPO_TAG $REPO_TAG_AMD --os linux --arch amd64
+          docker manifest push $REPO_TAG
+
+      - name: Tag latest client image
+        if: ${{ matrix.image_type == 'client' }}
+        run: |
+          docker manifest create $REPO_TAG:latest $REPO_TAG_AMD $REPO_TAG_ARM
+          docker manifest annotate $REPO_TAG:latest $REPO_TAG_ARM --os linux --arch arm64
+          docker manifest annotate $REPO_TAG:latest $REPO_TAG_AMD --os linux --arch amd64
+          docker manifest push $REPO_TAG:latest
+
+      - name: Delete single-arch tags
+        run: |
+
+          curl -X DELETE \
+            -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${{ env.REPO_TAG_ARM }}"
+
+          curl -X DELETE \
+            -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
+            "https://hub.docker.com/v2/repositories/${{ env.DOCKER_ORGANIZATION_NAME }}/${{ env.DOCKER_REPOSITORY_NAME }}/tags/${{ env.REPO_TAG_AMD }}"
