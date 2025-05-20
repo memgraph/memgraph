@@ -6565,7 +6565,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         }
         return std::nullopt;
       },
-      RWType::W,
+      RWType::NONE,
       ""  // No target DB possible
   };
 #else
