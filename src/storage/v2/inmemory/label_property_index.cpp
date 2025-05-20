@@ -34,11 +34,11 @@ namespace {
 // @TODO debugging code to trace to stdout the prop values whenever we add an
 // entry to the skip list. Remove before delivery.
 void TraceIndexEntry(auto &&values) {
-  std::cout << "INDEX: ";
-  for (auto &&value : values) {
-    std::cout << "`" << value << "` ";
-  }
-  std::cout << "\n";
+  // std::cout << "INDEX: ";
+  // for (auto &&value : values) {
+  //   std::cout << "`" << value << "` ";
+  // }
+  // std::cout << "\n";
 }
 
 auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermutationHelper const &helper,
