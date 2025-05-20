@@ -48,7 +48,8 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * AUTH
    */
-  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles)) return;  // Failure sent on exit
+  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles))
+    return;  // Failure sent on exit
 
   /*
    * SUCCESSFUL RECOVERY
