@@ -13,7 +13,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <set>
 #include <string>
 
@@ -55,6 +54,25 @@ struct VersionDependant {};
 template <auto MIN_VER, typename Before, typename After, auto Upgrader>
 struct VersionDependantUpgradable {};
 
+using PropertyPathStr = std::vector<std::vector<std::string>>;
+
+constexpr auto SinglePropertyToVector = [](std::string v) { return std::vector{v}; };
+
+constexpr auto PropertyVectorToPropertyPaths = [](std::vector<std::string> v) -> PropertyPathStr {
+  PropertyPathStr result;
+  for (const auto &property : v) {
+    result.emplace_back(std::vector{property});
+  }
+  return result;
+};
+
+using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
+                                                            std::vector<std::string>, SinglePropertyToVector>;
+
+using UpgradablePropertyPaths =
+    VersionDependantUpgradable<kCompositeIndicesForLabelProperties, UpgradableSingleProperty, PropertyPathStr,
+                               PropertyVectorToPropertyPaths>;
+
 // Common structures used by more than one WAL Delta
 struct VertexOpInfo {
   friend bool operator==(const VertexOpInfo &, const VertexOpInfo &) = default;
@@ -88,22 +106,9 @@ struct LabelPropertyOpInfo {
 };
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
-  using ctr_types =
-      std::tuple<std::string,
-                 VersionDependantUpgradable<
-                     kCompositeIndicesForLabelProperties,
-                     VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
-                                                std::vector<std::string>, [](std::string v) { return std::vector{v}; }>,
-                     std::vector<std::vector<std::string>>,
-                     [](std::vector<std::string> v) -> std::vector<std::vector<std::string>> {
-                       std::vector<std::vector<std::string>> result;
-                       for (const auto &property : v) {
-                         result.emplace_back(std::vector{property});
-                       }
-                       return result;
-                     }>>;
+  using ctr_types = std::tuple<std::string, UpgradablePropertyPaths>;
   std::string label;
-  std::vector<std::vector<std::string>> properties;
+  PropertyPathStr properties;
 };
 
 struct LabelUnorderedPropertiesOpInfo {
@@ -194,22 +199,9 @@ struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
 struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
 struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
-  using ctr_types =
-      std::tuple<std::string,
-                 VersionDependantUpgradable<
-                     kCompositeIndicesForLabelProperties,
-                     VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
-                                                std::vector<std::string>, [](std::string v) { return std::vector{v}; }>,
-                     std::vector<std::vector<std::string>>,
-                     [](std::vector<std::string> v) -> std::vector<std::vector<std::string>> {
-                       std::vector<std::vector<std::string>> result;
-                       for (const auto &property : v) {
-                         result.emplace_back(std::vector{property});
-                       }
-                       return result;
-                     }>>;
+  using ctr_types = std::tuple<std::string, UpgradablePropertyPaths, std::string>;
   std::string label;
-  std::vector<std::vector<std::string>> properties;
+  PropertyPathStr properties;
   std::string json_stats;
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
