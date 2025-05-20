@@ -111,6 +111,7 @@ class BaseClient(ABC):
 
 class BoltClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
@@ -214,6 +215,7 @@ class BoltClient(BaseClient):
 
 class BoltClientDocker(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
@@ -285,7 +287,7 @@ class BoltClientDocker(BaseClient):
 
         check_file = Path(self._directory.name) / "check.json"
         with open(check_file, "w") as f:
-            query = [self._get, {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -929,8 +931,8 @@ class MemgraphDocker(BaseRunner):
         self._vendor_args = benchmark_context.vendor_args
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
-        self._image_name = "memgraph/memgraph"
-        self._image_version = "3.1.1"
+        self._image_name = "memgraph/memgraph-mage"
+        self._image_version = "3.2.1"
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
