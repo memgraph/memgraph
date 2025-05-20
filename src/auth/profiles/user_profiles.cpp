@@ -18,6 +18,8 @@
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
 
+#include "auth/rpc.hpp"
+
 namespace memgraph::auth {
 
 void to_json(nlohmann::json &data, const memgraph::auth::UserProfiles::limits_t &limits) {
@@ -140,3 +142,22 @@ std::vector<UserProfiles::Profile> UserProfiles::GetAll() const {
 }
 
 }  // namespace memgraph::auth
+
+namespace memgraph::slk {
+// Serialize code for auth::UserProfile
+void Save(const auth::UserProfiles::Profile &self, memgraph::slk::Builder *builder) {
+  nlohmann::json json;
+  json[self.name] = self.limits;
+  memgraph::slk::Save(json.dump(), builder);
+}
+// Deserialize code for auth::User
+void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader) {
+  std::string tmp;
+  memgraph::slk::Load(&tmp, reader);
+  const auto json = nlohmann::json::parse(tmp);
+  const auto name = json.begin().key();
+  const auto limits = json.begin().value();
+  self->name = name;
+  self->limits = limits.get<auth::UserProfiles::limits_t>();
+}
+}  // namespace memgraph::slk
