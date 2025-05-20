@@ -155,7 +155,6 @@ struct PropertiesPermutationHelper {
 
  private:
   std::vector<PropertyPath> sorted_properties_;
-  std::vector<PropertyId> sorted_properties_roots_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
 };
