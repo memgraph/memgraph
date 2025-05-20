@@ -81,14 +81,16 @@ if __name__ == "__main__":
         try:
             with tempfile.TemporaryDirectory() as data_directory, memgraph_server(
                 memgraph_binary,
-                Path(data_directory),
+                Path("/home/ivan.linux/work/memgraph/build/data2"),
+                #Path(data_directory),
                 7687,
                 logger,
-                ["--storage-gc-cycle-sec=9999", "--bolt-num-workers=1"],
+                ["--storage-gc-cycle-sec=9999", "--bolt-num-workers=1", "--data-recovery-on-startup=true"],
             ) as server:
                 for i, item in enumerate(all_items_iter):
                     tried_queres += 1
                     query = item["cypher"].replace("\\n", " ")
+                    print(query, flush=True)
                     res, msg = execute_query(query)
                     if res:
                         passed_queries += 1
