@@ -57,6 +57,7 @@ using memgraph::storage::LabelId;
 using memgraph::storage::Point2d;
 using memgraph::storage::PointIndexStorage;
 using memgraph::storage::PropertyId;
+using memgraph::storage::PropertyPath;
 using memgraph::storage::PropertyStore;
 using memgraph::storage::PropertyValue;
 using memgraph::storage::SnapshotObserverInfo;
@@ -189,7 +190,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info,
+                                         snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
@@ -212,7 +214,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info,
+                                         snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) {
@@ -237,8 +240,9 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexSingleThreadedVertices) 
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop_c, prop_a, prop_b}, vertices.access(), par_schema_info,
-                                         snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label,
+                                         std::vector{PropertyPath{prop_c}, PropertyPath{prop_a}, PropertyPath{prop_b}},
+                                         vertices.access(), par_schema_info, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
@@ -263,7 +267,8 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop}, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{PropertyPath{prop}}, vertices.access(), par_schema_info,
+                                         snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
@@ -290,8 +295,9 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertiesIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_prop_idx.CreateIndex(label, std::vector{prop_c, prop_a, prop_b}, vertices.access(), par_schema_info,
-                                         snapshot_info));
+  ASSERT_TRUE(label_prop_idx.CreateIndex(label,
+                                         std::vector{PropertyPath{prop_c}, PropertyPath{prop_a}, PropertyPath{prop_b}},
+                                         vertices.access(), par_schema_info, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
