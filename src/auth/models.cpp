@@ -52,7 +52,6 @@ constexpr auto kUserImpGranted = "user_imp_granted";
 constexpr auto kUserImpDenied = "user_imp_denied";
 constexpr auto kUserImpId = "user_imp_id";
 constexpr auto kUserImpName = "user_imp_name";
-constexpr auto kUserProfile = "user_profile";
 #endif
 
 // Constant list of all available permissions.

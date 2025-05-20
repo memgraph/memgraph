@@ -15,7 +15,6 @@
 #include <shared_mutex>
 #include <string>
 
-#include "auth/models.hpp"
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
 
@@ -25,9 +24,9 @@ void to_json(nlohmann::json &data, const memgraph::auth::UserProfiles::limits_t 
   using up = memgraph::auth::UserProfiles;
   for (const auto &[key, val] : limits) {
     if (std::holds_alternative<up::unlimitted_t>(val)) {
-      data[up::kLimits[(size_t)key]] = nlohmann::json(/*null*/);
+      data.emplace(up::kLimits[(size_t)key], nlohmann::json(/*null*/));
     } else {
-      data[up::kLimits[(size_t)key]] = std::get<uint64_t>(val);
+      data.emplace(up::kLimits[(size_t)key], std::get<uint64_t>(val));
     }
   }
 }
@@ -75,7 +74,8 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits) {
   if (!succ) {
     return false;
   }
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, nlohmann::json{defined_limits}.dump())) {
+  const nlohmann::json json = defined_limits;
+  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
     // Remove new profile
     profiles_.erase(it);
     return false;
@@ -95,7 +95,8 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
     profile_it->limits[key] = val;
   }
   // Update durability
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, nlohmann::json{profile_it->limits}.dump())) {
+  const nlohmann::json json = profile_it->limits;
+  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
     // Revert to old profile
     profile_it->limits = std::move(old_limits);
     return std::nullopt;
