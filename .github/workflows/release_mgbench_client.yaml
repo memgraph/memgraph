@@ -16,17 +16,15 @@ on:
       test_docker_push:
         type: boolean
         default: false
+        description: "Push to test repository on Dockerhub"
       force_release:
         type: boolean
         required: false
         default: false
-      cleanup_docker:
-        type: boolean
-        default: false
+        description: "Overwrite existing images with the same tags"
 
 jobs:
   build_images:
-    if: ${{ inputs.cleanup_docker == false }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,9 +42,9 @@ jobs:
 
   cleanup_docker:
     runs-on: ubuntu-latest
-    if: ${{ inputs.push_to_dockerhub || inputs.cleanup_docker }}
+    if: ${{ inputs.push_to_dockerhub }}
     name: "Clean up Docker tags"
-    #needs: build_images
+    needs: build_images
     env:
       DOCKER_ORGANIZATION_NAME: memgraph
       DOCKER_REPOSITORY_NAME: mgbench-client${{ inputs.test_docker_push && '-test' || '' }}
