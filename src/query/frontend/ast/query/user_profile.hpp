@@ -14,6 +14,7 @@
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/query.hpp"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -52,15 +53,17 @@ class UserProfileQuery : public memgraph::query::Query {
   using limit_t = std::pair<std::string, LimitValueResult>;
   using limits_t = std::vector<limit_t>;
 
-  enum class Action { CREATE, UPDATE, DROP } action_;
+  enum class Action { CREATE, UPDATE, DROP, SHOW_ALL, SHOW_ONE, SHOW_USERS, SHOW_FOR, SET, CLEAR } action_;
   std::string profile_name_;
   limits_t limits_;  // Value type might change if int is not sufficient
+  std::optional<std::string> user_or_role_;
 
   UserProfileQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<UserProfileQuery>();
     object->action_ = action_;
     object->profile_name_ = profile_name_;
     object->limits_ = limits_;
+    object->user_or_role_ = user_or_role_;
     return object;
   }
 

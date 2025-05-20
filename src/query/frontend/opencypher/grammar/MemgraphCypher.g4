@@ -762,4 +762,21 @@ limitKV : key=symbolicName val=limitValue ;
 
 listOfLimits : limitKV (',' limitKV )* ;
 
-userProfileQuery : ( CREATE | UPDATE | DROP ) PROFILE profile=symbolicName LIMIT list=listOfLimits ;
+createUserProfile : ( CREATE | UPDATE ) PROFILE profile=symbolicName LIMIT list=listOfLimits ;
+dropUserProfile : DROP PROFILE ;
+showUserProfiles : SHOW PROFILES ;
+showUserProfile : SHOW PROFILE profile=symbolicName ;
+showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
+showUserProfileForProfile : SHOW USERS FOR PROFILE profile=symbolicName ;
+setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
+clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
+
+userProfileQuery : createUserProfile
+                 | dropUserProfile
+                 | showUserProfiles
+                 | showUserProfile
+                 | showUserProfileForUser
+                 | showUserProfileForProfile
+                 | setUserProfile
+                 | clearUserProfile
+                 ;

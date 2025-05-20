@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <fmt/core.h>
+#include <functional>
 #include <unordered_set>
 #include <variant>
 
@@ -24,6 +26,7 @@ class UserProfiles {
   enum class Limits : uint8_t { kSessions = 0, kTransactionsMemory };
   static constexpr std::array<std::string_view, 2> kLimits = {"sessions", "transactions_memory"};
   static_assert(kLimits.size() == (int)Limits::kTransactionsMemory + 1, "kLimits size mismatch");
+  static auto AllLimits() { return fmt::format("{}, {}", kLimits[0], kLimits[1]); }
 
   static constexpr std::string_view kUserProfilesPrefix = "user_profile:";
   static constexpr std::string_view kUserProfilesVersionkey = "user_profile_version";
@@ -31,7 +34,7 @@ class UserProfiles {
   static constexpr std::string_view kUserProfilesVersion = kUserProfilesV1;
 
   using unlimitted_t = std::monostate;
-  using limit_t = std::variant<unlimitted_t, uint64_t>;
+  using limit_t = std::variant<unlimitted_t, uint64_t>;  // For now uint64_t is sufficient, might change in the future
   using limits_t = std::unordered_map<Limits, limit_t>;
 
   struct Profile {

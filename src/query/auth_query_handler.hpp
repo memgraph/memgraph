@@ -172,12 +172,13 @@ class AuthQueryHandler {
   virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
                              system::Transaction *system_tx) = 0;
   virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
-  virtual std::optional<UserProfileQuery::limits_t> GetProfile(std::string_view name) = 0;
+  virtual UserProfileQuery::limits_t GetProfile(std::string_view name) = 0;
   virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles() = 0;
   virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
                           system::Transaction *system_tx) = 0;
-  virtual void RevokeProfile(const std::string &profile_name, const std::string &user_or_role,
-                             system::Transaction *system_tx) = 0;
+  virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) = 0;
+  virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetUsersForProfile(const std::string &profile_name) = 0;
 #endif
 };
 

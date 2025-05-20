@@ -413,13 +413,15 @@ class Auth final {
   std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
   std::vector<UserProfiles::Profile> AllProfiles() const;
 
-  bool SetProfile(const std::string &profile_name, const std::string &name, system::Transaction *system_tx = nullptr);
+  void SetProfile(const std::string &profile_name, const std::string &name, system::Transaction *system_tx = nullptr);
   void SetProfile(const UserProfiles::Profile &profile, User &user, system::Transaction *system_tx = nullptr);
   void SetProfile(const UserProfiles::Profile &profile, Role &role, system::Transaction *system_tx = nullptr);
 
-  bool RevokeProfile(const std::string &name, system::Transaction *system_tx = nullptr);
+  void RevokeProfile(const std::string &name, system::Transaction *system_tx = nullptr);
   void RevokeProfile(User &user, system::Transaction *system_tx = nullptr);
   void RevokeProfile(Role &role, system::Transaction *system_tx = nullptr);
+
+  std::vector<std::string> GetUsersForProfile(const std::string &profile_name) const;
 #endif
 
  private:

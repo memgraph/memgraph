@@ -1250,7 +1250,42 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return UserProfileQuery*
    */
-  antlrcpp::Any visitUserProfileQuery(MemgraphCypher::UserProfileQueryContext *ctx) override;
+  antlrcpp::Any visitCreateUserProfile(MemgraphCypher::CreateUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitDropUserProfile(MemgraphCypher::DropUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfiles(MemgraphCypher::ShowUserProfilesContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfile(MemgraphCypher::ShowUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfileForUser(MemgraphCypher::ShowUserProfileForUserContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfileForProfile(MemgraphCypher::ShowUserProfileForProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitSetUserProfile(MemgraphCypher::SetUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitClearUserProfile(MemgraphCypher::ClearUserProfileContext *ctx) override;
 
  public:
   Query *query() { return query_; }

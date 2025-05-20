@@ -6427,43 +6427,165 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
           break;
         case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
           const auto val = limit_value.mem_limit.expr->Accept(evaluator);
-          if (val.IsInt()) {
+          if (val.IsInt() && val.ValueInt() > 0) {
             limit_value.mem_limit.value = val.ValueInt();
           } else {
-            throw QueryException("Expected integer value for memory limit.");
+            throw QueryException("Expected positive integer value for memory limit.");
           }
         } break;
         case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
           const auto val = limit_value.quantity.expr->Accept(evaluator);
-          if (val.IsInt()) {
+          if (val.IsInt() && val.ValueInt() > 0) {
             limit_value.quantity.value = val.ValueInt();
           } else {
-            throw QueryException("Expected integer value for quantity limit.");
+            throw QueryException("Expected positive integer value for quantity limit.");
           }
         } break;
       }
     }
   };
 
+  // Evaluate expressions and update limits with values (has to be done before callback)
+  evaluate_literals(query->limits_);
+
   switch (query->action_) {
     case UserProfileQuery::Action::CREATE: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
-      if (!interpreter->system_transaction_) {
-        throw QueryException("Expected to be in a system transaction");
-      }
-      // Evaluate expressions and update limits with values (has to be done before callback)
-      evaluate_literals(query->limits_);
-      callback.fn = [auth = interpreter_context->auth, profile_name = query->profile_name_,
-                     limits = std::move(query->limits_), system_transaction = &*interpreter->system_transaction_]() {
-        auth->CreateProfile(profile_name, limits, system_transaction);
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
+                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
+        auth->CreateProfile(profile_name, limits, &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
-    default:
-      // todo
-      return {};
+    case UserProfileQuery::Action::UPDATE: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
+                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
+        auth->UpdateProfile(profile_name, limits, &*interpreter->system_transaction_);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+    } break;
+    case UserProfileQuery::Action::DROP: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
+                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
+        auth->DropProfile(profile_name, &*interpreter->system_transaction_);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+    } break;
+    case UserProfileQuery::Action::SET: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
+                     user_or_role = std::move(query->user_or_role_), interpreter = &*interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
+        if (!user_or_role) {
+          throw QueryException("Expected user or role.");
+        }
+        auth->SetProfile(profile_name, *user_or_role, &*interpreter->system_transaction_);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+    } break;
+    case UserProfileQuery::Action::CLEAR: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_),
+                     interpreter = &*interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
+        if (!user_or_role) {
+          throw QueryException("Expected user or role.");
+        }
+        auth->RevokeProfile(*user_or_role, &*interpreter->system_transaction_);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+    } break;
+    case UserProfileQuery::Action::SHOW_ALL: {
+      callback.header = {"profile"};
+      callback.fn = [auth = interpreter_context->auth]() {
+        std::vector<std::vector<TypedValue>> res;
+        for (const auto &[name, _] : auth->AllProfiles()) {
+          res.emplace_back(std::vector<TypedValue>{TypedValue(name)});
+        }
+        return res;
+      };
+    } break;
+    case UserProfileQuery::Action::SHOW_ONE: {
+      callback.header = {"limit", "value"};
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_)] {
+        std::vector<std::vector<TypedValue>> res;
+        auto limits = auth->GetProfile(profile_name);
+        auto limit_to_tv = [](auto limit) {
+          switch (limit.type) {
+            case UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+              return TypedValue{"UNLIMITED"};
+            case UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+              auto str = std::to_string(limit.mem_limit.value);
+              if (limit.mem_limit.scale == 1024) {
+                str += " KB";
+              } else if (limit.mem_limit.scale == 1024 * 1024) {
+                str += " MB";
+              } else {
+                str = "UNKNOWN";
+              }
+              return TypedValue{std::move(str)};
+            }
+            case UserProfileQuery::LimitValueResult::Type::QUANTITY:
+              return TypedValue{(int64_t)limit.quantity.value};
+          }
+        };
+        for (const auto &[name, value] : limits) {
+          res.emplace_back(std::vector<TypedValue>{TypedValue(name), limit_to_tv(value)});
+        }
+        return res;
+      };
+    } break;
+    case UserProfileQuery::Action::SHOW_USERS: {
+      callback.header = {"users"};
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_)]() {
+        std::vector<std::vector<TypedValue>> res;
+        for (const auto &profile : auth->GetUsersForProfile(profile_name)) {
+          res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
+        }
+        return res;
+      };
+    } break;
+    case UserProfileQuery::Action::SHOW_FOR: {
+      callback.header = {"profile"};
+      callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_)]() {
+        if (!user_or_role) {
+          throw QueryException("Expected user or role.");
+        }
+        std::vector<std::vector<TypedValue>> res;
+        auto profile = auth->GetProfileForUser(*user_or_role);
+        if (profile) {
+          res.emplace_back(std::vector<TypedValue>{TypedValue(*profile)});
+        } else {
+          res.emplace_back(std::vector<TypedValue>{TypedValue("null")});
+        }
+        return res;
+      };
+    } break;
   }
 
   return PreparedQuery{

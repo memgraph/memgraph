@@ -83,10 +83,10 @@ UserProfileQuery::LimitValueResult VisitLimitValue(MemgraphCypher::LimitValueCon
     auto *memory_limit = std::any_cast<Expression *>(memory_limit_ctx->literal()->accept(visitor));
     size_t memory_scale = 1024U;
     if (memory_limit_ctx->MB()) {
-      memory_scale = 1024U * 1024U;
+      memory_scale = 1024UL * 1024UL;
     } else {
       MG_ASSERT(memory_limit_ctx->KB());
-      memory_scale = 1024U;
+      memory_scale = 1024UL;
     }
     result.mem_limit.type = UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
     result.mem_limit.expr = memory_limit;
@@ -3810,7 +3810,7 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
 }
 
 antlrcpp::Any CypherMainVisitor::visitLimitKV(MemgraphCypher::LimitKVContext *ctx) {
-  auto key = std::any_cast<std::string>(ctx->key->accept(this));
+  auto key = utils::ToLowerCase(std::any_cast<std::string>(ctx->key->accept(this)));
   auto value = VisitLimitValue(ctx->val, this);
   return std::pair{std::move(key), std::move(value)};
 }
@@ -3823,14 +3823,12 @@ antlrcpp::Any CypherMainVisitor::visitListOfLimits(MemgraphCypher::ListOfLimitsC
   return limits;
 }
 
-antlrcpp::Any CypherMainVisitor::visitUserProfileQuery(MemgraphCypher::UserProfileQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitCreateUserProfile(MemgraphCypher::CreateUserProfileContext *ctx) {
   auto *profile_query = storage_->Create<UserProfileQuery>();
   if (ctx->CREATE())
     profile_query->action_ = UserProfileQuery::Action::CREATE;
   else if (ctx->UPDATE())
     profile_query->action_ = UserProfileQuery::Action::UPDATE;
-  else if (ctx->DROP())
-    profile_query->action_ = UserProfileQuery::Action::DROP;
   else
     throw SemanticException("Unknown user profile action");
 
@@ -3838,6 +3836,61 @@ antlrcpp::Any CypherMainVisitor::visitUserProfileQuery(MemgraphCypher::UserProfi
   profile_query->limits_ =
       std::any_cast<std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>>(ctx->list->accept(this));
 
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropUserProfile(MemgraphCypher::DropUserProfileContext * /* unused */) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::DROP;
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfiles(MemgraphCypher::ShowUserProfilesContext * /* unused */) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_ALL;
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfile(MemgraphCypher::ShowUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_ONE;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfileForUser(MemgraphCypher::ShowUserProfileForUserContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_FOR;
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfileForProfile(MemgraphCypher::ShowUserProfileForProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_USERS;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetUserProfile(MemgraphCypher::SetUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SET;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitClearUserProfile(MemgraphCypher::ClearUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::CLEAR;
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
   query_ = profile_query;
   return query_;
 }

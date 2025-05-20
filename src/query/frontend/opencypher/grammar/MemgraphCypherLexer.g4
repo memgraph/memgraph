@@ -132,6 +132,7 @@ PERIODIC                : P E R I O D I C ;
 POINT                   : P O I N T ;
 PORT                    : P O R T ;
 PRIVILEGES              : P R I V I L E G E S ;
+PROFILES                : P R O F I L E S ;
 PULSAR                  : P U L S A R ;
 QUOTE                   : Q U O T E ;
 READ                    : R E A D ;
