@@ -19,7 +19,7 @@ PIP_DEPS=(
    "gqlalchemy==1.6.0"
    "python3-saml==1.16.0"
    "setuptools==75.8.0"
-   "pymgclient==1.3.1"
+   "pymgclient==1.4.0"
    "datasets==3.6.0"
 )
 
