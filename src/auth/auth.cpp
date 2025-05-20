@@ -798,20 +798,20 @@ std::optional<UserProfiles::Profile> Auth::GetProfile(std::string_view name) con
 
 std::vector<UserProfiles::Profile> Auth::AllProfiles() const { return user_profiles_.GetAll(); }
 
-bool Auth::SetProfile(const std::string &profile_name, const std::string &name, system::Transaction *system_tx) {
+void Auth::SetProfile(const std::string &profile_name, const std::string &name, system::Transaction *system_tx) {
   const auto profile = user_profiles_.Get(profile_name);  // Check if profile exists
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
   }
   if (auto user = GetUser(name)) {
     SetProfile(*profile, *user, system_tx);
-    return true;
+    return;
   }
   if (auto role = GetRole(name)) {
     SetProfile(*profile, *role, system_tx);
-    return true;
+    return;
   }
-  return false;  // Failed to find user or role
+  throw AuthException("Couldn't find user or role named '{}'!", name);
 }
 
 void Auth::SetProfile(const UserProfiles::Profile &profile, User &user, system::Transaction *system_tx) {
@@ -824,16 +824,16 @@ void Auth::SetProfile(const UserProfiles::Profile &profile, Role &role, system::
   SaveRole(role, system_tx);
 }
 
-bool Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx) {
+void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx) {
   if (auto user = GetUser(name)) {
     RevokeProfile(*user, system_tx);
-    return true;
+    return;
   }
   if (auto role = GetRole(name)) {
     RevokeProfile(*role, system_tx);
-    return true;
+    return;
   }
-  return false;  // Failed to find user or role
+  throw AuthException("Couldn't find user or role named '{}'!", name);
 }
 
 void Auth::RevokeProfile(User &user, system::Transaction *system_tx) {
@@ -844,6 +844,22 @@ void Auth::RevokeProfile(User &user, system::Transaction *system_tx) {
 void Auth::RevokeProfile(Role &role, system::Transaction *system_tx) {
   // TODO...
   SaveRole(role, system_tx);
+}
+
+std::vector<std::string> Auth::GetUsersForProfile(const std::string &profile_name) const {
+  const auto profile = user_profiles_.Get(profile_name);
+  if (!profile) {
+    throw AuthException("Couldn't find profile '{}'!", profile_name);
+  }
+  std::vector<std::string> ret;
+  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
+    auto username = it->first.substr(kProfileLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    if (it->second == profile_name) {
+      ret.push_back(std::move(username));
+    }
+  }
+  return ret;
 }
 
 #endif
