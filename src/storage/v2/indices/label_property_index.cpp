@@ -57,8 +57,6 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
           [](auto const &value) -> decltype(auto) { return std::get<1>(value)[0]; });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
-
-  sorted_properties_roots_ = sorted_properties_ | rv::transform([](auto &&path) { return path[0]; }) | r::to_vector;
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
