@@ -59,10 +59,11 @@ class Pokec(Workload):
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         super().__init__(variant, benchmark_context=benchmark_context, disk_workload=True)
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         if self._vendor == "neo4j":
             importer = ImporterPokec(
                 benchmark_context=self.benchmark_context,
+                client=client,
                 dataset_name=self.NAME,
                 index_file=self._file_index,
                 dataset_file=self._file,

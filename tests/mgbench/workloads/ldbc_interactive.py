@@ -61,9 +61,10 @@ class LDBC_Interactive(Workload):
         "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf3.tar.zst",
     }
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         importer = ImporterLDBCInteractive(
             benchmark_context=self.benchmark_context,
+            client=client,
             dataset_name=self.NAME,
             variant=self._variant,
             index_file=self._file_index,

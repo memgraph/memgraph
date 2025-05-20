@@ -52,9 +52,10 @@ class Pokec(Workload):
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         super().__init__(variant, benchmark_context=benchmark_context)
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         importer = ImporterPokec(
             benchmark_context=self.benchmark_context,
+            client=client,
             dataset_name=self.NAME,
             index_file=self._file_index,
             dataset_file=self._file,
@@ -91,6 +92,14 @@ class Pokec(Workload):
                 raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
+
+    def benchmark__arango__unwind_range_vertex_write(self):
+        return (
+            "UNWIND range(1, 100) as x CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
+            'p3: "Here is some text that is not extremely short", '
+            'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
+            {},
+        )
 
     def benchmark__arango__single_vertex_write(self):
         vertex_id = random.randint(1, self._num_vertices * 10)

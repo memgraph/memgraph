@@ -220,6 +220,12 @@ def parse_args():
     )
 
     benchmark_parser.add_argument(
+        "--databases",
+        default="memgraph",
+        help="Comma-separated list of databases",
+    )
+
+    benchmark_parser.add_argument(
         "--vendor-binary",
         type=str,
         help="Vendor binary used for benchmarking, by default it is memgraph",
@@ -675,7 +681,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
         log.info("Using workload information for importing dataset and creating indices")
         log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-        imported = workload.custom_import()
+        imported = workload.custom_import(client)
         if not imported:
             client.execute(file_path=workload.get_index(), num_workers=1)
             log.info("Finished setting up indexes.")
@@ -952,6 +958,7 @@ if __name__ == "__main__":
         installation_type=args.installation_type,
         client_binary=args.client_binary if args.installation_type == "native" else None,
         client_language=args.client_language,
+        databases=args.databases,
         client_bolt_address=args.client_bolt_address,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,

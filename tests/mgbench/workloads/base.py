@@ -324,7 +324,7 @@ class Workload(ABC):
         """Returns number of vertices/edges for the current variant."""
         return self._size
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         print("Workload does not have a custom import")
         return False
 

@@ -14,19 +14,21 @@ from pathlib import Path
 import log
 from benchmark_context import BenchmarkContext
 from constants import GraphVendors
-from runners import BaseRunner
+from runners import BaseClient, BaseRunner
+from workloads.importers.base import BaseImporter
 
 
-class ImporterPokec:
+class ImporterPokec(BaseImporter):
     def __init__(
         self,
         benchmark_context: BenchmarkContext,
+        client: BaseClient,
         dataset_name: str,
         variant: str,
         index_file: str,
         dataset_file: str,
     ) -> None:
-        self._benchmark_context = benchmark_context
+        super().__init__(benchmark_context, client)
         self._dataset_name = dataset_name
         self._variant = variant
         self._index_file = index_file
@@ -43,13 +45,13 @@ class ImporterPokec:
                 log.log("Loading database from existing dump...")
                 vendor_runner.load_db_from_dump(path=neo4j_dump.parent)
             else:
-                client = vendor_runner.fetch_client()
                 vendor_runner.start_db_init("import")
                 print("Executing database index setup...")
-                client.execute(file_path=self._index_file, num_workers=1)
+                self._client.execute(file_path=self._index_file, num_workers=1)
                 print("Importing dataset...")
-                client.execute(file_path=self._dataset_file, num_workers=self._benchmark_context.num_workers_for_import)
-                vendor_runner.stop_db_init("import")
+                self._client.execute(
+                    file_path=self._dataset_file, num_workers=self._benchmark_context.num_workers_for_import
+                )
             return True
         elif self._benchmark_context.vendor_name == GraphVendors.POSTGRESQL:
             vendor_runner = BaseRunner.create(
