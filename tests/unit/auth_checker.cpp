@@ -25,7 +25,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
-using memgraph::replication_coordination_glue::ReplicationRole;
+
 #ifdef MG_ENTERPRISE
 template <typename StorageType>
 class FineGrainedAuthCheckerFixture : public testing::Test {
