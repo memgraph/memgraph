@@ -86,7 +86,7 @@ jobs:
           trap "kill $CLEANUP_PID" EXIT
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 14400 --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 10800 --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
           else
             ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit 25200 --concurrency $NODES_NO"
           fi
