@@ -32,6 +32,10 @@ on:
         required: false
         default: false
         description: "Overwrite existing images with the same tags"
+      upload_artifact:
+        type: boolean
+        description: "create downloadable artifact"
+        default: false
 
 jobs:
   build_images:
@@ -50,6 +54,7 @@ jobs:
       test_docker_push: ${{ inputs.test_docker_push }}
       force_release:  ${{ inputs.force_release }}
       image_type:     ${{ matrix.image_type }}
+      upload_artifact: ${{ inputs.upload_artifact }}
     secrets: inherit
 
   build_single_image:
@@ -63,6 +68,7 @@ jobs:
       test_docker_push: ${{ inputs.test_docker_push }}
       force_release:  ${{ inputs.force_release }}
       image_type: ${{ endsWith(inputs.build_image, 'full') && 'full' || 'client' }}
+      upload_artifact: ${{ inputs.upload_artifact }}
     secrets: inherit
 
 
