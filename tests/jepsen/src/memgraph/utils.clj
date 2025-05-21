@@ -88,6 +88,11 @@
   [node]
   (str "Node " node " is down"))
 
+(defn cannot-get-shared-access?
+  "Cannot get shared access to the storage."
+  [e]
+  (string/includes? (str e) "Cannot get shared access storage"))
+
 (defn unique-constraint-violated?
   "Unique constraint was violated."
   [e]

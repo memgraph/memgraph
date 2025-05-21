@@ -296,6 +296,9 @@
                                      (utils/unique-constraint-violated? e)
                                      (assoc op :type :ok :value {:str "Unique constraint was violated."})
 
+                                     (utils/cannot-get-shared-access? e)
+                                     (assoc op :type :ok :value {:str "Cannot get shared access storage."})
+
                                      (or (utils/query-forbidden-on-replica? e)
                                          (utils/query-forbidden-on-main? e))
                                      (assoc op :type :info :value (str e))
@@ -510,6 +513,8 @@
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
                                      (empty? failed-show-instances)
+                                     (empty? failed-add-nodes)
+                                     (empty? failed-get-nodes)
                                      (empty? n1-duplicates)
                                      (empty? n2-duplicates)
                                      (empty? n3-duplicates)
