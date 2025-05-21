@@ -1056,7 +1056,6 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
-#endif
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
                                      const query::UserProfileQuery::limits_t &defined_limits,
@@ -1135,6 +1134,13 @@ std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQuery
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
   auto locked_auth = auth_->Lock();
   for (const auto &profile : locked_auth->AllProfiles()) {
+    // Fill missing/unlimited limits
+    for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
+      const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
+      if (profile.limits.find(limit) == profile.limits.end()) {
+        profile.limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
+      }
+    }
     auto limits = convert_limit_value(profile);
     res.emplace_back(profile.name, limits);
   }
@@ -1143,16 +1149,25 @@ std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQuery
 
 void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::string &user_or_role,
                                   system::Transaction *system_tx) {
-  auto locked_auth = auth_->Lock();
-  locked_auth->SetProfile(profile_name, user_or_role, system_tx);
+  try {
+    auto locked_auth = auth_->Lock();
+    locked_auth->SetProfile(profile_name, user_or_role, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
 }
 
 void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) {
-  auto locked_auth = auth_->Lock();
-  locked_auth->RevokeProfile(user_or_role, system_tx);
+  try {
+    auto locked_auth = auth_->Lock();
+    locked_auth->RevokeProfile(user_or_role, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
 }
 
 std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
+  // TODO Role
   auto locked_auth = auth_->Lock();
   auto user = locked_auth->GetUser(user_or_role);
   if (!user) {
@@ -1165,8 +1180,13 @@ std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string
 }
 
 std::vector<std::string> AuthQueryHandler::GetUsersForProfile(const std::string &profile_name) {
-  auto locked_auth = auth_->Lock();
-  return locked_auth->GetUsersForProfile(profile_name);
+  try {
+    auto locked_auth = auth_->Lock();
+    return locked_auth->GetUsersForProfile(profile_name);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
 }
+#endif
 
 }  // namespace memgraph::glue
