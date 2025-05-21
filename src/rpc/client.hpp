@@ -102,7 +102,7 @@ class Client {
         timeout_ms_ = other.timeout_ms_;
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
-        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this, timeout_ms_)));
+        req_builder_ = slk::Builder(std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_));
         res_load_ = std::move(other.res_load_);
       }
       return *this;
