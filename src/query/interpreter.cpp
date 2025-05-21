@@ -6500,9 +6500,9 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
             case UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
               auto str = std::to_string(limit.mem_limit.value);
               if (limit.mem_limit.scale == 1024) {
-                str += " KB";
+                str += "KB";
               } else if (limit.mem_limit.scale == 1024 * 1024) {
-                str += " MB";
+                str += "MB";
               } else {
                 str = "UNKNOWN";
               }
@@ -6519,7 +6519,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       };
     } break;
     case UserProfileQuery::Action::SHOW_USERS: {
-      callback.header = {"users"};
+      callback.header = {"user"};
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_)]() {
         std::vector<std::vector<TypedValue>> res;
         for (const auto &profile : auth->GetUsersForProfile(profile_name)) {

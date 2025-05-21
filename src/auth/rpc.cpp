@@ -154,7 +154,7 @@ void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Bui
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
-  memgraph::slk::Save(utils::EnumToNum<2, uint8_t>(self.type), builder);
+  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.type), builder);
   memgraph::slk::Save(self.name, builder);
 }
 void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *reader) {
@@ -163,7 +163,7 @@ void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *r
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   uint8_t type_tmp = 0;
   memgraph::slk::Load(&type_tmp, reader);
-  if (!utils::NumToEnum<2>(type_tmp, self->type)) {
+  if (!utils::NumToEnum<3>(type_tmp, self->type)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->name, reader);
