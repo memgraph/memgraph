@@ -181,6 +181,7 @@ class BoltClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._bolt_port,
+            address=self._bolt_address,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
             databases=self._databases,
