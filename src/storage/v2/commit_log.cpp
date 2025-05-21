@@ -20,22 +20,17 @@ CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 CommitLog::CommitLog(uint64_t const oldest_active) : allocator_(utils::NewDeleteResource()) {
   head_ = allocator_.allocate(1);
   allocator_.construct(head_);
-  head_start_ = oldest_active / kIdsInBlock * kIdsInBlock;
+
+  if (oldest_active == 0) {
+    next_start_ = kIdsInBlock;
+    return;
+  }
+
+  // We set -1 because we search for the block where we track finished txns
+  auto const last_finished = oldest_active - 1;
+  head_start_ = last_finished / kIdsInBlock * kIdsInBlock;
   next_start_ = head_start_ + kIdsInBlock;
-
-  // set all the previous ids
-  const auto field_idx = (oldest_active % kIdsInBlock) / kIdsInField;
-  for (size_t i = 0; i < field_idx; ++i) {
-    head_->field[i] = std::numeric_limits<uint64_t>::max();
-  }
-
-  const auto idx_in_field = oldest_active % kIdsInField;
-  if (idx_in_field != 0) {
-    head_->field[field_idx] = std::numeric_limits<uint64_t>::max();
-    head_->field[field_idx] >>= kIdsInField - idx_in_field;
-  }
-
-  oldest_active_ = oldest_active;
+  MarkFinishedInRange(0, last_finished);
 }
 
 CommitLog::~CommitLog() {
@@ -64,6 +59,12 @@ void CommitLog::MarkFinishedInRange(uint64_t const start_id, uint64_t const end_
     return;
   }
 
+  utils::OnScopeExit update_oldest_active{[this, start_id, end_id]() {
+    if (start_id <= oldest_active_ && oldest_active_ <= end_id) {
+      UpdateOldestActive();
+    }
+  }};
+
   // Start info
   auto const start_field_idx = (start_id % kIdsInBlock) / kIdsInField;
   auto const start_idx_in_field = start_id % kIdsInField;
@@ -77,8 +78,13 @@ void CommitLog::MarkFinishedInRange(uint64_t const start_id, uint64_t const end_
   Block *start_block = FindOrCreateBlock(start_id);
 
   if (start_block == end_block && start_field_idx == end_field_idx) {
-    uint64_t const combined_mask = ((1ULL << (end_idx_in_field - start_idx_in_field + 1)) - 1) << start_idx_in_field;
-    start_block->field[start_field_idx] |= combined_mask;
+    // Shifting by 64 bits means setting whole field as finished
+    if (auto const bits_shift = end_idx_in_field - start_idx_in_field + 1; bits_shift == kIdsInField) {
+      start_block->field[start_field_idx] = std::numeric_limits<uint64_t>::max();
+    } else {
+      uint64_t const combined_mask = ((1ULL << bits_shift) - 1) << start_idx_in_field;
+      start_block->field[start_field_idx] |= combined_mask;
+    }
     return;
   }
 

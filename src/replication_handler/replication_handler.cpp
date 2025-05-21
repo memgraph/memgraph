@@ -288,7 +288,8 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
       auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = epoch;
 
-      // Modifying storage->timestamp_ needs to be done under the lock
+      // Modifying storage->timestamp_ needs to be done under the engine lock.
+      // Engine lock needs to be acquired after the repl state lock
       auto lock = std::lock_guard{storage->engine_lock_};
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
