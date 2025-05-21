@@ -27,6 +27,10 @@ on:
         type: string
         description: "Image to build (client|full)"
         required: true
+      upload_artifact:
+        type: boolean
+        description: "create downloadable artifact"
+        default: false
 
 jobs:
   mgbench_docker_publish:
@@ -111,3 +115,18 @@ jobs:
         if: ${{ inputs.push_to_dockerhub }}
         run: |
           docker push ${{ env.REPO_TAG }}
+
+      - name: Save image as tar.gz
+        if: ${{ inputs.upload_artifact }}
+        run: |
+          tag="${REPO_TAG#*:}"
+          image_name="mgbench-${tag}-${{ inputs.arch }}.tar.gz"
+          docker save ${{ env.REPO_TAG }} | gzip > $image_name
+          echo "IMAGE_NAME=${image_name}" >> $GITHUB_ENV
+
+      - name: Upload Docker image artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.IMAGE_NAME }}
+          path: ${{ env.IMAGE_NAME }}
