@@ -3061,8 +3061,7 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   auto res = in_mem_label_index->DeleteIndexStats(label);
-  // TODO: put back...
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
   return res;
 }
 
@@ -3071,8 +3070,7 @@ InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto res = in_mem_label_prop_index->DeleteIndexStats(label);
-  // TODO: put back...
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
 
