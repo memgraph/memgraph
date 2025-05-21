@@ -126,7 +126,7 @@ jobs:
 
       - name: Upload Docker image artifact
         if: ${{ inputs.upload_artifact }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.IMAGE_NAME }}
           path: ${{ env.IMAGE_NAME }}
