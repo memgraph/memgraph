@@ -917,20 +917,39 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
                                                                           Transaction *transaction) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto it = index_.find(label);
-  if (it == index_.end()) {
-    // TODO: use asserts as in the other functions
-    throw std::runtime_error("Index doesn't exist");
-  }
+  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
-  if (it == index_.end() || it2 == it->second.end()) {
-    throw std::runtime_error("Index doesn't exist");
-  }
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
   return {it2->second.skiplist.access(),
           std::move(vertices_acc),
           label,
           &it2->first,
           &it2->second.permutations_helper,
           values,
+          view,
+          storage,
+          transaction};
+}
+
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
+    LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
+    Transaction *transaction) {
+  auto it = index_.find(label);
+  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
+  auto it2 = it->second.find(properties);
+  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+            JoinPropertiesAsString(properties));
+
+  return {it2->second.skiplist.access(),
+          std::move(vertices_acc),
+          label,
+          &it2->first,
+          &it2->second.permutations_helper,
+          std::move(range),
           view,
           storage,
           transaction};

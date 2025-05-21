@@ -27,11 +27,8 @@
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
-#include <range/v3/algorithm/for_each.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
-#include <string>
-#include <vector>
 
 #include "storage/v2/durability/paths.hpp"
 
