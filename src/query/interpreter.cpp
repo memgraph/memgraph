@@ -24,6 +24,8 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <range/v3/view/join.hpp>
+#include <range/v3/view/transform.hpp>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -5887,16 +5889,20 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Vertex label property indices
-      for (const auto &[label_id, properties] : index_info.label_properties) {
-        auto to_name = [&](storage::PropertyId prop) { return storage->PropertyToName(prop); };
-        // TODO: put back...
-        // auto props = properties | ranges::views::transform(to_name) | ranges::to_vector;
-        // node_indexes.push_back(nlohmann::json::object({
-        //     {"labels", {storage->LabelToName(label_id)}},
-        //     {"properties", props},
-        //     {"count", storage_acc->ApproximateVertexCount(label_id, properties)},
-        //     {"type", "label+properties"},
-        // }));
+      for (const auto &[label_id, property_paths] : index_info.label_properties) {
+        auto path_to_name = [&](const storage::PropertyPath &property_path) {
+          return property_path |
+                 rv::transform([&](storage::PropertyId prop_id) { return storage->PropertyToName(prop_id); }) |
+                 rv::join('.') | r::to<std::string>();
+        };
+
+        auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
+        node_indexes.push_back(nlohmann::json::object({
+            {"labels", {storage->LabelToName(label_id)}},
+            {"properties", props},
+            {"count", storage_acc->ApproximateVertexCount(label_id, property_paths)},
+            {"type", "label+properties"},
+        }));
       }
       // Vertex label text
       for (const auto &[str, label_id] : index_info.text_indices) {
