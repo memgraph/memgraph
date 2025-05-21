@@ -48,6 +48,18 @@ class UserProfileQuery : public memgraph::query::Query {
         };
       } quantity;
     };
+
+    bool operator==(const auto &other) const {
+      if (type != other.type) return false;
+      switch (type) {
+        case Type::UNLIMITED:
+          return true;
+        case Type::MEMORY_LIMIT:
+          return mem_limit.value == other.mem_limit.value && mem_limit.scale == other.mem_limit.scale;
+        case Type::QUANTITY:
+          return quantity.value == other.quantity.value;
+      }
+    }
   };
 
   using limit_t = std::pair<std::string, LimitValueResult>;
