@@ -5947,6 +5947,14 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
             {"type", "edge_type+property"},
         }));
       }
+      // Edge property indices
+      for (const auto &property : index_info.edge_property) {
+        edge_indexes.push_back(nlohmann::json::object({
+            {"properties", {storage->PropertyToName(property)}},
+            {"count", storage_acc->ApproximateEdgeCount(property)},
+            {"type", "edge_property"},
+        }));
+      }
       json.emplace("node_indexes", std::move(node_indexes));
       json.emplace("edge_indexes", std::move(edge_indexes));
 
