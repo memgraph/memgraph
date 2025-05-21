@@ -24,6 +24,8 @@
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
+namespace ms = memgraph::storage;
+
 // The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
 // therefore should not be changed before synchronizing with whoever is
 // maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
@@ -108,7 +110,8 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelProperties>(
-        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
         std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
                                            memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
 
@@ -129,7 +132,8 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelProperties>(
-        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
         std::vector{
             ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
 
@@ -150,7 +154,8 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {
   {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelProperties>(
-        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
         std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt)}
 
     );
@@ -171,11 +176,102 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {
   }
 }
 
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelCompositeProperties_OverARange) {
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelProperties>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{
+            ms::PropertyPath{this->dba.NameToProperty("first")},
+            ms::PropertyPath{this->dba.NameToProperty("second")},
+        },
+        std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+                                           memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20))),
+                    ExpressionRange::Range(memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(3)),
+                                           memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(5)))});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name": "ScanAllByLabelProperties",
+          "label": "Label",
+          "properties": ["first", "second"],
+          "expression_ranges": [{
+            "type": "Range",
+            "lower_bound": { "type": "inclusive", "value": "1" },
+            "upper_bound": { "type": "exclusive", "value": "20"}
+          }, {
+            "type": "Range",
+            "lower_bound": { "type": "exclusive", "value": "3" },
+            "upper_bound": { "type": "inclusive", "value": "5" }
+          }],
+          "input": {"name": "Once"},
+          "output_symbol": "node"
+        })");
+  }
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelProperties>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                    ms::PropertyPath{this->dba.NameToProperty("second")}},
+        std::vector{
+            ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20))),
+            ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(42)), std::nullopt)});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["first", "second"],
+          "expression_ranges": [{
+            "type": "Range",
+            "lower_bound": null,
+            "upper_bound": { "type": "exclusive", "value": "20"}
+          }, {
+            "type": "Range",
+            "lower_bound": { "type": "inclusive", "value": "42"},
+            "upper_bound": null
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelProperties>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                    ms::PropertyPath{this->dba.NameToProperty("second")}},
+        std::vector{
+            ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt),
+            ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(42)))});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["first", "second"],
+          "expression_ranges": [{
+            "type": "Range",
+            "lower_bound": { "type": "inclusive", "value": "1"},
+            "upper_bound": null
+          }, {
+            "type": "Range",
+            "lower_bound": null,
+            "upper_bound": { "type": "exclusive", "value": "42"}
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
+}
+
 TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_ForSpecificValue) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
-      std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
+  last_op =
+      std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                 std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
+                                                 std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
 
   this->Check(last_op.get(), R"sep(
         {
@@ -186,6 +282,211 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_ForSpecificValue) {
             "type": "Equal",
             "expression" : "(+ 21 21)"
           }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelCompositeProperties_ForSpecificValue) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                  ms::PropertyPath{this->dba.NameToProperty("second")}},
+      std::vector{
+          ExpressionRange::Equal(ADD(LITERAL(2), LITERAL(3))),
+          ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(42)))});
+
+  this->Check(last_op.get(), R"sep(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["first", "second"],
+          "expression_ranges": [{
+            "type": "Equal",
+            "expression" : "(+ 2 3)"
+          }, {
+            "type": "Range",
+            "lower_bound": null,
+            "upper_bound": { "type": "exclusive", "value": "42"}
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelCompositeProperties_Mixed) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op =
+      std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                 std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                                                             ms::PropertyPath{this->dba.NameToProperty("second")}},
+                                                 std::vector{ExpressionRange::Equal(ADD(LITERAL(2), LITERAL(3))),
+                                                             ExpressionRange::Equal(ADD(LITERAL(5), LITERAL(7)))});
+
+  this->Check(last_op.get(), R"sep(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["first", "second"],
+          "expression_ranges": [{
+            "type": "Equal",
+            "expression" : "(+ 2 3)"
+          },{
+            "type": "Equal",
+            "expression" : "(+ 5 7)"
+          }
+          ],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelCompositeNestedProperties_OverARange) {
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelProperties>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{
+            ms::PropertyPath{this->dba.NameToProperty("outer"), this->dba.NameToProperty("inner")},
+            ms::PropertyPath{this->dba.NameToProperty("flat")},
+        },
+        std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+                                           memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20))),
+                    ExpressionRange::Range(memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(3)),
+                                           memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(5)))});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name": "ScanAllByLabelProperties",
+          "label": "Label",
+          "properties": ["outer.inner", "flat"],
+          "expression_ranges": [{
+            "type": "Range",
+            "lower_bound": { "type": "inclusive", "value": "1" },
+            "upper_bound": { "type": "exclusive", "value": "20"}
+          }, {
+            "type": "Range",
+            "lower_bound": { "type": "exclusive", "value": "3" },
+            "upper_bound": { "type": "inclusive", "value": "5" }
+          }],
+          "input": {"name": "Once"},
+          "output_symbol": "node"
+        })");
+  }
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelProperties>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{
+            ms::PropertyPath{this->dba.NameToProperty("outer"), this->dba.NameToProperty("inner")},
+            ms::PropertyPath{this->dba.NameToProperty("flat")},
+        },
+        std::vector{
+            ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20))),
+            ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(42)), std::nullopt)});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["outer.inner", "flat"],
+          "expression_ranges": [{
+            "type": "Range",
+            "lower_bound": null,
+            "upper_bound": { "type": "exclusive", "value": "20"}
+          }, {
+            "type": "Range",
+            "lower_bound": { "type": "inclusive", "value": "42"},
+            "upper_bound": null
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelProperties>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector{
+            ms::PropertyPath{this->dba.NameToProperty("outer"), this->dba.NameToProperty("inner")},
+            ms::PropertyPath{this->dba.NameToProperty("flat")},
+        },
+        std::vector{
+            ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt),
+            ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(42)))});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["outer.inner", "flat"],
+          "expression_ranges": [{
+            "type": "Range",
+            "lower_bound": { "type": "inclusive", "value": "1"},
+            "upper_bound": null
+          }, {
+            "type": "Range",
+            "lower_bound": null,
+            "upper_bound": { "type": "exclusive", "value": "42"}
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelCompositeNestedProperties_ForSpecificValue) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("outer"), this->dba.NameToProperty("middle"),
+                                   this->dba.NameToProperty("inner")},
+                  ms::PropertyPath{this->dba.NameToProperty("flat")}},
+      std::vector{
+          ExpressionRange::Equal(ADD(LITERAL(2), LITERAL(3))),
+          ExpressionRange::Range(std::nullopt, memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(42)))});
+
+  this->Check(last_op.get(), R"sep(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["outer.middle.inner", "flat"],
+          "expression_ranges": [{
+            "type": "Equal",
+            "expression" : "(+ 2 3)"
+          }, {
+            "type": "Range",
+            "lower_bound": null,
+            "upper_bound": { "type": "exclusive", "value": "42"}
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelCompositeNestedProperties_Mixed) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("outer"), this->dba.NameToProperty("inner")},
+                  ms::PropertyPath{this->dba.NameToProperty("flat")}},
+      std::vector{ExpressionRange::Equal(ADD(LITERAL(2), LITERAL(3))),
+                  ExpressionRange::Equal(ADD(LITERAL(5), LITERAL(7)))});
+
+  this->Check(last_op.get(), R"sep(
+        {
+          "name" : "ScanAllByLabelProperties",
+          "label" : "Label",
+          "properties": ["outer.inner", "flat"],
+          "expression_ranges": [{
+            "type": "Equal",
+            "expression" : "(+ 2 3)"
+          },{
+            "type": "Equal",
+            "expression" : "(+ 5 7)"
+          }
+          ],
           "output_symbol" : "node",
           "input" : { "name" : "Once" }
         })sep");
