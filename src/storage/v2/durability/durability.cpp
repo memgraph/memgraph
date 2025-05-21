@@ -210,10 +210,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
         throw RecoveryFailure("The label+property index must be created here!");
 
       auto path_to_name = [&](const PropertyPath &path) {
-        return path | ranges::views::transform([&](const auto &property_id) {
-                 return name_id_mapper->IdToName(property_id.AsUint());
-               }) |
-               ranges::views::join(". ") | ranges::_to_::to<std::string>;
+        return path |
+               rv::transform([&](const auto &property_id) { return name_id_mapper->IdToName(property_id.AsUint()); }) |
+               rv::join('.') | r::to<std::string>;
       };
       auto const properties_str = utils::Join(properties | rv::transform(path_to_name), ", ");
       spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
@@ -232,10 +231,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       const auto &stats = item.second.second;
       mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
       auto path_to_name = [&](const PropertyPath &path) {
-        return path | ranges::views::transform([&](const auto &property_id) {
-                 return name_id_mapper->IdToName(property_id.AsUint());
-               }) |
-               ranges::views::join(". ") | ranges::_to_::to<std::string>;
+        return path |
+               rv::transform([&](const auto &property_id) { return name_id_mapper->IdToName(property_id.AsUint()); }) |
+               rv::join('.') | r::to<std::string>;
       };
       auto const properties_str = utils::Join(property_ids | rv::transform(path_to_name), ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
