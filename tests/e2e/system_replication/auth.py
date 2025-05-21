@@ -112,6 +112,34 @@ def try_and_count(cursor, query):
     return 0
 
 
+def show_profiles_func(cursor):
+    def func():
+        return set(execute_and_fetch_all(cursor, "SHOW PROFILES;"))
+
+    return func
+
+
+def show_profile_func(cursor, profilename):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW PROFILE {profilename};"))
+
+    return func
+
+
+def show_profile_for_user_func(cursor, username):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {username};"))
+
+    return func
+
+
+def show_users_for_profile_func(cursor, profilename):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW USERS FOR PROFILE {profilename};"))
+
+    return func
+
+
 def only_main_queries(cursor):
     n_exceptions = 0
 
@@ -991,6 +1019,222 @@ def test_auth_replication(connection, test_name):
 
     # Clean up
     interactive_mg_runner.stop_all(keep_directories=False)
+
+
+def test_user_profile_replication(connection, test_name):
+    # Goal: show that user profiles get replicated
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "username": "user1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "username": "user1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "username": "user1",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=True)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+
+    def check(f, expected_data):
+        # REPLICA 1 is SYNC, should already be ready
+        assert expected_data == f(cursor_replica1)()
+        # REPLICA 2 is ASYNC, should wait for it
+        mg_sleep_and_assert(expected_data, f(cursor_replica2))
+
+    # 1/
+
+    # CREATE PROFILES
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p1")
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p2 LIMIT SESSIONS 1, TRANSACTIONS_MEMORY 100MB")
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+            ("p1",),
+        },
+    )
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", "UNLIMITED"), ("transactions_memory", "UNLIMITED")},
+    )
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 1), ("transactions_memory", "100MB")},
+    )
+
+    # UPDATE PROFILES
+    execute_and_fetch_all(cursor_main, "UPDATE PROFILE p1 LIMIT SESSIONS 10, TRANSACTIONS_MEMORY 1000MB")
+    execute_and_fetch_all(cursor_main, "UPDATE PROFILE p2 LIMIT SESSIONS 2, TRANSACTIONS_MEMORY 200MB")
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", 10), ("transactions_memory", "1000MB")},
+    )
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 2), ("transactions_memory", "200MB")},
+    )
+
+    # DROP PROFILES
+    execute_and_fetch_all(cursor_main, "DROP PROFILE p1")
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+        },
+    )
+
+    # CREATE USER
+    execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    execute_and_fetch_all(cursor_main, "CREATE USER user2")
+    check(
+        show_users_func,
+        {
+            ("user2",),
+            ("user1",),
+        },
+    )
+
+    # SET PROFILES
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user2 TO p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("p2",)},
+    )
+    check(
+        partial(show_profile_for_user_func, username="user2"),
+        {("p2",)},
+    )
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+            ("user1",),
+        },
+    )
+
+    # CLEAR PROFILE
+    execute_and_fetch_all(cursor_main, "CLEAR PROFILE FOR user1")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("null",)},
+    )
+    check(
+        partial(show_profile_for_user_func, username="user2"),
+        {("p2",)},
+    )
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+        },
+    )
+
+    # Restart cluster and check values
+    interactive_mg_runner.stop_all(keep_directories=True)
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["main"]["setup_queries"] = []
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"]["setup_queries"] = []
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_2"]["setup_queries"] = []
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor()
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+        },
+    )
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 2), ("transactions_memory", "200MB")},
+    )
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+        },
+    )
+    check(
+        partial(show_profile_for_user_func, username="user2"),
+        {("p2",)},
+    )
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+        },
+    )
+
+    # DROP USER WITH PROFILE
+    execute_and_fetch_all(cursor_main, "DROP USER user2")
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        set(),  # empty
+    )
+
+    # DROP PROFILE WITH USER
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("p2",)},
+    )
+    execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("null",)},
+    )
+    check(
+        show_profiles_func,
+        set(),  # empty
+    )
+
+    # CREATE ROLE # TODO
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
+    check(
+        show_roles_func,
+        {
+            ("role1",),
+        },
+    )
 
 
 if __name__ == "__main__":
