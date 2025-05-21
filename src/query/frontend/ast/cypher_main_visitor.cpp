@@ -3842,9 +3842,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateUserProfile(MemgraphCypher::CreateUs
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitDropUserProfile(MemgraphCypher::DropUserProfileContext * /* unused */) {
+antlrcpp::Any CypherMainVisitor::visitDropUserProfile(MemgraphCypher::DropUserProfileContext *ctx) {
   auto *profile_query = storage_->Create<UserProfileQuery>();
   profile_query->action_ = UserProfileQuery::Action::DROP;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
   query_ = profile_query;
   return query_;
 }

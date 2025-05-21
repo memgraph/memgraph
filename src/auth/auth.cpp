@@ -767,7 +767,7 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
 #ifdef MG_ENTERPRISE
 bool Auth::CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
                          system::Transaction *system_tx) {
-  const auto res = user_profiles_.Create(profile_name, std::move(defined_limits));
+  const auto res = user_profiles_.Create(profile_name, defined_limits);
   if (res && system_tx) {
     system_tx->AddAction<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits});
   }
@@ -786,15 +786,12 @@ bool Auth::UpdateProfile(const std::string &profile_name, const UserProfiles::li
 bool Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
   const auto res = user_profiles_.Drop(profile_name);
   if (res && system_tx) {
-    system_tx->AddAction<UpdateAuthData>(UserProfiles::Profile{profile_name, {/* check if this is ok TODO */}});
+    system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name);
   }
   return res;
 }
 
-std::optional<UserProfiles::Profile> Auth::GetProfile(std::string_view name) const {
-  auto profile = utils::ToLowerCase(name);
-  return user_profiles_.Get(profile);
-}
+std::optional<UserProfiles::Profile> Auth::GetProfile(std::string_view name) const { return user_profiles_.Get(name); }
 
 std::vector<UserProfiles::Profile> Auth::AllProfiles() const { return user_profiles_.GetAll(); }
 

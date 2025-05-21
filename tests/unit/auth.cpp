@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "glue/auth_global.hpp"
 #include "license/license.hpp"
 #include "utils/cast.hpp"
@@ -2179,4 +2180,192 @@ TEST_F(AuthWithStorage, MultiTenantRoleAtDifferentDBs) {
   ASSERT_TRUE(user->HasAccess("db1"));
   ASSERT_TRUE(user->HasAccess("db2"));
 }
+TEST_F(AuthWithStorage, AddProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_FALSE(auth->CreateProfile("profile", {}));
+}
+
+TEST_F(AuthWithStorage, UpdateProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile(
+      "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {}));
+  ASSERT_FALSE(auth->UpdateProfile("non_profile", {}));
+}
+
+TEST_F(AuthWithStorage, DropProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_TRUE(auth->DropProfile("other_profile"));
+  ASSERT_FALSE(auth->DropProfile("non_profile"));
+}
+
+TEST_F(AuthWithStorage, GetProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  {
+    const auto profile = auth->GetProfile("profile");
+    ASSERT_TRUE(profile);
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  {
+    const auto profile = auth->GetProfile("other_profile");
+    ASSERT_TRUE(profile);
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_FALSE(auth->GetProfile("profile"));
+  ASSERT_TRUE(auth->DropProfile("other_profile"));
+  ASSERT_FALSE(auth->GetProfile("other_profile"));
+  ASSERT_FALSE(auth->GetProfile("non_profile"));
+}
+
+TEST_F(AuthWithStorage, AllProfiles) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  {
+    const auto profiles = auth->AllProfiles();
+    ASSERT_EQ(profiles.size(), 2);
+    for (const auto &profile : profiles) {
+      if (profile.name == "profile") {
+        ASSERT_EQ(profile.limits.size(), 0);
+      } else if (profile.name == "other_profile") {
+        ASSERT_EQ(profile.limits.size(), 1);
+      } else {
+        FAIL() << "Unexpected profile name: " << profile.name;
+      }
+    }
+  }
+  ASSERT_TRUE(auth->DropProfile("profile"));
+  {
+    const auto profiles = auth->AllProfiles();
+    ASSERT_EQ(profiles.size(), 1);
+    for (const auto &profile : profiles) {
+      if (profile.name == "other_profile") {
+        ASSERT_EQ(profile.limits.size(), 1);
+      } else {
+        FAIL() << "Unexpected profile name: " << profile.name;
+      }
+    }
+  }
+  ASSERT_TRUE(auth->DropProfile("other_profile"));
+  ASSERT_EQ(auth->AllProfiles().size(), 0);
+}
+
+TEST_F(AuthWithStorage, SetProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+
+  ASSERT_TRUE(auth->AddUser("user"));
+  ASSERT_TRUE(auth->AddRole("role"));  // TODO
+
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user"));
+  {
+    const auto profile = auth->GetUser("user")->profile();
+    ASSERT_TRUE(profile);
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  ASSERT_NO_THROW(auth->SetProfile("other_profile", "user"));
+  {
+    const auto profile = auth->GetUser("user")->profile();
+    ASSERT_TRUE(profile);
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  ASSERT_THROW(auth->SetProfile("non_profile", "user"), memgraph::auth::AuthException);
+  ASSERT_THROW(auth->SetProfile("profile", "non_user"), memgraph::auth::AuthException);
+}
+
+TEST_F(AuthWithStorage, RevokeProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+
+  ASSERT_TRUE(auth->AddUser("user"));
+  ASSERT_TRUE(auth->AddRole("role"));  // TODO
+
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user"));
+  ASSERT_TRUE(auth->GetUser("user")->profile());
+  ASSERT_NO_THROW(auth->RevokeProfile("user"));
+  ASSERT_FALSE(auth->GetUser("user")->profile());
+  ASSERT_NO_THROW(auth->RevokeProfile("user"));
+  ASSERT_THROW(auth->RevokeProfile("non_user"), memgraph::auth::AuthException);
+
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user"));
+  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_FALSE(auth->GetUser("user")->profile());
+}
+
+TEST_F(AuthWithStorage, GetUsersForProfile) {
+  ASSERT_TRUE(auth->CreateProfile("profile", {}));
+  ASSERT_TRUE(auth->CreateProfile("other_profile", {}));
+  ASSERT_TRUE(auth->UpdateProfile("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                     memgraph::auth::UserProfiles::limit_t{1UL}}}));
+
+  ASSERT_TRUE(auth->AddUser("user1"));
+  ASSERT_TRUE(auth->AddUser("user2"));
+  ASSERT_TRUE(auth->AddUser("user3"));
+  ASSERT_TRUE(auth->AddUser("user4"));
+  ASSERT_TRUE(auth->AddRole("role"));  // TODO
+
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user1"));
+  {
+    const auto users = auth->GetUsersForProfile("profile");
+    ASSERT_EQ(users.size(), 1);
+    ASSERT_EQ(users[0], "user1");
+  }
+  ASSERT_NO_THROW(auth->RevokeProfile("user1"));
+  {
+    const auto users = auth->GetUsersForProfile("profile");
+    ASSERT_EQ(users.size(), 0);
+  }
+
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user1"));
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user2"));
+  ASSERT_NO_THROW(auth->SetProfile("profile", "user3"));
+  {
+    const auto users = auth->GetUsersForProfile("profile");
+    ASSERT_EQ(users.size(), 3);
+    for (const auto &user : users) {
+      ASSERT_TRUE(user == "user1" || user == "user2" || user == "user3");
+    }
+  }
+  ASSERT_NO_THROW(auth->RevokeProfile("user3"));
+  {
+    const auto users = auth->GetUsersForProfile("profile");
+    ASSERT_EQ(users.size(), 2);
+    for (const auto &user : users) {
+      ASSERT_TRUE(user == "user1" || user == "user2");
+    }
+  }
+  ASSERT_TRUE(auth->RemoveUser("user2"));
+  {
+    const auto users = auth->GetUsersForProfile("profile");
+    ASSERT_EQ(users.size(), 1);
+    ASSERT_EQ(users[0], "user1");
+  }
+  ASSERT_TRUE(auth->DropProfile("profile"));
+  ASSERT_THROW(auth->GetUsersForProfile("profile"), memgraph::auth::AuthException);
+
+  ASSERT_EQ(auth->GetUsersForProfile("other_profile").size(), 0);
+}
+
 #endif
