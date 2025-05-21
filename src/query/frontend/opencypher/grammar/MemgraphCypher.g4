@@ -757,7 +757,7 @@ limitKV : key=symbolicName val=limitValue ;
 listOfLimits : limitKV (',' limitKV )* ;
 
 createUserProfile : ( CREATE | UPDATE ) PROFILE profile=symbolicName ( LIMIT list=listOfLimits )? ;
-dropUserProfile : DROP PROFILE ;
+dropUserProfile : DROP PROFILE profile=symbolicName ;
 showUserProfiles : SHOW PROFILES ;
 showUserProfile : SHOW PROFILE profile=symbolicName ;
 showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
