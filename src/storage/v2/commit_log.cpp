@@ -90,7 +90,6 @@ void CommitLog::MarkFinishedInRange(uint64_t const start_id, uint64_t const end_
 
   // Apply start mask on start_field_idx
   uint64_t const start_mask = std::numeric_limits<uint64_t>::max() << start_idx_in_field;
-  uint64_t const end_mask = (1ULL << (end_idx_in_field + 1)) - 1;
   start_block->field[start_field_idx] |= start_mask;
 
   if (start_block == end_block) {
@@ -127,7 +126,12 @@ void CommitLog::MarkFinishedInRange(uint64_t const start_id, uint64_t const end_
   }
 
   // Apply the mask on the end field idx
-  end_block->field[end_field_idx] |= end_mask;
+  if (auto const bits_shift = end_idx_in_field + 1; bits_shift == kIdsInField) {
+    end_block->field[end_field_idx] = std::numeric_limits<uint64_t>::max();
+  } else {
+    uint64_t const end_mask = (1ULL << bits_shift) - 1;
+    end_block->field[end_field_idx] |= end_mask;
+  }
 }
 
 uint64_t CommitLog::OldestActive() {
