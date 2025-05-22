@@ -472,6 +472,7 @@ privilege : CREATE
           | MULTI_DATABASE_USE
           | COORDINATOR
           | IMPERSONATE_USER
+          | USER_PROFILE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
