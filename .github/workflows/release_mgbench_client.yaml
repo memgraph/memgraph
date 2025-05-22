@@ -9,6 +9,16 @@ on:
       version:
         description: "Mgbench bolt client version to publish on Dockerhub."
         required: true
+      build_image:
+        type: choice
+        description: "Mgbench build image(s)"
+        options:
+          - all
+          - arm_client
+          - amd_client
+          - arm_full
+          - amd_full
+        default: all
       push_to_dockerhub:
         type: boolean
         default: false
@@ -22,9 +32,15 @@ on:
         required: false
         default: false
         description: "Overwrite existing images with the same tags"
+      upload_artifact:
+        type: boolean
+        description: "create downloadable artifact"
+        default: false
 
 jobs:
   build_images:
+    name: Build all images
+    if: ${{ inputs.build_image == 'all' }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +54,23 @@ jobs:
       test_docker_push: ${{ inputs.test_docker_push }}
       force_release:  ${{ inputs.force_release }}
       image_type:     ${{ matrix.image_type }}
+      upload_artifact: ${{ inputs.upload_artifact }}
     secrets: inherit
+
+  build_single_image:
+    name: Build single image
+    if: ${{ inputs.build_image != 'all' }}
+    uses: ./.github/workflows/reusable_build_mgbench_client.yml
+    with:
+      arch: ${{ startsWith(inputs.build_image, 'arm_') && 'arm' || 'amd' }}
+      version:        ${{ inputs.version }}
+      push_to_dockerhub: ${{ inputs.push_to_dockerhub }}
+      test_docker_push: ${{ inputs.test_docker_push }}
+      force_release:  ${{ inputs.force_release }}
+      image_type: ${{ endsWith(inputs.build_image, 'full') && 'full' || 'client' }}
+      upload_artifact: ${{ inputs.upload_artifact }}
+    secrets: inherit
+
 
   cleanup_docker:
     runs-on: ubuntu-latest
