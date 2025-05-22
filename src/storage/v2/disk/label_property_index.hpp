@@ -19,6 +19,51 @@ namespace memgraph::storage {
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
+  struct IndexInformation {
+    LabelId label;
+    PropertyId property;
+
+    IndexInformation(LabelId label, PropertyId property) : label(label), property(property) {}
+
+    friend bool operator<(IndexInformation const &lhs, IndexInformation const &rhs) {
+      return std::tie(lhs.label, lhs.property) < std::tie(rhs.label, rhs.property);
+    }
+    friend bool operator==(IndexInformation const &lhs, IndexInformation const &rhs) {
+      return std::tie(lhs.label, lhs.property) == std::tie(rhs.label, rhs.property);
+    }
+  };
+  struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
+    ActiveIndices(std::set<IndexInformation> index) : index_(std::move(index)), entries_for_deletion{} {}
+
+    void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
+    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                             const Transaction &tx) override;
+
+    bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
+
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyId const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
+
+    // Not used for in-memory
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
+
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
+
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
+
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                    std::span<PropertyValue const> values) const override;
+
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+                                    std::span<PropertyValueRange const> bounds) const override;
+
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
+    std::set<IndexInformation> index_;
+    std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> entries_for_deletion;
+  };
+
   explicit DiskLabelPropertyIndex(const Config &config);
 
   bool CreateIndex(LabelId label, PropertyId property,
@@ -32,47 +77,25 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
-  [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(uint64_t transaction_start_timestamp,
-                                                            uint64_t transaction_commit_timestamp);
+  [[nodiscard]] bool DeleteVerticesWithRemovedIndexingLabel(
+      uint64_t transaction_start_timestamp, uint64_t transaction_commit_timestamp,
+      std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>> &entries_for_deletion);
 
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
-
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
-
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override{};
-
-  bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) override;
-
-  bool IndexExists(LabelId label, std::span<PropertyId const> properties) const override;
-
-  auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyId const> properties) const
-      -> std::vector<LabelPropertiesIndicesInfo> override;
-
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                  std::span<PropertyValue const> values) const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
-                                  std::span<PropertyValueRange const> bounds) const override;
+  bool DropIndex(LabelId label, std::span<PropertyId const> properties,
+                 PublishIndexCallback publish_index_callback = invoke_input) override;
 
   RocksDBStorage *GetRocksDBStorage() const;
 
   void LoadIndexInfo(const std::vector<std::string> &keys);
 
-  std::set<std::pair<LabelId, PropertyId>> GetInfo() const;
+  std::set<IndexInformation> GetInfo() const;
 
   void DropGraphClearIndices() override{};
 
-  void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 
  private:
-  utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>
-      entries_for_deletion;
-  std::set<std::pair<LabelId, PropertyId>> index_;
+  std::set<IndexInformation> index_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 

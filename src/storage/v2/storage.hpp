@@ -13,6 +13,7 @@
 
 #include "mg_procedure.h"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -327,7 +328,7 @@ class Storage {
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyId const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
@@ -406,11 +407,14 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, PublishIndexCallback publish_index_callback = invoke_input,
+        bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyId> &&properties,
+        CheckCancelFunction cancel_check = []() { return false; },
+        PublishIndexCallback publish_index_callback = invoke_input) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
@@ -420,10 +424,12 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, PublishIndexCallback publish_index_callback = invoke_input) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyId> &&properties,
+        PublishIndexCallback publish_index_callback = invoke_input) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 
@@ -513,6 +519,11 @@ class Storage {
 
     auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(enum_str);
+    }
+
+    void DowngradeToRead() {
+      MG_ASSERT(storage_guard_.owns_lock());
+      storage_guard_.downgrade_to_read();
     }
 
     virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
