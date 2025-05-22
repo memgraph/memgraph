@@ -1181,9 +1181,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with same number of vertices but more optimized filter is better.
 
       int64_t vertex_count = db_->VerticesCount(storage_label, storage_properties);
-      // std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label,
-      // storage_properties);
-      std::optional<storage::LabelPropertyIndexStats> new_stats = std::nullopt;
+      std::optional<storage::LabelPropertyIndexStats> new_stats = db_->GetIndexStats(storage_label, storage_properties);
       auto const make_label_property_index = [&]() -> LabelPropertyIndex {
         return {label_ix, candidate.info_.properties_, candidate.filters_, vertex_count, new_stats};
       };
