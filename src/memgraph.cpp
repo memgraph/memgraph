@@ -20,6 +20,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -62,12 +63,14 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/resouce_monitoring.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
 #include "utils/stat.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
 #include <spdlog/spdlog.h>
@@ -562,6 +565,31 @@ int main(int argc, char **argv) {
 
 #endif
 
+#ifdef MG_ENTERPRISE
+  // Resource monitoring
+  auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
+  // Update limits
+  {
+    auto locked_auth = auth_->Lock();
+    for (const auto &user : locked_auth->AllUsers()) {
+      if (!user.profile()) continue;
+      const auto sessions_limit =
+          std::visit(memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /* unused */) {
+                                                   return memgraph::utils::SessionsResource::kUnlimited;
+                                                 },
+                                                 [](auto in) { return in; }},
+                     user.profile()->limits[memgraph::auth::UserProfiles::Limits::kSessions]);
+      const auto tm_limit =
+          std::visit(memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /* unused */) {
+                                                   return memgraph::utils::TransactionsMemoryResource::kUnlimited;
+                                                 },
+                                                 [](auto in) { return in; }},
+                     user.profile()->limits[memgraph::auth::UserProfiles::Limits::kTransactionsMemory]);
+      resource_monitoring.UpdateUserLimits(user.username(), sessions_limit, tm_limit);
+    }
+  }
+#endif
+
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
@@ -597,6 +625,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
+      &resource_monitoring,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
 

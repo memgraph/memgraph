@@ -768,6 +768,7 @@ showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
 showUserProfileForProfile : SHOW USERS FOR PROFILE profile=symbolicName ;
 setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
 clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
+showResourceConsumption : SHOW RESOURCE USAGE FOR user=userOrRoleName ;
 
 userProfileQuery : createUserProfile
                  | dropUserProfile
@@ -777,4 +778,5 @@ userProfileQuery : createUserProfile
                  | showUserProfileForProfile
                  | setUserProfile
                  | clearUserProfile
+                 | showResourceConsumption
                  ;

@@ -31,6 +31,7 @@
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
 #include "utils/priorities.hpp"
+#include "utils/resouce_monitoring.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -143,6 +144,20 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
         impersonated_user, target_db.value_or("default"));
   }
 }
+
+bool ResourceAtLogin(const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+  // Setup user-related resource monitoring
+  const auto &username = std::visit([](auto &user_or_role) { return user_or_role.username(); }, user_or_role);
+  auto &resource = resource_monitoring->GetUser(username);
+  // Monitoring always, resource limit check only if license is valid
+  return !memgraph::license::global_license_checker.IsEnterpriseValidFast() || resource.IncrementSessions();
+}
+
+void ResourceAtLogout(const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+  // Setup user-related resource monitoring
+  if (user_or_role) resource_monitoring->GetUser(*user_or_role.username()).DecrementSessions();
+}
+
 #endif
 }  // namespace
 
@@ -242,23 +257,26 @@ void SessionHL::TryDefaultDB() {
 }
 
 // This is called on connection establishment
-bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
-  bool res = true;
+utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
+                                                                             const std::string &password) {
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
-      if (user_or_role.has_value()) {
-        session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
-        interpreter_.SetUser(session_user_or_role_);
-        interpreter_.SetSessionInfo(
-            UUID(),
-            interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
-            GetLoginTimestamp());
-      } else {
-        res = false;
+      if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
+#ifdef MG_ENTERPRISE
+      // Setup user-related resource monitoring
+      if (!ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring)) {
+        return communication::bolt::AuthFailure::kResourceBound;
       }
+#endif
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+      interpreter_.SetUser(session_user_or_role_);
+      interpreter_.SetSessionInfo(
+          UUID(),
+          interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
+          GetLoginTimestamp());
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
@@ -268,18 +286,26 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   }
 
   TryDefaultDB();
-  return res;
+  return {/* success */};
 }
 
-bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) {
+utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
+    const std::string &scheme, const std::string &identity_provider_response) {
   interpreter_.ResetUser();
 
   auto locked_auth = auth_->Lock();
 
   const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
   if (!user_or_role.has_value()) {
-    return false;
+    return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
   }
+
+#ifdef MG_ENTERPRISE
+  // Setup user-related resource monitoring
+  if (!ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring)) {
+    return communication::bolt::AuthFailure::kResourceBound;
+  }
+#endif
 
   session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
   interpreter_.SetUser(session_user_or_role_);
@@ -288,7 +314,19 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
       GetLoginTimestamp());
 
   TryDefaultDB();
-  return true;
+  return {/* success */};
+}
+
+void SessionHL::LogOff() {
+#ifdef MG_ENTERPRISE
+  // User-related resource monitoring
+  if (session_user_or_role_) {
+    ResourceAtLogout(*session_user_or_role_, interpreter_context_->resource_monitoring);
+  }
+#endif
+  interpreter_.ResetDB();
+  interpreter_.ResetUser();
+  session_user_or_role_.reset();
 }
 
 void SessionHL::Abort() { interpreter_.Abort(); }
@@ -504,6 +542,10 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
 SessionHL::~SessionHL() {
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
+#ifdef MG_ENTERPRISE
+  // User-related resource monitoring
+  if (session_user_or_role_) ResourceAtLogout(*session_user_or_role_, interpreter_context_->resource_monitoring);
+#endif
 }
 
 bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {

@@ -29,6 +29,7 @@
 #include "system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/resouce_monitoring.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -68,6 +69,7 @@ struct InterpreterContext {
   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state;
 #ifdef MG_ENTERPRISE
   std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state_;
+  utils::ResourceMonitoring *resource_monitoring;
 #endif
 
   AuthQueryHandler *auth;
@@ -100,6 +102,7 @@ struct InterpreterContext {
                      memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
                      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+                     utils::ResourceMonitoring *resource_monitoring,
 #endif
                      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                      ReplicationQueryHandler *replication_handler = nullptr);
@@ -119,13 +122,14 @@ class InterpreterContextHolder {
                          memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
                          std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+                         utils::ResourceMonitoring *resource_monitoring,
 #endif
                          AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                          ReplicationQueryHandler *replication_handler = nullptr) {
     assert(!instance);
     instance.emplace(interpreter_config, dbms_handler, rs, system,
 #ifdef MG_ENTERPRISE
-                     coordinator_state,
+                     coordinator_state, resource_monitoring,
 #endif
                      ah, ac, replication_handler);
   }
@@ -146,12 +150,13 @@ struct InterpreterContextLifetimeControl {
       utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+      utils::ResourceMonitoring *resource_monitoring,
 #endif
       AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
       ReplicationQueryHandler *replication_handler = nullptr) {
     InterpreterContextHolder::Initialize(interpreter_config, dbms_handler, rs, system,
 #ifdef MG_ENTERPRISE
-                                         coordinator_state,
+                                         coordinator_state, resource_monitoring,
 #endif
                                          ah, ac, replication_handler);
   }
