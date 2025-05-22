@@ -43,7 +43,7 @@ class ReplicationStorageClient;
 // Handler used for transferring the current transaction.
 class ReplicaStream {
  public:
-  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, uint64_t current_wal_seq_num,
+  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream,
                          utils::UUID main_uuid);
 
   /// @throw rpc::RpcFailedException
