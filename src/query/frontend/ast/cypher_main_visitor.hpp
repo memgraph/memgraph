@@ -1287,6 +1287,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitClearUserProfile(MemgraphCypher::ClearUserProfileContext *ctx) override;
 
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;

@@ -3899,6 +3899,14 @@ antlrcpp::Any CypherMainVisitor::visitClearUserProfile(MemgraphCypher::ClearUser
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_RESOURCE_USAGE;
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
 Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {
   switch (token) {
     case MemgraphCypher::OR:

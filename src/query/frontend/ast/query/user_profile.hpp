@@ -65,7 +65,19 @@ class UserProfileQuery : public memgraph::query::Query {
   using limit_t = std::pair<std::string, LimitValueResult>;
   using limits_t = std::vector<limit_t>;
 
-  enum class Action { CREATE, UPDATE, DROP, SHOW_ALL, SHOW_ONE, SHOW_USERS, SHOW_FOR, SET, CLEAR } action_;
+  enum class Action {
+    CREATE,
+    UPDATE,
+    DROP,
+    SHOW_ALL,
+    SHOW_ONE,
+    SHOW_USERS,
+    SHOW_FOR,
+    SHOW_RESOURCE_USAGE,
+    SET,
+    CLEAR
+  } action_;
+
   std::string profile_name_;
   limits_t limits_;  // Value type might change if int is not sufficient
   std::optional<std::string> user_or_role_;

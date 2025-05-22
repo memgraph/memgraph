@@ -774,13 +774,14 @@ bool Auth::CreateProfile(const std::string &profile_name, UserProfiles::limits_t
   return res;
 }
 
-bool Auth::UpdateProfile(const std::string &profile_name, const UserProfiles::limits_t &updated_limits,
-                         system::Transaction *system_tx) {
+std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &profile_name,
+                                                         const UserProfiles::limits_t &updated_limits,
+                                                         system::Transaction *system_tx) {
   const auto res = user_profiles_.Update(profile_name, updated_limits);
   if (res && system_tx) {
     system_tx->AddAction<UpdateAuthData>(res.value());
   }
-  return res.has_value();
+  return res;
 }
 
 bool Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
@@ -795,18 +796,20 @@ std::optional<UserProfiles::Profile> Auth::GetProfile(std::string_view name) con
 
 std::vector<UserProfiles::Profile> Auth::AllProfiles() const { return user_profiles_.GetAll(); }
 
-void Auth::SetProfile(const std::string &profile_name, const std::string &name, system::Transaction *system_tx) {
-  const auto profile = user_profiles_.Get(profile_name);  // Check if profile exists
+std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile_name, const std::string &name,
+                                                      system::Transaction *system_tx) {
+  auto profile = user_profiles_.Get(profile_name);  // Check if profile exists
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
   }
   if (auto user = GetUser(name)) {
     SetProfile(*profile, *user, system_tx);
-    return;
+    return profile;
   }
   if (auto role = GetRole(name)) {
     SetProfile(*profile, *role, system_tx);
-    return;
+    return profile;
+    ;
   }
   throw AuthException("Couldn't find user or role named '{}'!", name);
 }

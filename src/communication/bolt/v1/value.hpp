@@ -23,6 +23,11 @@
 
 namespace memgraph::communication::bolt {
 
+/**
+ * Different authentication failures that can occur.
+ */
+enum class AuthFailure { kGeneric, kResourceBound };
+
 /** Forward declaration of Value class. */
 class Value;
 
