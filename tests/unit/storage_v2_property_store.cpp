@@ -1094,6 +1094,25 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesMultipleNestedMaps) {
             (std::vector{true, true}));
 }
 
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWithAnEmptyStore) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+
+  PropertyStore store;
+
+  EXPECT_EQ(store.ExtractPropertyValuesMissingAsNull(
+                std::vector{PropertyPath{p1}, PropertyPath{p2, p3}, PropertyPath{p4, p5, p6}}),
+            (std::vector{
+                PropertyValue(),
+                PropertyValue(),
+                PropertyValue(),
+            }));
+}
+
 TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSameBranch) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
