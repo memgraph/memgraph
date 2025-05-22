@@ -43,6 +43,17 @@ void HandleAuthFailure(TSession &session) {
 }
 
 template <typename TSession>
+void HandleResourceFailure(TSession &session) {
+  if (!session.encoder_.MessageFailure({{"code", "Memgraph.ClientError.Statement.SessionLimitReached"},
+                                        {"message", "User reach the limit of concurent sessions"}})) {
+    spdlog::trace("Couldn't send failure message to the client!");
+  }
+  // Throw an exception to indicate to the network stack that the session
+  // should be closed and cleaned up.
+  throw SessionClosedException("The user cannot connect due to the imposed session limit!");
+}
+
+template <typename TSession>
 std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("principal")) {  // Special case principal = ""
     spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
@@ -55,8 +66,16 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
   auto username = data["principal"].ValueString();
   auto password = data["credentials"].ValueString();
 
-  if (!session.Authenticate(username, password)) {
-    HandleAuthFailure(session);
+  const auto auth_res = session.Authenticate(username, password);
+  if (auth_res.HasError()) {
+    switch (auth_res.GetError()) {
+      case AuthFailure::kGeneric:
+        HandleAuthFailure(session);
+        break;
+      case AuthFailure::kResourceBound:
+        HandleResourceFailure(session);
+        break;
+    }
   }
 
   return std::nullopt;
@@ -71,8 +90,16 @@ std::optional<State> SSOAuthentication(TSession &session, memgraph::communicatio
 
   auto scheme = data["scheme"].ValueString();
   auto identity_provider_response = data["credentials"].ValueString();
-  if (!session.SSOAuthenticate(scheme, identity_provider_response)) {
-    HandleAuthFailure(session);
+  const auto auth_res = session.SSOAuthenticate(scheme, identity_provider_response);
+  if (auth_res.HasError()) {
+    switch (auth_res.GetError()) {
+      case AuthFailure::kGeneric:
+        HandleAuthFailure(session);
+        break;
+      case AuthFailure::kResourceBound:
+        HandleResourceFailure(session);
+        break;
+    }
   }
   return std::nullopt;
 }

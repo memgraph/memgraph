@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
@@ -874,21 +875,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -900,7 +894,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
-
         if (!auth->DropUser(username, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException(
               "User with username '{}' doesn't exist. A new user can be created via the CREATE USER query.", username);
@@ -2312,6 +2305,12 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  // IDEA 1: tag here start/stop and have the global memory tracker handle it
+  // Have to have an atomic somewhere globally
+  // Resource limits at memgraph.cpp level, pass in everywhere?
+  // Even the query tracker is basically tagging here the global one
+  // Lets make it simpler
+  //
   if (memory_limit_) {
     auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
     if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
@@ -6044,11 +6043,12 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+                     limits = std::move(query->limits_), interpreter = &*interpreter,
+                     resource_monitor = interpreter_context->resource_monitoring]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->UpdateProfile(profile_name, limits, &*interpreter->system_transaction_);
+        auth->UpdateProfile(profile_name, limits, &*interpreter->system_transaction_, resource_monitor);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6057,11 +6057,12 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+                     limits = std::move(query->limits_), interpreter = &*interpreter,
+                     resource_monitor = interpreter_context->resource_monitoring]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->DropProfile(profile_name, &*interpreter->system_transaction_);
+        auth->DropProfile(profile_name, &*interpreter->system_transaction_, resource_monitor);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6070,14 +6071,15 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     user_or_role = std::move(query->user_or_role_), interpreter = &*interpreter]() {
+                     user_or_role = std::move(query->user_or_role_), interpreter = &*interpreter,
+                     resource_monitor = interpreter_context->resource_monitoring]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->SetProfile(profile_name, *user_or_role, &*interpreter->system_transaction_);
+        auth->SetProfile(profile_name, *user_or_role, &*interpreter->system_transaction_, resource_monitor);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6086,14 +6088,14 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_),
-                     interpreter = &*interpreter]() {
+                     interpreter = &*interpreter, resource_monitor = interpreter_context->resource_monitoring]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->RevokeProfile(*user_or_role, &*interpreter->system_transaction_);
+        auth->RevokeProfile(*user_or_role, &*interpreter->system_transaction_, resource_monitor);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6160,6 +6162,30 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         } else {
           res.emplace_back(std::vector<TypedValue>{TypedValue("null")});
         }
+        return res;
+      };
+    } break;
+    case UserProfileQuery::Action::SHOW_RESOURCE_USAGE: {
+      callback.header = {"resource", "usage", "limit"};
+      callback.fn = [user_or_role = std::move(query->user_or_role_),
+                     resource_monitor = interpreter_context->resource_monitoring]() {
+        if (!user_or_role) {
+          throw QueryException("Expected user or role.");
+        }
+        std::vector<std::vector<TypedValue>> res;
+        const auto &resource = resource_monitor->GetUser(*user_or_role);
+        // Session usage
+        const auto [session_usage, session_limit] = resource.GetSessions();
+        res.emplace_back(std::vector<TypedValue>{
+            TypedValue(auth::UserProfiles::kLimits[(int)auth::UserProfiles::Limits::kSessions]),
+            TypedValue(static_cast<int64_t>(session_usage)),
+            session_limit == -1 ? TypedValue("UNLIMITED") : TypedValue(static_cast<int64_t>(session_limit))});
+        // Transaction memory usage
+        const auto [tm_usage, tm_limit] = resource.GetTransactionsMemory();
+        res.emplace_back(std::vector<TypedValue>{
+            TypedValue(auth::UserProfiles::kLimits[(int)auth::UserProfiles::Limits::kTransactionsMemory]),
+            TypedValue(utils::GetReadableSize(tm_usage)),
+            TypedValue(tm_limit == -1 ? "UNLIMITED" : utils::GetReadableSize(tm_limit))});
         return res;
       };
     } break;
