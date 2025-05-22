@@ -115,7 +115,7 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Route:
       return HandleRoute<TSession>(session, marker);
     case Signature::LogOff:
-      return HandleLogOff<TSession>();
+      return HandleLogOff<TSession>(session);
     default:
       spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
       return State::Close;

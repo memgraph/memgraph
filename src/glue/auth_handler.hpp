@@ -118,13 +118,15 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void CreateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &defined_limits,
                      system::Transaction *system_tx) override;
   void UpdateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &updated_limits,
-                     system::Transaction *system_tx) override;
-  void DropProfile(const std::string &profile_name, system::Transaction *system_tx) override;
+                     system::Transaction *system_tx, utils::ResourceMonitoring *resource_monitor) override;
+  void DropProfile(const std::string &profile_name, system::Transaction *system_tx,
+                   utils::ResourceMonitoring *resource_monitor) override;
   query::UserProfileQuery::limits_t GetProfile(std::string_view name) override;
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AllProfiles() override;
-  void SetProfile(const std::string &profile_name, const std::string &user_or_role,
-                  system::Transaction *system_tx) override;
-  void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) override;
+  void SetProfile(const std::string &profile_name, const std::string &user_or_role, system::Transaction *system_tx,
+                  utils::ResourceMonitoring *resource_monitor) override;
+  void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx,
+                     utils::ResourceMonitoring *resource_monitor) override;
   std::optional<std::string> GetProfileForUser(const std::string &user_or_role) override;
   std::vector<std::string> GetUsersForProfile(const std::string &profile_name) override;
 #endif
