@@ -71,15 +71,39 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  replication::HeartbeatRes const heartbeat_res = std::invoke([&] {
-    // stream should be destroyed so that RPC lock is released
-    // before taking engine lock
-    utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
-    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, main_storage->uuid(),
-                                                                           replStorageState.last_durable_timestamp_,
-                                                                           std::string{replStorageState.epoch_.id()});
-    return hb_stream.SendAndWait();
-  });
+  std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
+      std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
+        utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
+
+        // If SYNC replica, block while waiting for RPC lock
+        if (client_.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+          auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+              main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
+              std::string{replStorageState.epoch_.id()});
+          return hb_stream.SendAndWait();
+        }
+        // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
+        // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
+        // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
+        // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
+        // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
+        auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
+            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
+            std::string{replStorageState.epoch_.id()});
+
+        std::optional<replication::HeartbeatRes> res;
+        if (hb_stream.has_value()) {
+          res.emplace(hb_stream->SendAndWait());
+        }
+        return res;
+      });
+
+  if (!maybe_heartbeat_res.has_value()) {
+    spdlog::trace("Couldn't get RPC lock while trying to UpdateReplicaState");
+    return;
+  }
+
+  auto const &heartbeat_res = *maybe_heartbeat_res;
 
   if (heartbeat_res.success) {
     last_known_ts_.store(heartbeat_res.current_commit_timestamp, std::memory_order_release);
@@ -420,13 +444,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       std::visit(
           utils::Overloaded{
               [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed, main_uuid = main_uuid_,
-               &main_db_name](RecoverySnapshot const &snapshot) {
+               &main_db_name, repl_mode = client_.mode_](RecoverySnapshot const &snapshot) {
                 spdlog::debug("Sending the latest snapshot file {} to {} for db {}", snapshot, client_.name_,
                               main_db_name);
                 // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
                 // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
                 auto const maybe_response = TransferDurabilityFiles<replication::SnapshotRpc>(
-                    snapshot, rpcClient, main_uuid, main_mem_storage->uuid());
+                    snapshot, rpcClient, repl_mode, main_uuid, main_mem_storage->uuid());
                 // Error happened on our side when trying to load snapshot file
                 if (!maybe_response.has_value()) {
                   recovery_failed = true;
@@ -448,8 +472,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 }
               },
               [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed,
-               do_reset = reset_needed && step_index == 0, main_uuid = main_uuid_,
-               &main_db_name](RecoveryWals const &wals) {
+               do_reset = reset_needed && step_index == 0, main_uuid = main_uuid_, &main_db_name,
+               repl_mode = client_.mode_](RecoveryWals const &wals) {
                 spdlog::debug("Sending the latest wal files to {} for db {}.", client_.name_, main_db_name);
 
                 if (wals.empty()) {
@@ -461,7 +485,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // passed so that possibly next step of recovering current wal can be executed
 
                 auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
-                    wals, rpcClient, wals.size(), main_uuid, main_mem_storage->uuid(), do_reset);
+                    wals, rpcClient, repl_mode, wals.size(), main_uuid, main_mem_storage->uuid(), do_reset);
                 if (!maybe_response.has_value()) {
                   recovery_failed = true;
                   return;
@@ -480,8 +504,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 }
               },
               [this, &replica_last_commit_ts, main_mem_storage, &rpcClient, &recovery_failed,
-               do_reset = reset_needed && step_index == 0, main_uuid = main_uuid_,
-               &main_db_name](RecoveryCurrentWal const &current_wal) {
+               do_reset = reset_needed && step_index == 0, main_uuid = main_uuid_, &main_db_name,
+               repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 if (main_mem_storage->wal_file_ &&
                     main_mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
@@ -492,7 +516,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
 
                   auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
-                      main_mem_storage->wal_file_->Path(), rpcClient, main_uuid, main_mem_storage->uuid(), do_reset);
+                      main_mem_storage->wal_file_->Path(), rpcClient, repl_mode, main_uuid, main_mem_storage->uuid(),
+                      do_reset);
                   // Error happened on our side when trying to load current WAL file
                   if (!maybe_response.has_value()) {
                     recovery_failed = true;
