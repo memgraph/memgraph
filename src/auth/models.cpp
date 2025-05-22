@@ -83,6 +83,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::MULTI_DATABASE_USE,
     Permission::COORDINATOR,
     Permission::IMPERSONATE_USER,
+    Permission::USER_PROFILE,
 };
 
 }  // namespace
@@ -161,6 +162,8 @@ std::string PermissionToString(Permission permission) {
       return "COORDINATOR";
     case Permission::IMPERSONATE_USER:
       return "IMPERSONATE_USER";
+    case Permission::USER_PROFILE:
+      return "USER_PROFILE";
   }
 }
 
