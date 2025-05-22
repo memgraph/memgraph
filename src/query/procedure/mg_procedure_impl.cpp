@@ -19,6 +19,7 @@
 #include <optional>
 #include <regex>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -39,6 +40,7 @@
 #include "query/stream/common.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
@@ -2824,16 +2826,22 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
   return WrapExceptions(
       [graph, label, property]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto property_id =
-            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto property_path = std::visit(
+            [property](auto *impl) {
+              const auto property_path_as_str =
+                  std::string_view{property} | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
+              return property_path_as_str | ranges::views::transform([impl](const auto &property_id) {
+                       return impl->NameToProperty(property_id);
+                     }) |
+                     ranges::to<std::vector<memgraph::storage::PropertyId>>();
+            },
+            graph->impl);
         const auto index_res = std::visit(
-            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                          return impl->CreateIndex(
-                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
+            memgraph::utils::Overloaded{[label_id, property_path](memgraph::query::DbAccessor *impl) {
+                                          return impl->CreateIndex(label_id, {property_path});
                                         },
-                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                          return impl->GetAccessor()->CreateIndex(
-                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
+                                        [label_id, property_path](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->CreateIndex(label_id, {property_path});
                                         }},
             graph->impl);
         return index_res.HasError() ? 0 : 1;
@@ -2845,16 +2853,23 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
   return WrapExceptions(
       [graph, label, property]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
-        const auto property_id =
-            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto property_path = std::visit(
+            [property](auto *impl) {
+              const auto property_path_as_str =
+                  std::string_view{property} | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
+              return property_path_as_str | ranges::views::transform([impl](const auto &property_id) {
+                       return impl->NameToProperty(property_id);
+                     }) |
+                     ranges::to<std::vector<memgraph::storage::PropertyId>>();
+            },
+            graph->impl);
+
         const auto index_res = std::visit(
-            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
-                                          return impl->DropIndex(
-                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
+            memgraph::utils::Overloaded{[label_id, property_path](memgraph::query::DbAccessor *impl) {
+                                          return impl->DropIndex(label_id, {property_path});
                                         },
-                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
-                                          return impl->GetAccessor()->DropIndex(
-                                              label_id, std::vector<memgraph::storage::PropertyPath>{{property_id}});
+                                        [label_id, property_path](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->DropIndex(label_id, {property_path});
                                         }},
             graph->impl);
         return index_res.HasError() ? 0 : 1;
@@ -2862,21 +2877,25 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
       result);
 }
 
-mgp_error create_and_append_label_property_to_mgp_list(mgp_graph *graph, mgp_memory *memory, mgp_list **result,
-                                                       const auto &label_property_pair) {
+mgp_error create_and_append_label_property_to_mgp_list(
+    mgp_graph *graph, mgp_memory *memory, mgp_list **result,
+    std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyPath> label_property_pair) {
   return WrapExceptions([graph, memory, result, &label_property_pair]() {
     const auto label_id_str = std::visit(
         [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
-    // @TODO put back with support for nested property ids
-    // const auto property_id_str = std::visit(
-    //     [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
-    //     graph->impl);
-    const auto property_id_str = "todo";
+    const auto property_path_str = std::visit(
+        [property_path = label_property_pair.second](const auto *impl) {
+          return property_path | ranges::views::transform([impl](const auto &property_id) {
+                   return impl->PropertyToName(property_id);
+                 }) |
+                 ranges::views::join('.') | ranges::to<std::string>();
+        },
+        graph->impl);
 
     // This is hack to avoid dealing with pairs
     mgp_value *label_property = nullptr;
     auto final_str = label_id_str + ":";
-    final_str += property_id_str;
+    final_str += property_path_str;
 
     if (const auto err_str = mgp_value_make_string(final_str.c_str(), memory, &label_property);
         err_str != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -2907,13 +2926,13 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
     }
 
-    for (const auto &[label, properties] : index_res) {
-      if (properties.size() != 1) {
+    for (const auto &[label, property_paths] : index_res) {
+      if (property_paths.size() != 1) {  // TODO: Support composite indices
         continue;
       }
 
       if (const auto err =
-              create_and_append_label_property_to_mgp_list(graph, memory, result, std::pair{label, properties[0]});
+              create_and_append_label_property_to_mgp_list(graph, memory, result, std::pair{label, property_paths[0]});
           err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error(
             "Listing all label+property indices failed due to failure of appending label+property value");
@@ -2976,7 +2995,12 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
     }
 
     for (const auto &label_property_pair : constraint_res) {
-      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+      auto property_path = memgraph::storage::PropertyPath{label_property_pair.second};
+      if (property_path.size() != 1) {  // TODO: Support composite indices
+        continue;
+      }
+      if (const auto err = create_and_append_label_property_to_mgp_list(
+              graph, memory, result, std::pair{label_property_pair.first, property_path[0]});
           err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error(
             "Listing all existence constraints failed due to failure of appending label+property value");
