@@ -187,6 +187,7 @@ UNREGISTER              : U N R E G I S T E R ;
 UPDATE                  : U P D A T E ;
 USE                     : U S E ;
 USER                    : U S E R ;
+USER_PROFILE            : U S E R UNDERSCORE P R O F I L E ;
 USERS                   : U S E R S ;
 USING                   : U S I N G ;
 VALUE                   : V A L U E ;
