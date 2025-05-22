@@ -35,6 +35,8 @@ def cursor(**kwargs) -> mgclient.Connection:
     cursor.execute("CREATE INDEX ON :Compound(id);")
     cursor.execute("CREATE INDEX ON :Compound(mgid);")
     cursor.execute("CREATE INDEX ON :Compound(inchikey);")
+    cursor.execute("CREATE INDEX ON :Compound(inchikey.formula, inchikey.charge);")
+    cursor.execute("CREATE INDEX ON :Compound(id, mgid, inchikey);")
     cursor.execute("CREATE INDEX ON :Anatomy;")
     cursor.execute("CREATE INDEX ON :Disease;")
 
@@ -47,6 +49,8 @@ def cursor(**kwargs) -> mgclient.Connection:
     cursor.execute("DROP INDEX ON :Compound(id);")
     cursor.execute("DROP INDEX ON :Compound(mgid);")
     cursor.execute("DROP INDEX ON :Compound(inchikey);")
+    cursor.execute("DROP INDEX ON :Compound(inchikey.formula, inchikey.charge);")
+    cursor.execute("DROP INDEX ON :Compound(id, mgid, inchikey);")
     cursor.execute("DROP INDEX ON :Anatomy;")
     cursor.execute("DROP INDEX ON :Disease;")
 
