@@ -120,9 +120,17 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void Abort() { md_.clear(); }
 
-  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
+  memgraph::utils::BasicResult<memgraph::communication::bolt::AuthFailure> Authenticate(
+      const std::string & /*username*/, const std::string & /*password*/) {
+    return {/* success */};
+  }
 
-  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
+  memgraph::utils::BasicResult<memgraph::communication::bolt::AuthFailure> SSOAuthenticate(
+      const std::string & /*username*/, const std::string & /*password*/) {
+    return {/* success */};
+  }
+
+  void LogOff() {}
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
