@@ -1092,3 +1092,34 @@ TEST(AuthModule, RoleSerialization) {
   json[kUserImp][kUserImpDenied] = nlohmann::json::array({{{kUserImpName, "user2"}, {kUserImpId, user2.uuid()}}});
   ASSERT_EQ(json, role.Serialize());
 }
+
+// TODO Role
+TEST(AuthModule, UserProfiles) {
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+  ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  memgraph::auth::User user{};
+  memgraph::auth::UserProfiles::Profile profile{"profile", {}};
+  memgraph::auth::UserProfiles::Profile other_profile{
+      "other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}};
+
+  ASSERT_FALSE(user.profile());
+  ASSERT_NO_THROW(user.SetProfile(profile));
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  ASSERT_NO_THROW(user.SetProfile(other_profile));
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  ASSERT_NO_THROW(user.ClearProfile());
+  ASSERT_FALSE(user.profile());
+
+  // TODO GetProfile
+}

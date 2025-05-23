@@ -12,6 +12,7 @@
 #include "auth/replication_handlers.hpp"
 
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "auth/rpc.hpp"
 #include "license/license.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
@@ -56,6 +57,12 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // Update
     if (req.user) auth->SaveUser(*req.user);
     if (req.role) auth->SaveRole(*req.role);
+    if (req.profile) {
+      if (!auth->CreateProfile(req.profile->name, req.profile->limits)) {
+        // Profile already exists, update it
+        auth->UpdateProfile(req.profile->name, req.profile->limits);
+      }
+    }
     // Success
     system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = UpdateAuthDataRes(true);
@@ -103,6 +110,9 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
       case replication::DropAuthDataReq::DataType::ROLE:
         auth->RemoveRole(req.name);
         break;
+      case replication::DropAuthDataReq::DataType::PROFILE:
+        auth->DropProfile(req.name);
+        break;
     }
     // Success
     system_state_access.SetLastCommitedTS(req.new_group_timestamp);
@@ -116,7 +126,8 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 }
 
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,
-                           const std::vector<auth::User> &users, const std::vector<auth::Role> &roles) {
+                           const std::vector<auth::User> &users, const std::vector<auth::Role> &roles,
+                           const std::vector<auth::UserProfiles::Profile> &profiles) {
   return auth.WithLock([&](auto &locked_auth) {
     // Update config
     locked_auth.SetConfig(std::move(auth_config));
@@ -146,22 +157,49 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
     if (license::global_license_checker.IsEnterpriseValidFast()) {
       // Get all current roles
       auto old_roles = locked_auth.AllRolenames();
-      // Save incoming users
+      // Save incoming roles
       for (const auto &role : roles) {
-        // Missing users
+        // Missing roles
         try {
           locked_auth.SaveRole(role);
         } catch (const auth::AuthException &) {
-          spdlog::debug("SystemRecoveryHandler: Failed to save user");
+          spdlog::debug("SystemRecoveryHandler: Failed to save role");
           return false;
         }
         const auto it = std::find(old_roles.begin(), old_roles.end(), role.rolename());
         if (it != old_roles.end()) old_roles.erase(it);
       }
-      // Delete all the leftover users
+      // Delete all the leftover roles
       for (const auto &role : old_roles) {
         if (!locked_auth.RemoveRole(role)) {
-          spdlog::debug("SystemRecoveryHandler: Failed to remove user \"{}\".", role);
+          spdlog::debug("SystemRecoveryHandler: Failed to remove role \"{}\".", role);
+          return false;
+        }
+      }
+    }
+
+    // Profiles are only supported with a license
+    if (license::global_license_checker.IsEnterpriseValidFast()) {
+      // Get all current profiles
+      auto old_profiles = locked_auth.AllProfiles();
+      // Save incoming profiles
+      for (const auto &profile : profiles) {
+        // Missing profile
+        if (!locked_auth.CreateProfile(profile.name, profile.limits)) {
+          // Profile already exists, update it
+          if (!locked_auth.UpdateProfile(profile.name, profile.limits)) {
+            spdlog::debug("SystemRecoveryHandler: Failed to save profile");
+            return false;
+          }
+        }
+        const auto it = std::find_if(old_profiles.begin(), old_profiles.end(),
+                                     [&](const auto &p) { return p.name == profile.name; });
+        if (it != old_profiles.end()) old_profiles.erase(it);
+      }
+      // Delete all the leftover profiles
+      for (const auto &profile : old_profiles) {
+        if (!locked_auth.DropProfile(profile.name)) {
+          spdlog::debug("SystemRecoveryHandler: Failed to remove profile \"{}\".", profile.name);
           return false;
         }
       }
