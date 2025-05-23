@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "disk_test_utils.hpp"
+#include "mg_procedure.h"
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -799,6 +800,48 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
   ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
   auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
   ASSERT_EQ(updated_indices.Size(), 0);
+}
+
+TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
+  auto storage_acc = this->storage->UniqueAccess();
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+
+  ASSERT_TRUE(mgp::CreateExistenceConstraint(&raw_graph, "User", "email"));
+
+  auto constraints = mgp::ListAllExistenceConstraints(&raw_graph);
+  ASSERT_EQ(constraints.Size(), 1);
+  ASSERT_EQ(constraints[0].ValueString(), "User:email");
+
+  ASSERT_TRUE(mgp::DropExistenceConstraint(&raw_graph, "User", "email"));
+
+  auto updated_constraints = mgp::ListAllExistenceConstraints(&raw_graph);
+  ASSERT_EQ(updated_constraints.Size(), 0);
+
+  ASSERT_FALSE(mgp::DropExistenceConstraint(&raw_graph, "User", "nonexistent"));
+}
+
+TYPED_TEST(CppApiTestFixture, TestUniqueConstraint) {
+  auto storage_acc = this->storage->UniqueAccess();
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+
+  // Prepare the properties list: ["username"]
+  mgp_list list_props({mgp_value("username", this->memory.impl)}, this->memory.impl);
+  ASSERT_TRUE(mgp::CreateUniqueConstraint(&raw_graph, "Account", &list_props));
+  auto constraints = mgp::ListAllUniqueConstraints(&raw_graph);
+  ASSERT_EQ(constraints.Size(), 1);
+  ASSERT_EQ(constraints[0].ValueList().Size(), 2);
+  ASSERT_EQ(constraints[0].ValueList()[0].ValueString(), "Account");
+  ASSERT_EQ(constraints[0].ValueList()[1].ValueString(), "username");
+
+  ASSERT_TRUE(mgp::DropUniqueConstraint(&raw_graph, "Account", &list_props));
+
+  auto updated_constraints = mgp::ListAllUniqueConstraints(&raw_graph);
+  ASSERT_EQ(updated_constraints.Size(), 0);
+
+  mgp_list fake_props({mgp_value("nonexistent", this->memory.impl)}, this->memory.impl);
+  ASSERT_FALSE(mgp::DropUniqueConstraint(&raw_graph, "Account", &fake_props));
 }
 
 TYPED_TEST(CppApiTestFixture, TestVectorSearch) {

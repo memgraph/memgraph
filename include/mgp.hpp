@@ -4601,11 +4601,11 @@ inline List ListAllExistenceConstraints(mgp_graph *memgraph_graph) {
   return List(existence_constraints, StealType{});
 }
 
-inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_list *properties) {
   return create_unique_constraint(memgraph_graph, label.data(), properties);
 }
 
-inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_list *properties) {
   return drop_unique_constraint(memgraph_graph, label.data(), properties);
 }
 

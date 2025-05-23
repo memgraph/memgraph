@@ -3009,12 +3009,15 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
   });
 }
 
-mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_list *properties, int *result) {
   return WrapExceptions(
       [graph, label, properties]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         std::set<memgraph::storage::PropertyId> property_ids;
-        for (const auto &elem : properties->list_v->elems) {
+        for (const auto &elem : properties->elems) {
+          if (elem.type != mgp_value_type::MGP_VALUE_TYPE_STRING) {
+            throw std::logic_error("Expected a string in the list of properties");
+          }
           property_ids.insert(std::visit(
               [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
         }
@@ -3032,12 +3035,15 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
       result);
 }
 
-mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_list *properties, int *result) {
   return WrapExceptions(
       [graph, label, properties]() {
         const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
         std::set<memgraph::storage::PropertyId> property_ids;
-        for (const auto &elem : properties->list_v->elems) {
+        for (const auto &elem : properties->elems) {
+          if (elem.type != mgp_value_type::MGP_VALUE_TYPE_STRING) {
+            throw std::logic_error("Expected a string in the list of properties");
+          }
           property_ids.insert(std::visit(
               [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
         }
