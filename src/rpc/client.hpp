@@ -325,7 +325,6 @@ class Client {
   /**
    * Tries to obtain RPC stream by try locking RPC lock, otherwise returns std::nullopt
    * @tparam TRequestResponse RPC type
-   * @tparam TDuration = std::chrono::duration
    * @tparam Args Type of arguments to propagate to StreamWithLoad
    * @param try_lock_timeout Optional timeout for try lock on RPC lock
    * @param args  Arguments to propagate to StreamWithLoad
