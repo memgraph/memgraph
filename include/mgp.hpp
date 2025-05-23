@@ -471,6 +471,8 @@ class List {
  public:
   /// @brief Creates a List from the copy of the given @ref mgp_list.
   explicit List(mgp_list *ptr);
+  /// @brief Creates a List from the given @ref mgp_list and takes ownership of it.
+  explicit List(mgp_list *ptr, StealType);
   /// @brief Creates a List from the copy of the given @ref mgp_list.
   explicit List(const mgp_list *const_ptr);
 
@@ -582,6 +584,9 @@ class Map {
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(mgp_map *ptr);
+
+  /// @brief Creates a Map from the given @ref mgp_map and takes ownership of it.
+  explicit Map(mgp_map *ptr, StealType);
 
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
   explicit Map(const mgp_map *const_ptr);
@@ -2459,6 +2464,7 @@ inline Labels::Iterator Labels::cend() { return Iterator(this, Size()); }
 // List:
 
 inline List::List(mgp_list *ptr) : ptr_(mgp::MemHandlerCallback(list_copy, ptr)) {}
+inline List::List(mgp_list *ptr, StealType) : ptr_(ptr) {}
 
 inline List::List(const mgp_list *const_ptr)
     : ptr_(mgp::MemHandlerCallback(list_copy, const_cast<mgp_list *>(const_ptr))) {}
@@ -2587,6 +2593,8 @@ inline bool MapItem::operator<(const MapItem &other) const { return key < other.
 // Map:
 
 inline Map::Map(mgp_map *ptr) : ptr_(mgp::MemHandlerCallback(map_copy, ptr)) {}
+
+inline Map::Map(mgp_map *ptr, StealType) : ptr_(ptr) {}
 
 inline Map::Map(const mgp_map *const_ptr) : ptr_(mgp::MemHandlerCallback(map_copy, const_cast<mgp_map *>(const_ptr))) {}
 
@@ -4465,7 +4473,7 @@ inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
   if (label_indices == nullptr) {
     throw ValueException("Couldn't list all label indices");
   }
-  return List(label_indices);
+  return List(label_indices, StealType{});
 }
 
 inline bool CreateLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label,
@@ -4483,7 +4491,7 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   if (label_property_indices == nullptr) {
     throw ValueException("Couldn't list all label+property indices");
   }
-  return List(label_property_indices);
+  return List(label_property_indices, StealType{});
 }
 
 namespace {
@@ -4495,7 +4503,8 @@ constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
                             text_search_mode search_mode) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode));
+                                                      search_query.data(), search_mode),
+                              StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw TextSearchException{"The error message is not a string!"};
@@ -4516,9 +4525,9 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
 
 inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
                                           std::string_view search_query, std::string_view aggregation_query) {
-  auto results_or_error =
-      Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph, index_name.data(),
-                                  search_query.data(), aggregation_query.data()));
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph,
+                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+                              StealType{});
 
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
@@ -4542,7 +4551,8 @@ inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string
 inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
                               size_t result_size) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
-                                                      query_vector.GetPtr(), result_size));
+                                                      query_vector.GetPtr(), result_size),
+                              StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw VectorSearchException{"The error message is not a string!"};
@@ -4553,7 +4563,7 @@ inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_
 }
 
 inline List GetVectorIndexInfo(mgp_graph *memgraph_graph) {
-  auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph));
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph), StealType{});
 
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
@@ -4588,7 +4598,7 @@ inline List ListAllExistenceConstraints(mgp_graph *memgraph_graph) {
   if (existence_constraints == nullptr) {
     throw ValueException("Couldn't list all existence_constraints");
   }
-  return List(existence_constraints);
+  return List(existence_constraints, StealType{});
 }
 
 inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
@@ -4604,7 +4614,7 @@ inline List ListAllUniqueConstraints(mgp_graph *memgraph_graph) {
   if (unique_constraints == nullptr) {
     throw ValueException("Couldn't list all unique_constraints");
   }
-  return List(unique_constraints);
+  return List(unique_constraints, StealType{});
 }
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
