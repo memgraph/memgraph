@@ -15,6 +15,7 @@
 
 #include "utils/logging.hpp"
 #include "utils/query_memory_tracker.hpp"
+#include "utils/resource_monitoring.hpp"
 
 namespace memgraph::memory {
 
@@ -28,15 +29,23 @@ inline auto &GetQueryTracker() {
   return query_memory_tracker_;
 }
 
+inline auto &GetUserTracker() {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static thread_local std::shared_ptr<utils::UserResources> user_resource_ = nullptr;
+  return user_resource_;
+}
+
 struct ThreadTrackingBlocker {
-  ThreadTrackingBlocker() : prev_state_{GetQueryTracker()} {
+  ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
     // Disable thread tracking
     GetQueryTracker() = nullptr;
+    GetUserTracker() = nullptr;
   }
 
   ~ThreadTrackingBlocker() {
     // Reset thread tracking to previous state
     GetQueryTracker() = prev_state_;
+    GetUserTracker() = prev_user_state_;
   }
 
   ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
@@ -46,6 +55,7 @@ struct ThreadTrackingBlocker {
 
  private:
   utils::QueryMemoryTracker *prev_state_;
+  std::shared_ptr<utils::UserResources> prev_user_state_;
 };
 
 }  // namespace
@@ -53,26 +63,39 @@ struct ThreadTrackingBlocker {
 bool TrackAllocOnCurrentThread(size_t size) {
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
-  if (!tracker) return true;
+  auto *const user_resource = GetUserTracker().get();
+  if (!tracker && !user_resource) return true;
 
   const ThreadTrackingBlocker
       blocker{};  // makes sure we cannot recursively track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
-  return tracker->TrackAlloc(size);
+
+  if (user_resource && !user_resource->IncrementTransactionsMemory(size)) {
+    // register our error data, we will pick this up on the other side of jemalloc
+    utils::MemoryErrorStatus().set({1, 2, 3});
+    return false;
+  }
+  if (tracker && !tracker->TrackAlloc(size)) {
+    if (user_resource) user_resource->DecrementTransactionsMemory(size);
+    return false;
+  }
+  return true;
 }
 
 void TrackFreeOnCurrentThread(size_t size) {
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
-  if (!tracker) return;
+  auto *const user_resource = GetUserTracker().get();
+  if (!tracker && !user_resource) return;
 
   const ThreadTrackingBlocker
       blocker{};  // makes sure we cannot recursively track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
-  tracker->TrackFree(size);
+  if (user_resource) user_resource->DecrementTransactionsMemory(size);
+  if (tracker) tracker->TrackFree(size);
 }
 
-bool IsThreadTracked() { return GetQueryTracker() != nullptr; }
+bool IsThreadTracked() { return GetQueryTracker() != nullptr || GetUserTracker() != nullptr; }
 
 #endif
 
@@ -88,6 +111,18 @@ void StopTrackingCurrentThread() {
 #endif
 }
 
+void StartTrackingUserResource(std::shared_ptr<utils::UserResources> resource) {
+#if USE_JEMALLOC
+  GetUserTracker() = std::move(resource);
+#endif
+}
+
+void StopTrackingUserResource() {
+#if USE_JEMALLOC
+  GetUserTracker() = nullptr;
+#endif
+}
+
 bool IsQueryTracked() {
 #if USE_JEMALLOC
   return IsThreadTracked();
@@ -96,6 +131,7 @@ bool IsQueryTracked() {
 #endif
 }
 
+// TODO
 void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
 #if USE_JEMALLOC
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");

@@ -29,7 +29,7 @@
 #include "system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/resouce_monitoring.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
