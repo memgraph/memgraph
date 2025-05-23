@@ -800,3 +800,53 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
   auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
   ASSERT_EQ(updated_indices.Size(), 0);
 }
+
+TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
+  if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    GTEST_SKIP() << "TestNestedIndex runs only on InMemoryStorage.";
+  }
+  constexpr auto index_name = "index";
+  constexpr auto label_name = "label";
+  constexpr auto property_name = "property";
+  constexpr auto metric_as_str = "l2sq";
+  constexpr auto metric = unum::usearch::metric_kind_t::l2sq_k;
+  constexpr auto dimension = 2;
+  constexpr auto resize_coefficient = 2;
+  constexpr auto max_elements = 10;
+
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    auto label = db_acc->NameToLabel(label_name);
+    auto property = db_acc->NameToProperty(property_name);
+    auto spec = memgraph::storage::VectorIndexSpec{index_name,         label,       property, metric, dimension,
+                                                   resize_coefficient, max_elements};
+    ASSERT_FALSE(db_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
+
+  auto storage_acc = this->storage->Access(AccessorType::WRITE);
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  auto graph = mgp::Graph(&raw_graph);
+  auto node1 = graph.CreateNode();
+  node1.AddLabel("label");
+  node1.SetProperty("property", mgp::Value(mgp::List({mgp::Value(1.0), mgp::Value(2.0)})));
+
+  auto vector_index_info = mgp::GetVectorIndexInfo(&raw_graph);
+  ASSERT_EQ(vector_index_info.Size(), 1);
+  auto vector_index_info_list = vector_index_info[0].ValueList();
+  ASSERT_EQ(vector_index_info_list.Size(), 7);
+  ASSERT_EQ(vector_index_info_list[0].ValueString(), index_name);
+  ASSERT_EQ(vector_index_info_list[1].ValueString(), label_name);
+  ASSERT_EQ(vector_index_info_list[2].ValueString(), property_name);
+  ASSERT_EQ(vector_index_info_list[3].ValueString(), metric_as_str);
+  ASSERT_EQ(vector_index_info_list[4].ValueInt(), dimension);
+  ASSERT_EQ(vector_index_info_list[5].ValueInt(), 64);
+  ASSERT_EQ(vector_index_info_list[6].ValueInt(), 1);
+
+  auto list_to_find = mgp::List({mgp::Value(1.0), mgp::Value(2.0)});
+  auto found_nodes = mgp::SearchVectorIndex(&raw_graph, "index", list_to_find, 1);
+  ASSERT_EQ(found_nodes.Size(), 1);
+  ASSERT_EQ(found_nodes[0].ValueList()[0].ValueNode().Id(), node1.Id());
+}
