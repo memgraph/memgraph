@@ -17,7 +17,7 @@
 #include "query/interpreter.hpp"
 
 #include "system/include/system/system.hpp"
-#include "utils/resouce_monitoring.hpp"
+#include "utils/resource_monitoring.hpp"
 namespace memgraph::query {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

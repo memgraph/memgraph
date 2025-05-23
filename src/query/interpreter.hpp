@@ -30,6 +30,7 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "utils/resource_monitoring.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -267,6 +268,10 @@ class Interpreter final {
   };
 
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
+#ifdef MG_ENTERPRISE
+  std::shared_ptr<utils::UserResources> user_resource_;
+  size_t tx_memory_usage_{0};  // Current transaction's memory usage in bytes (Out of order execution is not supported)
+#endif
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
@@ -405,7 +410,11 @@ class Interpreter final {
 
   void ResetUser();
 
+#ifdef MG_ENTERPRISE
+  void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+#else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
+#endif
 
   void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
 
@@ -519,6 +528,11 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // the handler knows.
     AnyStream stream{result_stream, query_execution->execution_memory.resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
+#ifdef MG_ENTERPRISE
+    if (user_resource_) {
+      tx_memory_usage_ += user_resource_->FinalizeQuery();
+    }
+#endif
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
     // first.

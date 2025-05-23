@@ -23,7 +23,7 @@
 #include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
-#include "utils/resouce_monitoring.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::auth {
