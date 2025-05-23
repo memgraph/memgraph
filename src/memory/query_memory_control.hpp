@@ -16,7 +16,8 @@
 // Forward declaration
 namespace memgraph::utils {
 class QueryMemoryTracker;
-}
+class UserResources;
+}  // namespace memgraph::utils
 
 namespace memgraph::memory {
 
@@ -45,6 +46,9 @@ void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker);
 // API function call to stop tracking current thread.
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThread();
+
+void StartTrackingUserResource(std::shared_ptr<utils::UserResources> resource);
+void StopTrackingUserResource();
 
 // Is query's memory tracked
 bool IsQueryTracked();

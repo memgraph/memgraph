@@ -133,6 +133,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::audit::Log *audit_log_;
   RunTimeConfig runtime_db_;    // Run-time configurable database tarted used by the interpreter
   RunTimeConfig runtime_user_;  // Run-time configurable user (impersonation)
+  std::shared_ptr<memgraph::utils::UserResources> user_resource_;  // User-related resource monitoring
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;

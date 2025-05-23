@@ -16,10 +16,12 @@
 #include <atomic>
 #include <cstddef>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace memgraph::utils {
 
@@ -58,11 +60,11 @@ class Resource {
   // Decrementing cannot fail
   void Decrement(T size) {
     auto current = allocated_.load(std::memory_order_acquire);
-    while (allocated_.compare_exchange_weak(current, current - size, std::memory_order_acq_rel)) {
+    while (!allocated_.compare_exchange_weak(current, current - size, std::memory_order_acq_rel)) {
     }
   }
 
-  T GetAllocated() const { return allocated_.load(std::memory_order_acquire); }
+  T GetCurrent() const { return allocated_.load(std::memory_order_acquire); }
   T GetLimit() const { return limit_.load(std::memory_order_acquire); }
 
  private:
@@ -70,8 +72,23 @@ class Resource {
   std::atomic<T> limit_{kUnlimited};
 };
 
-using SessionsResource = Resource<std::size_t>;            // Number of sessions
-using TransactionsMemoryResource = Resource<std::size_t>;  // Bytes allowed to be allocated
+using SessionsResource = Resource<size_t>;                    // Number of sessions
+class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed to be allocated
+ public:
+  TransactionsMemoryResource() {}
+  explicit TransactionsMemoryResource(size_t limit) : Resource(limit) {}
+
+  bool Allocate(size_t size);
+
+  void Deallocate(size_t size);
+
+  size_t FinalizeQuery();
+
+  void FinalizeTransaction(size_t size);
+
+ private:
+  static thread_local size_t single_tx_memory_;
+};
 
 struct UserResources {
   UserResources() = default;
@@ -84,24 +101,30 @@ struct UserResources {
     transactions_memory.UpdateLimit(TransactionsMemoryResource::kUnlimited);
   }
 
+  // Session limits
   void SetSessionLimit(SessionsResource::value_type limit) { sessions.UpdateLimit(limit); }
   bool IncrementSessions() { return sessions.Increment(1); }
   void DecrementSessions() { sessions.Decrement(1); }
   std::pair<SessionsResource::value_type, SessionsResource::value_type> GetSessions() const {
-    return {sessions.GetAllocated(), sessions.GetLimit()};
+    return {sessions.GetCurrent(), sessions.GetLimit()};
   }
 
+  // Transactional memory limits
   void SetTransactionsMemoryLimit(TransactionsMemoryResource::value_type limit) {
     transactions_memory.UpdateLimit(limit);
   }
   bool IncrementTransactionsMemory(TransactionsMemoryResource::value_type size) {
-    return transactions_memory.Increment(size);
+    return transactions_memory.Allocate(size);
   }
-  void DecrementTransactionsMemory(TransactionsMemoryResource::value_type size) { transactions_memory.Decrement(size); }
+  void DecrementTransactionsMemory(TransactionsMemoryResource::value_type size) {
+    transactions_memory.Deallocate(size);
+  }
   std::pair<TransactionsMemoryResource::value_type, TransactionsMemoryResource::value_type> GetTransactionsMemory()
       const {
-    return {transactions_memory.GetAllocated(), transactions_memory.GetLimit()};
+    return {transactions_memory.GetCurrent(), transactions_memory.GetLimit()};
   }
+  size_t FinalizeQuery() { return transactions_memory.FinalizeQuery(); }
+  void FinalizeTransaction(size_t size) { transactions_memory.FinalizeTransaction(size); }
 
  private:
   SessionsResource sessions{};
@@ -110,7 +133,7 @@ struct UserResources {
 
 class ResourceMonitoring {
  public:
-  UserResources &GetUser(const std::string &name) {
+  std::shared_ptr<UserResources> GetUser(const std::string &name) {
     // Phase 1: try to find with shared access
     {
       auto lock = std::shared_lock(mtx_);
@@ -122,27 +145,27 @@ class ResourceMonitoring {
     // Phase 2: get unique access and create if not found
     {
       auto lock = std::unique_lock(mtx_);
-      auto [it, _] = per_user_resources.try_emplace(name);
+      auto [it, _] = per_user_resources.try_emplace(name, std::make_shared<UserResources>());
       return it->second;
     }
   }
 
-  // TODO Make sure this is fine, if not, we could switch to a shared pointer
   void RemoveUser(const std::string &name) {
+    // Resource is passed as a shared_ptr; anything using it should be safe
     auto lock = std::unique_lock(mtx_);
     per_user_resources.erase(name);
   }
 
   void UpdateUserLimits(const std::string &name, SessionsResource::value_type sessions_limit,
                         TransactionsMemoryResource::value_type transactions_memory_limit) {
-    auto &resource = GetUser(name);
-    resource.SetSessionLimit(sessions_limit);
-    resource.SetTransactionsMemoryLimit(transactions_memory_limit);
+    auto resource = GetUser(name);
+    resource->SetSessionLimit(sessions_limit);
+    resource->SetTransactionsMemoryLimit(transactions_memory_limit);
   }
 
  private:
   // Per user resources
-  std::unordered_map<std::string, UserResources> per_user_resources;
+  std::unordered_map<std::string, std::shared_ptr<UserResources>> per_user_resources;
 
   mutable utils::RWSpinLock mtx_;
 };
