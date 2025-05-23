@@ -45,7 +45,7 @@ void HandleAuthFailure(TSession &session) {
 template <typename TSession>
 void HandleResourceFailure(TSession &session) {
   if (!session.encoder_.MessageFailure({{"code", "Memgraph.ClientError.Statement.SessionLimitReached"},
-                                        {"message", "User reach the limit of concurent sessions"}})) {
+                                        {"message", "User reached the limit of concurent sessions"}})) {
     spdlog::trace("Couldn't send failure message to the client!");
   }
   // Throw an exception to indicate to the network stack that the session

@@ -90,8 +90,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
 #ifdef MG_ENTERPRISE
-  auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, bolt_map_t const &extra)
-      -> bolt_map_t;
+  auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks,
+             bolt_map_t const &extra) -> bolt_map_t;
 #endif
 
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
@@ -137,6 +137,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
   RuntimeConfig runtime_config_;  // Run-time configurable database started used by the interpreter
+  std::shared_ptr<memgraph::utils::UserResources> user_resource_;  // User-related resource monitoring
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
