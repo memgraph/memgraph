@@ -107,6 +107,7 @@
 #include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
@@ -872,14 +873,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2220,14 +2228,19 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
-                    std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
-                    std::optional<QueryLogger> &query_logger,
-                    TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {});
+  explicit PullPlan(
+      std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
+      InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+      std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
+      std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
+      std::optional<QueryLogger> &query_logger, TriggerContextCollector *trigger_context_collector = nullptr,
+      std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+      std::optional<int64_t> hops_limit = {}
+#ifdef MG_ENTERPRISE
+      ,
+      std::shared_ptr<utils::UserResources> user_resource = {}
+#endif
+  );
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -2241,7 +2254,9 @@ struct PullPlan {
   std::optional<size_t> memory_limit_;
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::optional<QueryLogger> &query_logger_;
-
+#ifdef MG_ENTERPRISE
+  std::shared_ptr<utils::UserResources> user_resource_{};
+#endif
   // As it's possible to query execution using multiple pulls
   // we need the keep track of the total execution time across
   // those pulls by accumulating the execution time.
@@ -2262,12 +2277,24 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
                    std::optional<QueryLogger> &query_logger, TriggerContextCollector *trigger_context_collector,
                    const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit)
+                   const std::optional<int64_t> hops_limit
+#ifdef MG_ENTERPRISE
+                   ,
+                   std::shared_ptr<utils::UserResources> user_resource
+#endif
+                   )
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
-      query_logger_(query_logger) {
+      query_logger_(query_logger)
+#ifdef MG_ENTERPRISE
+      ,
+      user_resource_ {
+  std::move(user_resource)
+}
+#endif
+{
   ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -2314,20 +2341,33 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     memory_tracker->SetQueryLimit(*memory_limit_);
     memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
   }
+#ifdef MG_ENTERPRISE
+  // User-specific resource monitoring
+  if (user_resource_) {
+    memgraph::memory::StartTrackingUserResource(user_resource_);
+  }
+#endif
 
   const utils::OnScopeExit reset_query_limit{[this]() {
+    const bool finalize = !has_unsent_results_ || std::uncaught_exceptions();
     if (memory_limit_.has_value()) {
       // Stopping tracking of transaction occurs in interpreter::pull
       // Exception can occur so we need to handle that case there.
       // We can't stop tracking here as there can be multiple pulls
       // so we need to take care of that after everything was pulled
       memgraph::memory::StopTrackingCurrentThread();
-      // Pull has completted or has thrown an exception; either way, reset the query tracker
-      if (!has_unsent_results_ || std::uncaught_exceptions()) {
+      // Pull has completed or has thrown an exception; either way, reset the query tracker
+      if (finalize) {
         auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
         memory_tracker.reset();
       }
     }
+#ifdef MG_ENTERPRISE
+    // User-specific resource monitoring
+    if (user_resource_) {
+      memgraph::memory::StopTrackingUserResource();
+    }
+#endif
   }};
 
   // Returns true if a result was pulled.
@@ -2557,13 +2597,17 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUserOrRole> user_or_role,
-                                 std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer, Interpreter &interpreter,
-                                 FrameChangeCollector *frame_change_collector = nullptr) {
+PreparedQuery PrepareCypherQuery(
+    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
+    std::shared_ptr<utils::AsyncTimer> tx_timer, Interpreter &interpreter,
+    FrameChangeCollector *frame_change_collector = nullptr
+#ifdef MG_ENTERPRISE
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
+#endif
+) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
   EvaluationContext evaluation_context;
@@ -2641,7 +2685,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, interpreter.query_logger_,
       trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
+#ifdef MG_ENTERPRISE
+      ,
+      user_resource
+#endif
+  );
   return PreparedQuery{std::move(header),
                        std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -2712,14 +2761,17 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                        RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::shared_ptr<QueryUserOrRole> user_or_role,
-                                  std::atomic<TransactionStatus> *transaction_status,
-                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
-                                  FrameChangeCollector *frame_change_collector) {
+PreparedQuery PrepareProfileQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction, std::map<std::string, TypedValue> *summary,
+    std::vector<Notification> *notifications, InterpreterContext *interpreter_context, Interpreter &interpreter,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user_or_role,
+    std::atomic<TransactionStatus> *transaction_status, std::shared_ptr<utils::AsyncTimer> tx_timer,
+    FrameChangeCollector *frame_change_collector
+#ifdef MG_ENTERPRISE
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
+#endif
+) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -2793,14 +2845,19 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
        tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
-       &query_logger = interpreter.query_logger_](AnyStream *stream,
-                                                  std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       &query_logger = interpreter.query_logger_, user_resource = std::move(user_resource)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), db_acc, query_logger, nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
+#ifdef MG_ENTERPRISE
+                       ,
+                       user_resource
+#endif
+                       )
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
@@ -6170,15 +6227,15 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
           throw QueryException("Expected user or role.");
         }
         std::vector<std::vector<TypedValue>> res;
-        const auto &resource = resource_monitor->GetUser(*user_or_role);
+        const auto resource = resource_monitor->GetUser(*user_or_role);
         // Session usage
-        const auto [session_usage, session_limit] = resource.GetSessions();
+        const auto [session_usage, session_limit] = resource->GetSessions();
         res.emplace_back(std::vector<TypedValue>{
             TypedValue(auth::UserProfiles::kLimits[(int)auth::UserProfiles::Limits::kSessions]),
             TypedValue(static_cast<int64_t>(session_usage)),
             session_limit == -1 ? TypedValue("UNLIMITED") : TypedValue(static_cast<int64_t>(session_limit))});
         // Transaction memory usage
-        const auto [tm_usage, tm_limit] = resource.GetTransactionsMemory();
+        const auto [tm_usage, tm_limit] = resource->GetTransactionsMemory();
         res.emplace_back(std::vector<TypedValue>{
             TypedValue(auth::UserProfiles::kLimits[(int)auth::UserProfiles::Limits::kTransactionsMemory]),
             TypedValue(utils::GetReadableSize(tm_usage)),
@@ -6476,10 +6533,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     frame_change_collector_.emplace();
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_,
-                             memory_resource, &query_execution->notifications, user_or_role_, &transaction_status_,
-                             current_timeout_timer_, *this, &*frame_change_collector_);
+      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
+                                          current_db_, memory_resource, &query_execution->notifications, user_or_role_,
+                                          &transaction_status_, current_timeout_timer_, *this, &*frame_change_collector_
+#ifdef MG_ENTERPRISE
+                                          ,
+                                          user_resource_
+#endif
+      );
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, *this, current_db_);
@@ -6487,7 +6548,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, *this, current_db_,
                                            memory_resource, user_or_role_, &transaction_status_, current_timeout_timer_,
-                                           &*frame_change_collector_);
+                                           &*frame_change_collector_
+#ifdef MG_ENTERPRISE
+                                           ,
+                                           user_resource_
+#endif
+      );
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
@@ -6750,6 +6816,14 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+#ifdef MG_ENTERPRISE
+  if (user_resource_) {
+    tx_memory_usage_ += user_resource_->FinalizeQuery();
+    user_resource_->FinalizeTransaction(tx_memory_usage_);
+  }
+  tx_memory_usage_ = 0;
+#endif
+
   LogQueryMessage("Query abort started.");
   utils::OnScopeExit const abort_end([this]() {
     this->LogQueryMessage("Query abort ended.");
@@ -6885,6 +6959,14 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
+#ifdef MG_ENTERPRISE
+  if (user_resource_) {
+    tx_memory_usage_ += user_resource_->FinalizeQuery();
+    user_resource_->FinalizeTransaction(tx_memory_usage_);
+  }
+  tx_memory_usage_ = 0;
+#endif
+
   LogQueryMessage("Query commit started.");
   utils::OnScopeExit const commit_end([this]() {
     this->LogQueryMessage("Query commit ended.");
@@ -7132,12 +7214,24 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
+#ifdef MG_ENTERPRISE
+void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
+                          std::shared_ptr<utils::UserResources> user_resource) {
+  user_or_role_ = std::move(user_or_role);
+  if (query_logger_) {
+    query_logger_->SetUser(user_or_role_->key());
+  }
+  // TODO Could add user resource here. How would this work with impersonation? Ignore for now.
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) user_resource_ = std::move(user_resource);
+}
+#else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   user_or_role_ = std::move(user_or_role);
   if (query_logger_) {
     query_logger_->SetUser(user_or_role_->key());
   }
 }
+#endif
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
@@ -7151,6 +7245,9 @@ void Interpreter::ResetUser() {
   if (query_logger_) {
     query_logger_->ResetUser();
   }
+#ifdef MG_ENTERPRISE
+  user_resource_.reset();
+#endif
 }
 
 bool Interpreter::IsQueryLoggingActive() const { return query_logger_.has_value(); }
