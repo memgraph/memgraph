@@ -31,7 +31,7 @@
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
 #include "utils/priorities.hpp"
-#include "utils/resouce_monitoring.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -145,17 +145,11 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
   }
 }
 
-bool ResourceAtLogin(const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
+    const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
   // Setup user-related resource monitoring
   const auto &username = std::visit([](auto &user_or_role) { return user_or_role.username(); }, user_or_role);
-  auto &resource = resource_monitoring->GetUser(username);
-  // Monitoring always, resource limit check only if license is valid
-  return !memgraph::license::global_license_checker.IsEnterpriseValidFast() || resource.IncrementSessions();
-}
-
-void ResourceAtLogout(const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
-  // Setup user-related resource monitoring
-  if (user_or_role) resource_monitoring->GetUser(*user_or_role.username()).DecrementSessions();
+  return resource_monitoring->GetUser(username);
 }
 
 #endif
@@ -265,14 +259,19 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
 #ifdef MG_ENTERPRISE
       // Setup user-related resource monitoring
-      if (!ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring)) {
+      user_resource_ = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+      // Monitoring always, resource limit check only if license is valid
+      if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
+          !user_resource_->IncrementSessions()) {
         return communication::bolt::AuthFailure::kResourceBound;
       }
-#endif
-      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+      interpreter_.SetUser(session_user_or_role_, user_resource_);
+#else
       interpreter_.SetUser(session_user_or_role_);
+#endif
       interpreter_.SetSessionInfo(
           UUID(),
           interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
@@ -300,19 +299,23 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
     return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
   }
 
+  session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+
 #ifdef MG_ENTERPRISE
   // Setup user-related resource monitoring
-  if (!ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring)) {
+  user_resource_ = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+  // Monitoring always, resource limit check only if license is valid
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
+      !user_resource_->IncrementSessions()) {
     return communication::bolt::AuthFailure::kResourceBound;
   }
-#endif
-
-  session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  interpreter_.SetUser(session_user_or_role_, user_resource_);
+#else
   interpreter_.SetUser(session_user_or_role_);
+#endif
   interpreter_.SetSessionInfo(
       UUID(), session_user_or_role_->username().has_value() ? session_user_or_role_->username().value() : "",
       GetLoginTimestamp());
-
   TryDefaultDB();
   return {/* success */};
 }
@@ -320,8 +323,9 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
 void SessionHL::LogOff() {
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring
-  if (session_user_or_role_) {
-    ResourceAtLogout(*session_user_or_role_, interpreter_context_->resource_monitoring);
+  if (user_resource_) {
+    user_resource_->DecrementSessions();
+    user_resource_.reset();
   }
 #endif
   interpreter_.ResetDB();
@@ -544,7 +548,9 @@ SessionHL::~SessionHL() {
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring
-  if (session_user_or_role_) ResourceAtLogout(*session_user_or_role_, interpreter_context_->resource_monitoring);
+  if (user_resource_) {
+    user_resource_->DecrementSessions();
+  }
 #endif
 }
 

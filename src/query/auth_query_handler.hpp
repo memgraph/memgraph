@@ -20,7 +20,7 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/typed_value.hpp"
 #include "system/system.hpp"
-#include "utils/resouce_monitoring.hpp"
+#include "utils/resource_monitoring.hpp"
 
 namespace memgraph::query {
 
