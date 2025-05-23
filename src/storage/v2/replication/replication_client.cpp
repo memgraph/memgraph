@@ -321,7 +321,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
         }
 
         *locked_state = REPLICATING;
-        return ReplicaStream(storage, std::move(*maybe_stream_handler), main_uuid_);
+        return ReplicaStream(storage, std::move(*maybe_stream_handler));
       } catch (const rpc::RpcFailedException &) {
         *locked_state = MAYBE_BEHIND;
         LogRpcFailure();
@@ -603,9 +603,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream,
-                             utils::UUID const main_uuid)
-    : storage_{storage}, stream_(std::move(stream)), main_uuid_(main_uuid) {
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream)
+    : storage_{storage}, stream_(std::move(stream)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }

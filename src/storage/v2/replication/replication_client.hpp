@@ -41,10 +41,10 @@ class Storage;
 class ReplicationStorageClient;
 
 // Handler used for transferring the current transaction.
+// You need to acquire the RPC lock before creating ReplicaStream object
 class ReplicaStream {
  public:
-  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream,
-                         utils::UUID main_uuid);
+  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream);
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -74,7 +74,6 @@ class ReplicaStream {
  private:
   Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
-  utils::UUID main_uuid_;
 };
 
 class ReplicaStreamExecutor {
