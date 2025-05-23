@@ -30,6 +30,8 @@ struct RpcInfo {
   static const metrics::Event timerLabel;
 };
 
+constexpr auto kRecoveryRpcTimeout = std::chrono::milliseconds(5000);
+
 class InMemoryStorage;
 
 template <typename T>
@@ -65,7 +67,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds
   // rpc stream and which needs to be executed
   if (mode == replication_coordination_glue::ReplicationMode::ASYNC) {
-    maybe_stream_result = client.TryStream<T>(std::forward<Args>(args)...);
+    maybe_stream_result = client.TryStream<T>(kRecoveryRpcTimeout, std::forward<Args>(args)...);
   } else {
     // in SYNC mode, we block until we obtain RPC lock
     maybe_stream_result.emplace(client.Stream<T>(std::forward<Args>(args)...));

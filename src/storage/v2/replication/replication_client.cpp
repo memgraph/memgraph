@@ -32,6 +32,9 @@ namespace {
 template <typename>
 [[maybe_unused]] inline constexpr bool always_false_v = false;
 
+constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
+constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
+
 using memgraph::storage::replication::ReplicaState;
 using namespace std::string_view_literals;
 
@@ -88,8 +91,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
         // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
         auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
-            std::string{replStorageState.epoch_.id()});
+            std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
+            replStorageState.last_durable_timestamp_, std::string{replStorageState.epoch_.id()});
 
         std::optional<replication::HeartbeatRes> res;
         if (hb_stream.has_value()) {
@@ -298,16 +301,35 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       return std::nullopt;
     }
     case READY: {
-      auto replica_stream = std::optional<ReplicaStream>{};
       try {
         utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
-        replica_stream.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
+        std::optional<rpc::Client::StreamHandler<replication::AppendDeltasRpc>> maybe_stream_handler;
+
+        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+          maybe_stream_handler = client_.rpc_client_.TryStream<replication::AppendDeltasRpc>(
+              std::optional<std::chrono::milliseconds>{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+              current_wal_seq_num);
+        } else {
+          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::AppendDeltasRpc>(
+              main_uuid_, storage->uuid(),
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+              current_wal_seq_num));
+        }
+
+        if (!maybe_stream_handler.has_value()) {
+          spdlog::trace("Couldn't obtain RPC lock for committing to ASYNC replica.");
+          *locked_state = MAYBE_BEHIND;
+          return std::nullopt;
+        }
+
         *locked_state = REPLICATING;
+        return ReplicaStream(storage, std::move(*maybe_stream_handler));
       } catch (const rpc::RpcFailedException &) {
         *locked_state = MAYBE_BEHIND;
         LogRpcFailure();
+        return std::nullopt;
       }
-      return replica_stream;
     }
     default:
       LOG_FATAL("Unknown replica state when starting transaction replication.");
@@ -584,13 +606,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_wal_seq_num,
-                             utils::UUID main_uuid)
-    : storage_{storage},
-      stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          main_uuid, storage->uuid(),
-          storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), current_wal_seq_num)),
-      main_uuid_(main_uuid) {
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream)
+    : storage_{storage}, stream_(std::move(stream)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
