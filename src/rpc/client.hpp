@@ -319,18 +319,21 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        /*try_lock*/ false, std::forward<Args>(args)...);
+        /*try_lock_timeout*/ std::nullopt, std::forward<Args>(args)...);
   }
 
   /**
    * Tries to obtain RPC stream by try locking RPC lock, otherwise returns std::nullopt
    * @tparam TRequestResponse RPC type
+   * @tparam TDuration = std::chrono::duration
    * @tparam Args Type of arguments to propagate to StreamWithLoad
+   * @param try_lock_timeout Optional timeout for try lock on RPC lock
    * @param args  Arguments to propagate to StreamWithLoad
    * @return nullopt if couldn't try_lock, StreamHandler otherwise
    */
   template <class TRequestResponse, class... Args>
-  std::optional<StreamHandler<TRequestResponse>> TryStream(Args &&...args) {
+  std::optional<StreamHandler<TRequestResponse>> TryStream(
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
     try {
       return StreamWithLoad<TRequestResponse>(
           [](auto *reader) {
@@ -338,7 +341,7 @@ class Client {
             TRequestResponse::Response::Load(&response, reader);
             return response;
           },
-          /*try_lock*/ true, std::forward<Args>(args)...);
+          /*try_lock_timeout*/ try_lock_timeout, std::forward<Args>(args)...);
     } catch (FailedToGetRpcStreamException const &) {
       return std::nullopt;
     }
@@ -347,13 +350,14 @@ class Client {
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, bool const try_lock, Args &&...args) {
+      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
 
     auto guard = std::unique_lock{mutex_, std::defer_lock};
-    if (try_lock) {
-      if (!guard.try_lock_for(kTryLockTimeout)) {
+    if (try_lock_timeout.has_value()) {
+      if (!guard.try_lock_for(*try_lock_timeout)) {
         throw FailedToGetRpcStreamException();
       }
     } else {
@@ -426,8 +430,6 @@ class Client {
   auto Endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
  private:
-  constexpr static std::chrono::seconds kTryLockTimeout{10};
-
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;

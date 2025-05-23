@@ -32,6 +32,9 @@ namespace {
 template <typename>
 [[maybe_unused]] inline constexpr bool always_false_v = false;
 
+constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
+constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
+
 using memgraph::storage::replication::ReplicaState;
 using namespace std::string_view_literals;
 
@@ -88,8 +91,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
         // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
         auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
-            std::string{replStorageState.epoch_.id()});
+            std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
+            replStorageState.last_durable_timestamp_, std::string{replStorageState.epoch_.id()});
 
         std::optional<replication::HeartbeatRes> res;
         if (hb_stream.has_value()) {
@@ -304,7 +307,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           maybe_stream_handler = client_.rpc_client_.TryStream<replication::AppendDeltasRpc>(
-              main_uuid_, storage->uuid(),
+              std::optional<std::chrono::milliseconds>{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
               storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
               current_wal_seq_num);
         } else {
