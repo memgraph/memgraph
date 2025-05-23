@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "range/v3/all.hpp"
@@ -197,7 +199,14 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   IndexHint object;
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-  auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
+  auto propix_to_propid = [&](auto &&v) {
+    std::vector<PropertyIx> propids;
+    propids.reserve(v.size());
+    for (const auto &propix : v) {
+      propids.emplace_back(storage->GetPropertyIx(propix.name));
+    }
+    return propids;
+  };
   object.property_ixs_ = property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
   return object;
 }

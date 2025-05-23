@@ -271,8 +271,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =
-        ExtractAndJoin(filters.FilteredProperties(scan_symbol), [](const auto &item) { return item.name; });
-
+        ExtractAndJoin(filters.FilteredProperties(scan_symbol), [](const auto &vector) {
+          return boost::algorithm::join(vector | ranges::views::transform([](const auto &item) { return item.name; }),
+                                        ".");
+        });
     if (filtered_labels.empty() && filtered_properties.empty()) {
       return;
     }

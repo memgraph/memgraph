@@ -296,26 +296,31 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
 
 antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
   PreQueryDirectives pre_query_directives;
-
-  auto const to_property_ix = [self = this](auto context) { return std::any_cast<PropertyIx>(context->accept(self)); };
-
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
-        if (index_hint_ctx->propertyKeyName().empty()) {
+        if (index_hint_ctx->nestedPropertyKeyNames().empty()) {
           pre_query_directives.index_hints_.emplace_back(
               // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
               IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
           continue;
         }
-
-        auto property_ixs =
-            index_hint_ctx->propertyKeyName() | std::ranges::views::transform(to_property_ix) | ranges::to_vector;
-
-        pre_query_directives.index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
-                                                                 .label_ix_ = label,
-                                                                 .property_ixs_ = std::move(property_ixs)});
+        std::vector<PropertyPath> property_ixs;
+        property_ixs.reserve(index_hint_ctx->nestedPropertyKeyNames().size());
+        for (auto &&nested_property_key_names : index_hint_ctx->nestedPropertyKeyNames()) {
+          auto nested_properties = nested_property_key_names->propertyKeyName() |
+                                   std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                                     return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+                                   }) |
+                                   ranges::to_vector;
+          property_ixs.emplace_back(std::move(nested_properties));
+        }
+        pre_query_directives.index_hints_.emplace_back(
+            // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
+                      .label_ix_ = label,
+                      .property_ixs_ = property_ixs});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
@@ -373,18 +378,31 @@ antlrcpp::Any CypherMainVisitor::visitVectorIndexQuery(MemgraphCypher::VectorInd
 
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
+
   index_query->action_ = IndexQuery::Action::CREATE;
+
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (auto *property_key_name : ctx->propertyKeyName()) {
-    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
-    index_query->properties_.emplace_back(std::move(prop_key));
+
+  index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
+  for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
+    auto nested_properties = nested_property_key_names->propertyKeyName() |
+                             std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                               return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+                             }) |
+                             ranges::to_vector;
+    index_query->properties_.emplace_back(std::move(nested_properties));
   }
 
-  auto const properties_are_unique{
-      std::unordered_set<PropertyIx>{index_query->properties_.begin(), index_query->properties_.end()}.size() ==
-      index_query->properties_.size()};
-  if (!properties_are_unique) {
+  // Check composite properties are unique, and in the case of nested properties,
+  // that the prefix is also unique (e.g. if we have `a.b`, `a.b.c` is
+  // disallowed because the index already exists on the outer `a.b` property.)
+  // By sorting, any potential prefix conflicts will be adjacent.
+  std::vector<std::vector<PropertyIx>> sorted_properties = index_query->properties_;
+  std::ranges::sort(sorted_properties);
+  if (std::ranges::adjacent_find(sorted_properties, [](auto &&lhs, auto &&rhs) {
+        auto min_length = std::min(lhs.size(), rhs.size());
+        return std::ranges::equal(lhs.cbegin(), lhs.cbegin() + min_length, rhs.cbegin(), rhs.cbegin() + min_length);
+      }) != sorted_properties.end()) {
     throw SyntaxException("Properties cannot be repeated in a composite index.");
   }
 
@@ -395,11 +413,17 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (auto *property_key_name : ctx->propertyKeyName()) {
-    auto prop_key = std::any_cast<PropertyIx>(property_key_name->accept(this));
-    index_query->properties_.emplace_back(std::move(prop_key));
+  index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
+
+  for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
+    auto nested_properties = nested_property_key_names->propertyKeyName() |
+                             std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                               return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+                             }) |
+                             ranges::to_vector;
+    index_query->properties_.emplace_back(std::move(nested_properties));
   }
+
   return index_query;
 }
 

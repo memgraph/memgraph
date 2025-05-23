@@ -310,11 +310,17 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                              std::span<storage::PropertyId const> properties) {
-  auto prop_names =
-      properties | rv::transform([&](auto &&property) { return EscapeName(dba->PropertyToName(property)); });
+                              std::span<storage::PropertyPath const> properties) {
+  using namespace std::string_literals;
+  auto const concat_nested_props = [&](auto &&path) {
+    return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+           rv::join("."s) | r::to<std::string>();
+  };
 
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << utils::Join(prop_names, ", ") << ");";
+  auto prop_names = properties | rv::transform([&](auto &&path) { return concat_nested_props(path); }) |
+                    rv::join(", "s) | r::to<std::string>();
+
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {

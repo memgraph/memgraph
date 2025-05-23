@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -208,11 +209,14 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                                                  snapshot_info))
         throw RecoveryFailure("The label+property index must be created here!");
 
-      auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
-      auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;
-
+      auto path_to_name = [&](const PropertyPath &path) {
+        return path |
+               rv::transform([&](const auto &property_id) { return name_id_mapper->IdToName(property_id.AsUint()); }) |
+               rv::join('.') | r::to<std::string>;
+      };
+      auto const properties_str = utils::Join(properties | rv::transform(path_to_name), ", ");
       spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                   properties_string);
+                   properties_str);
     }
     spdlog::info("Label+property indices are recreated.");
   }
@@ -226,8 +230,12 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       const auto &property_ids = item.second.first;
       const auto &stats = item.second.second;
       mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
-      auto id_to_name = [&](PropertyId prop) { return name_id_mapper->IdToName(prop.AsUint()); };
-      auto const properties_str = utils::Join(property_ids | rv::transform(id_to_name), ", ");
+      auto path_to_name = [&](const PropertyPath &path) {
+        return path |
+               rv::transform([&](const auto &property_id) { return name_id_mapper->IdToName(property_id.AsUint()); }) |
+               rv::join('.') | r::to<std::string>;
+      };
+      auto const properties_str = utils::Join(property_ids | rv::transform(path_to_name), ", ");
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
                    name_id_mapper->IdToName(label_id.AsUint()), properties_str);
     }
