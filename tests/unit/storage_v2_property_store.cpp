@@ -1493,6 +1493,90 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
 
 //==============================================================================
 
+TEST(PropertiesPermutationHelper, MatchesValues_ReturnsABooleanMaskOfMatches) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  PropertiesPermutationHelper prop_reader{
+      std::array{PropertyPath{p1}, PropertyPath{p2}, PropertyPath{p3}, PropertyPath{p4}}};
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1, PropertyValue{"apple"}},
+                                                                  {p2, PropertyValue{"banana"}},
+                                                                  {p3, PropertyValue{"cherry"}},
+                                                                  {p4, PropertyValue{"date"}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"banana"},
+                                                         PropertyValue{"cherry"}, PropertyValue{"date"}}),
+            (std::vector{true, true, true, true}));
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"applex"}, PropertyValue{"bananax"},
+                                                         PropertyValue{"cherryx"}, PropertyValue{"datex"}}),
+            (std::vector{false, false, false, false}));
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"bananax"},
+                                                         PropertyValue{"cherry"}, PropertyValue{"datex"}}),
+            (std::vector{true, false, true, false}));
+}
+
+TEST(PropertiesPermutationHelper, MatchesValues_WorksWithOutOfOrderProperties) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  PropertiesPermutationHelper prop_reader{
+      std::array{PropertyPath{p3}, PropertyPath{p1}, PropertyPath{p2}, PropertyPath{p4}}};
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data = {{p1, PropertyValue{"apple"}},
+                                                                  {p2, PropertyValue{"banana"}},
+                                                                  {p3, PropertyValue{"cherry"}},
+                                                                  {p4, PropertyValue{"date"}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"cherry"}, PropertyValue{"apple"},
+                                                         PropertyValue{"banana"}, PropertyValue{"date"}}),
+            (std::vector{true, true, true, true}));
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"banana"},
+                                                         PropertyValue{"cherry"}, PropertyValue{"date"}}),
+            (std::vector{false, false, false, true}));
+}
+
+TEST(PropertiesPermutationHelper, MatchesValues_WorksWithNestedProperties) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  PropertiesPermutationHelper prop_reader{
+      std::array{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}, PropertyPath{p4}}};
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, MakeMap(KVPair{p1, PropertyValue{"apple"}}, KVPair{p2, PropertyValue{"banana"}},
+                   KVPair{p3, PropertyValue{"cherry"}})},
+      {p4, PropertyValue{"date"}}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"banana"}, PropertyValue{"cherry"},
+                                                         PropertyValue{"apple"}, PropertyValue{"date"}}),
+            (std::vector{true, true, true, true}));
+
+  EXPECT_EQ(prop_reader.MatchesValues(store, std::vector{PropertyValue{"apple"}, PropertyValue{"cherry"},
+                                                         PropertyValue{"banana"}, PropertyValue{"date"}}),
+            (std::vector{false, false, true, true}));
+}
+
+//==============================================================================
+
 TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);
@@ -1509,8 +1593,6 @@ TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
 }
 
 //==============================================================================
-
-// @TODO add tests for  `MatchValue`
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
