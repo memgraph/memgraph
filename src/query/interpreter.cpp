@@ -340,6 +340,12 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
   return replication_coordination_glue::ReplicationMode::ASYNC;
 }
 
+std::string PropertyPathToName(auto &&context, storage::PropertyPath const &property_path) {
+  return property_path |
+         rv::transform([&](storage::PropertyId property_id) { return context->PropertyToName(property_id); }) |
+         rv::join('.') | r::to<std::string>();
+};
+
 class ReplQueryHandler {
  public:
   explicit ReplQueryHandler(query::ReplicationQueryHandler &replication_query_handler)
@@ -3042,10 +3048,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     results.push_back(std::move(result));
   });
 
-  auto prop_path_to_name = [execution_db_accessor](auto const &property_path) {
-    return property_path |
-           rv::transform([&](auto &&property_id) { return execution_db_accessor->PropertyToName(property_id); }) |
-           rv::join('.') | r::to<std::string>();
+  auto const prop_path_to_name = [execution_db_accessor](auto const &property_path) {
+    return PropertyPathToName(execution_db_accessor, property_path);
   };
 
   std::for_each(label_property_stats.begin(), label_property_stats.end(), [&](const auto &stat_entry) {
@@ -3141,11 +3145,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
         return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
       });
 
-  auto prop_path_to_name = [&](storage::PropertyPath const &property_path) {
-    return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
-                        return execution_db_accessor->PropertyToName(property_id);
-                      }) |
-                      rv::join('.') | r::to<std::string>()};
+  auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
+    return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
   };
 
   std::transform(
@@ -4809,11 +4810,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
         for (const auto &[label, properties] : info.label_properties) {
-          auto prop_path_to_name = [&](storage::PropertyPath const &property_path) {
-            return TypedValue{property_path | rv::transform([&](storage::PropertyId property_id) {
-                                return storage->PropertyToName(property_id);
-                              }) |
-                              rv::join('.') | r::to<std::string>()};
+          auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
+            return TypedValue{PropertyPathToName(storage, property_path)};
           };
           auto props = properties | ranges::views::transform(prop_path_to_name) | ranges::to_vector;
           results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(label)),
@@ -5890,10 +5888,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label property indices
       for (const auto &[label_id, property_paths] : index_info.label_properties) {
-        auto path_to_name = [&](const storage::PropertyPath &property_path) {
-          return property_path |
-                 rv::transform([&](storage::PropertyId prop_id) { return storage->PropertyToName(prop_id); }) |
-                 rv::join('.') | r::to<std::string>();
+        auto const path_to_name = [&](const storage::PropertyPath &property_path) {
+          return PropertyPathToName(storage, property_path);
         };
 
         auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
