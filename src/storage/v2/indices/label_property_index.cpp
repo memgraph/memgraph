@@ -54,7 +54,7 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
     : sorted_properties_(properties.begin(), properties.end()) {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
-          [](auto const &value) -> decltype(auto) { return std::get<1>(value)[0]; });
+          [](auto const &value) -> decltype(auto) { return std::get<1>(value); });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
 }
