@@ -26,11 +26,6 @@
 #include "storage_test_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
-// @TODO currently, these tests are not actually testing nested properties. Even
-// though they use the nested property API (i.e, the one with `PropertyPath`),
-// all tested properties are non-nested. Must expand the tests to ensure
-// nested props are also tested.
-
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 using testing::IsEmpty;
@@ -1435,37 +1430,118 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
-  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
-    {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-    }
-
-    auto acc = this->storage->Access();
-    for (int i = 1; i <= 10; ++i) {
-      for (int j = 0; j < i; ++j) {
-        auto vertex = this->CreateVertex(acc.get());
-        ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
-        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
-      }
-    }
-
-    // @TODO have no tests for approx vertex count with composite indices
-
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 55);
-    for (int i = 1; i <= 10; ++i) {
-      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
-                                            std::array{PropertyValue(i)}),
-                i);
-    }
-
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
-                                          std::array{memgraph::storage::PropertyValueRange::Bounded(
-                                              memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
-                                              memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
-              2 + 3 + 4 + 5 + 6);
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
   }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 55);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
+                                          std::array{PropertyValue(i)}),
+              i);
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
+                                        std::array{memgraph::storage::PropertyValueRange::Bounded(
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+            2 + 3 + 4 + 5 + 6);
+}
+
+TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCountEstimate) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(
+        unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{i}));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{i * 2}));
+    }
+  }
+
+  // `110` is because each `SetProperty` above adds another entry into the
+  // skip list, resulting in an approximation that is twice the actual count.
+  EXPECT_EQ(
+      acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}),
+      110);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(
+        acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}},
+                                    std::array{PropertyValue{i}, PropertyValue{i * 2}}),
+        i);
+  }
+
+  EXPECT_EQ(
+      acc->ApproximateVertexCount(
+          this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}},
+          std::array{
+              memgraph::storage::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                                             memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
+
+              memgraph::storage::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(4)),
+                                                             memgraph::utils::MakeBoundInclusive(PropertyValue(10)))}),
+      14);
+}
+
+TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(
+          vertex.SetProperty(this->prop_a, PropertyValue{PropertyValue::map_t{{this->prop_b, PropertyValue{i}}}}));
+    }
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b}}), 55);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b}},
+                                          std::array{PropertyValue(i)}),
+              i);
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b}},
+                                        std::array{memgraph::storage::PropertyValueRange::Bounded(
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+            2 + 3 + 4 + 5 + 6);
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
@@ -3283,8 +3359,6 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW), UnorderedElementsAre(1, 2, 3, 4, 5));
 }
 
-// @TODO simple test just to get MVCC passing. Once that is working, replace
-// this with more compelte test
 TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Nested indices currently not supported on disk";
