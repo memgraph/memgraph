@@ -29,7 +29,7 @@ inline auto &GetQueryTracker() {
 
 inline auto &GetUserTracker() {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-  static thread_local std::shared_ptr<utils::UserResources> user_resource_ = nullptr;
+  static thread_local utils::UserResources *user_resource_ = nullptr;
   return user_resource_;
 }
 
@@ -53,7 +53,7 @@ struct ThreadTrackingBlocker {
 
  private:
   utils::QueryMemoryTracker *prev_state_;
-  std::shared_ptr<utils::UserResources> prev_user_state_;
+  utils::UserResources *prev_user_state_;
 };
 
 }  // namespace
@@ -61,7 +61,7 @@ struct ThreadTrackingBlocker {
 bool TrackAllocOnCurrentThread(size_t size) {
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
-  auto *const user_resource = GetUserTracker().get();
+  auto *const user_resource = GetUserTracker();
   if (!tracker && !user_resource) return true;
 
   const ThreadTrackingBlocker
@@ -83,7 +83,7 @@ bool TrackAllocOnCurrentThread(size_t size) {
 void TrackFreeOnCurrentThread(size_t size) {
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
-  auto *const user_resource = GetUserTracker().get();
+  auto *const user_resource = GetUserTracker();
   if (!tracker && !user_resource) return;
 
   const ThreadTrackingBlocker
@@ -109,9 +109,9 @@ void StopTrackingCurrentThread() {
 #endif
 }
 
-void StartTrackingUserResource(std::shared_ptr<utils::UserResources> resource) {
+void StartTrackingUserResource(utils::UserResources *resource) {
 #if USE_JEMALLOC
-  GetUserTracker() = std::move(resource);
+  GetUserTracker() = resource;
 #endif
 }
 
