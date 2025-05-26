@@ -2540,12 +2540,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #ifdef MG_ENTERPRISE
   // User-specific resource monitoring
   if (user_resource_) {
-    memgraph::memory::StartTrackingUserResource(user_resource_);
+    memgraph::memory::StartTrackingUserResource(user_resource_.get());
   }
 #endif
 
   const utils::OnScopeExit reset_query_limit{[this]() {
-    const bool finalize = !has_unsent_results_ || std::uncaught_exceptions();
     if (memory_limit_.has_value()) {
       // Stopping tracking of transaction occurs in interpreter::pull
       // Exception can occur so we need to handle that case there.
@@ -2553,7 +2552,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       // so we need to take care of that after everything was pulled
       memgraph::memory::StopTrackingCurrentThread();
       // Pull has completed or has thrown an exception; either way, reset the query tracker
-      if (finalize) {
+      if (!has_unsent_results_ || std::uncaught_exceptions()) {
         auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
         memory_tracker.reset();
       }

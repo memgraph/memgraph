@@ -47,7 +47,7 @@ void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker);
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThread();
 
-void StartTrackingUserResource(std::shared_ptr<utils::UserResources> resource);
+void StartTrackingUserResource(utils::UserResources *resource);
 void StopTrackingUserResource();
 
 // Is query's memory tracked
