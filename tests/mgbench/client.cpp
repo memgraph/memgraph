@@ -289,7 +289,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
                                                                        workload_start) < time_limit) {
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) {
-          /// Get back to inital position
+          /// Get back to initial position
           position.store(0, std::memory_order_release);
           pos = position.fetch_add(1, std::memory_order_acq_rel);
         }
