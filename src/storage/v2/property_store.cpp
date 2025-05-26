@@ -166,8 +166,7 @@ const uint8_t kShiftIdSize = 2;
 //       + type; id size is used to indicate whether the key size is encoded as
 //         `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`; payload size is used
 //         as described above for the inner payload type
-//       + encoded key size // @TODO not correct now as we are storing PropertyId
-//       + encoded key data
+//       + encoded key property ID
 //       + encoded value size
 //       + encoded value data
 //   * TEMPORAL_DATA

@@ -20,7 +20,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::query::plan {

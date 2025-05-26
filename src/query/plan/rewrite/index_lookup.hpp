@@ -107,7 +107,7 @@ struct IndexHints {
 
   template <class TDbAccessor>
   bool HasLabelPropertiesIndex(TDbAccessor *db, storage::LabelId label,
-                               const std::vector<storage::PropertyPath> &property_paths) const {
+                               std::span<storage::PropertyPath const> property_paths) const {
     for (const auto &[index_type, label_hint, properties_prefix] : label_property_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
       if (label_id != label) continue;
@@ -137,7 +137,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint.back()[0].name);  // TODO: nested index?
+      auto property_id = db->NameToProperty(property_hint.back()[0].name);
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -949,7 +949,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // First match with the provided hints
     for (const auto &[index_type, label, properties] : index_hints_.point_index_hints_) {
-      auto property_ix = properties.back()[0];  // TODO: nested index?
+      auto property_ix = properties.back()[0];
       auto filter_it = candidate_point_indices.find(std::make_pair(label, property_ix));
       if (filter_it != candidate_point_indices.cend()) {
         // TODO: isn't .vertex_count as max value wrong?
@@ -1040,8 +1040,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     ranges::stable_sort(property_filters, {}, as_storage_property);
     auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
 
-    // TODO: extact as a common util
-    // @TODO double check that this is correct for nested properties
+    // TODO: extract as a common util if this is ever needed elsewhere.
     auto filters_grouped_by_property = std::map<storage::PropertyPath, std::vector<FilterInfo>>{};
     auto grouped = ranges::views::zip(properties, property_filters) |
                    ranges::views::chunk_by([&](auto &&a, auto &&b) { return a.first == b.first; });
