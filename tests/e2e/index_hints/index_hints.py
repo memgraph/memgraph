@@ -198,7 +198,7 @@ def test_label_property_nested_index_hint(memgraph):
 
     expected_explain_with_hint_label1 = [
         " * Produce {r, x, y}",
-        " * Filter (y :Label2), {y.b}",
+        " * Filter (y :Label2), {y.a.b}",
         " * Expand (x)-[r]->(y)",
         " * ScanAllByLabelProperties (x :Label1 {a.b, c.d})",
         " * Once",
@@ -215,7 +215,7 @@ def test_label_property_nested_index_hint(memgraph):
 
     expected_explain_with_hint_label2 = [
         " * Produce {r, x, y}",
-        " * Filter (x :Label1), {x.b}",
+        " * Filter (x :Label1), {x.a.b}",
         " * Expand (y)<-[r]-(x)",
         " * ScanAllByLabelProperties (y :Label2 {a.b, c.d})",
         " * Once",
