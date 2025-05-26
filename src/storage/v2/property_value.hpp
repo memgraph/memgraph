@@ -942,7 +942,7 @@ static_assert(sizeof(pmr::PropertyValue) == 56);
 
 /**
  * Helper to read a nested value from within a PropertyValue map. If the path
- * is valid, returns an positional pointer to the `PropertyValue` within the
+ * is valid, returns a positional pointer to the `PropertyValue` within the
  * top-most value. Otherwise, return `nullptr`.
  */
 inline PropertyValue const *ReadNestedPropertyValue(PropertyValue const &value,

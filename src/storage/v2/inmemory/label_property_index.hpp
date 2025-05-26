@@ -74,15 +74,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class Iterable {
    public:
-    // Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor
-    // vertices_accessor,
-    //          LabelId label, PropertiesIds const *properties, PropertiesPermutationHelper const *permutation_helper,
-    //          std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
-
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-             LabelId label, NestedPropertiesIds const *properties,
-             PropertiesPermutationHelper const *permutation_helper, std::span<PropertyValueRange const> ranges,
-             View view, Storage *storage, Transaction *transaction);
+             LabelId label, PropertiesIds const *properties, PropertiesPermutationHelper const *permutation_helper,
+             std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
@@ -114,7 +108,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     // These describe the composite index
     LabelId label_;
-    NestedPropertiesIds const *properties_;
+    PropertiesIds const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
@@ -173,17 +167,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     using is_transparent = void;
   };
 
-  // @TODO remove `Nested` prefix from all these types
-  using NestedPropertiesIndices = std::map<NestedPropertiesIds, IndividualIndex, Compare>;
-  std::map<LabelId, NestedPropertiesIndices, std::less<>> index_;
+  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, Compare>;
+  std::map<LabelId, PropertiesIndices, std::less<>> index_;
 
-  using NestedEntryDetail = std::tuple<NestedPropertiesIds const *, IndividualIndex *>;
-  using NestedPropToIndexLookup = std::multimap<LabelId, NestedEntryDetail>;
+  using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;
+  using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
   // This is keyed on the top-level property of a nested property. So for
   // nested property `a.b.c`, only a key for the top-most `a` exists.
-  std::unordered_map<PropertyId, NestedPropToIndexLookup> indices_by_property_;
+  std::unordered_map<PropertyId, PropToIndexLookup> indices_by_property_;
 
-  using PropertiesIndicesStats = std::map<NestedPropertiesIds, storage::LabelPropertyIndexStats, Compare>;
+  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

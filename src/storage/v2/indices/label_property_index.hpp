@@ -86,9 +86,7 @@ struct LabelPropertiesIndicesInfo {
   std::vector<PropertyPath> properties_;
 };
 
-// @TODO remove old implementation
-using PropertiesIds = std::vector<PropertyId>;
-using NestedPropertiesIds = std::vector<PropertyPath>;
+using PropertiesIds = std::vector<PropertyPath>;
 
 struct IndexOrderedPropertyValues {
   IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
@@ -163,14 +161,13 @@ class LabelPropertyIndex {
  public:
   // Because of composite index we need to track more info
   struct IndexInfo {
-    NestedPropertiesIds const *new_properties_;
+    PropertiesIds const *new_properties_;
     PropertiesPermutationHelper const *helper_;
 
     friend auto operator<=>(IndexInfo const &, IndexInfo const &) = default;
   };
   using AbortableInfo =
-      std::map<LabelId,
-               std::map<NestedPropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
+      std::map<LabelId, std::map<PropertiesIds const *, std::vector<std::pair<IndexOrderedPropertyValues, Vertex *>>>>;
   struct AbortProcessor {
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
