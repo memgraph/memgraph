@@ -1319,26 +1319,45 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   auto const p7 = PropertyId::FromInt(7);
   auto const p8 = PropertyId::FromInt(8);
 
-  auto const MakeMap = [](PropertyId key, PropertyValue value) {
-    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
-  };
+  {
+    auto const MakeMap = [](PropertyId key, PropertyValue value) {
+      return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+    };
 
-  const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, MakeMap(p2, MakeMap(p3, PropertyValue{"apple"}))},
-                                                               {p4, MakeMap(p5, PropertyValue{"banana"})},
-                                                               {p6, PropertyValue{"cherry"}},
-                                                               {p7, MakeMap(p8, PropertyValue{"date"})}};
+    const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, MakeMap(p2, MakeMap(p3, PropertyValue{"apple"}))},
+                                                                 {p4, MakeMap(p5, PropertyValue{"banana"})},
+                                                                 {p6, PropertyValue{"cherry"}},
+                                                                 {p7, MakeMap(p8, PropertyValue{"date"})}};
 
-  PropertyStore store;
-  store.InitProperties(data);
+    PropertyStore store;
+    store.InitProperties(data);
 
-  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p7, p8}, PropertyPath{p4, p5},
-                                                                    PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
-  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
-  ASSERT_EQ(4u, values.size());
-  EXPECT_EQ(values[0], PropertyValue{"date"});
-  EXPECT_EQ(values[1], PropertyValue{"banana"});
-  EXPECT_EQ(values[2], PropertyValue{"apple"});
-  EXPECT_EQ(values[3], PropertyValue{"cherry"});
+    PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{PropertyPath{p7, p8}, PropertyPath{p4, p5},
+                                                                      PropertyPath{p1, p2, p3}, PropertyPath{p6}}};
+    auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+    ASSERT_EQ(4u, values.size());
+    EXPECT_EQ(values[0], PropertyValue{"date"});
+    EXPECT_EQ(values[1], PropertyValue{"banana"});
+    EXPECT_EQ(values[2], PropertyValue{"apple"});
+    EXPECT_EQ(values[3], PropertyValue{"cherry"});
+  }
+
+  {
+    const std::vector<std::pair<PropertyId, PropertyValue>> data = {
+        {p1, MakeMap(KVPair{p1, PropertyValue("apple")}, KVPair{p2, PropertyValue("banana")},
+                     KVPair{p3, PropertyValue("cherry")})}};
+
+    PropertyStore store;
+    store.InitProperties(data);
+
+    PropertiesPermutationHelper prop_reader{
+        std::vector<PropertyPath>{PropertyPath{p1, p2}, PropertyPath{p1, p3}, PropertyPath{p1, p1}}};
+    auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+    ASSERT_EQ(3u, values.size());
+    EXPECT_EQ(values[0], PropertyValue{"banana"});
+    EXPECT_EQ(values[1], PropertyValue{"cherry"});
+    EXPECT_EQ(values[2], PropertyValue{"apple"});
+  }
 }
 
 TEST(PropertiesPermutationHelper, CanExtractMultipleValuesFromSameTopMostProperty) {
