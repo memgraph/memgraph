@@ -988,12 +988,8 @@ TEST(PropertyStore, ArePropertiesEqual_ComparesOneNestedValue) {
   auto const p4 = PropertyId::FromInt(4);
   auto const p5 = PropertyId::FromInt(5);
 
-  auto const MakeMap = [](PropertyId key, PropertyValue value) {
-    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
-  };
-
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
-      {p1, MakeMap(p2, MakeMap(p3, MakeMap(p4, PropertyValue{"expected"})))}};
+      {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, MakeMap(KVPair{p4, PropertyValue{"expected"}})})})}};
 
   struct Test {
     PropertyPath path;
@@ -1293,12 +1289,8 @@ TEST(PropertiesPermutationHelper, CanExtractDeeplyNestedValuesFromMap) {
   auto const p3 = PropertyId::FromInt(3);
   auto const p4 = PropertyId::FromInt(4);
 
-  auto const MakeMap = [](PropertyId key, PropertyValue value) {
-    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
-  };
-
   const std::vector<std::pair<PropertyId, PropertyValue>> data{
-      {p3, MakeMap(p1, MakeMap(p4, MakeMap(p2, PropertyValue{"test-value"})))}};
+      {p3, MakeMap(KVPair{p1, MakeMap(KVPair{p4, MakeMap(KVPair{p2, PropertyValue{"test-value"}})})})}};
 
   PropertyStore store;
   store.InitProperties(data);
@@ -1320,14 +1312,11 @@ TEST(PropertiesPermutationHelper, CanExtractPermutedNestedValues) {
   auto const p8 = PropertyId::FromInt(8);
 
   {
-    auto const MakeMap = [](PropertyId key, PropertyValue value) {
-      return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
-    };
-
-    const std::vector<std::pair<PropertyId, PropertyValue>> data{{p1, MakeMap(p2, MakeMap(p3, PropertyValue{"apple"}))},
-                                                                 {p4, MakeMap(p5, PropertyValue{"banana"})},
-                                                                 {p6, PropertyValue{"cherry"}},
-                                                                 {p7, MakeMap(p8, PropertyValue{"date"})}};
+    const std::vector<std::pair<PropertyId, PropertyValue>> data{
+        {p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue{"apple"}})})},
+        {p4, MakeMap(KVPair{p5, PropertyValue{"banana"}})},
+        {p6, PropertyValue{"cherry"}},
+        {p7, MakeMap(KVPair{p8, PropertyValue{"date"}})}};
 
     PropertyStore store;
     store.InitProperties(data);
@@ -1510,11 +1499,7 @@ TEST(ReadNestedPropertyValue, RetrievesPositionalPointerToNestedPropertyValue) {
   auto const p3 = PropertyId::FromInt(3);
   auto const p4 = PropertyId::FromInt(4);
 
-  auto const make_map = [](PropertyId key, PropertyValue value) {
-    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
-  };
-
-  auto const value = make_map(p1, make_map(p2, make_map(p3, PropertyValue("apple"))));
+  auto const value = MakeMap(KVPair{p1, MakeMap(KVPair{p2, MakeMap(KVPair{p3, PropertyValue("apple")})})});
   ASSERT_THAT(ReadNestedPropertyValue(value, std::array{p1, p2, p3}), NotNull());
   EXPECT_EQ(*ReadNestedPropertyValue(value, std::array{p1, p2, p3}), PropertyValue("apple"));
   EXPECT_THAT(ReadNestedPropertyValue(value, std::array{p1, p2, p4}), IsNull());
