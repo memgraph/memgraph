@@ -81,6 +81,7 @@ class UserProfileQuery : public memgraph::query::Query {
   std::string profile_name_;
   limits_t limits_;  // Value type might change if int is not sufficient
   std::optional<std::string> user_or_role_;
+  std::optional<bool> show_user_;
 
   UserProfileQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<UserProfileQuery>();
@@ -88,6 +89,7 @@ class UserProfileQuery : public memgraph::query::Query {
     object->profile_name_ = profile_name_;
     object->limits_ = limits_;
     object->user_or_role_ = user_or_role_;
+    object->show_user_ = show_user_;
     return object;
   }
 

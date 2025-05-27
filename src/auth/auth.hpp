@@ -242,6 +242,8 @@ class Auth final {
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
 
+  void LinkRole(Role &role) const;
+
   std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
                                           const std::optional<std::string> &rolename) const {
     auto expect = [](bool condition, std::string &&msg) {
@@ -327,6 +329,8 @@ class Auth final {
    * @throw AuthException if unable to load user data.
    */
   std::vector<User> AllUsersForRole(const std::string &rolename) const;
+
+  std::vector<std::string> AllUsernamesForRole(const std::string &rolename) const;
 
 #ifdef MG_ENTERPRISE
   /**
@@ -414,7 +418,11 @@ class Auth final {
   void RevokeProfile(Role &role, system::Transaction *system_tx = nullptr);
 
   std::vector<std::string> GetUsersForProfile(const std::string &profile_name) const;
+  std::vector<std::string> GetRolesForProfile(const std::string &profile_name) const;
 #endif
+
+  bool HasUser(std::string_view name) const;
+  bool HasRole(std::string_view name) const;
 
  private:
   /**
