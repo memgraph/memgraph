@@ -990,7 +990,7 @@ TEST_F(AuthQueryHandlerFixture, GetUsersForProfile) {
     ASSERT_TRUE(std::find(users.begin(), users.end(), "user1") != users.end());
     ASSERT_TRUE(std::find(users.begin(), users.end(), "user3") != users.end());
   }
-  ASSERT_NO_THROW(auth_handler.DropUser("user3", nullptr));
+  ASSERT_NO_THROW(auth_handler.DropUser("user3", nullptr, nullptr));
   {
     const auto users = auth_handler.GetUsersForProfile("profile");
     ASSERT_EQ(users.size(), 1);
