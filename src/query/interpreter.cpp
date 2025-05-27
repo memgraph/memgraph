@@ -2531,36 +2531,42 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Even the query tracker is basically tagging here the global one
   // Lets make it simpler
   //
+#ifdef MG_ENTERPRISE
+  auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
+  if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
+  // Single query memory limit
+  memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+  // User-specific resource monitoring
+  if (user_resource_) memgraph::memory::StartTrackingUserResource(user_resource_.get());
+  memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
+#else
   if (memory_limit_) {
-    auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
+    auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
     if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
     memory_tracker->SetQueryLimit(*memory_limit_);
     memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
   }
-#ifdef MG_ENTERPRISE
-  // User-specific resource monitoring
-  if (user_resource_) {
-    memgraph::memory::StartTrackingUserResource(user_resource_.get());
-  }
 #endif
 
   const utils::OnScopeExit reset_query_limit{[this]() {
-    if (memory_limit_.has_value()) {
-      // Stopping tracking of transaction occurs in interpreter::pull
-      // Exception can occur so we need to handle that case there.
-      // We can't stop tracking here as there can be multiple pulls
-      // so we need to take care of that after everything was pulled
-      memgraph::memory::StopTrackingCurrentThread();
-      // Pull has completed or has thrown an exception; either way, reset the query tracker
-      if (!has_unsent_results_ || std::uncaught_exceptions()) {
-        auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
-        memory_tracker.reset();
-      }
-    }
+    // Stopping tracking of transaction occurs in interpreter::pull
+    // Exception can occur so we need to handle that case there.
+    // We can't stop tracking here as there can be multiple pulls
+    // so we need to take care of that after everything was pulled
+    memgraph::memory::StopTrackingCurrentThread();
 #ifdef MG_ENTERPRISE
     // User-specific resource monitoring
     if (user_resource_) {
       memgraph::memory::StopTrackingUserResource();
+    }
+#else
+    // In community we only track query level memory
+    if (memory_limit_.has_value()) {
+      // Pull has completed or has thrown an exception; either way, reset the query tracker
+      if (!has_unsent_results_ || std::uncaught_exceptions()) {
+        auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
+        memory_tracker.reset();
+      }
     }
 #endif
   }};
@@ -7335,11 +7341,10 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
 #ifdef MG_ENTERPRISE
-  if (user_resource_) {
-    tx_memory_usage_ += user_resource_->FinalizeQuery();
-    user_resource_->FinalizeTransaction(tx_memory_usage_);
+  if (user_resource_ && current_db_.db_transactional_accessor_) {
+    const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker()->Amount();
+    user_resource_->DecrementTransactionsMemory(leftover);
   }
-  tx_memory_usage_ = 0;
 #endif
 
   LogQueryMessage("Query abort started.");
@@ -7487,11 +7492,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 
 void Interpreter::Commit() {
 #ifdef MG_ENTERPRISE
-  if (user_resource_) {
-    tx_memory_usage_ += user_resource_->FinalizeQuery();
-    user_resource_->FinalizeTransaction(tx_memory_usage_);
+  if (user_resource_ && current_db_.db_transactional_accessor_) {
+    const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker()->Amount();
+    user_resource_->DecrementTransactionsMemory(leftover);
   }
-  tx_memory_usage_ = 0;
 #endif
 
   LogQueryMessage("Query commit started.");

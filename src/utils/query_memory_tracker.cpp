@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,8 +18,8 @@
 namespace memgraph::utils {
 
 bool QueryMemoryTracker::TrackAlloc(size_t size) {
-  if (query_tracker_.has_value()) [[likely]] {
-    bool ok = query_tracker_->Alloc(static_cast<int64_t>(size));
+  if (transaction_tracker_.has_value()) [[likely]] {
+    bool ok = transaction_tracker_->Alloc(static_cast<int64_t>(size));
     if (!ok) return false;
   }
 
@@ -32,8 +32,8 @@ bool QueryMemoryTracker::TrackAlloc(size_t size) {
   return proc_tracker->Alloc(static_cast<int64_t>(size));
 }
 void QueryMemoryTracker::TrackFree(size_t size) {
-  if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Free(static_cast<int64_t>(size));
+  if (transaction_tracker_.has_value()) [[likely]] {
+    transaction_tracker_->Free(static_cast<int64_t>(size));
   }
 
   auto *proc_tracker = GetActiveProc();
@@ -45,13 +45,18 @@ void QueryMemoryTracker::TrackFree(size_t size) {
   proc_tracker->Free(static_cast<int64_t>(size));
 }
 
+// NOTE: Currently the transaction tracker does not limit the memory usage of the query.
 void QueryMemoryTracker::SetQueryLimit(size_t size) {
+  if (!transaction_tracker_) InitializeTransactionTracker();
   if (size == memgraph::memory::UNLIMITED_MEMORY) {
+    transaction_tracker_->ResetLimit();
     return;
   }
-  InitializeQueryTracker();
-  query_tracker_->SetMaximumHardLimit(static_cast<int64_t>(size));
-  query_tracker_->SetHardLimit(static_cast<int64_t>(size));
+  // Increment the limit by the requested size.
+  // This is to allow the transaction tracker to grow its limit if needed.
+  const auto current = transaction_tracker_->Amount();
+  transaction_tracker_->SetMaximumHardLimit(current + static_cast<int64_t>(size));
+  transaction_tracker_->SetHardLimit(current + static_cast<int64_t>(size));
 }
 
 memgraph::utils::MemoryTracker *QueryMemoryTracker::GetActiveProc() {
@@ -65,6 +70,12 @@ void QueryMemoryTracker::SetActiveProc(int64_t new_active_proc) { active_proc_id
 
 void QueryMemoryTracker::StopProcTracking() { active_proc_id = QueryMemoryTracker::NO_PROCEDURE; }
 
+int64_t QueryMemoryTracker::Amount() const {
+  DMG_ASSERT(transaction_tracker_,
+             "Transaction tracker must be initialized before getting the amount of memory tracked");
+  return transaction_tracker_->Amount();
+}
+
 void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit) {
   if (proc_memory_trackers_.contains(procedure_id)) {
     return;
@@ -75,6 +86,6 @@ void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit
   it->second.SetHardLimit(static_cast<int64_t>(limit));
 }
 
-void QueryMemoryTracker::InitializeQueryTracker() { query_tracker_.emplace(); }
+void QueryMemoryTracker::InitializeTransactionTracker() { transaction_tracker_.emplace(); }
 
 }  // namespace memgraph::utils
