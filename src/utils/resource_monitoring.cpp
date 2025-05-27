@@ -15,16 +15,9 @@ namespace memgraph::utils {
 
 thread_local size_t TransactionsMemoryResource::single_tx_memory_ = 0;
 
-bool TransactionsMemoryResource::Allocate(size_t size) {
-  const auto success = Increment(size);
-  if (success) single_tx_memory_ += size;
-  return success;
-}
+bool TransactionsMemoryResource::Allocate(size_t size) { return Increment(size); }
 
-void TransactionsMemoryResource::Deallocate(size_t size) {
-  single_tx_memory_ -= size;
-  Decrement(size);
-}
+void TransactionsMemoryResource::Deallocate(size_t size) { Decrement(size); }
 
 size_t TransactionsMemoryResource::FinalizeQuery() {
   // Decrement(single_tx_memory_);
