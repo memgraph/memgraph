@@ -39,7 +39,6 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline8 # for cmake and llvm
     libffi7 libxml2 # for llvm
     libssl-dev # for libevent
-    tzdata # for timezone bugfix
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -165,10 +164,6 @@ EOF
                 apt-get update
                 apt-get install -y apt-transport-https dotnet-sdk-3.1
             fi
-            continue
-        fi
-        if [ "$pkg" == tzdata ]; then
-            apt install -y tzdata=2024a-0+deb11u1 --allow-downgrades # specific version for timezone bug
             continue
         fi
         apt install -y "$pkg"
