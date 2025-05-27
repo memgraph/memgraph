@@ -3601,6 +3601,11 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
   return session_trace_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitResetPlanCacheQuery(MemgraphCypher::ResetPlanCacheQueryContext *ctx) {
+  auto *reset_plan_cache_query = storage_->Create<ResetPlanCacheQuery>();
+  return reset_plan_cache_query;
+}
+
 Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {
   switch (token) {
     case MemgraphCypher::OR:

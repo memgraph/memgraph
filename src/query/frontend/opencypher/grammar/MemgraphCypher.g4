@@ -738,3 +738,5 @@ typeConstraintType : BOOLEAN
              | ENUM
              | POINT
              ;
+
+resetPlanCacheQuery : RESET PLAN CACHE ;
