@@ -125,7 +125,7 @@ void StopTrackingUserResource() {
 
 bool IsQueryTracked() {
 #if USE_JEMALLOC
-  return IsThreadTracked();
+  return GetQueryTracker() != nullptr;
 #else
   return false;
 #endif
