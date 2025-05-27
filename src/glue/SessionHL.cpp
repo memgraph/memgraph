@@ -30,6 +30,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
+#include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/typeinfo.hpp"
@@ -146,10 +147,10 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
 }
 
 std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
-    const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+    const memgraph::query::QueryUserOrRole &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
   // Setup user-related resource monitoring
-  const auto &username = std::visit([](auto &user_or_role) { return user_or_role.username(); }, user_or_role);
-  return resource_monitoring->GetUser(username);
+  DMG_ASSERT(user_or_role, "Missing user or role");
+  return resource_monitoring->GetUser(*user_or_role.username());
 }
 
 #endif
@@ -260,9 +261,10 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+      DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 #ifdef MG_ENTERPRISE
       // Setup user-related resource monitoring
-      user_resource_ = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+      user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
       // Monitoring always, resource limit check only if license is valid
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
           !user_resource_->IncrementSessions()) {
@@ -279,7 +281,7 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
-      interpreter_.SetUser(session_user_or_role_);
+      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
       interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
@@ -300,10 +302,11 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
   }
 
   session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 
 #ifdef MG_ENTERPRISE
   // Setup user-related resource monitoring
-  user_resource_ = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+  user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
   // Monitoring always, resource limit check only if license is valid
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
       !user_resource_->IncrementSessions()) {
@@ -632,11 +635,18 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
                   defined_db.value_or("----"));
     // Check impersonation privileges with the target database
     ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), defined_db);
-    session_->interpreter_.SetUser(user);
+    // Setup user-related resource monitoring
+    auto user_resource = ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring);
+    // Monitoring always, resource limit check only if license is valid
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource &&
+        !user_resource->IncrementSessions()) {
+      throw auth::AuthException("User exceeded session limit.");
+    }
+    session_->interpreter_.SetUser(user, std::move(user_resource));
     session_->TryDefaultDB();
   } else {
     // Set our default user/role
-    session_->interpreter_.SetUser(session_->session_user_or_role_);
+    session_->interpreter_.SetUser(session_->session_user_or_role_, session_->user_resource_);
     session_->TryDefaultDB();
   }
 

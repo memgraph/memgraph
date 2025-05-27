@@ -71,9 +71,10 @@ void QueryMemoryTracker::SetActiveProc(int64_t new_active_proc) { active_proc_id
 void QueryMemoryTracker::StopProcTracking() { active_proc_id = QueryMemoryTracker::NO_PROCEDURE; }
 
 int64_t QueryMemoryTracker::Amount() const {
-  DMG_ASSERT(transaction_tracker_,
-             "Transaction tracker must be initialized before getting the amount of memory tracked");
-  return transaction_tracker_->Amount();
+  if (transaction_tracker_.has_value()) [[likely]] {
+    return transaction_tracker_->Amount();
+  }
+  return 0;
 }
 
 void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit) {

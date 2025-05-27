@@ -568,26 +568,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // Resource monitoring
   auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
-  // Update limits
-  {
-    auto locked_auth = auth_->Lock();
-    for (const auto &user : locked_auth->AllUsers()) {
-      if (!user.profile()) continue;
-      const auto sessions_limit =
-          std::visit(memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /* unused */) {
-                                                   return memgraph::utils::SessionsResource::kUnlimited;
-                                                 },
-                                                 [](auto in) { return in; }},
-                     user.profile()->limits[memgraph::auth::UserProfiles::Limits::kSessions]);
-      const auto tm_limit =
-          std::visit(memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /* unused */) {
-                                                   return memgraph::utils::TransactionsMemoryResource::kUnlimited;
-                                                 },
-                                                 [](auto in) { return in; }},
-                     user.profile()->limits[memgraph::auth::UserProfiles::Limits::kTransactionsMemory]);
-      resource_monitoring.UpdateUserLimits(user.username(), sessions_limit, tm_limit);
-    }
-  }
+  static_cast<memgraph::glue::AuthQueryHandler *>(auth_handler.get())->StartupResourceMonitor(resource_monitoring);
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state

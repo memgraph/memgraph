@@ -290,7 +290,7 @@ class DbAccessor final {
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
-    auto *tracker = accessor_->GetTransactionMemoryTracker().get();
+    auto *tracker = &accessor_->GetTransactionMemoryTracker();
     DMG_ASSERT(tracker, "Query memory tracker must be set before tracking allocations");
     memgraph::memory::StartTrackingCurrentThread(tracker);
   }

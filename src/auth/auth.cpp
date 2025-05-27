@@ -809,7 +809,6 @@ std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile
   if (auto role = GetRole(name)) {
     SetProfile(*profile, *role, system_tx);
     return profile;
-    ;
   }
   throw AuthException("Couldn't find user or role named '{}'!", name);
 }

@@ -889,11 +889,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DROP_USER:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter] {
+      callback.fn = [auth, username, interpreter = &interpreter
+#ifdef MG_ENTERPRISE
+                     ,
+                     resource_monitor = interpreter_context->resource_monitoring
+#endif
+      ] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
-        if (!auth->DropUser(username, &*interpreter->system_transaction_)) {
+        if (!auth->DropUser(username, &*interpreter->system_transaction_
+#ifdef MG_ENTERPRISE
+                            ,
+                            resource_monitor
+#endif
+                            )) {
           throw QueryRuntimeException(
               "User with username '{}' doesn't exist. A new user can be created via the CREATE USER query.", username);
         }
@@ -961,7 +971,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DROP_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter
+#ifdef MG_ENTERPRISE
+                     ,
+                     resource_monitor = interpreter_context->resource_monitoring
+#endif
+      ] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -971,7 +986,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
         const std::string &rolename = roles[0];
 
-        if (!auth->DropRole(rolename, &*interpreter->system_transaction_)) {
+        if (!auth->DropRole(rolename, &*interpreter->system_transaction_
+#ifdef MG_ENTERPRISE
+                            ,
+                            resource_monitor
+#endif
+                            )) {
           throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
@@ -1040,13 +1060,19 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SET_ROLE:
       forbid_on_replica();
+
       callback.fn = [auth, username, roles = std::move(auth_query->roles_), interpreter = &interpreter,
-                     role_databases = std::move(role_databases)] {
+                     role_databases = std::move(role_databases)
+#ifdef MG_ENTERPRISE
+                         ,
+                     resource_monitor = interpreter_context->resource_monitoring
+#endif
+      ] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 #ifdef MG_ENTERPRISE
-        auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_);
+        auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_, resource_monitor);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
@@ -1058,13 +1084,19 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter, role_databases = std::move(role_databases)] {
+      callback.fn = [auth, username, interpreter = &interpreter, role_databases = std::move(role_databases)
+
+#ifdef MG_ENTERPRISE
+                                                                     ,
+                     resource_monitor = interpreter_context->resource_monitoring
+#endif
+      ] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
 #ifdef MG_ENTERPRISE
-        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_);
+        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_, resource_monitor);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
@@ -2531,20 +2563,15 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Even the query tracker is basically tagging here the global one
   // Lets make it simpler
   //
-#ifdef MG_ENTERPRISE
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
-  if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
   // Single query memory limit
-  memory_tracker->SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+  memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
+  if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(&memory_tracker);
+#ifdef MG_ENTERPRISE
   // User-specific resource monitoring
-  if (user_resource_) memgraph::memory::StartTrackingUserResource(user_resource_.get());
-  memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
-#else
-  if (memory_limit_) {
-    auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
-    if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
-    memory_tracker->SetQueryLimit(*memory_limit_);
-    memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
+  if (user_resource_) {
+    memgraph::memory::StartTrackingCurrentThread(&memory_tracker);  // Needs the query tracker for accurate tracking
+    memgraph::memory::StartTrackingUserResource(user_resource_.get());
   }
 #endif
 
@@ -2558,15 +2585,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // User-specific resource monitoring
     if (user_resource_) {
       memgraph::memory::StopTrackingUserResource();
-    }
-#else
-    // In community we only track query level memory
-    if (memory_limit_.has_value()) {
-      // Pull has completed or has thrown an exception; either way, reset the query tracker
-      if (!has_unsent_results_ || std::uncaught_exceptions()) {
-        auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
-        memory_tracker.reset();
-      }
     }
 #endif
   }};
@@ -6653,11 +6671,12 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
     } break;
     case UserProfileQuery::Action::SHOW_RESOURCE_USAGE: {
       callback.header = {"resource", "usage", "limit"};
-      callback.fn = [user_or_role = std::move(query->user_or_role_),
+      callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_),
                      resource_monitor = interpreter_context->resource_monitoring]() {
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
+        (void)auth->GetProfileForUser(*user_or_role);  // Throws if user doesn't exist
         std::vector<std::vector<TypedValue>> res;
         const auto resource = resource_monitor->GetUser(*user_or_role);
         // Session usage
@@ -7342,7 +7361,7 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 void Interpreter::Abort() {
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
-    const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker()->Amount();
+    const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
     user_resource_->DecrementTransactionsMemory(leftover);
   }
 #endif
@@ -7493,7 +7512,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 void Interpreter::Commit() {
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
-    const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker()->Amount();
+    const auto leftover = current_db_.db_transactional_accessor_->GetTransactionMemoryTracker().Amount();
     user_resource_->DecrementTransactionsMemory(leftover);
   }
 #endif
@@ -7762,8 +7781,9 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   if (query_logger_) {
     query_logger_->SetUser(user_or_role_->key());
   }
-  // TODO Could add user resource here. How would this work with impersonation? Ignore for now.
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) user_resource_ = std::move(user_resource);
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    user_resource_ = std::move(user_resource);
+  }
 }
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
