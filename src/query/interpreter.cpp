@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
@@ -864,8 +865,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
             throw UserAlreadyExistsException(
-                "User with username '{}' already exists. Use the SHOW USERS query to list all users. In addition you "
-                "can rerun the current query with IF NOT EXISTS.",
+                "User or role with name '{}' already exists. Use the SHOW USERS or SHOW ROLES query to list all users "
+                "and roles. In addition you can rerun the current query with IF NOT EXISTS.",
                 username);
           }
           spdlog::warn("User '{}' already exists.", username);
@@ -960,8 +961,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
             throw QueryRuntimeException(
-                "Role with name '{}' already exists. Use the SHOW ROLES query to list all roles. In addition you "
-                "can rerun the current query with IF NOT EXISTS.",
+                "Role or user with name '{}' already exists. Use the SHOW ROLES or SHOW USERS query to list all roles "
+                "and users. In addition you can rerun the current query with IF NOT EXISTS.",
                 rolename);
           }
           spdlog::warn("Role '{}' already exists.", rolename);
@@ -6644,11 +6645,18 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       };
     } break;
     case UserProfileQuery::Action::SHOW_USERS: {
-      callback.header = {"user"};
-      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_)]() {
+      const bool show_user = query->show_user_.value();  // Distinguish between user/role
+      callback.header = {show_user ? "user" : "role"};
+      callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_), show_user]() {
         std::vector<std::vector<TypedValue>> res;
-        for (const auto &profile : auth->GetUsersForProfile(profile_name)) {
-          res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
+        if (show_user) {
+          for (const auto &profile : auth->GetUsersForProfile(profile_name)) {
+            res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
+          }
+        } else {
+          for (const auto &profile : auth->GetRolesForProfile(profile_name)) {
+            res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
+          }
         }
         return res;
       };
@@ -6660,7 +6668,16 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
           throw QueryException("Expected user or role.");
         }
         std::vector<std::vector<TypedValue>> res;
-        auto profile = auth->GetProfileForUser(*user_or_role);
+        std::optional<std::string> profile;
+        try {
+          profile = auth->GetProfileForUser(*user_or_role);
+        } catch (const QueryRuntimeException & /*unused*/) {
+          try {
+            profile = auth->GetProfileForRole(*user_or_role);
+          } catch (const QueryRuntimeException & /*unused*/) {
+            throw QueryRuntimeException(fmt::format("No user or role named '{}'.", user_or_role));
+          }
+        }
         if (profile) {
           res.emplace_back(std::vector<TypedValue>{TypedValue(*profile)});
         } else {

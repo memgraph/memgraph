@@ -471,6 +471,14 @@ class Role {
   const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
+// User profiles
+#ifdef MG_ENTERPRISE
+  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
+  std::optional<UserProfiles::Profile> profile() { return profile_; }
+  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
+  void ClearProfile() { profile_.reset(); }
+#endif
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -485,7 +493,6 @@ class Role {
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
   std::optional<UserImpersonation> user_impersonation_;
-  // TODO...
   std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
 };
@@ -810,11 +817,14 @@ class User final {
   const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
   std::optional<UserProfiles::Profile> profile() { return profile_; }
   std::optional<UserProfiles::Profile> GetProfile() const {
-    // TODO Combine with role_
+    if (role_ && role_->profile()) {
+      // If both user and role have profiles, merge them
+      return UserProfiles::Merge(profile_, role_->profile());
+    }
     return profile_;
   }
   void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
-  void ClearProfile() { profile_ = std::nullopt; }
+  void ClearProfile() { profile_.reset(); }
 #endif
 
   // Read-only API that combines rolenames from all roles

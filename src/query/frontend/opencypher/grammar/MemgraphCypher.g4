@@ -768,7 +768,7 @@ dropUserProfile : DROP PROFILE profile=symbolicName ;
 showUserProfiles : SHOW PROFILES ;
 showUserProfile : SHOW PROFILE profile=symbolicName ;
 showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
-showUserProfileForProfile : SHOW USERS FOR PROFILE profile=symbolicName ;
+showUserProfileForProfile : SHOW ( USERS | ROLES ) FOR PROFILE profile=symbolicName ;
 setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
 clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
 showResourceConsumption : SHOW RESOURCE USAGE FOR user=userOrRoleName ;

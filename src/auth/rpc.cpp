@@ -22,7 +22,8 @@ namespace memgraph::slk {
 // Serialize code for auth::Role
 void Save(const auth::Role &self, Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
-  // TODO
+  // User profile
+  memgraph::slk::Save(self.profile(), builder);
 }
 
 namespace {
@@ -30,7 +31,16 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
-  return memgraph::auth::Role::Deserialize(json);
+  auto role = memgraph::auth::Role::Deserialize(json);
+  // User profile
+  std::optional<auth::UserProfiles::Profile> profile{};
+  memgraph::slk::Load(&profile, reader);
+  if (profile) {
+    role.SetProfile(*profile);
+  } else {
+    role.ClearProfile();
+  }
+  return role;
 }
 }  // namespace
 // Deserialize code for auth::Role

@@ -3877,6 +3877,7 @@ antlrcpp::Any CypherMainVisitor::visitShowUserProfileForUser(MemgraphCypher::Sho
 antlrcpp::Any CypherMainVisitor::visitShowUserProfileForProfile(MemgraphCypher::ShowUserProfileForProfileContext *ctx) {
   auto *profile_query = storage_->Create<UserProfileQuery>();
   profile_query->action_ = UserProfileQuery::Action::SHOW_USERS;
+  profile_query->show_user_.emplace(ctx->USERS());
   profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
   query_ = profile_query;
   return query_;
