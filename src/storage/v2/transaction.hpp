@@ -86,7 +86,7 @@ struct Transaction {
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
-  Transaction &operator=(Transaction &&other) = default;
+  Transaction &operator=(Transaction &&other) = delete;
 
   ~Transaction() = default;
 
@@ -169,7 +169,7 @@ struct Transaction {
   SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
-  std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
+  utils::QueryMemoryTracker query_memory_tracker_{};
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
