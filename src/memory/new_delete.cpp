@@ -18,7 +18,6 @@
 #include <cstdlib>
 #endif
 
-#include "memory/query_memory_control.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace {
@@ -54,7 +53,7 @@ inline void *newImpl(const std::size_t size, const std::align_val_t align) {
 
 inline void *newNoExcept(const std::size_t size) noexcept {
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-  return Malloc(size);
+  return malloc(size);
 }
 
 inline void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
@@ -70,9 +69,7 @@ inline void deleteImpl(void *ptr) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
-  if (memgraph::memory::IsThreadTracked()) [[unlikely]] {
-    memgraph::memory::TrackFreeOnCurrentThread(sallocx(ptr, 0));
-  }
+
   dallocx(ptr, 0);
 }
 
@@ -80,9 +77,7 @@ inline void deleteImpl(void *ptr, const std::align_val_t align) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
-  if (memgraph::memory::IsThreadTracked()) [[unlikely]] {
-    memgraph::memory::TrackFreeOnCurrentThread(sallocx(ptr, MALLOCX_ALIGN(align)));
-  }
+
   dallocx(ptr, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 
@@ -90,9 +85,7 @@ inline void deleteSized(void *ptr, const std::size_t size) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
-  if (memgraph::memory::IsThreadTracked()) [[unlikely]] {
-    memgraph::memory::TrackFreeOnCurrentThread(sallocx(ptr, 0));
-  }
+
   sdallocx(ptr, size, 0);
 }
 
@@ -100,9 +93,7 @@ inline void deleteSized(void *ptr, const std::size_t size, const std::align_val_
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
-  if (memgraph::memory::IsThreadTracked()) [[unlikely]] {
-    memgraph::memory::TrackFreeOnCurrentThread(sallocx(ptr, MALLOCX_ALIGN(align)));
-  }
+
   sdallocx(ptr, size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 
