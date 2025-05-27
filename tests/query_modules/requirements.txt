@@ -1,4 +1,4 @@
-setuptools==75.3.0
+setuptools>=78.1.1
 six==1.17.0
 pytest==7.3.2
 numpy==1.26.4
