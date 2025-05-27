@@ -6369,6 +6369,18 @@ TEST_P(CypherMainVisitorTest, UserProfiles) {
     ASSERT_EQ(query->profile_name_, "profile");
     ASSERT_EQ(query->limits_.size(), 0);
     ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_TRUE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW ROLES FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_FALSE(query->show_user_.value());
     ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
   }
   {
