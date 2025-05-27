@@ -62,10 +62,6 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
-    if (IsThreadTracked()) [[unlikely]] {
-      const bool ok = TrackAllocOnCurrentThread(size);
-      if (!ok) return nullptr;
-    }
     // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
     const bool ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (!ok) return nullptr;
@@ -75,9 +71,6 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-      if (IsThreadTracked()) [[unlikely]] {
-        TrackFreeOnCurrentThread(size);
-      }
     }
     return ptr;
   }
@@ -94,10 +87,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-
-    if (IsThreadTracked()) [[unlikely]] {
-      TrackFreeOnCurrentThread(size);
-    }
   }
 
   return false;
@@ -106,9 +95,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    if (IsThreadTracked()) [[unlikely]] {
-      TrackFreeOnCurrentThread(size);
-    }
   }
 
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
@@ -123,10 +109,6 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-  if (IsThreadTracked()) [[unlikely]] {
-    [[maybe_unused]] const bool ok = TrackAllocOnCurrentThread(length);
-    DMG_ASSERT(ok);
-  }
 
   [[maybe_unused]] const auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   DMG_ASSERT(ok);
@@ -144,9 +126,6 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   }
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-  if (IsThreadTracked()) [[unlikely]] {
-    TrackFreeOnCurrentThread(size);
-  }
 
   return false;
 }
@@ -160,10 +139,6 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
     return err;
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-
-  if (IsThreadTracked()) [[unlikely]] {
-    TrackFreeOnCurrentThread(size);
-  }
 
   return false;
 }
