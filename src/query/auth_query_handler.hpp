@@ -41,7 +41,8 @@ class AuthQueryHandler {
 
   /// Return false if the user does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropUser(const std::string &username, system::Transaction *system_tx) = 0;
+  virtual bool DropUser(const std::string &username, system::Transaction *system_tx,
+                        utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetPassword(const std::string &username, const std::optional<std::string> &password,
@@ -93,7 +94,8 @@ class AuthQueryHandler {
 
   /// Return false if the role does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx) = 0;
+  virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx,
+                        utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// Return true if the role exists.
   /// @throw QueryRuntimeException if an error ocurred.
@@ -114,10 +116,12 @@ class AuthQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetRoles(const std::string &username, const std::vector<std::string> &roles,
-                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx,
+                        utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
+  virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx,
+                          utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
