@@ -72,11 +72,11 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits) {
   if (profiles_.contains(name)) {
     return false;
   }
+  const nlohmann::json json = defined_limits;
   const auto [it, succ] = profiles_.emplace(name.data(), std::move(defined_limits));
   if (!succ) {
     return false;
   }
-  const nlohmann::json json = defined_limits;
   if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
     // Remove new profile
     profiles_.erase(it);

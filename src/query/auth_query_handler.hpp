@@ -41,7 +41,8 @@ class AuthQueryHandler {
 
   /// Return false if the user does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropUser(const std::string &username, system::Transaction *system_tx) = 0;
+  virtual bool DropUser(const std::string &username, system::Transaction *system_tx,
+                        utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetPassword(const std::string &username, const std::optional<std::string> &password,
@@ -83,7 +84,8 @@ class AuthQueryHandler {
 
   /// Return false if the role does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx) = 0;
+  virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx,
+                        utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernames() = 0;
@@ -98,10 +100,12 @@ class AuthQueryHandler {
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
+  virtual void SetRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx,
+                       utils::ResourceMonitoring *resource_monitor) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRole(const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void ClearRole(const std::string &username, system::Transaction *system_tx,
+                         utils::ResourceMonitoring *resource_monitor) = 0;
 
   virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
 
