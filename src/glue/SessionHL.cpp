@@ -27,6 +27,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
+#include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/typeinfo.hpp"
@@ -123,10 +124,10 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
 }
 
 std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
-    const auto &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+    const memgraph::query::QueryUserOrRole &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
   // Setup user-related resource monitoring
-  const auto &username = std::visit([](auto &user_or_role) { return user_or_role.username(); }, user_or_role);
-  return resource_monitoring->GetUser(username);
+  DMG_ASSERT(user_or_role, "Missing user or role");
+  return resource_monitoring->GetUser(*user_or_role.username());
 }
 
 #endif
@@ -235,9 +236,10 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+      DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 #ifdef MG_ENTERPRISE
       // Setup user-related resource monitoring
-      user_resource_ = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+      user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
       // Monitoring always, resource limit check only if license is valid
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
           !user_resource_->IncrementSessions()) {
@@ -254,7 +256,7 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
-      interpreter_.SetUser(session_user_or_role_);
+      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
       interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
@@ -275,10 +277,11 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
   }
 
   session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 
 #ifdef MG_ENTERPRISE
   // Setup user-related resource monitoring
-  user_resource_ = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+  user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
   // Monitoring always, resource limit check only if license is valid
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
       !user_resource_->IncrementSessions()) {
@@ -527,12 +530,20 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
                         ImpersonateUserAuth(session_user_or_role_.get(), *defined_user);
                         const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
                         if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
-                        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
+                        auto user_or_role = AuthChecker::GenQueryUser(auth_, imp_usr);
+                        // Setup user-related resource monitoring
+                        auto user_resource = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
+                        // Monitoring always, resource limit check only if license is valid
+                        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
+                            !user_resource_->IncrementSessions()) {
+                          throw auth::AuthException("User exceeded session limit.");
+                        }
+                        interpreter_.SetUser(std::move(user_or_role), std::move(user_resource));
                         TryDefaultDB();
                       } else {
                         spdlog::trace("Done impersonating users.");
                         // Set our default user/role
-                        interpreter_.SetUser(session_user_or_role_);
+                        interpreter_.SetUser(session_user_or_role_, user_resource_);
                         TryDefaultDB();
                       }
                     }},
