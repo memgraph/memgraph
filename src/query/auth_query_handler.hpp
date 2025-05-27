@@ -186,6 +186,8 @@ class AuthQueryHandler {
                              utils::ResourceMonitoring *resource_monitor) = 0;
   virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
   virtual std::vector<std::string> GetUsersForProfile(const std::string &profile_name) = 0;
+  virtual std::optional<std::string> GetProfileForRole(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetRolesForProfile(const std::string &profile_name) = 0;
 #endif
 };
 

@@ -135,6 +135,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                      utils::ResourceMonitoring *resource_monitor) override;
   std::optional<std::string> GetProfileForUser(const std::string &user_or_role) override;
   std::vector<std::string> GetUsersForProfile(const std::string &profile_name) override;
+  std::optional<std::string> GetProfileForRole(const std::string &user_or_role) override;
+  std::vector<std::string> GetRolesForProfile(const std::string &profile_name) override;
 #endif
 
  private:
