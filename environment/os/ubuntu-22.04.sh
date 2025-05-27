@@ -38,7 +38,6 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline8 # for cmake and llvm
     libffi7 libxml2 # for llvm
     libssl-dev # for libevent
-    tzdata # for timezone bug
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -156,15 +155,9 @@ install() {
             install_node "20"
             continue
         fi
-        if [ "$pkg" == tzdata ]; then
-            apt install -y tzdata=2022a-0ubuntu1 --allow-downgrades # specific version for timezone bug
-            continue
-        fi
         apt install -y "$pkg"
     done
 }
 
 deps=$2"[*]"
 "$1" "${!deps}"
-
-
