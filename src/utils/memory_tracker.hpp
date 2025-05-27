@@ -79,6 +79,8 @@ class MemoryTracker final {
 
   void ResetTrackings();
 
+  void ResetLimit();
+
   bool IsProcedureTracked();
 
   void SetProcTrackingLimit(size_t limit);
