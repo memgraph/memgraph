@@ -243,6 +243,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | resetPlanCacheQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;

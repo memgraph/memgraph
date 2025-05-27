@@ -3603,6 +3603,7 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
 
 antlrcpp::Any CypherMainVisitor::visitResetPlanCacheQuery(MemgraphCypher::ResetPlanCacheQueryContext *ctx) {
   auto *reset_plan_cache_query = storage_->Create<ResetPlanCacheQuery>();
+  query_ = reset_plan_cache_query;
   return reset_plan_cache_query;
 }
 

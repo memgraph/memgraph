@@ -5978,9 +5978,6 @@ PreparedQuery PrepareResetPlanCacheQuery(ParsedQuery parsed_query, CurrentDB &cu
   MG_ASSERT(current_db.db_acc_, "Reset plan cache query expects a current DB");
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
-  MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
-  auto *dba = &*current_db.execution_db_accessor_;
-
   auto *reset_plan_cache_query = utils::Downcast<ResetPlanCacheQuery>(parsed_query.query);
   MG_ASSERT(reset_plan_cache_query);
 
