@@ -42,3 +42,17 @@ def memgraph_optional(**kwargs) -> Memgraph:
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
     memgraph.drop_database()
+
+
+@pytest.fixture
+def memgraph_reset_plan_cache(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+    memgraph.execute("DROP INDEX ON :Node;")
+    memgraph.execute("DROP INDEX ON :Node(id);")
+    memgraph.execute("DROP INDEX ON :Supernode;")
+    memgraph.execute("DROP INDEX ON :Supernode(id);")
+    memgraph.drop_indexes()
+    memgraph.ensure_constraints([])
+    memgraph.drop_database()

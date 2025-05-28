@@ -7,5 +7,6 @@ copy_query_planning_e2e_python_files(query_planning_cartesian.py)
 copy_query_planning_e2e_python_files(query_planning_point_index.py)
 copy_query_planning_e2e_python_files(query_planning_valid_query_plans.py)
 copy_query_planning_e2e_python_files(query_planning_optional.py)
+copy_query_planning_e2e_python_files(query_planning_reset_plan_cache.py)
 
 copy_e2e_files(query_planning workloads.yaml)
