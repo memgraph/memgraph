@@ -13,6 +13,7 @@
 
 #include <compare>
 #include <cstdint>
+#include <span>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -87,22 +88,24 @@ struct PropertyPath {
   PropertyPath(std::initializer_list<PropertyId> properties) : properties_{properties} {}
   PropertyPath(PropertyId property) : properties_{{property}} {}
 
-  auto &operator[](std::size_t pos) const { return properties_[pos]; }
-  std::size_t size() const noexcept { return properties_.size(); }
+  using const_iterator = std::vector<PropertyId>::const_iterator;
+
+  auto operator[](std::size_t pos) const -> PropertyId const & { return properties_[pos]; }
+  auto size() const noexcept -> std::size_t { return properties_.size(); }
   bool empty() const { return properties_.empty(); };
-  auto begin() const { return properties_.begin(); }
-  auto end() const { return properties_.end(); }
-  auto cbegin() const { return properties_.cbegin(); }
-  auto cend() const { return properties_.cend(); }
-  auto insert(PropertyId property_id) { return properties_.push_back(property_id); }
-  auto reserve(std::size_t size) { return properties_.reserve(size); }
+  auto begin() const -> const_iterator { return properties_.begin(); }
+  auto end() const -> const_iterator { return properties_.end(); }
+  auto cbegin() const -> const_iterator { return properties_.cbegin(); }
+  auto cend() const -> const_iterator { return properties_.cend(); }
+  void insert(PropertyId property_id) { properties_.push_back(property_id); }
+  void reserve(std::size_t size) { properties_.reserve(size); }
+  auto as_span() const -> std::span<PropertyId const> { return std::span{properties_}; }
 
   friend bool operator==(PropertyPath const &lhs, PropertyPath const &rhs) = default;
   friend auto operator<=>(PropertyPath const &lhs, PropertyPath const &rhs) = default;
 
   PropertyId front() const { return properties_.front(); }
   PropertyId back() const { return properties_.back(); }
-
  private:
   std::vector<PropertyId> properties_;
 };
