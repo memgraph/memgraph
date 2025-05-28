@@ -427,8 +427,11 @@ class Auth final {
   void RevokeProfile(User &user, system::Transaction *system_tx = nullptr);
   void RevokeProfile(Role &role, system::Transaction *system_tx = nullptr);
 
-  std::vector<std::string> GetUsersForProfile(const std::string &profile_name) const;
-  std::vector<std::string> GetRolesForProfile(const std::string &profile_name) const;
+  std::vector<User> GetUsersForProfile(const std::string &profile_name) const;
+  std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) const;
+
+  std::vector<Role> GetRolesForProfile(const std::string &profile_name) const;
+  std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) const;
 #endif
 
   bool HasUser(std::string_view name) const;
