@@ -42,7 +42,7 @@ std::string CoordinationSetup::ToString() {
   return coordinator_id != 0 && coordinator_port != 0 && !coordinator_hostname.empty() && management_port != 0;
 }
 
-auto CoordinationSetupInstance() -> CoordinationSetup & {
+inline auto CoordinationSetupInstance() -> CoordinationSetup & {
   static auto instance = CoordinationSetup{};
   return instance;
 }
