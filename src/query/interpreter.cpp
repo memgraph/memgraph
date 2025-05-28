@@ -5974,7 +5974,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                        RWType::R, current_db.db_acc_->get()->name()};
 }
 
-PreparedQuery PrepareResetPlanCacheQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+PreparedQuery PrepareResetPlanCacheQuery(ParsedQuery parsed_query, CurrentDB &current_db,
+                                         const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw ResetPlanCacheInMulticommandTxException();
+  }
+
   MG_ASSERT(current_db.db_acc_, "Reset plan cache query expects a current DB");
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
@@ -6435,7 +6440,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<ResetPlanCacheQuery>(parsed_query.query)) {
-      prepared_query = PrepareResetPlanCacheQuery(std::move(parsed_query), current_db_);
+      prepared_query = PrepareResetPlanCacheQuery(std::move(parsed_query), current_db_, in_explicit_transaction_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

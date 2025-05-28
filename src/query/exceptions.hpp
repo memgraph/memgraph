@@ -482,15 +482,13 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
 
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
-  MultiDatabaseQueryInMulticommandTxException()
-      : MulticommandTxException("Creating/dropping databases") {}
+  MultiDatabaseQueryInMulticommandTxException() : MulticommandTxException("Creating/dropping databases") {}
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
 };
-  
+
 class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
-  UseDatabaseQueryInMulticommandTxException()
-      : MulticommandTxException("Switching the currently active database") {}
+  UseDatabaseQueryInMulticommandTxException() : MulticommandTxException("Switching the currently active database") {}
   SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
 };
 
@@ -540,6 +538,12 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
  public:
   ShowSchemaInfoInMulticommandTxException() : MulticommandTxException("Show schema info query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
+};
+
+class ResetPlanCacheInMulticommandTxException : public MulticommandTxException {
+ public:
+  ResetPlanCacheInMulticommandTxException() : MulticommandTxException("Reset plan cache query") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ResetPlanCacheInMulticommandTxException)
 };
 
 }  // namespace memgraph::query
