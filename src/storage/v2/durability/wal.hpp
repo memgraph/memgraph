@@ -51,6 +51,14 @@ struct WalInfo {
 template <auto MIN_VER, typename Type>
 struct VersionDependant {};
 
+// Note this is highly composable
+// `Before` can also be VersionDependantUpgradable:
+// e.g. VersionDependantUpgradable<10, VersionDependantUpgradable<9, int, int, AddOne>, int, Multiply2>
+// if version read was < 9
+// - version is less than 10 so does its Before -> VersionDependantUpgradable<9, int, int, AddOne>
+// - version is less than 9 so does its Before -> int
+// - Inner VersionDependantUpgradable gets int, applies AddOne to get a new int
+// - Outer VersionDependantUpgradable gets int, applies Multiply2 to get a new int
 template <auto MIN_VER, typename Before, typename After, auto Upgrader>
 struct VersionDependantUpgradable {};
 
