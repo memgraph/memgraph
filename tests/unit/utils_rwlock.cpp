@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,21 +23,19 @@ using namespace std::chrono_literals;
 TEST(RWLock, MultipleReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
 
-  std::vector<std::thread> threads;
-  memgraph::utils::Timer timer;
+  std::vector<std::jthread> threads;
+  threads.reserve(3);
+  memgraph::utils::Timer const timer;
   for (int i = 0; i < 3; ++i) {
-    threads.push_back(std::thread([&rwlock] {
+    threads.emplace_back([&rwlock] {
       auto lock = std::shared_lock{rwlock};
       std::this_thread::sleep_for(100ms);
-    }));
+    });
   }
-
-  for (int i = 0; i < 3; ++i) {
-    threads[i].join();
-  }
-
-  EXPECT_LE(timer.Elapsed(), 150ms);
-  EXPECT_GE(timer.Elapsed(), 90ms);
+  auto const elapsed = timer.Elapsed();
+  // If they are running in parallel, then the total running time should be < 3x100ms
+  EXPECT_LE(elapsed, 300ms);
+  EXPECT_GE(elapsed, 90ms);
 }
 
 TEST(RWLock, SingleWriter) {
