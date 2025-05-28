@@ -96,8 +96,9 @@ struct PropertyPath {
   auto cend() const { return properties_.cend(); }
   auto insert(PropertyId property_id) { return properties_.push_back(property_id); }
   auto reserve(std::size_t size) { return properties_.reserve(size); }
-  bool operator==(PropertyPath const &rhs) const = default;
-  auto operator<=>(PropertyPath const &rhs) const = default;
+
+  friend bool operator==(PropertyPath const &lhs, PropertyPath const &rhs) = default;
+  friend auto operator<=>(PropertyPath const &lhs, PropertyPath const &rhs) = default;
 
   PropertyId front() const { return properties_.front(); }
   PropertyId back() const { return properties_.back(); }

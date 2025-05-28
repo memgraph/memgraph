@@ -108,7 +108,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyV
          rv::transform([&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
            auto &&[index, path] = el;
            std::size_t const pos{position_lookup_[index]};
-           return {pos, compare_nested_value(value, values.values_[position_lookup_[pos]], path)};
+           return {pos, compare_nested_value(value, values.values_[pos], path)};
          }) |
          r::to_vector;
 }

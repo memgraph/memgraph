@@ -88,14 +88,14 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
         bool all_exist = true;
 
         for (auto &&[_, property_path, value] : helper.WithPropertyId(values)) {
-          auto resProp = cache.GetProperty(view, &vertex, property_path[0]);
+          auto resProp = cache.GetProperty(view, &vertex, property_path.get()[0]);
           if (resProp) {
-            if (property_path.size() == 1) {
+            if (property_path.get().size() == 1) {
               if (resProp->get() != value.get()) {
                 all_matched = false;
               }
             } else {
-              auto const *nested_value_ptr = ReadNestedPropertyValue(*resProp, property_path | rv::drop(1));
+              auto const *nested_value_ptr = ReadNestedPropertyValue(*resProp, property_path.get() | rv::drop(1));
               if (nested_value_ptr && *nested_value_ptr != value.get()) {
                 all_matched = false;
               }
@@ -132,8 +132,8 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
       // value. We cannot cache the map `a` if all we have is the value
       // `a.b.c`.
       for (auto &&[pos, property_path, value] : helper.WithPropertyId(values)) {
-        if (property_path.size() == 1 && current_values_equal_to_value[pos]) {
-          cache.StoreProperty(view, &vertex, property_path[0], value.get());
+        if (property_path.get().size() == 1 && current_values_equal_to_value[pos]) {
+          cache.StoreProperty(view, &vertex, property_path.get()[0], value.get());
         }
       }
     }
