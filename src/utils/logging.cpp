@@ -95,13 +95,12 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string_view input) 
   return result;
 }
 
-void memgraph::logging::AssertFailed(char const *file_name, int line_num, char const *expr,
-                                     std::string const &message) {
+void memgraph::logging::AssertFailed(std::source_location const loc, char const *expr, std::string const &message) {
   spdlog::critical(
       "\nAssertion failed in file {} at line {}."
       "\n\tExpression: '{}'"
       "{}",
-      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
+      loc.file_name(), loc.line(), expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
   std::terminate();
 }
 
