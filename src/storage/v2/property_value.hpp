@@ -953,8 +953,8 @@ inline PropertyValue const *ReadNestedPropertyValue(PropertyValue const &value,
       return nullptr;
     }
 
-    auto &as_map = value_ptr->ValueMap();
-    auto it = as_map.find(property_id);
+    auto const &as_map = value_ptr->ValueMap();
+    auto const it = as_map.find(property_id);
     if (it == as_map.cend()) {
       return nullptr;
     } else {

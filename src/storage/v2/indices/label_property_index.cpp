@@ -11,6 +11,8 @@
 
 #include "label_property_index.hpp"
 
+#include <span>
+
 namespace r = ranges;
 namespace rv = r::views;
 
@@ -79,36 +81,14 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
     -> std::vector<std::pair<std::ptrdiff_t, bool>> {
-  auto const compare_nested_value = [](PropertyValue const &outer, PropertyValue const &value,
-                                       PropertyPath const &path) {
-    PropertyValue const *value_ptr = &outer;
-    auto path_it = std::next(path.cbegin());
-
-    // Traverse the nested map of property values until we have found the single
-    // nested property we compare against.
-    while (std::distance(path_it, path.cend()) != 0) {
-      if (!value_ptr->IsMap()) {
-        return false;
-      }
-
-      auto &map = value_ptr->ValueMap();
-      auto map_it = map.find(*path_it++);
-      if (map_it == map.end()) {
-        // subkey doesn't exist
-        return false;
-      }
-
-      value_ptr = &map_it->second;
-    }
-
-    return *value_ptr == value;
-  };
-
   return rv::enumerate(sorted_properties_) | rv::filter([&](auto &&el) { return std::get<1>(el)[0] == property_id; }) |
          rv::transform([&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
            auto &&[index, path] = el;
-           std::size_t const pos{position_lookup_[index]};
-           return {index, compare_nested_value(value, values.values_[pos], path)};
+           auto const pos{position_lookup_[index]};
+           auto const &cmp_value = values.values_[pos];
+           // Top level property was a read to get `value`, strip that off of the path
+           auto const *nested_value = ReadNestedPropertyValue(value, path.as_span().subspan(1));
+           return {index, *nested_value == cmp_value};
          }) |
          r::to_vector;
 }
