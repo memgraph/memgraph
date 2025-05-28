@@ -11,6 +11,7 @@
 
 #include "glue/auth_handler.hpp"
 
+#include <optional>
 #include <sstream>
 
 #include <fmt/format.h>
@@ -352,7 +353,7 @@ auto convert_limit_value(const memgraph::auth::UserProfiles::Profile &profile) {
 }
 
 void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::auth::UserProfiles::Profile &profile,
-                             memgraph::utils::ResourceMonitoring *resource_monitor) {
+                             memgraph::utils::ResourceMonitoring &resource_monitor) {
   const auto sl = std::visit(
       memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /*unused*/) {
                                     return memgraph::utils::SessionsResource::kUnlimited;
@@ -368,23 +369,43 @@ void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::au
                      [](auto limit) { return memgraph::utils::TransactionsMemoryResource::value_type(limit); }},
                  profile.limits[memgraph::auth::UserProfiles::Limits::kTransactionsMemory]);
 
-  resource_monitor->UpdateUserLimits(user_or_role, sl, tml);
+  resource_monitor.UpdateUserLimits(user_or_role, sl, tml);
 }
 
-void ResetUserProfileLimits(const std::string &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitor) {
-  resource_monitor->UpdateUserLimits(user_or_role, memgraph::utils::SessionsResource::kUnlimited,
-                                     memgraph::utils::TransactionsMemoryResource::kUnlimited);
+void ResetUserProfileLimits(const std::string &user_or_role, memgraph::utils::ResourceMonitoring &resource_monitor) {
+  resource_monitor.UpdateUserLimits(user_or_role, memgraph::utils::SessionsResource::kUnlimited,
+                                    memgraph::utils::TransactionsMemoryResource::kUnlimited);
+}
+
+void UpdateProfileLimits(const std::string &user, const std::optional<memgraph::auth::UserProfiles::Profile> &profile,
+                         memgraph::utils::ResourceMonitoring &resource_monitor) {
+  if (!profile) {
+    ResetUserProfileLimits(user, resource_monitor);
+  } else {
+    UpdateUserProfileLimits(user, *profile, resource_monitor);
+  }
+}
+
+void UpdateProfileLimits(const memgraph::auth::User &user, memgraph::utils::ResourceMonitoring &resource_monitor) {
+  UpdateProfileLimits(user.username(), user.GetProfile(), resource_monitor);
+}
+
+void UpdateProfileLimits(const std::string &username, auto &locked_auth,
+                         memgraph::utils::ResourceMonitoring &resource_monitor) {
+  const auto user = locked_auth->GetUser(username);
+  DMG_ASSERT(user, "Expected user here");
+  UpdateProfileLimits(user->username(), user->GetProfile(), resource_monitor);
 }
 
 auto UsersConnectedToProfile(auto &locked_auth, const std::string &profile_name) {
-  auto users_for_profile = locked_auth->GetUsersForProfile(profile_name);
+  auto users_for_profile = locked_auth->GetUsernamesForProfile(profile_name);
   std::unordered_set<std::string> users{std::make_move_iterator(users_for_profile.begin()),
                                         std::make_move_iterator(users_for_profile.end())};
-  for (const auto &role : locked_auth->GetRolesForProfile(profile_name)) {
+  for (const auto &role : locked_auth->GetRolenamesForProfile(profile_name)) {
     auto users_for_role = locked_auth->AllUsernamesForRole(role);
     users.insert(std::make_move_iterator(users_for_role.begin()), std::make_move_iterator(users_for_role.end()));
   }
-  return users_for_profile;
+  return users;
 }
 
 }  // namespace
@@ -626,11 +647,7 @@ bool AuthQueryHandler::DropRole(const std::string &rolename, system::Transaction
       // Update all users that have this role
       const auto &users = locked_auth->AllUsersForRole(rolename);
       for (const auto &user : users) {
-        if (!user.profile()) {
-          ResetUserProfileLimits(user.username(), resource_monitor);
-        } else {
-          UpdateUserProfileLimits(user.username(), *user.profile(), resource_monitor);
-        }
+        UpdateProfileLimits(user.username(), user.profile(), *resource_monitor);
       }
     }
 
@@ -769,12 +786,7 @@ void AuthQueryHandler::SetRoles(const std::string &username, const std::vector<s
 
     locked_auth->SaveUser(*user, system_tx);
     if (resource_monitor) {
-      const auto profile = user->GetProfile();  // Combined profile
-      if (!profile) {
-        ResetUserProfileLimits(user->username(), resource_monitor);
-      } else {
-        UpdateUserProfileLimits(user->username(), *profile, resource_monitor);
-      }
+      UpdateProfileLimits(*user, *resource_monitor);
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -805,11 +817,7 @@ void AuthQueryHandler::ClearRoles(const std::string &username, const std::unorde
     user->ClearAllRoles();
     locked_auth->SaveUser(*user, system_tx);
     if (resource_monitor) {
-      if (!user->profile()) {
-        ResetUserProfileLimits(user->username(), resource_monitor);
-      } else {
-        UpdateUserProfileLimits(user->username(), *user->profile(), resource_monitor);
-      }
+      UpdateProfileLimits(user->username(), user->profile(), *resource_monitor);
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -1129,7 +1137,7 @@ void AuthQueryHandler::StartupResourceMonitor(utils::ResourceMonitoring &resourc
   for (const auto &user : locked_auth->AllUsers()) {
     const auto profile = user.GetProfile();  // Combined profile
     if (!profile) continue;
-    UpdateUserProfileLimits(user.username(), *profile, &resource_monitoring);
+    UpdateUserProfileLimits(user.username(), *profile, resource_monitoring);
   }
 }
 
@@ -1184,8 +1192,10 @@ void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
   }
   // User-specific resource monitor
   if (resource_monitor) {
-    for (const auto &user : UsersConnectedToProfile(locked_auth, profile_name)) {
-      UpdateUserProfileLimits(user, *profile, resource_monitor);
+    for (const auto &username : UsersConnectedToProfile(locked_auth, profile_name)) {
+      const auto user = locked_auth->GetUser(username);
+      if (!user) continue;
+      UpdateProfileLimits(*user, *resource_monitor);
     }
   }
 }
@@ -1194,13 +1204,17 @@ void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Tran
                                    utils::ResourceMonitoring *resource_monitor) {
   auto locked_auth = auth_->Lock();
   // User-specific resource monitor (reset all users before dropping the profile)
+  std::unordered_set<std::string> usernames;
   if (resource_monitor) {
-    for (const auto &user : UsersConnectedToProfile(locked_auth, profile_name)) {
-      ResetUserProfileLimits(user, resource_monitor);
-    }
+    usernames = UsersConnectedToProfile(locked_auth, profile_name);
   }
   if (!locked_auth->DropProfile(profile_name, system_tx)) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+  for (const auto &username : usernames) {
+    const auto user = locked_auth->GetUser(username);
+    if (!user) continue;
+    UpdateProfileLimits(*user, *resource_monitor);
   }
 }
 
@@ -1246,10 +1260,10 @@ void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::st
     // User-specific resource monitor
     if (resource_monitor) {
       if (locked_auth->HasUser(user_or_role)) {  // User
-        UpdateUserProfileLimits(user_or_role, *profile, resource_monitor);
+        UpdateProfileLimits(user_or_role, locked_auth, *resource_monitor);
       } else {  // Role
-        for (const auto &user : locked_auth->AllUsernamesForRole(user_or_role)) {
-          UpdateUserProfileLimits(user, *profile, resource_monitor);
+        for (const auto &username : locked_auth->AllUsernamesForRole(user_or_role)) {
+          UpdateProfileLimits(username, locked_auth, *resource_monitor);
         }
       }
     }
@@ -1266,10 +1280,10 @@ void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Tr
     // User-specific resource monitor
     if (resource_monitor) {
       if (locked_auth->HasUser(user_or_role)) {  // User
-        ResetUserProfileLimits(user_or_role, resource_monitor);
+        UpdateProfileLimits(user_or_role, locked_auth, *resource_monitor);
       } else {  // Role
-        for (const auto &user : locked_auth->AllUsernamesForRole(user_or_role)) {
-          ResetUserProfileLimits(user, resource_monitor);
+        for (const auto &username : locked_auth->AllUsernamesForRole(user_or_role)) {
+          UpdateProfileLimits(username, locked_auth, *resource_monitor);
         }
       }
     }
@@ -1290,10 +1304,10 @@ std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string
   return std::nullopt;
 }
 
-std::vector<std::string> AuthQueryHandler::GetUsersForProfile(const std::string &profile_name) {
+std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
   try {
     auto locked_auth = auth_->Lock();
-    return locked_auth->GetUsersForProfile(profile_name);
+    return locked_auth->GetUsernamesForProfile(profile_name);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -1311,10 +1325,10 @@ std::optional<std::string> AuthQueryHandler::GetProfileForRole(const std::string
   return std::nullopt;
 }
 
-std::vector<std::string> AuthQueryHandler::GetRolesForProfile(const std::string &profile_name) {
+std::vector<std::string> AuthQueryHandler::GetRolenamesForProfile(const std::string &profile_name) {
   try {
     auto locked_auth = auth_->Lock();
-    return locked_auth->GetRolesForProfile(profile_name);
+    return locked_auth->GetRolenamesForProfile(profile_name);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }

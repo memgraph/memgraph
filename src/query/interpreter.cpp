@@ -6650,11 +6650,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_), show_user]() {
         std::vector<std::vector<TypedValue>> res;
         if (show_user) {
-          for (const auto &profile : auth->GetUsersForProfile(profile_name)) {
+          for (const auto &profile : auth->GetUsernamesForProfile(profile_name)) {
             res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
           }
         } else {
-          for (const auto &profile : auth->GetRolesForProfile(profile_name)) {
+          for (const auto &profile : auth->GetRolenamesForProfile(profile_name)) {
             res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
           }
         }
