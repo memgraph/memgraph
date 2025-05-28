@@ -2217,7 +2217,7 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
     auto values = std::vector<PropertyValue>{};
     values.reserve(ordered_properties.size());
 
-    auto max_history_depth = r::max_element(ordered_properties, {}, r::distance)->size() - 1;
+    auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
     ReaderPropPositionHistory history{max_history_depth};
 
     auto const get_value =
@@ -2264,7 +2264,7 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_properties,
                                        std::span<PropertyValue const> values,
                                        std::span<std::size_t const> position_lookup) const -> std::vector<bool> {
-  auto max_history_depth = r::max_element(ordered_properties, {}, r::distance)->size() - 1;
+  auto max_history_depth = r::max_element(ordered_properties, {}, std::mem_fn(&PropertyPath::size))->size() - 1;
   ReaderPropPositionHistory history{max_history_depth};
 
   auto properties_are_equal = [&](Reader &reader) -> std::vector<bool> {
