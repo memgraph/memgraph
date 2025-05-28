@@ -23,7 +23,7 @@ using namespace std::chrono_literals;
 TEST(RWLock, MultipleReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
 
-  std::vector<std::jthread> threads;
+  std::vector<std::thread> threads;
   threads.reserve(3);
   memgraph::utils::Timer const timer;
   for (int i = 0; i < 3; ++i) {
@@ -32,6 +32,10 @@ TEST(RWLock, MultipleReaders) {
       std::this_thread::sleep_for(100ms);
     });
   }
+  for (int i = 0; i < 3; ++i) {
+    threads[i].join();
+  }
+
   auto const elapsed = timer.Elapsed();
   // If they are running in parallel, then the total running time should be < 3x100ms
   EXPECT_LE(elapsed, 300ms);
