@@ -147,7 +147,7 @@ struct PropertiesPermutationHelper {
    */
   auto WithPropertyId(IndexOrderedPropertyValues const &values) const {
     return ranges::views::enumerate(sorted_properties_) | std::views::transform([&](auto &&p) {
-             return std::tuple{p.first, p.second, std::cref(values.values_[position_lookup_[p.first]])};
+             return std::tuple{p.first, std::cref(p.second), std::cref(values.values_[position_lookup_[p.first]])};
            });
   }
 
