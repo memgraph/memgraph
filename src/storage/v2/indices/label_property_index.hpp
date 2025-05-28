@@ -133,8 +133,8 @@ struct PropertiesPermutationHelper {
    * (in monotonic property id order), and a boolean indicating whether the
    * property matches.
    */
-  auto MatchesValue(PropertyId property_id, PropertyValue const &value, IndexOrderedPropertyValues const &values) const
-      -> std::vector<std::pair<std::ptrdiff_t, bool>>;
+  auto MatchesValue(PropertyId outter_prop_id, PropertyValue const &value,
+                    IndexOrderedPropertyValues const &values) const -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element

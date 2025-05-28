@@ -78,19 +78,21 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
   return {std::move(values)};
 }
 
-auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
+auto PropertiesPermutationHelper::MatchesValue(PropertyId outter_prop_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
     -> std::vector<std::pair<std::ptrdiff_t, bool>> {
-  return rv::enumerate(sorted_properties_) | rv::filter([&](auto &&el) { return std::get<1>(el)[0] == property_id; }) |
-         rv::transform([&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
-           auto &&[index, path] = el;
-           auto const pos{position_lookup_[index]};
-           auto const &cmp_value = values.values_[pos];
-           // Top level property was a read to get `value`, strip that off of the path
-           auto const *nested_value = ReadNestedPropertyValue(value, path.as_span().subspan(1));
-           return {index, *nested_value == cmp_value};
-         }) |
-         r::to_vector;
+  auto enum_properties = rv::enumerate(sorted_properties_);
+  auto relevant_paths =
+      r::equal_range(enum_properties, outter_prop_id, {}, [&](auto &&el) { return std::get<1>(el)[0]; });
+
+  auto is_match = [&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
+    auto &&[index, path] = el;
+    auto const &cmp_value = values.values_[position_lookup_[index]];
+    // Outer property was already read to get `value`, strip that off of the path
+    auto const *nested_value = ReadNestedPropertyValue(value, path.as_span().subspan(1));
+    return {index, *nested_value == cmp_value};
+  };
+  return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
