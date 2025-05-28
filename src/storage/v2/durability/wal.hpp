@@ -56,14 +56,10 @@ struct VersionDependantUpgradable {};
 
 using PropertyPathStr = std::vector<std::vector<std::string>>;
 
-constexpr auto SinglePropertyToVector = [](std::string v) { return std::vector{v}; };
+constexpr auto SinglePropertyToVector = [](std::string v) { return std::vector{std::move(v)}; };
 
 constexpr auto PropertyVectorToPropertyPaths = [](std::vector<std::string> v) -> PropertyPathStr {
-  PropertyPathStr result;
-  for (const auto &property : v) {
-    result.emplace_back(std::vector{property});
-  }
-  return result;
+  return v | ranges::views::transform([](auto &&path) { return std::vector{std::move(path)}; }) | ranges::to_vector;
 };
 
 using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,

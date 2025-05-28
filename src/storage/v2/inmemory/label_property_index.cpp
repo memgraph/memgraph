@@ -451,7 +451,7 @@ auto InMemoryLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(std::span<La
     for (const auto &nested_props : it->second | std::views::keys) {
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
-      for (auto prop_path : nested_props) {
+      for (auto const &prop_path : nested_props) {
         auto it = r::lower_bound(properties_vec, prop_path);
         if (it != properties_vec.end() && *it == prop_path) {
           auto distance = std::distance(properties_vec.begin(), it);
