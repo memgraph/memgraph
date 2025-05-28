@@ -945,24 +945,25 @@ static_assert(sizeof(pmr::PropertyValue) == 56);
  * is valid, returns a positional pointer to the `PropertyValue` within the
  * top-most value. Otherwise, return `nullptr`.
  */
-inline PropertyValue const *ReadNestedPropertyValue(PropertyValue const &value,
-                                                    std::span<PropertyId const> path_to_property) {
-  PropertyValue const *value_ptr = &value;
+inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<PropertyId const> path_to_property)
+    -> PropertyValue const * {
+  auto const *current = &value;
+  // Follow the path down into the nested maps
   for (auto &&property_id : path_to_property) {
-    if (!value_ptr->IsMap()) {
+    if (!current->IsMap()) [[unlikely]] {
       return nullptr;
     }
 
-    auto const &as_map = value_ptr->ValueMap();
+    auto const &as_map = current->ValueMap();
     auto const it = as_map.find(property_id);
-    if (it == as_map.cend()) {
-      return nullptr;
+    if (it != as_map.cend()) {
+      current = &it->second;
     } else {
-      value_ptr = &it->second;
+      return nullptr;
     }
   }
 
-  return value_ptr;
+  return current;
 }
 
 }  // namespace memgraph::storage
