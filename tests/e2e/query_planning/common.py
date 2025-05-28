@@ -53,6 +53,7 @@ def memgraph_reset_plan_cache(**kwargs) -> Memgraph:
     memgraph.execute("DROP INDEX ON :Node(id);")
     memgraph.execute("DROP INDEX ON :Supernode;")
     memgraph.execute("DROP INDEX ON :Supernode(id);")
+
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
     memgraph.drop_database()
