@@ -6,10 +6,6 @@ ARG EXTENSION
 ARG TARGETARCH
 ARG SOURCE_CODE
 
-# Bugfix for timezone issues - pin the package
-RUN DEBIAN_FRONTEND=noninteractive apt update && apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades
-RUN apt-mark hold tzdata
-
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
   gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg \
