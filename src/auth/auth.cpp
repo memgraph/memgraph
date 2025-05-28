@@ -15,6 +15,7 @@
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
+#include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/rpc.hpp"
 #include "flags/auth.hpp"
@@ -860,7 +861,23 @@ void Auth::RevokeProfile(Role &role, system::Transaction *system_tx) {
   SaveRole(role, system_tx);
 }
 
-std::vector<std::string> Auth::GetUsersForProfile(const std::string &profile_name) const {
+std::vector<User> Auth::GetUsersForProfile(const std::string &profile_name) const {
+  const auto profile = user_profiles_.Get(profile_name);
+  if (!profile) {
+    throw AuthException("Couldn't find profile '{}'!", profile_name);
+  }
+  std::vector<User> ret;
+  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
+    auto username = it->first.substr(kProfileLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    if (it->second == profile_name && HasUser(username)) {
+      ret.push_back(*GetUser(username));
+    }
+  }
+  return ret;
+}
+
+std::vector<std::string> Auth::GetUsernamesForProfile(const std::string &profile_name) const {
   const auto profile = user_profiles_.Get(profile_name);
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
@@ -876,7 +893,23 @@ std::vector<std::string> Auth::GetUsersForProfile(const std::string &profile_nam
   return ret;
 }
 
-std::vector<std::string> Auth::GetRolesForProfile(const std::string &profile_name) const {
+std::vector<Role> Auth::GetRolesForProfile(const std::string &profile_name) const {
+  const auto profile = user_profiles_.Get(profile_name);
+  if (!profile) {
+    throw AuthException("Couldn't find profile '{}'!", profile_name);
+  }
+  std::vector<Role> ret;
+  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
+    auto rolename = it->first.substr(kProfileLinkPrefix.size());
+    if (rolename != utils::ToLowerCase(rolename)) continue;
+    if (it->second == profile_name && HasRole(rolename)) {
+      ret.push_back(*GetRole(rolename));
+    }
+  }
+  return ret;
+}
+
+std::vector<std::string> Auth::GetRolenamesForProfile(const std::string &profile_name) const {
   const auto profile = user_profiles_.Get(profile_name);
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
