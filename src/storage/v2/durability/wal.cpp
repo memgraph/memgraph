@@ -309,47 +309,24 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
   }
 }
 
-template <bool is_read>
-auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, std::vector<std::string>, void> {
+template <bool is_read, typename T>
+auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-    std::vector<std::string> strings;
-    strings.reserve(*count);
+    std::vector<T> values;
+    values.reserve(*count);
     for (uint64_t i = 0; i < *count; ++i) {
-      auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
-      strings.emplace_back(*std::move(str));
+      auto value = Decode<true>(utils::tag_t<T>, decoder, 0);
+      values.emplace_back(std::move(value));
     }
-    return strings;
+    return values;
   } else {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
-    }
-  }
-}
-
-template <bool is_read>
-auto Decode(utils::tag_type<std::vector<std::vector<std::string>>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::vector<std::vector<std::string>>, void> {
-  if constexpr (is_read) {
-    const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-    std::vector<std::vector<std::string>> strings;
-    strings.reserve(*count);
-    for (uint64_t i = 0; i < *count; ++i) {
-      auto str = Decode<true>(utils::tag_t<std::vector<std::string>>, decoder, 0);
-      strings.emplace_back(std::move(str));
-    }
-    return strings;
-  } else {
-    const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-    for (uint64_t i = 0; i < *count; ++i) {
-      Decode<false>(utils::tag_t<std::vector<std::string>>, decoder, 0);
+      Decode<false>(utils::tag_t<T>, decoder, 0);
     }
   }
 }
