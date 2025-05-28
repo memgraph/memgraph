@@ -9,8 +9,6 @@ RUN apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
   --no-install-recommends && \
   apt install -y libxmlsec1-dev xmlsec1 && \
-  apt install -y tzdata=2024a-2ubuntu1 --allow-downgrades && \
-  apt-mark hold tzdata && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # NOTE: The following are required to run built-in Python modules. For the full

@@ -25,6 +25,7 @@
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "io/network/fmt.hpp"  // necessary include
@@ -75,7 +76,7 @@ class Client {
    private:
     friend class Client;
 
-    StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
+    StreamHandler(Client *self, std::unique_lock<utils::ResourceLock> &&guard,
                   std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
                   std::optional<int> timeout_ms)
         : self_(self),
@@ -101,7 +102,7 @@ class Client {
         timeout_ms_ = other.timeout_ms_;
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
-        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this, timeout_ms_)));
+        req_builder_ = slk::Builder(std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_));
         res_load_ = std::move(other.res_load_);
       }
       return *this;
@@ -292,7 +293,7 @@ class Client {
     Client *self_;
     std::optional<int> timeout_ms_;
     bool defunct_ = false;
-    std::unique_lock<std::mutex> guard_;
+    std::unique_lock<utils::ResourceLock> guard_;
     slk::Builder req_builder_;
     std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
   };
@@ -318,17 +319,49 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        std::forward<Args>(args)...);
+        /*try_lock_timeout*/ std::nullopt, std::forward<Args>(args)...);
+  }
+
+  /**
+   * Tries to obtain RPC stream by try locking RPC lock, otherwise returns std::nullopt
+   * @tparam TRequestResponse RPC type
+   * @tparam Args Type of arguments to propagate to StreamWithLoad
+   * @param try_lock_timeout Optional timeout for try lock on RPC lock
+   * @param args  Arguments to propagate to StreamWithLoad
+   * @return nullopt if couldn't try_lock, StreamHandler otherwise
+   */
+  template <class TRequestResponse, class... Args>
+  std::optional<StreamHandler<TRequestResponse>> TryStream(
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
+    try {
+      return StreamWithLoad<TRequestResponse>(
+          [](auto *reader) {
+            typename TRequestResponse::Response response;
+            TRequestResponse::Response::Load(&response, reader);
+            return response;
+          },
+          /*try_lock_timeout*/ try_lock_timeout, std::forward<Args>(args)...);
+    } catch (FailedToGetRpcStreamException const &) {
+      return std::nullopt;
+    }
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, Args &&...args) {
+      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
 
-    auto guard = std::unique_lock{mutex_};
+    auto guard = std::unique_lock{mutex_, std::defer_lock};
+    if (try_lock_timeout.has_value()) {
+      if (!guard.try_lock_for(*try_lock_timeout)) {
+        throw FailedToGetRpcStreamException();
+      }
+    } else {
+      guard.lock();
+    }
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
@@ -401,7 +434,7 @@ class Client {
   std::optional<communication::Client> client_;
   std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 
-  mutable std::mutex mutex_;
+  mutable utils::ResourceLock mutex_;
 };
 
 }  // namespace memgraph::rpc

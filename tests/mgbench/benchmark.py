@@ -75,7 +75,7 @@ def parse_args():
         type=str,
         default=BenchmarkInstallationType.NATIVE,
         choices=BenchmarkInstallationType.get_all_installation_types(),
-        help="Installation type (native, docker)",
+        help="Installation type (native, docker, external)",
     )
 
     benchmark_parser.add_argument(
@@ -244,14 +244,7 @@ def parse_args():
         type=str,
         default=BenchmarkClientLanguage.CPP,
         choices=BenchmarkClientLanguage.get_all_client_languages(),
-        help="Client language implementation (cpp or docker)",
-    )
-
-    benchmark_parser.add_argument(
-        "--external-vendor",
-        action="store_true",
-        default=False,
-        help="Database/cluster is run separately from the test",
+        help="Client language implementation (cpp or python)",
     )
 
     return benchmark_parser.parse_args()
@@ -952,11 +945,11 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary if args.installation_type == "native" else None,
+        vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
         vendor_name=args.vendor_name,
-        external_vendor=args.external_vendor,
+        external_vendor=args.installation_type == BenchmarkInstallationType.EXTERNAL,
         installation_type=args.installation_type,
-        client_binary=args.client_binary if args.installation_type == "native" else None,
+        client_binary=args.client_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
         client_language=args.client_language,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,

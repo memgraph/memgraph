@@ -105,8 +105,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -2632,10 +2632,12 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto const &epochHistory = repl_storage_state_.history;
   auto const &storage_uuid = uuid();
 
-  auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
-  if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
-
-  last_snapshot_digest_ = std::move(current_digest);
+  // In memory analytical doesn't update last_durable_ts so digest isn't valid
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
+    if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+    last_snapshot_digest_ = std::move(current_digest);
+  }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
   if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
@@ -2712,7 +2714,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_ = recovery_info.next_vertex_id;
     edge_id_ = recovery_info.next_edge_id;
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_ = recovered_snapshot.snapshot_info.durable_timestamp;
+    repl_storage_state_.last_durable_timestamp_.store(recovered_snapshot.snapshot_info.durable_timestamp,
+                                                      std::memory_order_release);
+    commit_log_->MarkFinishedInRange(0, recovered_snapshot.snapshot_info.durable_timestamp);
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     storage::durability::RecoverIndicesStatsAndConstraints(
