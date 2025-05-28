@@ -4650,6 +4650,25 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find edge type id in snapshot_id_map!");
     return EdgeTypeId::FromUint(it->second);
   };
+  auto get_property_paths = [&](std::string_view ctx) {
+    auto n_paths = snapshot.ReadUint();
+    if (!n_paths) throw RecoveryFailure("Couldn't read number of properties for {}.", ctx);
+    auto property_paths = std::vector<PropertyPath>{};
+    property_paths.reserve(*n_paths);
+    for (uint64_t i = 0; i < *n_paths; ++i) {
+      auto n_props = snapshot.ReadUint();
+      if (!n_props) throw RecoveryFailure("Couldn't read number of properties for {}.", ctx);
+      auto properties = std::vector<PropertyId>{};
+      properties.reserve(*n_props);
+      for (uint64_t j = 0; j < *n_props; ++j) {
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property for {}.", ctx);
+        properties.emplace_back(get_property_from_id(*property));
+      }
+      property_paths.emplace_back(std::move(properties));
+    }
+    return property_paths;
+  };
 
   // Reset current edge count.
   edge_count->store(0, std::memory_order_release);
@@ -4791,27 +4810,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
-        auto property_paths = std::invoke([&]() {
-          auto n_paths = snapshot.ReadUint();
-          if (!n_paths) throw RecoveryFailure("Couldn't read number of properties for label properties index.");
-          std::vector<PropertyPath> paths;
-          paths.reserve(*n_paths);
-          for (uint64_t i = 0; i < *n_paths; ++i) {
-            auto properties_n = snapshot.ReadUint();
-            if (!properties_n) throw RecoveryFailure("Couldn't read number of properties for label properties index.");
-            std::vector<PropertyId> properties;
-            properties.reserve(*properties_n);
-            for (uint64_t j = 0; j < *properties_n; ++j) {
-              auto property = snapshot.ReadUint();
-              if (!property) throw RecoveryFailure("Couldn't read property for label properties index.");
-              properties.emplace_back(get_property_from_id(*property));
-            }
-            auto property_path = PropertyPath{properties};
-            paths.emplace_back(std::move(property_path));
-          }
-          return paths;
-        });
-
+        auto property_paths = get_property_paths("label properties index");
         auto path_to_name = [&](const PropertyPath &path) {
           return path | ranges::views::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
@@ -4838,25 +4837,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       for (uint64_t i = 0; i < *size; ++i) {
         const auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label property index statistics!");
-        auto n_prop_paths = snapshot.ReadUint();
-        if (!n_prop_paths)
-          throw RecoveryFailure("Couldn't read the number of properties for label property index statistics!");
-        std::vector<PropertyPath> property_paths;
-        property_paths.reserve(*n_prop_paths);
-        for (uint64_t i = 0; i < *n_prop_paths; ++i) {
-          auto n_props = snapshot.ReadUint();
-          if (!n_props)
-            throw RecoveryFailure("Couldn't read number of properties for label property index statistics!");
-          std::vector<PropertyId> properties;
-          properties.reserve(*n_props);
-          for (uint64_t j = 0; j < *n_props; ++j) {
-            auto property = snapshot.ReadUint();
-            if (!property) throw RecoveryFailure("Couldn't read property for label property index statistics!");
-            const auto property_id = get_property_from_id(*property);
-            properties.emplace_back(property_id);
-          }
-          property_paths.emplace_back(std::move(properties));
-        }
+        auto property_paths = get_property_paths("label property index statistics");
         const auto count = snapshot.ReadUint();
         if (!count) throw RecoveryFailure("Couldn't read count for label property index statistics!!");
         const auto distinct_values_count = snapshot.ReadUint();
