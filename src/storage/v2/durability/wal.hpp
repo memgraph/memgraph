@@ -65,9 +65,8 @@ constexpr auto PropertyVectorToPropertyPaths = [](std::vector<std::string> v) ->
 using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
                                                             std::vector<std::string>, SinglePropertyToVector>;
 
-using UpgradablePropertyPaths =
-    VersionDependantUpgradable<kCompositeIndicesForLabelProperties, UpgradableSingleProperty, PropertyPathStr,
-                               PropertyVectorToPropertyPaths>;
+using UpgradablePropertyPaths = VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty, PropertyPathStr,
+                                                           PropertyVectorToPropertyPaths>;
 
 // Common structures used by more than one WAL Delta
 struct VertexOpInfo {
