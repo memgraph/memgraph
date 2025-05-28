@@ -1923,7 +1923,7 @@ TEST_P(CypherMainVisitorTest, CreateIndex) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko")};
+  PropertyIxPath expected_properties{ast_generator.Prop("slavko")};
   EXPECT_EQ(index_query->properties_[0], expected_properties);
 }
 
@@ -1934,8 +1934,8 @@ TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
-                                              ast_generator.Prop("email")};
+  PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                     ast_generator.Prop("email")};
   EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.front(); }) | r::to_vector,
             expected_properties);
 }
@@ -1961,7 +1961,7 @@ TEST_P(CypherMainVisitorTest, DropIndex) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko")};
+  PropertyIxPath expected_properties{ast_generator.Prop("slavko")};
   EXPECT_EQ(index_query->properties_[0], expected_properties);
 }
 
@@ -2009,8 +2009,8 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
-                                              ast_generator.Prop("email")};
+  PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                     ast_generator.Prop("email")};
   EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.front(); }) | r::to_vector,
             expected_properties);
 }

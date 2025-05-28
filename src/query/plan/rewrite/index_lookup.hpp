@@ -57,17 +57,16 @@ struct IndexHints {
         }
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
-        auto properties =
-            index_hint.property_ixs_ |
-            ranges::views::transform([&](std::vector<PropertyIx> const &property_path) -> storage::PropertyPath {
-              std::vector<storage::PropertyId> property_ids;
-              property_ids.reserve(property_path.size());
-              for (const auto &property_ix : property_path) {
-                property_ids.emplace_back(db->NameToProperty(property_ix.name));
-              }
-              return {std::move(property_ids)};
-            }) |
-            ranges::to<std::vector<storage::PropertyPath>>;
+        auto properties = index_hint.property_ixs_ |
+                          ranges::views::transform([&](PropertyIxPath const &property_path) -> storage::PropertyPath {
+                            std::vector<storage::PropertyId> property_ids;
+                            property_ids.reserve(property_path.size());
+                            for (const auto &property_ix : property_path) {
+                              property_ids.emplace_back(db->NameToProperty(property_ix.name));
+                            }
+                            return {std::move(property_ids)};
+                          }) |
+                          ranges::to<std::vector<storage::PropertyPath>>;
 
         // Fetching the corresponding index to the hint
         if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
@@ -112,8 +111,7 @@ struct IndexHints {
       auto label_id = db->NameToLabel(label_hint.name);
       if (label_id != label) continue;
 
-      auto property_ids = properties_prefix |
-                          ranges::views::transform([&](std::vector<PropertyIx> const &property_path) {
+      auto property_ids = properties_prefix | ranges::views::transform([&](PropertyIxPath const &property_path) {
                             std::vector<storage::PropertyId> property_ids;
                             property_ids.reserve(property_path.size());
                             for (const auto &property_ix : property_path) {
@@ -988,7 +986,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   };
 
   using CandidateLabelPropertiesIndices =
-      std::multimap<std::pair<LabelIx, std::vector<query::PropertyPath>>, LabelPropertiesIndexCandidate, std::less<>>;
+      std::multimap<std::pair<LabelIx, std::vector<query::PropertyIxPath>>, LabelPropertiesIndexCandidate, std::less<>>;
 
   auto GetCandidateLabelPropertiesIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
       -> CandidateLabelPropertiesIndices {

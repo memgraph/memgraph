@@ -234,8 +234,8 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol,
-                               std::vector<PropertyIx> properties, Expression *value, Type type)
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
+                               Expression *value, Type type)
     : symbol_(symbol), property_ids_(std::move(properties)), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
@@ -243,8 +243,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol,
-                               std::vector<PropertyIx> properties,
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
@@ -271,7 +270,7 @@ PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
   // we may be looking up.
 }
 
-PropertyFilter::PropertyFilter(Symbol symbol, std::vector<PropertyIx> properties, Type type)
+PropertyFilter::PropertyFilter(Symbol symbol, PropertyIxPath properties, Type type)
     : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
 
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
@@ -529,7 +528,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto extract_nested_property_lookup = [&](auto *maybe_lookup) {
     auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
     auto *prev_expr = expr;
-    std::vector<PropertyIx> nested_properties;
+    PropertyIxPath nested_properties;
     while (expr) {
       nested_properties.push_back(expr->property_);
       prev_expr = expr;
@@ -540,8 +539,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // order. This returns them to the order as specified in the grammar.
     std::reverse(nested_properties.begin(), nested_properties.end());
 
-    return std::pair<Identifier *, std::vector<PropertyIx>>{utils::Downcast<Identifier>(prev_expr->expression_),
-                                                            std::move(nested_properties)};
+    return std::pair<Identifier *, PropertyIxPath>{utils::Downcast<Identifier>(prev_expr->expression_),
+                                                   std::move(nested_properties)};
   };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
