@@ -1020,7 +1020,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return !filter.property_filter->is_symbol_in_value_ && are_bound(filter.used_symbols);
     };
     auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
-    auto as_storage_property = [&](auto const &filter) -> storage::PropertyPath {
+    auto as_property_path = [&](auto const &filter) -> storage::PropertyPath {
       std::vector<storage::PropertyId> storage_property_ids;
       for (auto const &property : filter.property_filter->property_ids_) {
         storage_property_ids.emplace_back(GetProperty(property));
@@ -1037,8 +1037,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto property_filters1 = filters_.PropertyFilters(symbol);
     auto property_filters = property_filters1 | rv::filter(valid_filter) | r::to_vector;
     auto labels = labelIXs | rv::transform(as_storage_label) | r::to_vector;
-    ranges::stable_sort(property_filters, {}, as_storage_property);
-    auto properties = property_filters | rv::transform(as_storage_property) | r::to_vector;
+    ranges::stable_sort(property_filters, {}, as_property_path);
+    auto properties = property_filters | rv::transform(as_property_path) | r::to_vector;
 
     // TODO: extract as a common util if this is ever needed elsewhere.
     auto filters_grouped_by_property = std::map<storage::PropertyPath, std::vector<FilterInfo>>{};
