@@ -39,6 +39,12 @@
 
 namespace memgraph::query::frontend {
 
+namespace r = ranges;
+namespace rv = r::views;
+// Need to use std::ranges::views transform because rv::transform does not
+// support rvalues as viewable ranges on the lhs of a pipe.
+namespace srv = std::ranges::views;
+
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 namespace {
@@ -310,7 +316,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         property_ixs.reserve(index_hint_ctx->nestedPropertyKeyNames().size());
         for (auto &&nested_property_key_names : index_hint_ctx->nestedPropertyKeyNames()) {
           auto nested_properties = nested_property_key_names->propertyKeyName() |
-                                   std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                                   srv::transform([&](auto &&property_key_name_ctx) {
                                      return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
                                    }) |
                                    ranges::to_vector;
@@ -320,7 +326,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
             // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
                       .label_ix_ = label,
-                      .property_ixs_ = property_ixs});
+                      .property_ixs_ = std::move(property_ixs)});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
@@ -384,9 +390,10 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
 
   index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
+
   for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
     auto nested_properties = nested_property_key_names->propertyKeyName() |
-                             std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                             srv::transform([&](auto &&property_key_name_ctx) {
                                return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
                              }) |
                              ranges::to_vector;
@@ -403,7 +410,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
         auto min_length = std::min(lhs.size(), rhs.size());
         return std::ranges::equal(lhs.cbegin(), lhs.cbegin() + min_length, rhs.cbegin(), rhs.cbegin() + min_length);
       }) != sorted_properties.end()) {
-    throw SyntaxException("Properties cannot be repeated in a composite index.");
+    throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 
   return index_query;
@@ -417,7 +424,7 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
 
   for (auto &&nested_property_key_names : ctx->nestedPropertyKeyNames()) {
     auto nested_properties = nested_property_key_names->propertyKeyName() |
-                             std::ranges::views::transform([&](auto &&property_key_name_ctx) {
+                             srv::transform([&](auto &&property_key_name_ctx) {
                                return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
                              }) |
                              ranges::to_vector;

@@ -535,7 +535,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       prev_expr = expr;
       expr = utils::Downcast<PropertyLookup>(expr->expression_);
     }
+
+    // Properties are reversed because the AST walk produces them in reverse
+    // order. This returns them to the order as specified in the grammar.
     std::reverse(nested_properties.begin(), nested_properties.end());
+
     return std::pair<Identifier *, std::vector<PropertyIx>>{utils::Downcast<Identifier>(prev_expr->expression_),
                                                             std::move(nested_properties)};
   };
@@ -550,8 +554,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return false;
       }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr,
-                                              PropertyFilter::Type::EQUAL);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                              val_expr, PropertyFilter::Type::EQUAL);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -575,8 +579,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return false;
       }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr,
-                                              PropertyFilter::Type::REGEX_MATCH);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                              val_expr, PropertyFilter::Type::REGEX_MATCH);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -732,8 +736,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       auto [ident, nested_properties] = extract_nested_property_lookup(expr2);
       if (ident) {
         auto filter = make_filter(FilterInfo::Type::Property);
-        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, std::nullopt,
-                                                Bound(expr1, bound_type));
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                                std::nullopt, Bound(expr1, bound_type));
         all_filters_.emplace_back(filter);
       }
     } else if (get_property_lookup(expr2, prop_lookup, ident)) {
@@ -777,8 +781,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return false;
       }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter =
-          PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties, val_expr, PropertyFilter::Type::IN);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                              val_expr, PropertyFilter::Type::IN);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -823,7 +827,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       }
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter =
-          PropertyFilter(symbol_table.at(*ident), nested_properties, PropertyFilter::Type::IS_NOT_NULL);
+          PropertyFilter(symbol_table.at(*ident), std::move(nested_properties), PropertyFilter::Type::IS_NOT_NULL);
       all_filters_.emplace_back(filter);
       return true;
     }
