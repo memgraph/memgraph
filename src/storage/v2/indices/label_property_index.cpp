@@ -89,7 +89,8 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outter_prop_id, Proper
     auto &&[index, path] = el;
     auto const &cmp_value = values.values_[position_lookup_[index]];
     // Outer property was already read to get `value`, strip that off of the path
-    auto const *nested_value = ReadNestedPropertyValue(value, path.as_span().subspan(1));
+    DMG_ASSERT(!path.empty(), "PropertyPath should be at least 1");
+    auto const *nested_value = ReadNestedPropertyValue(value, path | rv::drop(1));
     return {index, *nested_value == cmp_value};
   };
   return relevant_paths | rv::transform(is_match) | r::to_vector;
