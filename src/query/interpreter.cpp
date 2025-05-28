@@ -5989,7 +5989,7 @@ PreparedQuery PrepareResetPlanCacheQuery(ParsedQuery parsed_query, CurrentDB &cu
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
     plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
-  utils::OnScopeExit cache_invalidator(invalidate_plan_cache);
+  utils::OnScopeExit const cache_invalidator(invalidate_plan_cache);
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
