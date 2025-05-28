@@ -83,7 +83,7 @@ struct IndexHints {
         }
         label_property_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::POINT) {
-        auto property_name = index_hint.property_ixs_.back()[0].name;
+        auto property_name = index_hint.property_ixs_[0][0].name;
         if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
           spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
           continue;
@@ -135,7 +135,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint.back()[0].name);
+      auto property_id = db->NameToProperty(property_hint[0][0].name);
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -947,7 +947,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // First match with the provided hints
     for (const auto &[index_type, label, properties] : index_hints_.point_index_hints_) {
-      auto property_ix = properties.back()[0];
+      auto property_ix = properties[0][0];
       auto filter_it = candidate_point_indices.find(std::make_pair(label, property_ix));
       if (filter_it != candidate_point_indices.cend()) {
         // TODO: isn't .vertex_count as max value wrong?
