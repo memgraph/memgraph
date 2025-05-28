@@ -1471,24 +1471,93 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderProperties) {
   }};
 
   IndexOrderedPropertyValues const baseline{{
-      PropertyValue("apple"),
-      PropertyValue("banana"),
+      PropertyValue("apple"),   // corresponds to p3.p4; ordered-index[1]
+      PropertyValue("banana"),  // corresponds to p1.p2; ordered-index[0]
   }};
 
   EXPECT_THAT(
       prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
-      UnorderedElementsAre(Match(1, false)));
-
-  EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("apple")}}), baseline),
-              UnorderedElementsAre(Match(1, true)));
-
-  EXPECT_THAT(
-      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
       UnorderedElementsAre(Match(0, false)));
 
   EXPECT_THAT(
-      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("banana")}}), baseline),
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("banana")}}), baseline),
       UnorderedElementsAre(Match(0, true)));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("cherry")}}), baseline),
+      UnorderedElementsAre(Match(1, false)));
+
+  EXPECT_THAT(prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("apple")}}), baseline),
+              UnorderedElementsAre(Match(1, true)));
+}
+
+TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderPropertiesWhenRootPropertiesAreDuplicated) {
+  using Match = std::pair<std::ptrdiff_t, bool>;
+
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+  auto const p5 = PropertyId::FromInt(5);
+  auto const p6 = PropertyId::FromInt(6);
+
+  PropertiesPermutationHelper prop_reader{
+      std::array{PropertyPath{p3, p4}, PropertyPath{p1, p6}, PropertyPath{p3, p5}, PropertyPath{p1, p2}}};
+
+  IndexOrderedPropertyValues const baseline{{
+      PropertyValue("apple"),   // corresponds to p3.p4; ordered-index[2]
+      PropertyValue("banana"),  // corresponds to p1.p6; ordered-index[1]
+      PropertyValue("cherry"),  // corresponds to p3.p5; ordered-index[3]
+      PropertyValue("date"),    // corresponds to p1.p2; ordered-index[0]
+  }};
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("eggplant")}}), baseline),
+      UnorderedElementsAre(Match(0, false), (Match(1, false))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p5, PropertyValue("eggplant")}}), baseline),
+      UnorderedElementsAre(Match(0, false), (Match(1, false))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p6, PropertyValue("eggplant")}}), baseline),
+      UnorderedElementsAre(Match(0, false), (Match(1, false))));
+
+  EXPECT_THAT(prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("date")}}), baseline),
+              UnorderedElementsAre(Match(0, true), (Match(1, false))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p1, PropertyValue(PropertyValue::map_t{{p6, PropertyValue("banana")}}), baseline),
+      UnorderedElementsAre(Match(0, false), (Match(1, true))));
+
+  EXPECT_THAT(prop_reader.MatchesValue(
+                  p1, PropertyValue(PropertyValue::map_t{{p2, PropertyValue("date")}, {p6, PropertyValue("banana")}}),
+                  baseline),
+              UnorderedElementsAre(Match(0, true), (Match(1, true))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("eggplant")}}), baseline),
+      UnorderedElementsAre(Match(2, false), (Match(3, false))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p3, PropertyValue("eggplant")}}), baseline),
+      UnorderedElementsAre(Match(2, false), (Match(3, false))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p6, PropertyValue("eggplant")}}), baseline),
+      UnorderedElementsAre(Match(2, false), (Match(3, false))));
+
+  EXPECT_THAT(prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("apple")}}), baseline),
+              UnorderedElementsAre(Match(2, true), (Match(3, false))));
+
+  EXPECT_THAT(
+      prop_reader.MatchesValue(p3, PropertyValue(PropertyValue::map_t{{p5, PropertyValue("cherry")}}), baseline),
+      UnorderedElementsAre(Match(2, false), (Match(3, true))));
+
+  EXPECT_THAT(prop_reader.MatchesValue(
+                  p3, PropertyValue(PropertyValue::map_t{{p4, PropertyValue("apple")}, {p5, PropertyValue("cherry")}}),
+                  baseline),
+              UnorderedElementsAre(Match(2, true), (Match(3, true))));
 }
 
 //==============================================================================
