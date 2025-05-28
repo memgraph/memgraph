@@ -23,10 +23,11 @@ class GraphVendors:
 class BenchmarkInstallationType:
     NATIVE = "native"
     DOCKER = "docker"
+    EXTERNAL = "external"
 
     @classmethod
     def get_all_installation_types(cls):
-        return [cls.NATIVE, cls.DOCKER]
+        return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL]
 
 
 class BenchmarkClientLanguage:

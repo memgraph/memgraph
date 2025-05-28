@@ -924,7 +924,7 @@ class MemgraphDocker(BaseRunner):
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
         self._image_name = "memgraph/memgraph"
-        self._image_version = "3.1.1"
+        self._image_version = "3.2.1"
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
@@ -952,7 +952,7 @@ class MemgraphDocker(BaseRunner):
                 "--storage_snapshot_interval_sec=0",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            ret = self._run_command(command)
+            self._run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start Memgraph docker container.")
             log.error(
@@ -996,7 +996,6 @@ class MemgraphDocker(BaseRunner):
         log.init("Starting database for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
 
@@ -1254,7 +1253,7 @@ class FalkorDBDocker(BaseRunner):
                 f"{self._image_name}:{self._image_version}",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            ret = self._run_command(command)
+            self._run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start FalkorDB docker container.")
             log.error(
@@ -1269,7 +1268,6 @@ class FalkorDBDocker(BaseRunner):
         log.init("Starting FalkorDB for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._falkordb_port, delay=0.5)
         log.log("Database started.")
 
@@ -1376,9 +1374,7 @@ class FalkorDBDocker(BaseRunner):
         return cpu_time
 
     def _get_cpu_memory_usage(self):
-        usage = {"cpu": 0, "memory": 0}
-        usage["memory"] = self._get_memory_usage()
-        usage["cpu"] = self._get_cpu_usage()
+        usage = {"cpu": self._get_cpu_usage(), "memory": self._get_memory_usage()}
 
         return usage
 

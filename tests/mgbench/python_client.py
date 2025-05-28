@@ -2,7 +2,7 @@ import argparse
 import json
 import time
 from abc import ABC, abstractmethod
-from multiprocessing import Array, Lock, Manager, Process, Queue, Value
+from multiprocessing import Array, Lock, Manager, Process, Value
 
 from falkordb import FalkorDB
 from neo4j import GraphDatabase
@@ -72,6 +72,11 @@ def get_python_client(vendor):
 def execute_validation_task(
     worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
 ):
+    # The method uses same set of arguments so it can be called with multiple workers with the same pattern
+    # For this reason, in this function we will not use the following argumetns:
+    # - Time limit: Validation queries are performed which are independent from timed execution
+    # - Position and lock: There is no synchronization needed as validation query is the sole query needed
+    #   to be executed.
     client = get_python_client(vendor)(host, port)
 
     if len(queries) != 1:
@@ -97,10 +102,12 @@ def execute_validation_task(
 def execute_queries_task(
     worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
 ):
+    # The method uses same set of arguments so it can be called with multiple workers with the same pattern
+    # For this reason, in this function we will not use the following argumetns:
+    # - Time limit: This task is independent from timed execution as every query will be executed only once
     client = get_python_client(vendor)(host, port)
 
     size = len(queries)
-    pos = 0
 
     aggregate = {
         "worker": worker_id,
@@ -112,6 +119,8 @@ def execute_queries_task(
     worker_timer_start = time.time()
     while True:
         with lock:
+            # Every query needs to be executed only once. For this reason, we're protecting the increment
+            # of the value with the lock
             pos = position.value
             if pos >= size:
                 worker_timer_end = time.time()
@@ -140,7 +149,6 @@ def execute_time_dependent_task(
     client = get_python_client(vendor)(host, port)
 
     size = len(queries)
-    pos = 0
 
     aggregate = {
         "worker": worker_id,
