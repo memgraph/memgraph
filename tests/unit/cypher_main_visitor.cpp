@@ -1982,19 +1982,19 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleNestedProperties) {
 
 TEST_P(CypherMainVisitorTest, CannotCreateCompositeIndexWithRepeatedProperty) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, name, email)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, name, email)"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, CannotCreateCompositeNestedIndexWithRepeatedProperty) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name.first, tax_ref, name.second, name.second)"),
-               SyntaxException);
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, CannotCreateCompositeNestedIndexWithRepeatedRootProperty) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name.first, nane.second, address.postcode, address)"),
-               SyntaxException);
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
