@@ -272,8 +272,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
                                                        [](const auto &item) { return fmt::format(":{0}", item.name); });
     const std::string filtered_properties =
         ExtractAndJoin(filters.FilteredProperties(scan_symbol), [](const auto &vector) {
-          return boost::algorithm::join(vector | ranges::views::transform([](const auto &item) { return item.name; }),
-                                        ".");
+          return utils::Join(vector | ranges::views::transform([](const auto &item) { return item.name; }), ".");
         });
     if (filtered_labels.empty() && filtered_properties.empty()) {
       return;
@@ -308,9 +307,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  std::string ExtractAndJoin(auto &&collection, auto &&projection) {
-    auto elements = collection | ranges::views::transform(std::forward<decltype(projection)>(projection));
-    return boost::algorithm::join(elements, ", ");
+  template <typename Func>
+  std::string ExtractAndJoin(auto &&collection, Func &&projection) {
+    auto elements = collection | ranges::views::transform(std::forward<Func>(projection));
+    return utils::Join(elements, ", ");
   }
 };
 
