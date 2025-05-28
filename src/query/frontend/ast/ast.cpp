@@ -388,6 +388,9 @@ constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
                                                           &query::Query::kType};
 
+constexpr utils::TypeInfo query::ResetPlanCacheQuery::kType{utils::TypeId::AST_RESET_PLAN_CACHE_QUERY,
+                                                            "ResetPlanCacheQuery", &query::Query::kType};
+
 namespace query {
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
