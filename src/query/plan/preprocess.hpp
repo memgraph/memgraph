@@ -26,6 +26,7 @@
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
+#include "utils/transparent_compare.hpp"
 
 namespace memgraph::query::plan {
 
@@ -552,7 +553,8 @@ class Filters final {
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
-  auto FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath>;
+  auto FilteredProperties(const Symbol &symbol) const
+      -> std::set<PropertyIxPath, utils::LessContainerCompare<PropertyIx>>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -678,9 +680,9 @@ inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector
   return or_labels;
 }
 
-inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath> {
-  std::set<PropertyIxPath> properties;
-
+inline auto Filters::FilteredProperties(const Symbol &symbol) const
+    -> std::set<PropertyIxPath, utils::LessContainerCompare<PropertyIx>> {
+  std::set<PropertyIxPath, utils::LessContainerCompare<PropertyIx>> properties;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
       properties.insert(filter.property_filter->property_ids_);
