@@ -2227,7 +2227,7 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
         return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
       }
 
-      auto leaf_property_id = path[path.size() - 1];
+      auto leaf_property_id = path.back();
       return MatchSpecificProperty(&reader, leaf_property_id);
     };
 
@@ -2277,7 +2277,7 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
         return std::pair{ExpectedPropertyStatus::MISSING_DATA, std::optional<bool>{cmp_val.IsNull()}};
       }
 
-      auto leaf_property_id = path[path.size() - 1];
+      auto leaf_property_id = path.back();
 
       auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, leaf_property_id);
       auto property_size = info.property_size();

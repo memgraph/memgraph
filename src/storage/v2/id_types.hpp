@@ -97,6 +97,9 @@ struct PropertyPath {
   bool operator==(PropertyPath const &rhs) const = default;
   auto operator<=>(PropertyPath const &rhs) const = default;
 
+  PropertyId front() const { return properties_.front(); }
+  PropertyId back() const { return properties_.back(); }
+
  private:
   std::vector<PropertyId> properties_;
 };
