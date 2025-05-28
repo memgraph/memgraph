@@ -44,8 +44,40 @@
 #include "utils/message.hpp"
 #include "utils/timer.hpp"
 
+#include "fmt/format.h"
+
 namespace r = ranges;
 namespace rv = r::views;
+
+struct PropertyPathFormatter {
+  std::span<memgraph::storage::PropertyPath const> data;
+  memgraph::storage::NameIdMapper *name_mapper;
+};
+
+template <>
+class fmt::formatter<PropertyPathFormatter> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const PropertyPathFormatter &wrapper, FormatContext &ctx) {
+    auto out = ctx.out();
+    bool first_path = true;
+
+    for (auto const &path : wrapper.data) {
+      if (!first_path) out = fmt::format_to(out, ", ");
+      first_path = false;
+
+      bool first_id = true;
+      for (auto const &prop_id : path) {
+        if (!first_id) out = fmt::format_to(out, ".");
+        first_id = false;
+        out = fmt::format_to(out, "{}", wrapper.name_mapper->IdToName(prop_id.AsUint()));
+      }
+    }
+    return out;
+  }
+};
 
 namespace memgraph::metrics {
 extern const Event SnapshotRecoveryLatency_us;
@@ -208,15 +240,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
                                                  snapshot_info))
         throw RecoveryFailure("The label+property index must be created here!");
-
-      auto path_to_name = [&](const PropertyPath &path) {
-        return path |
-               rv::transform([&](const auto &property_id) { return name_id_mapper->IdToName(property_id.AsUint()); }) |
-               rv::join('.') | r::to<std::string>;
-      };
-      auto const properties_str = utils::Join(properties | rv::transform(path_to_name), ", ");
       spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                   properties_str);
+                   PropertyPathFormatter{properties, name_id_mapper});
     }
     spdlog::info("Label+property indices are recreated.");
   }
@@ -225,19 +250,11 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} label+property indices statistics from metadata.",
                  indices_metadata.label_property_stats.size());
-    for (const auto &item : indices_metadata.label_property_stats) {
-      const auto label_id = item.first;
-      const auto &property_ids = item.second.first;
-      const auto &stats = item.second.second;
-      mem_label_property_index->SetIndexStats(label_id, property_ids, stats);
-      auto path_to_name = [&](const PropertyPath &path) {
-        return path |
-               rv::transform([&](const auto &property_id) { return name_id_mapper->IdToName(property_id.AsUint()); }) |
-               rv::join('.') | r::to<std::string>;
-      };
-      auto const properties_str = utils::Join(property_ids | rv::transform(path_to_name), ", ");
+    for (const auto &[label, entry] : indices_metadata.label_property_stats) {
+      auto const &[properties, stats] = entry;
+      mem_label_property_index->SetIndexStats(label, properties, stats);
       spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
-                   name_id_mapper->IdToName(label_id.AsUint()), properties_str);
+                   name_id_mapper->IdToName(label.AsUint()), PropertyPathFormatter(properties, name_id_mapper));
     }
     spdlog::info("Label+property indices statistics are recreated.");
   }
