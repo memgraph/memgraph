@@ -643,7 +643,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   }
 #define CREATE_INDEX_ON(label, property)                                                            \
   storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
-                                              std::vector<std::vector<memgraph::query::PropertyIx>>{{(property)}})
+                                              std::vector<memgraph::query::PropertyIxPath>{{(property)}})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \

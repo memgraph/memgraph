@@ -2944,8 +2944,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       ranges::fill(prop_ranges, storage::PropertyValueRange::IsNotNull());
 
       for (auto const &vertex : execution_db_accessor->Vertices(view, label, properties, prop_ranges)) {
-        // @TODO currently using a linear pass to get the property values. Instead, gather
-        // all in one pass and permute as we usually do.
+        // TODO(colinbarry) currently using a linear pass to get the property
+        // values. Instead, gather all in one pass and permute as we usually do.
+        // Additional, we should only extract the leaf property rather than
+        // the entire one, which would save a call to `ReadNestedPropertyValue`.
 
         std::vector<storage::PropertyValue> property_values;
         property_values.reserve(properties.size());

@@ -1836,7 +1836,7 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   friend class AstStorage;
 };
 
-using PropertyPath = std::vector<memgraph::query::PropertyIx>;
+using PropertyIxPath = std::vector<memgraph::query::PropertyIx>;
 
 struct IndexHint {
   static const utils::TypeInfo kType;
@@ -1847,7 +1847,7 @@ struct IndexHint {
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::vector<std::vector<PropertyIx>> property_ixs_;
+  std::vector<PropertyIxPath> property_ixs_;
 
   IndexHint Clone(AstStorage *storage) const;
 };
@@ -1979,10 +1979,7 @@ class IndexQuery : public memgraph::query::Query {
 
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
-  // The outer vector is the composite indices; the inner vector is the nested
-  // indices. So `CREATE INDEX ON ":L1(a, b.c, d.e.f)" will give us:
-  // [[a], [b, c], [d, e, f]]
-  std::vector<std::vector<memgraph::query::PropertyIx>> properties_;
+  std::vector<query::PropertyIxPath> properties_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
@@ -2000,7 +1997,7 @@ class IndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  IndexQuery(Action action, LabelIx label, std::vector<std::vector<PropertyIx>> properties)
+  IndexQuery(Action action, LabelIx label, std::vector<PropertyIxPath> properties)
       : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
@@ -2020,7 +2017,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
-  std::vector<memgraph::query::PropertyIx> properties_;
+  memgraph::query::PropertyIxPath properties_;
   bool global_{false};
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
@@ -2036,7 +2033,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<PropertyIx> properties)
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, PropertyIxPath properties)
       : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
@@ -2773,7 +2770,7 @@ struct Constraint {
   memgraph::query::Constraint::Type type;
   std::optional<storage::TypeConstraintKind> type_constraint;
   memgraph::query::LabelIx label;
-  std::vector<memgraph::query::PropertyIx> properties;
+  memgraph::query::PropertyIxPath properties;
 
   Constraint Clone(AstStorage *storage) const {
     Constraint object;

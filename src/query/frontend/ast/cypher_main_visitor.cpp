@@ -312,7 +312,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
               IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
           continue;
         }
-        std::vector<PropertyPath> property_ixs;
+        std::vector<PropertyIxPath> property_ixs;
         property_ixs.reserve(index_hint_ctx->nestedPropertyKeyNames().size());
         for (auto &&nested_property_key_names : index_hint_ctx->nestedPropertyKeyNames()) {
           auto nested_properties = nested_property_key_names->propertyKeyName() |
@@ -402,7 +402,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   // that the prefix is also unique (e.g. if we have `a.b`, `a.b.c` is
   // disallowed because the index already exists on the outer `a.b` property.)
   // By sorting, any potential prefix conflicts will be adjacent.
-  std::vector<std::vector<PropertyIx>> sorted_properties = index_query->properties_;
+  std::vector<PropertyIxPath> sorted_properties = index_query->properties_;
   std::ranges::sort(sorted_properties);
   if (std::ranges::adjacent_find(sorted_properties, [](auto &&lhs, auto &&rhs) {
         auto min_length = std::min(lhs.size(), rhs.size());
