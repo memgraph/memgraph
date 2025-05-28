@@ -134,9 +134,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx,
                      utils::ResourceMonitoring *resource_monitor) override;
   std::optional<std::string> GetProfileForUser(const std::string &user_or_role) override;
-  std::vector<std::string> GetUsersForProfile(const std::string &profile_name) override;
+  std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) override;
   std::optional<std::string> GetProfileForRole(const std::string &user_or_role) override;
-  std::vector<std::string> GetRolesForProfile(const std::string &profile_name) override;
+  std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) override;
 #endif
 
  private:
