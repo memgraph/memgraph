@@ -199,15 +199,14 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   IndexHint object;
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-  auto propix_to_propid = [&](auto &&v) {
-    std::vector<PropertyIx> propids;
-    propids.reserve(v.size());
-    for (const auto &propix : v) {
-      propids.emplace_back(storage->GetPropertyIx(propix.name));
-    }
-    return propids;
+
+  auto const propix_to_propid = [&](auto &&propix_path) {
+    return propix_path | rv::transform([&](auto &&propix) { return storage->GetPropertyIx(propix.name); }) |
+           r::to_vector;
   };
+
   object.property_ixs_ = property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
+
   return object;
 }
 

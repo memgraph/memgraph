@@ -1023,7 +1023,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto as_storage_property = [&](auto const &filter) -> storage::PropertyPath {
       std::vector<storage::PropertyId> storage_property_ids;
       for (auto const &property : filter.property_filter->property_ids_) {
-        storage_property_ids.push_back(GetProperty(property));
+        storage_property_ids.emplace_back(GetProperty(property));
       }
       return {std::move(storage_property_ids)};
     };

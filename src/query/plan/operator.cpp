@@ -1383,7 +1383,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
 
     auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | ranges::views::transform(to_property_value_range) | ranges::to_vector;
+    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
 
     auto const bound_is_null = [](auto &&range) {
       return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
@@ -1403,12 +1403,12 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 
 std::string ScanAllByLabelProperties::ToString() const {
   // TODO: better diagnostics...info about expression_ranges_?
-  auto const property_names =
-      properties_ | ranges::views::transform([&](std::span<storage::PropertyId const> property_ids) {
-        return utils::IterableToString(property_ids, ".",
-                                       [&](auto &&property_id) { return dba_->PropertyToName(property_id); });
-      }) |
-      ranges::to_vector;
+  auto const property_names = properties_ | rv::transform([&](std::span<storage::PropertyId const> property_ids) {
+                                return utils::IterableToString(property_ids, ".", [&](auto &&property_id) {
+                                  return dba_->PropertyToName(property_id);
+                                });
+                              }) |
+                              ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      properties_stringified);
@@ -1422,7 +1422,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->label_ = label_;
   object->properties_ = properties_;
   object->expression_ranges_ = expression_ranges_ |
-                               ranges::views::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
   return object;
 }
@@ -5381,7 +5381,7 @@ class OrderByCursor : public Cursor {
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
       ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          rv::zip(order_by, output), self_.compare_.lex_cmp(),
           [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
