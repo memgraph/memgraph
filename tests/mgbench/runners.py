@@ -504,6 +504,7 @@ class BaseRunner(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._bolt_port = 7687
 
     @abstractmethod
     def start_db_init(self, arg):
