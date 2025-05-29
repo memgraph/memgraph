@@ -840,17 +840,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)
-    auto to_propertyid = [&](std::string_view prop_name) { return storage->NameToProperty(prop_name); };
-    auto to_property_paths = [&](const auto &properties) {
-      std::vector<storage::PropertyPath> property_paths;
-      property_paths.reserve(properties.size());
-      for (const auto &property_path_as_string : properties) {
-        auto property_ids = property_path_as_string | rv::transform(to_propertyid) | r::to_vector;
-        property_paths.emplace_back(std::move(property_ids));
-      }
-      return property_paths;
-    };
     using namespace memgraph::storage::durability;
+    auto *mapper = storage->name_id_mapper_.get();
     auto delta_apply = utils::Overloaded{
         [&](WalVertexCreate const &data) {
           auto const gid = data.gid.AsUint();
@@ -910,8 +901,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-          auto ret = vertex->SetProperty(transaction->NameToProperty(data.property),
-                                         ToPropertyValue(data.value, storage->name_id_mapper_.get()));
+          auto ret =
+              vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (ret.HasError()) {
             throw utils::BasicException("Failed to set property label from vertex {}.", gid);
           }
@@ -1049,8 +1040,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           });
 
           auto ea = EdgeAccessor{edge_ref, edge_type, from_vertex, vertex_to, storage, &transaction->GetTransaction()};
-          auto ret = ea.SetProperty(transaction->NameToProperty(data.property),
-                                    ToPropertyValue(data.value, storage->name_id_mapper_.get()));
+          auto ret = ea.SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (ret.HasError()) {
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
@@ -1097,35 +1087,24 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           }
         },
         [&](WalLabelPropertyIndexCreate const &data) {
-          auto paths_as_strings =
-              rv::transform(data.properties,
-                            [](const auto &property_path) { return utils::Join(property_path, "."); }) |
-              r::to_vector;
-          auto properties_stringified = utils::Join(paths_as_strings, ", ");
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
-                        properties_stringified);
+                        data.composite_property_paths);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto property_paths = to_property_paths(data.properties);
-
+          auto property_paths = data.composite_property_paths.convert(mapper);
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError())
 
             throw utils::BasicException("Failed to create label+property index on :{} ({}).", data.label,
-                                        properties_stringified);
+                                        data.composite_property_paths);
         },
         [&](WalLabelPropertyIndexDrop const &data) {
-          auto paths_as_strings =
-              rv::transform(data.properties,
-                            [](const auto &property_path) { return utils::Join(property_path, "."); }) |
-              r::to_vector;
-          auto properties_stringified = utils::Join(paths_as_strings, ", ");
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
-                        properties_stringified);
+                        data.composite_property_paths);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto property_paths = to_property_paths(data.properties);
+          auto property_paths = data.composite_property_paths.convert(mapper);
 
           if (transaction->DropIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError()) {
             throw utils::BasicException("Failed to drop label+property index on :{} ({}).", data.label,
-                                        properties_stringified);
+                                        data.composite_property_paths);
           }
         },
         [&](WalLabelPropertyIndexStatsSet const &data) {
@@ -1133,7 +1112,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp);
           const auto label = storage->NameToLabel(data.label);
-          auto property_paths = to_property_paths(data.properties);
+          auto property_paths = data.composite_property_paths.convert(mapper);
           LabelPropertyIndexStats stats{};
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
