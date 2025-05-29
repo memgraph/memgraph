@@ -890,21 +890,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DROP_USER:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter
-#ifdef MG_ENTERPRISE
-                     ,
-                     resource_monitor = interpreter_context->resource_monitoring
-#endif
-      ] {
+      callback.fn = [auth, username, interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
-        if (!auth->DropUser(username, &*interpreter->system_transaction_
-#ifdef MG_ENTERPRISE
-                            ,
-                            resource_monitor
-#endif
-                            )) {
+        if (!auth->DropUser(username, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException(
               "User with username '{}' doesn't exist. A new user can be created via the CREATE USER query.", username);
         }
@@ -972,12 +962,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DROP_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter
-#ifdef MG_ENTERPRISE
-                     ,
-                     resource_monitor = interpreter_context->resource_monitoring
-#endif
-      ] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -987,12 +972,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
         const std::string &rolename = roles[0];
 
-        if (!auth->DropRole(rolename, &*interpreter->system_transaction_
-#ifdef MG_ENTERPRISE
-                            ,
-                            resource_monitor
-#endif
-                            )) {
+        if (!auth->DropRole(rolename, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
@@ -1063,17 +1043,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       forbid_on_replica();
 
       callback.fn = [auth, username, roles = std::move(auth_query->roles_), interpreter = &interpreter,
-                     role_databases = std::move(role_databases)
-#ifdef MG_ENTERPRISE
-                         ,
-                     resource_monitor = interpreter_context->resource_monitoring
-#endif
-      ] {
+                     role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 #ifdef MG_ENTERPRISE
-        auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_, resource_monitor);
+        auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
@@ -1085,19 +1060,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter, role_databases = std::move(role_databases)
-
-#ifdef MG_ENTERPRISE
-                                                                     ,
-                     resource_monitor = interpreter_context->resource_monitoring
-#endif
-      ] {
+      callback.fn = [auth, username, interpreter = &interpreter, role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
 #ifdef MG_ENTERPRISE
-        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_, resource_monitor);
+        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
@@ -6548,12 +6517,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter,
-                     resource_monitor = interpreter_context->resource_monitoring]() {
+                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->UpdateProfile(profile_name, limits, &*interpreter->system_transaction_, resource_monitor);
+        auth->UpdateProfile(profile_name, limits, &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6562,12 +6530,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter,
-                     resource_monitor = interpreter_context->resource_monitoring]() {
+                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->DropProfile(profile_name, &*interpreter->system_transaction_, resource_monitor);
+        auth->DropProfile(profile_name, &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6576,15 +6543,14 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     user_or_role = std::move(query->user_or_role_), interpreter = &*interpreter,
-                     resource_monitor = interpreter_context->resource_monitoring]() {
+                     user_or_role = std::move(query->user_or_role_), interpreter = &*interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->SetProfile(profile_name, *user_or_role, &*interpreter->system_transaction_, resource_monitor);
+        auth->SetProfile(profile_name, *user_or_role, &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -6593,14 +6559,14 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_),
-                     interpreter = &*interpreter, resource_monitor = interpreter_context->resource_monitoring]() {
+                     interpreter = &*interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->RevokeProfile(*user_or_role, &*interpreter->system_transaction_, resource_monitor);
+        auth->RevokeProfile(*user_or_role, &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;

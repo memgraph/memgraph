@@ -92,7 +92,12 @@ class Auth final {
     NO_USER_ROLE,
   };
 
-  explicit Auth(std::string storage_directory, Config config);
+  explicit Auth(std::string storage_directory, Config config
+#ifdef MG_ENTERPRISE
+                ,
+                utils::ResourceMonitoring *user_resources = nullptr
+#endif
+  );
 
   /**
    * @brief Set the Config object
@@ -482,7 +487,10 @@ class Auth final {
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
+#ifdef MG_ENTERPRISE
   UserProfiles user_profiles_{storage_};
+  utils::ResourceMonitoring *user_resources_;
+#endif
   std::unordered_map<std::string, auth::Module> modules_;
   Config config_;
   Epoch epoch_{kStartEpoch};

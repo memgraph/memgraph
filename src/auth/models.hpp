@@ -622,6 +622,17 @@ class Roles {
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
   }
+
+  std::optional<UserProfiles::Profile> Profile(const std::optional<std::string> &db_name) const {
+    std::optional<UserProfiles::Profile> profile;
+    for (const auto &role : roles_) {
+      if (db_name && !role.HasAccess(*db_name)) continue;  // Skip roles that don't have access to the database
+      if (role.profile()) {
+        UserProfiles::Merge(profile, role.profile());
+      }
+    }
+    return profile;
+  }
 #endif
 
   // Iteration support
@@ -817,11 +828,8 @@ class User final {
   const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
   std::optional<UserProfiles::Profile> profile() { return profile_; }
   std::optional<UserProfiles::Profile> GetProfile() const {
-    if (role_ && role_->profile()) {
-      // If both user and role have profiles, merge them
-      return UserProfiles::Merge(profile_, role_->profile());
-    }
-    return profile_;
+    // If both user and role have profiles, merge them
+    return UserProfiles::Merge(profile_, roles_.Profile(std::nullopt));  // TODO add db_name
   }
   void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
   void ClearProfile() { profile_.reset(); }

@@ -18,6 +18,7 @@
 #include "flags/experimental.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "system/rpc.hpp"
 
 namespace memgraph::replication {
 
@@ -59,6 +60,39 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
 
+void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                             const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
+                             slk::Builder *res_builder) {
+  using memgraph::replication::FinalizeSystemTxRes;
+  FinalizeSystemTxRes res(false);
+
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, res_builder); });
+
+  memgraph::replication::FinalizeSystemTxReq req;
+  memgraph::slk::Load(&req, req_reader);
+
+  // validate MAIN
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
+    return;
+  }
+
+  // validate delta
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::error("Received system delta with expected ts: {} != last commited ts: {}", req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    return;
+  }
+
+  system_state_access.SetLastCommitedTS(req.new_group_timestamp);
+  spdlog::debug("FinalizeSystemTxHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+  res = FinalizeSystemTxRes(true);
+}
+
 void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
               auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
@@ -69,6 +103,12 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
         SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, req_reader, res_builder);
+      });
+
+  // Generic finalize message
+  data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
+      [&data, system_state_access](auto *req_reader, auto *res_builder) mutable {
+        FinalizeSystemTxHandler(system_state_access, data.uuid_, req_reader, res_builder);
       });
 
   // DBMS

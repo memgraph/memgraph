@@ -16,6 +16,7 @@
 #include <mutex>
 #include "replication/state.hpp"
 #include "system/action.hpp"
+#include "system/rpc.hpp"
 #include "system/state.hpp"
 
 namespace memgraph::system {
@@ -30,6 +31,7 @@ struct Transaction;
 template <typename T>
 concept ReplicationPolicy = requires(T handler, ISystemAction const &action, Transaction const &txn) {
   { handler.ApplyAction(action, txn) } -> std::same_as<AllSyncReplicaStatus>;
+  { handler.FinalizeTransaction(txn) } -> std::same_as<AllSyncReplicaStatus>;
 };
 
 struct System;
@@ -66,7 +68,15 @@ struct Transaction {
       actions_.pop_front();
     }
 
+#ifdef MG_ENTERPRISE
+    /// replication
+    auto action_sync_status = handler.FinalizeTransaction(*this);
+    if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
+      sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+    }
+#endif
     state_->FinalizeTransaction(timestamp_);
+
     lock_.unlock();
 
     return sync_status;
@@ -113,6 +123,21 @@ struct DoReplication {
     return sync_status;
   }
 
+  auto FinalizeTransaction(Transaction const &system_tx) -> AllSyncReplicaStatus {
+    auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
+
+    for (auto &client : main_data_.registered_replicas_) {
+      const bool completed = client.StreamAndFinalizeDelta<replication::FinalizeSystemTxRpc>(
+          [](const replication::FinalizeSystemTxRes &response) { return response.success; }, main_data_.uuid_,
+          std::string{main_data_.epoch_.id()}, system_tx.last_committed_system_timestamp(), system_tx.timestamp());
+      if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+        sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+      }
+    }
+
+    return sync_status;
+  }
+
  private:
   replication::RoleMainData &main_data_;
 };
@@ -121,6 +146,10 @@ static_assert(ReplicationPolicy<DoReplication>);
 
 struct DoNothing {
   auto ApplyAction(ISystemAction const & /*action*/, Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {
+    return AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
+  auto FinalizeTransaction(Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {
     return AllSyncReplicaStatus::AllCommitsConfirmed;
   }
 };

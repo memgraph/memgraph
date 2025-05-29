@@ -55,18 +55,24 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   try {
     // Update
-    if (req.user) auth->SaveUser(*req.user);
-    if (req.role) auth->SaveRole(*req.role);
+    if (req.user) {
+      spdlog::trace("Saving user '{}'", req.user->username());
+      auth->SaveUser(*req.user);
+    }
+    if (req.role) {
+      spdlog::trace("Saving role '{}'", req.role->rolename());
+      auth->SaveRole(*req.role);
+    }
     if (req.profile) {
+      spdlog::trace("Saving profile '{}'", req.profile->name);
       if (!auth->CreateProfile(req.profile->name, req.profile->limits)) {
         // Profile already exists, update it
         auth->UpdateProfile(req.profile->name, req.profile->limits);
       }
     }
     // Success
-    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = UpdateAuthDataRes(true);
-    spdlog::debug("UpdateAuthDataHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+    spdlog::debug("UpdateAuthDataHandler: SUCCESS");
   } catch (const auth::AuthException & /* not used */) {
     // Failure
   }
@@ -104,20 +110,19 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   try {
     // Remove
     switch (req.type) {
-      case replication::DropAuthDataReq::DataType::USER:
+      case replication::DropAuthDataReq::DataType::USER: {
         auth->RemoveUser(req.name);
-        break;
-      case replication::DropAuthDataReq::DataType::ROLE:
+      } break;
+      case replication::DropAuthDataReq::DataType::ROLE: {
         auth->RemoveRole(req.name);
-        break;
-      case replication::DropAuthDataReq::DataType::PROFILE:
+      } break;
+      case replication::DropAuthDataReq::DataType::PROFILE: {
         auth->DropProfile(req.name);
-        break;
+      } break;
     }
     // Success
-    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = DropAuthDataRes(true);
-    spdlog::debug("DropAuthDataHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+    spdlog::debug("DropAuthDataHandler: SUCCESS");
   } catch (const auth::AuthException & /* not used */) {
     // Failure
   }
@@ -131,52 +136,6 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
   return auth.WithLock([&](auto &locked_auth) {
     // Update config
     locked_auth.SetConfig(std::move(auth_config));
-    // Get all current users
-    auto old_users = locked_auth.AllUsernames();
-    // Save incoming users
-    for (const auto &user : users) {
-      // Missing users
-      try {
-        locked_auth.SaveUser(user);
-      } catch (const auth::AuthException &) {
-        spdlog::debug("SystemRecoveryHandler: Failed to save user");
-        return false;
-      }
-      const auto it = std::find(old_users.begin(), old_users.end(), user.username());
-      if (it != old_users.end()) old_users.erase(it);
-    }
-    // Delete all the leftover users
-    for (const auto &user : old_users) {
-      if (!locked_auth.RemoveUser(user)) {
-        spdlog::debug("SystemRecoveryHandler: Failed to remove user \"{}\".", user);
-        return false;
-      }
-    }
-
-    // Roles are only supported with a license
-    if (license::global_license_checker.IsEnterpriseValidFast()) {
-      // Get all current roles
-      auto old_roles = locked_auth.AllRolenames();
-      // Save incoming roles
-      for (const auto &role : roles) {
-        // Missing roles
-        try {
-          locked_auth.SaveRole(role);
-        } catch (const auth::AuthException &) {
-          spdlog::debug("SystemRecoveryHandler: Failed to save role");
-          return false;
-        }
-        const auto it = std::find(old_roles.begin(), old_roles.end(), role.rolename());
-        if (it != old_roles.end()) old_roles.erase(it);
-      }
-      // Delete all the leftover roles
-      for (const auto &role : old_roles) {
-        if (!locked_auth.RemoveRole(role)) {
-          spdlog::debug("SystemRecoveryHandler: Failed to remove role \"{}\".", role);
-          return false;
-        }
-      }
-    }
 
     // Profiles are only supported with a license
     if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -205,6 +164,52 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       }
     }
 
+    // Roles are only supported with a license
+    if (license::global_license_checker.IsEnterpriseValidFast()) {
+      // Get all current roles
+      auto old_roles = locked_auth.AllRolenames();
+      // Save incoming roles
+      for (const auto &role : roles) {
+        // Missing roles
+        try {
+          locked_auth.SaveRole(role);
+        } catch (const auth::AuthException &) {
+          spdlog::debug("SystemRecoveryHandler: Failed to save role");
+          return false;
+        }
+        const auto it = std::find(old_roles.begin(), old_roles.end(), role.rolename());
+        if (it != old_roles.end()) old_roles.erase(it);
+      }
+      // Delete all the leftover roles
+      for (const auto &role : old_roles) {
+        if (!locked_auth.RemoveRole(role)) {
+          spdlog::debug("SystemRecoveryHandler: Failed to remove role \"{}\".", role);
+          return false;
+        }
+      }
+    }
+
+    // Get all current users
+    auto old_users = locked_auth.AllUsernames();
+    // Save incoming users
+    for (const auto &user : users) {
+      // Missing users
+      try {
+        locked_auth.SaveUser(user);
+      } catch (const auth::AuthException &) {
+        spdlog::debug("SystemRecoveryHandler: Failed to save user");
+        return false;
+      }
+      const auto it = std::find(old_users.begin(), old_users.end(), user.username());
+      if (it != old_users.end()) old_users.erase(it);
+    }
+    // Delete all the leftover users
+    for (const auto &user : old_users) {
+      if (!locked_auth.RemoveUser(user)) {
+        spdlog::debug("SystemRecoveryHandler: Failed to remove user \"{}\".", user);
+        return false;
+      }
+    }
     // Success
     return true;
   });
