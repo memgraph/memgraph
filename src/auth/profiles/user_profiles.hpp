@@ -40,6 +40,8 @@ class UserProfiles {
   struct Profile {
     std::string name;
     mutable limits_t limits;  // mutable to allow update in sets
+
+    bool operator==(const Profile &other) const { return std::tie(name, limits) == std::tie(other.name, other.limits); }
   };
 
   explicit UserProfiles(kvstore::KVStore &durability);
