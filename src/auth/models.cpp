@@ -711,10 +711,10 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
       permissions_(permissions),
-      uuid_(uuid),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
       database_access_(std::move(db_access)),
-      user_impersonation_{std::move(usr_imp)} {}
+      user_impersonation_{std::move(usr_imp)},
+      uuid_(uuid) {}
 #endif
 
 bool User::CheckPassword(const std::string &password) {
