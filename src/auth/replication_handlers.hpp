@@ -33,6 +33,7 @@ void DropAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acces
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,
                            const std::vector<auth::User> &users, const std::vector<auth::Role> &roles,
                            const std::vector<auth::UserProfiles::Profile> &profiles);
+
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
               auth::SynchedAuth &auth);
 #endif

@@ -483,8 +483,15 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   std::unique_ptr<memgraph::auth::SynchedAuth> auth_;
+#ifdef MG_ENTERPRISE
+  // Resource monitoring
+  auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
+  try {
+    auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config, &resource_monitoring);
+#else
   try {
     auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config);
+#endif
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
     exit(1);
@@ -563,12 +570,6 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-#endif
-
-#ifdef MG_ENTERPRISE
-  // Resource monitoring
-  auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
-  static_cast<memgraph::glue::AuthQueryHandler *>(auth_handler.get())->StartupResourceMonitor(resource_monitoring);
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
