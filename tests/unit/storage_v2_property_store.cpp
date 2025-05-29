@@ -1560,6 +1560,37 @@ TEST(PropertiesPermutationHelper, MatchesValue_ComparesOutOfOrderPropertiesWhenR
               UnorderedElementsAre(Match(2, true), (Match(3, true))));
 }
 
+TEST(PropertiesPermutationHelper, ExtractContinuesReadsIfNestedValueIsNull) {
+  auto const p1 = PropertyId::FromInt(1);
+  auto const p2 = PropertyId::FromInt(2);
+  auto const p3 = PropertyId::FromInt(3);
+  auto const p4 = PropertyId::FromInt(4);
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {p1, MakeMap(KVPair{p4, PropertyValue(0)})}, {p2, PropertyValue()}, {p3, MakeMap(KVPair{p4, PropertyValue(20)})}};
+
+  PropertyStore store;
+  store.InitProperties(data);
+
+  PropertiesPermutationHelper prop_reader{std::vector<PropertyPath>{
+      PropertyPath{p2, p4},
+      PropertyPath{p1, p4},
+      PropertyPath{p3, p4},
+  }};
+
+  // Read values back unpermuted and unnested
+  EXPECT_EQ(store.GetProperty(p2), PropertyValue());
+  EXPECT_EQ(store.GetProperty(p1), MakeMap(KVPair{p4, PropertyValue(0)}));
+  EXPECT_EQ(store.GetProperty(p3), MakeMap(KVPair{p4, PropertyValue(20)}));
+
+  // Read leaf nested values back in a single pass
+  auto values = prop_reader.ApplyPermutation(prop_reader.Extract(store)).values_;
+  ASSERT_EQ(3u, values.size());
+  EXPECT_EQ(values[0], PropertyValue());
+  EXPECT_EQ(values[1], PropertyValue(0));
+  EXPECT_EQ(values[2], PropertyValue(20));
+}
+
 //==============================================================================
 
 TEST(PropertiesPermutationHelper, MatchesValues_ReturnsABooleanMaskOfMatches) {

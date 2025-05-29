@@ -2177,7 +2177,7 @@ class ReaderPropPositionHistory {
 
   // Move the reader to a position where the expected leaf property will be
   // located after the reader.
-  bool ScanToPropertyPathParent(Reader &reader, PropertyPath const &path) {
+  ExpectedPropertyStatus ScanToPropertyPathParent(Reader &reader, PropertyPath const &path) {
     std::span<PropertyId const> parent_map{path.begin(), path.end() - 1};
 
     auto [prev, next] = r::mismatch(history_, parent_map, {}, &History::property_id);
@@ -2189,18 +2189,18 @@ class ReaderPropPositionHistory {
 
     for (auto inner_property_id : std::ranges::subrange(next, parent_map.end())) {
       auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
-      if (info.status != ExpectedPropertyStatus::EQUAL) return false;
+      if (info.status != ExpectedPropertyStatus::EQUAL) return info.status;
       history_.emplace_back(inner_property_id, info.property_end);
 
       reader.SetPosition(info.property_begin);
       auto metadata = reader.ReadMetadata();
       DMG_ASSERT(metadata, "impossible: metadata has disappeared since `FindSpecificPropertyAndBufferInfoMinimal`");
       if (!metadata) [[unlikely]]
-        return false;
+        return ExpectedPropertyStatus::MISSING_DATA;
       reader.SkipBytes(SizeToByteSize(metadata->id_size) + SizeToByteSize(metadata->payload_size));
     }
 
-    return true;
+    return ExpectedPropertyStatus::EQUAL;
   }
 
  private:
@@ -2223,8 +2223,9 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
     auto const get_value =
         [&](Reader &reader,
             PropertyPath const &path) -> std::pair<ExpectedPropertyStatus, std::optional<PropertyValue>> {
-      if (!history.ScanToPropertyPathParent(reader, path)) {
-        return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
+      auto result = history.ScanToPropertyPathParent(reader, path);
+      if (result != ExpectedPropertyStatus::EQUAL) {
+        return {result, std::nullopt};
       }
 
       auto leaf_property_id = path.back();
@@ -2273,8 +2274,9 @@ auto PropertyStore::ArePropertiesEqual(std::span<PropertyPath const> ordered_pro
     auto const get_result = [&](Reader &reader, PropertyPath const &path, PropertyValue const &cmp_val) {
       auto const orig_reader = reader;
 
-      if (!history.ScanToPropertyPathParent(reader, path)) {
-        return std::pair{ExpectedPropertyStatus::MISSING_DATA, std::optional<bool>{cmp_val.IsNull()}};
+      auto result = history.ScanToPropertyPathParent(reader, path);
+      if (result != ExpectedPropertyStatus::EQUAL) {
+        return std::pair{result, std::optional<bool>{cmp_val.IsNull()}};
       }
 
       auto leaf_property_id = path.back();
