@@ -9,6 +9,36 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+
+class GraphVendors:
+    MEMGRAPH = "memgraph"
+    NEO4J = "neo4j"
+    FALKORDB = "falkordb"
+
+    @classmethod
+    def get_all_vendors(cls):
+        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB]
+
+
+class BenchmarkInstallationType:
+    NATIVE = "native"
+    DOCKER = "docker"
+    EXTERNAL = "external"
+
+    @classmethod
+    def get_all_installation_types(cls):
+        return [cls.NATIVE, cls.DOCKER, cls.EXTERNAL]
+
+
+class BenchmarkClientLanguage:
+    CPP = "cpp"
+    PYTHON = "python"
+
+    @classmethod
+    def get_all_client_languages(cls):
+        return [cls.CPP, cls.PYTHON]
+
+
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
 RUN_CONFIGURATION = "__run_configuration__"

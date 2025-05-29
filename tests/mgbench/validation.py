@@ -141,7 +141,7 @@ if __name__ == "__main__":
             vendor_runner.stop_db_init("import")
         else:
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-            imported = workload.custom_import()
+            imported = workload.custom_import(client)
             if not imported:
                 vendor_runner.start_db_init("import")
                 print("Executing database cleanup and index setup...")
@@ -203,7 +203,7 @@ if __name__ == "__main__":
             vendor_runner.stop("import")
         else:
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-            imported = workload.custom_import()
+            imported = workload.custom_import(client)
             if not imported:
                 vendor_runner.start_db_init("import")
                 print("Executing database cleanup and index setup...")
