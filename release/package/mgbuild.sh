@@ -495,10 +495,20 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  if [[ "$build_type" == "Release" ]]; then
-    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
+    if [[ "$os" == "ubuntu-22.04" ]]; then
+      mirror="$(tools/test-mirrors.sh 'jammy')"
+    else
+      mirror="$(tools/test-mirrors.sh)"
+    fi
   else
-    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src"
+    mirror=""
+  fi
+
+  if [[ "$build_type" == "Release" ]]; then
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --custom-mirror $mirror
+  else
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src" --custom-mirror $mirror
   fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
@@ -922,6 +932,29 @@ case $command in
           $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures $build_container
         fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
+
+        # set local mirror for Ubuntu
+        if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
+          if [[ "$os" == "ubuntu-22.04" ]]; then
+            mirror="$(tools/test-mirrors.sh 'jammy')"
+          else
+            mirror="$(tools/test-mirrors.sh)"
+          fi
+
+          # set custom mirror within build container
+          docker exec -i -u root \
+            -e CUSTOM_MIRROR=$mirror \
+            $build_container \
+          bash -c '
+            if [ -n "$CUSTOM_MIRROR" ]; then
+              sed -E -i \
+                -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
+                -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
+                /etc/apt/sources.list.d/ubuntu.sources
+              apt-get update -qq
+            fi
+          '
+        fi
       fi
     ;;
     stop)

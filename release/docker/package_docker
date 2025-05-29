@@ -17,6 +17,7 @@ toolchain_version="v6"
 package_path=""
 arch=""
 src_path=""
+custom_mirror=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -43,6 +44,10 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
         print_help
         exit 0
+    ;;
+    --custom-mirror)
+      custom_mirror=$2
+      shift 2
     ;;
     *)
         echo -e "Error: Unknown option '$1'"
@@ -96,6 +101,7 @@ image_package_name="memgraph-${tag}-docker.tar.gz"
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} ${docker_arg_source_code} \
+--build-arg CUSTOM_MIRROR=$custom_mirror \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
