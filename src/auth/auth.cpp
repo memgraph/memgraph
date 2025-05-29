@@ -23,8 +23,97 @@
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/message.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+
+namespace {
+void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::auth::UserProfiles::Profile &profile,
+                             memgraph::utils::ResourceMonitoring &resource_monitor) {
+  const auto sl = std::visit(
+      memgraph::utils::Overloaded{[](memgraph::auth::UserProfiles::unlimitted_t /*unused*/) {
+                                    return memgraph::utils::SessionsResource::kUnlimited;
+                                  },
+                                  [](auto limit) { return memgraph::utils::SessionsResource::value_type(limit); }},
+      profile.limits[memgraph::auth::UserProfiles::Limits::kSessions]);
+
+  const auto tml =
+      std::visit(memgraph::utils::Overloaded{
+                     [](memgraph::auth::UserProfiles::unlimitted_t /*unused*/) {
+                       return memgraph::utils::TransactionsMemoryResource::kUnlimited;
+                     },
+                     [](auto limit) { return memgraph::utils::TransactionsMemoryResource::value_type(limit); }},
+                 profile.limits[memgraph::auth::UserProfiles::Limits::kTransactionsMemory]);
+
+  resource_monitor.UpdateUserLimits(user_or_role, sl, tml);
+}
+
+void ResetUserProfileLimits(const std::string &user_or_role, memgraph::utils::ResourceMonitoring &resource_monitor) {
+  resource_monitor.UpdateUserLimits(user_or_role, memgraph::utils::SessionsResource::kUnlimited,
+                                    memgraph::utils::TransactionsMemoryResource::kUnlimited);
+}
+
+void UpdateProfileLimits(const std::string &user, const std::optional<memgraph::auth::UserProfiles::Profile> &profile,
+                         memgraph::utils::ResourceMonitoring &resource_monitor) {
+  if (!profile) {
+    ResetUserProfileLimits(user, resource_monitor);
+  } else {
+    UpdateUserProfileLimits(user, *profile, resource_monitor);
+  }
+}
+
+void UpdateProfileLimits(const memgraph::auth::User &user, memgraph::utils::ResourceMonitoring &resource_monitor) {
+  UpdateProfileLimits(user.username(), user.GetProfile(), resource_monitor);
+}
+
+void UpdateProfileLimits(const std::string &username, auto &auth,
+                         memgraph::utils::ResourceMonitoring &resource_monitor) {
+  const auto user = auth.GetUser(username);
+  DMG_ASSERT(user, "Expected user here");
+  UpdateProfileLimits(user->username(), user->GetProfile(), resource_monitor);
+}
+
+auto UsersConnectedToProfile(auto &auth, const std::string &profile_name) -> std::unordered_set<std::string> {
+  try {
+    auto users_for_profile = auth.GetUsernamesForProfile(profile_name);
+    std::unordered_set<std::string> users{std::make_move_iterator(users_for_profile.begin()),
+                                          std::make_move_iterator(users_for_profile.end())};
+    for (const auto &role : auth.GetRolenamesForProfile(profile_name)) {
+      auto users_for_role = auth.AllUsernamesForRole(role);
+      users.insert(std::make_move_iterator(users_for_role.begin()), std::make_move_iterator(users_for_role.end()));
+    }
+    return users;
+  } catch (const memgraph::auth::AuthException & /*unused*/) {
+    return {};
+  }
+}
+
+bool ShouldUpdateProfile(auto &auth, const memgraph::auth::Role &new_role) {
+  const auto old_role = auth.GetRole(new_role.rolename());
+  if (!old_role) return new_role.profile().has_value();  // No prev profile, update if new role has a profile
+  const auto &old_profile = old_role->profile();
+  const auto &new_profile = new_role.profile();
+  return new_profile != old_profile;  // Role has a profile, update if new role does not or has a different one
+}
+
+bool ShouldUpdateProfile(auto &auth, const memgraph::auth::User &new_user) {
+  const auto old_user = auth.GetUser(new_user.username());
+  if (!old_user) return new_user.GetProfile().has_value();  // No prev profile, update if new role has a profile
+  const auto &old_profile = old_user->GetProfile();         // Combined profiles
+  const auto &new_profile = new_user.GetProfile();          // Combined profiles
+  return new_profile != old_profile;  // Role has a profile, update if new role does not or has a different one
+}
+
+bool ShouldUpdateProfile(auto &auth, const std::string &name) {
+  // try user
+  const auto old_user = auth.GetUser(name);
+  if (old_user) return old_user->profile().has_value();
+  // try role
+  const auto old_role = auth.GetRole(name);
+  if (old_role) return old_role->profile().has_value();
+  return false;
+}
+}  // namespace
 
 namespace memgraph {
 std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_view module_mappings) {
@@ -293,8 +382,17 @@ auto ParseJson(std::string_view str) {
 
 };  // namespace
 
-Auth::Auth(std::string storage_directory, Config config)
-    : storage_(std::move(storage_directory)), config_{std::move(config)} {
+Auth::Auth(std::string storage_directory, Config config
+#ifdef MG_ENTERPRISE
+           ,
+           utils::ResourceMonitoring *user_resources
+#endif
+           )
+    : storage_(std::move(storage_directory)),
+#ifdef MG_ENTERPRISE
+      user_resources_{user_resources},
+#endif
+      config_{std::move(config)} {
   modules_ = PopulateModules(FLAGS_auth_module_mappings);
   if (storage_.Size() > 0) {
     MigrateVersions(storage_);
@@ -302,7 +400,17 @@ Auth::Auth(std::string storage_directory, Config config)
     // Clean storage; put the version
     storage_.Put(kVersion, kVersionV2);
   }
-}
+
+#ifdef MG_ENTERPRISE
+  if (user_resources_) {
+    for (const auto &user : AllUsers()) {
+      const auto profile = user.GetProfile();  // Combined profile
+      if (!profile) continue;
+      UpdateUserProfileLimits(user.username(), *profile, *user_resources_);
+    }
+  }
+#endif
+}  // namespace memgraph::auth
 
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
                                                    std::optional<std::string> provided_username) {
@@ -625,6 +733,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   } else {
     deletes.emplace_back(kProfileLinkPrefix + user.username());
   }
+  if (user_resources_ && ShouldUpdateProfile(*this, user)) UpdateProfileLimits(user, *user_resources_);
 #endif
   // Update
   if (!storage_.PutAndDeleteMultiple(puts, deletes)) {
@@ -703,8 +812,14 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys(
-      {kMtLinkPrefix + username, kRoleLinkPrefix + username, kProfileLinkPrefix + username, kUserPrefix + username});
+  std::vector<std::string> keys({kMtLinkPrefix + username, kRoleLinkPrefix + username, kUserPrefix + username});
+
+// User profiles
+#ifdef MG_ENTERPRISE
+  keys.emplace_back(kProfileLinkPrefix + username);
+  if (user_resources_) user_resources_->RemoveUser(username);
+#endif
+
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
@@ -794,16 +909,36 @@ std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &prof
                                                          const UserProfiles::limits_t &updated_limits,
                                                          system::Transaction *system_tx) {
   const auto res = user_profiles_.Update(profile_name, updated_limits);
-  if (res && system_tx) {
-    system_tx->AddAction<UpdateAuthData>(res.value());
+  if (res) {
+    // Update user resources
+    if (user_resources_) {
+      for (const auto &user : UsersConnectedToProfile(*this, profile_name)) {
+        UpdateProfileLimits(user, *this, *user_resources_);
+      }
+    }
+    if (system_tx) {
+      system_tx->AddAction<UpdateAuthData>(res.value());
+    }
   }
   return res;
 }
 
 bool Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
+  std::unordered_set<std::string> users;
+  if (user_resources_) {
+    users = UsersConnectedToProfile(*this, profile_name);
+  }
   const auto res = user_profiles_.Drop(profile_name);
-  if (res && system_tx) {
-    system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name);
+  if (res) {
+    // Update user resources
+    if (user_resources_) {
+      for (const auto &user : users) {
+        UpdateProfileLimits(user, *this, *user_resources_);
+      }
+    }
+    if (system_tx) {
+      system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::PROFILE, profile_name);
+    }
   }
   return res;
 }
@@ -937,11 +1072,24 @@ void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   } else {
     deletes.emplace_back(kProfileLinkPrefix + role.rolename());
   }
+  const bool update_profile = user_resources_ && ShouldUpdateProfile(*this, role);
+  std::vector<std::string> users;
+  if (update_profile) users = AllUsernamesForRole(role.rolename());
 #endif
+
   // Update
   if (!storage_.PutAndDeleteMultiple(puts, deletes)) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
+
+// Update profiles after role update
+#ifdef MG_ENTERPRISE
+  if (update_profile) {
+    for (const auto &user : users) {
+      UpdateProfileLimits(user, *this, *user_resources_);
+    }
+  }
+#endif
 
   // Durability updated -> new epoch
   UpdateEpoch();
@@ -1037,15 +1185,30 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
     }
   }
 
+// Update profiles after role is removed
+#ifdef MG_ENTERPRISE
   // User profile
   if (!storage_.Delete(kProfileLinkPrefix + rolename)) {
     throw AuthException("Couldn't remove profile role '{}'!", rolename);
   }
+  const bool update_profile = user_resources_ && ShouldUpdateProfile(*this, rolename);
+  std::vector<std::string> users;
+  if (update_profile) users = AllUsernamesForRole(rolename);
+#endif
 
   // Then remove the role itself
   if (!storage_.Delete(kRolePrefix + rolename)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
+
+#ifdef MG_ENTERPRISE
+  // Update user resources if needed
+  if (update_profile) {
+    for (const auto &user : users) {
+      UpdateProfileLimits(user, *this, *user_resources_);
+    }
+  }
+#endif
 
   // Durability updated -> new epoch
   UpdateEpoch();

@@ -62,9 +62,8 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     // Create new
     if (auto const new_db = dbms_handler.Update(req.config); new_db.HasValue()) {
       // Successfully create db
-      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
-      spdlog::debug("CreateDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+      spdlog::debug("CreateDatabaseHandler: SUCCESS");
     }
   } catch (...) {
     // Failure
@@ -115,14 +114,12 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
-        system_state_access.SetLastCommitedTS(req.new_group_timestamp);
         res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully drop db
-      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = DropDatabaseRes(DropDatabaseRes::Result::SUCCESS);
-      spdlog::debug("DropDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+      spdlog::debug("DropDatabaseHandler: SUCCESS");
     }
   } catch (...) {
     // Failure
