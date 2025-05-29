@@ -4,6 +4,8 @@ import time
 from abc import ABC, abstractmethod
 from multiprocessing import Array, Lock, Manager, Process, Value
 
+import psycopg2
+import psycopg2.extras
 from falkordb import FalkorDB
 from neo4j import GraphDatabase
 
@@ -61,11 +63,35 @@ class Neo4jClient(PythonClient):
         return (end - start) * 1000
 
 
+class PostgreSQLClient(PythonClient):
+    def __init__(self, host, port, user="postgres", password="postgres", database="postgres"):
+        self._conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+        self._conn.autocommit = True
+        self._cursor = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+    def close(self):
+        self._cursor.close()
+        self._conn.close()
+
+    def execute_query(self, query, params=None):
+        start = time.time()
+        self._cursor.execute(query, params or {})
+
+        # Only fetch results if the query returns rows
+        if self._cursor.description:
+            _ = self._cursor.fetchall()
+
+        end = time.time()
+        return (end - start) * 1000
+
+
 def get_python_client(vendor):
     if vendor == "memgraph" or vendor == "neo4j":
         return Neo4jClient
     if vendor == "falkordb":
         return FalkorDBClient
+    if vendor == "postgresql":
+        return PostgreSQLClient
     raise Exception(f"Unknown vendor {vendor} when running benchmarks with a Python client!")
 
 
