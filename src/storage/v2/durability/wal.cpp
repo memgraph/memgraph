@@ -26,6 +26,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
@@ -364,6 +365,27 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
 }
 
 // ========== concrete type decoders end here ==========
+
+template <typename T>
+auto Read(BaseDecoder *decoder, const uint64_t version) -> T;
+template <typename T>
+auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
+
+template <typename T>
+concept IsReadSkip = requires {
+  typename T::ctr_types;
+};
+
+// Generic helper decoder, please keep after the concrete type decoders
+template <bool is_read, IsReadSkip T>
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, T, void> {
+  if constexpr (is_read) {
+    return Read<T>(decoder, version);
+  } else {
+    Skip<T>(decoder, version);
+  }
+}
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
@@ -981,29 +1003,13 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto names_to_path = [&](std::span<const std::string> names) {
-          PropertyPath property_path;
-          property_path.reserve(names.size());
-          for (const auto &name : names) {
-            property_path.insert(PropertyId::FromUint(name_id_mapper->NameToId(name)));
-          }
-          return property_path;
-        };
-        auto prop_ids = data.properties | rv::transform(names_to_path) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto names_to_path = [&](std::span<const std::string> names) {
-          PropertyPath property_path;
-          property_path.reserve(names.size());
-          for (const auto &name : names) {
-            property_path.insert(PropertyId::FromUint(name_id_mapper->NameToId(name)));
-          }
-          return property_path;
-        };
-        auto prop_ids = data.properties | rv::transform(names_to_path) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
@@ -1021,15 +1027,7 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto names_to_path = [&](std::span<const std::string> names) {
-          PropertyPath property_path;
-          property_path.reserve(names.size());
-          for (const auto &name : names) {
-            property_path.insert(PropertyId::FromUint(name_id_mapper->NameToId(name)));
-          }
-          return property_path;
-        };
-        auto prop_ids = data.properties | rv::transform(names_to_path) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
           throw RecoveryFailure("Failed to read statistics!");
@@ -1424,4 +1422,19 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
   encoder.WriteMarker(OperationToMarker(Op));
 }
 
+auto UpgradeForNestedIndices(CompositeStr v) -> CompositePropertyPaths {
+  auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::move(path)}; };
+  return CompositePropertyPaths{v | ranges::views::transform(wrap_singular_path) | ranges::to_vector};
+};
+
+auto CompositePropertyPaths::convert(memgraph::storage::NameIdMapper *mapper) const
+    -> std::vector<memgraph::storage::PropertyPath> {
+  auto to_propertyid = [&](std::string_view prop_name) -> PropertyId {
+    return PropertyId::FromUint(mapper->NameToId(prop_name));
+  };
+  auto to_path = [&](PathStr const &path) -> PropertyPath {
+    return PropertyPath{path | rv::transform(to_propertyid) | r::to_vector};
+  };
+  return property_paths_ | rv::transform(to_path) | r::to_vector;
+}
 }  // namespace memgraph::storage::durability

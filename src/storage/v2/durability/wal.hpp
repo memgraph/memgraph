@@ -33,6 +33,10 @@
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
+namespace memgraph::storage {
+class NameIdMapper;
+};
+
 namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a WAL.
@@ -62,21 +66,27 @@ struct VersionDependant {};
 template <auto MIN_VER, typename Before, typename After, auto Upgrader>
 struct VersionDependantUpgradable {};
 
-using PropertyPathStr = std::vector<std::vector<std::string>>;
+// Common structures used by more than one WAL Delta
 
-constexpr auto SinglePropertyToVector = [](std::string v) { return std::vector{std::move(v)}; };
+using CompositeStr = std::vector<std::string>;
+inline auto UpgradeForCompositeIndices(std::string v) -> CompositeStr { return std::vector{std::move(v)}; };
+using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
+                                                            CompositeStr, UpgradeForCompositeIndices>;
 
-constexpr auto PropertyVectorToPropertyPaths = [](std::vector<std::string> v) -> PropertyPathStr {
-  return v | ranges::views::transform([](auto &&path) { return std::vector{std::move(path)}; }) | ranges::to_vector;
+struct CompositePropertyPaths;
+using PathStr = std::vector<std::string>;
+auto UpgradeForNestedIndices(CompositeStr v) -> CompositePropertyPaths;
+using UpgradableSingularPaths = VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty,
+                                                           CompositePropertyPaths, UpgradeForNestedIndices>;
+
+struct CompositePropertyPaths {
+  friend bool operator==(CompositePropertyPaths const &, CompositePropertyPaths const &) = default;
+  using ctr_types = std::tuple<UpgradableSingularPaths>;
+  std::vector<PathStr> property_paths_;
+
+  auto convert(memgraph::storage::NameIdMapper *mapper) const -> std::vector<memgraph::storage::PropertyPath>;
 };
 
-using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
-                                                            std::vector<std::string>, SinglePropertyToVector>;
-
-using UpgradablePropertyPaths = VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty, PropertyPathStr,
-                                                           PropertyVectorToPropertyPaths>;
-
-// Common structures used by more than one WAL Delta
 struct VertexOpInfo {
   friend bool operator==(const VertexOpInfo &, const VertexOpInfo &) = default;
   using ctr_types = std::tuple<Gid>;
@@ -109,9 +119,9 @@ struct LabelPropertyOpInfo {
 };
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
-  using ctr_types = std::tuple<std::string, UpgradablePropertyPaths>;
+  using ctr_types = std::tuple<std::string, CompositePropertyPaths>;
   std::string label;
-  PropertyPathStr properties;
+  CompositePropertyPaths composite_property_paths;
 };
 
 struct LabelUnorderedPropertiesOpInfo {
@@ -202,9 +212,9 @@ struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
 struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
 struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
-  using ctr_types = std::tuple<std::string, UpgradablePropertyPaths, std::string>;
+  using ctr_types = std::tuple<std::string, CompositePropertyPaths, std::string>;
   std::string label;
-  PropertyPathStr properties;
+  CompositePropertyPaths composite_property_paths;
   std::string json_stats;
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
@@ -481,3 +491,28 @@ class WalFile {
 };
 
 }  // namespace memgraph::storage::durability
+
+template <>
+class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) {
+    auto out = ctx.out();
+    bool first_path = true;
+
+    for (auto const &path : wrapper.property_paths_) {
+      if (!first_path) out = fmt::format_to(out, ", ");
+      first_path = false;
+
+      bool first_id = true;
+      for (auto const &prop_name : path) {
+        if (!first_id) out = fmt::format_to(out, ".");
+        first_id = false;
+        out = fmt::format_to(out, "{}", prop_name);
+      }
+    }
+    return out;
+  }
+};
