@@ -41,8 +41,7 @@ class AuthQueryHandler {
 
   /// Return false if the user does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropUser(const std::string &username, system::Transaction *system_tx,
-                        utils::ResourceMonitoring *resource_monitor) = 0;
+  virtual bool DropUser(const std::string &username, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetPassword(const std::string &username, const std::optional<std::string> &password,
@@ -94,8 +93,7 @@ class AuthQueryHandler {
 
   /// Return false if the role does not exist.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx,
-                        utils::ResourceMonitoring *resource_monitor) = 0;
+  virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx) = 0;
 
   /// Return true if the role exists.
   /// @throw QueryRuntimeException if an error ocurred.
@@ -116,12 +114,10 @@ class AuthQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetRoles(const std::string &username, const std::vector<std::string> &roles,
-                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx,
-                        utils::ResourceMonitoring *resource_monitor) = 0;
+                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx,
-                          utils::ResourceMonitoring *resource_monitor) = 0;
+  virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
@@ -175,15 +171,13 @@ class AuthQueryHandler {
   virtual void CreateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &defined_limits,
                              system::Transaction *system_tx) = 0;
   virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
-                             system::Transaction *system_tx, utils::ResourceMonitoring *resource_monitor) = 0;
-  virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx,
-                           utils::ResourceMonitoring *resource_monitor) = 0;
+                             system::Transaction *system_tx) = 0;
+  virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
   virtual UserProfileQuery::limits_t GetProfile(std::string_view name) = 0;
   virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles() = 0;
   virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
-                          system::Transaction *system_tx, utils::ResourceMonitoring *resource_monitor) = 0;
-  virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx,
-                             utils::ResourceMonitoring *resource_monitor) = 0;
+                          system::Transaction *system_tx) = 0;
+  virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) = 0;
   virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
   virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) = 0;
   virtual std::optional<std::string> GetProfileForRole(const std::string &user_or_role) = 0;
