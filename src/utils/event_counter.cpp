@@ -123,6 +123,9 @@
   M(DemoteInstance, HighAvailability, "Number of times the user called \"DEMOTE INSTANCE ...\" query.")                \
   M(UnregisterReplInstance, HighAvailability, "Number of times the user called \"UNREGISTER INSTANCE ...\" query.")    \
   M(RemoveCoordInstance, HighAvailability, "Number of times the user called \"REMOVE COORDINATOR ...\" query.")        \
+  M(ReplicaRecoverySuccess, HighAvailability, "Number of times the replica recovery finished successfully")            \
+  M(ReplicaRecoveryFail, HighAvailability, "Number of times the replica recovery finished unsuccessfully")             \
+  M(ReplicaRecoverySkip, HighAvailability, "Number of times the replica recovery task was skipped")                    \
   GenerateHARpcCounters(StateCheckRpc)                                                                                 \
   GenerateHARpcCounters(UnregisterReplicaRpc)                                                                          \
   GenerateHARpcCounters(EnableWritingOnMainRpc)                                                                        \
