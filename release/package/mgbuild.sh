@@ -935,13 +935,13 @@ case $command in
             mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"
             # set custom mirror within build container
             docker exec -i -u root \
-              -e CUSTOM_MIRROR=$mirror \
-              $build_container \
+              -e CUSTOM_MIRROR=${{ env.CUSTOM_MIRROR }} \
+              ${{ env.MAGE_CONTAINER }} \
             bash -c '
               if [ -n "$CUSTOM_MIRROR" ]; then
                 sed -E -i \
-                  -e "/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
-                  -e "/^URIs:/ s#https?://security\.ubuntu\.com#${CUSTOM_MIRROR}#g" \
+                  -e "s#https?://[^ ]*archive\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
+                  -e "s#https?://[^ ]*security\.ubuntu\.com/ubuntu/#${CUSTOM_MIRROR}/#g" \
                   /etc/apt/sources.list
                 apt-get update -qq
               fi
