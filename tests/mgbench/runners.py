@@ -103,10 +103,12 @@ class BaseClient(ABC):
 
     def get_check_db_query(self) -> str:
         match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return "RETURN 0;"
             case GraphVendors.POSTGRESQL:
                 return "SELECT 1 AS result;"
             case _:
-                return "RETURN 0;"
+                raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
 
 
 class BoltClient(BaseClient):
@@ -286,7 +288,7 @@ class BoltClientDocker(BaseClient):
 
         check_file = Path(self._directory.name) / "check.json"
         with open(check_file, "w") as f:
-            query = [self._get, {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
