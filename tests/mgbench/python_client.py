@@ -21,7 +21,7 @@ class PythonClient(ABC):
                 latency = self.execute_query(query, params)
                 return latency, attempt
             except Exception as e:
-                if attempt >= max_attempts - 1:
+                if attempt == max_attempts - 1:
                     raise Exception(f"Could not execute query '{query}' {attempt} times! Error message: {e}")
                 time.sleep(0.1)  # Brief pause before retrying
 

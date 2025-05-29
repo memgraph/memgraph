@@ -23,7 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkClientLanguage, BenchmarkInstallationType, GraphVendors
+from constants import BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -492,7 +492,7 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        if benchmark_context.external_vendor:
+        if benchmark_context.installation_type == BenchmarkInstallationType.EXTERNAL:
             return ExternalVendor(benchmark_context=benchmark_context)
 
         subclass_name = (
@@ -511,6 +511,7 @@ class BaseRunner(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._bolt_port = 7687
 
     @abstractmethod
     def start_db_init(self, arg):
