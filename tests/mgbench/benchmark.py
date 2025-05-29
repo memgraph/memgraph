@@ -948,7 +948,8 @@ if __name__ == "__main__":
         vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
         vendor_name=args.vendor_name,
         installation_type=args.installation_type,
-        client_binary=args.client_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
+        # Client binary present in native and external installation types
+        client_binary=args.client_binary if args.installation_type != BenchmarkInstallationType.NATIVE else None,
         client_language=args.client_language,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,
