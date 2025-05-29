@@ -497,9 +497,9 @@ package_docker() {
   cd "$docker_build_folder"
   if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
     if [[ "$os" == "ubuntu-22.04" ]]; then
-      mirror="$(./tools/test-mirrors.sh 'jammy')"
+      mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"
     else
-      mirror="$(./tools/test-mirrors.sh)"
+      mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"
     fi
   else
     mirror=""
@@ -936,9 +936,9 @@ case $command in
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
           if [[ "$os" == "ubuntu-22.04" ]]; then
-            mirror="$(./tools/test-mirrors.sh 'jammy')"
+            mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"
           else
-            mirror="$(./tools/test-mirrors.sh)"
+            mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh)"
           fi
 
           # set custom mirror within build container
