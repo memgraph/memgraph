@@ -21,7 +21,7 @@
 
 using namespace std::chrono_literals;
 
-TEST(RWLock, MultipleReadersNew) {
+TEST(RWLock, MultipleReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
   constexpr int num_workers{3};
 
@@ -51,29 +51,6 @@ TEST(RWLock, MultipleReadersNew) {
       end_sync.arrive_and_wait();
     });
   }
-}
-
-TEST(RWLock, MultipleReaders) {
-  memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
-
-  std::vector<std::thread> threads;
-  threads.reserve(3);
-  memgraph::utils::Timer const timer;
-  for (int i = 0; i < 3; ++i) {
-    threads.emplace_back([&rwlock] {
-      auto lock = std::shared_lock{rwlock};
-      std::this_thread::sleep_for(100ms);
-    });
-  }
-  for (int i = 0; i < 3; ++i) {
-    threads[i].join();
-  }
-
-  auto const elapsed = timer.Elapsed();
-  // If they are running in parallel, then the total running time should be < 3x100ms
-  EXPECT_LE(elapsed, 150ms);
-  EXPECT_GE(elapsed, 90ms);
-  spdlog::info("Elapsed ms old {}", std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
 TEST(RWLock, SingleWriter) {
