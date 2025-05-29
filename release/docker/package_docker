@@ -46,8 +46,8 @@ while [[ $# -gt 0 ]]; do
         exit 0
     ;;
     --custom-mirror)
-      custom_mirror=$2
-      shift 2
+        custom_mirror=$2
+        shift 2
     ;;
     *)
         echo -e "Error: Unknown option '$1'"
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-
+echo "latest_image: $latest_image, latest_tag: $latest_tag, package_path: $package_path, src_path: $src_path, toolchain: $toolchain, arch: $arch, custom_mirror: $custom_mirror"
 if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
   exit 1
@@ -77,6 +77,7 @@ cd ${working_dir}
 
 extension="${package_path##*.}"
 dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
+echo "Dockerfile: $dockerfile_path"
 if [[ "$extension" == "deb" ]]; then
   # Extract version and offering from deb name.
   package_name=`echo $(basename "$package_path") | sed 's/.deb$//'`
