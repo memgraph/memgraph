@@ -6859,6 +6859,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // No database access required (and current database is not needed)
   void Visit(AuthQuery &) override {}
+  void Visit(UserProfileQuery &) override {}
   void Visit(MultiDatabaseQuery &) override {}
   void Visit(ReplicationQuery &) override {}
   void Visit(ShowConfigQuery &) override {}
