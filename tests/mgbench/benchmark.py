@@ -947,7 +947,6 @@ if __name__ == "__main__":
         benchmark_target_workload=args.benchmarks,
         vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
         vendor_name=args.vendor_name,
-        external_vendor=args.installation_type == BenchmarkInstallationType.EXTERNAL,
         installation_type=args.installation_type,
         client_binary=args.client_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
         client_language=args.client_language,

@@ -26,7 +26,6 @@ class BenchmarkContext:
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
         databases: str = "memgraph",
         client_bolt_address: str = "127.0.0.1",
-        external_vendor: bool = False,
         vendor_binary: str = None,
         vendor_name: str = None,
         installation_type: str = None,
@@ -53,7 +52,6 @@ class BenchmarkContext:
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
-        self.external_vendor = external_vendor
         self.client_bolt_address = client_bolt_address
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
