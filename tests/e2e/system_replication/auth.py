@@ -62,6 +62,13 @@ def show_users_func(cursor):
     return func
 
 
+def show_current_user_func(cursor):
+    def func():
+        return set(execute_and_fetch_all(cursor, "SHOW CURRENT USER;"))
+
+    return func
+
+
 def show_roles_func(cursor):
     def func():
         return set(execute_and_fetch_all(cursor, "SHOW ROLES;"))
@@ -136,6 +143,13 @@ def show_profile_for_user_func(cursor, username):
 def show_users_for_profile_func(cursor, profilename):
     def func():
         return set(execute_and_fetch_all(cursor, f"SHOW USERS FOR PROFILE {profilename};"))
+
+    return func
+
+
+def show_resource_usage_func(cursor, user):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW RESOURCE USAGE FOR {user};"))
 
     return func
 
@@ -1079,6 +1093,21 @@ def test_user_profile_replication(connection, test_name):
         # REPLICA 2 is ASYNC, should wait for it
         mg_sleep_and_assert(expected_data, f(cursor_replica2))
 
+    def resource_check(instance_name, instance_type, username, expected_usage):
+        cursor = connection(BOLT_PORTS[instance_name], instance_type, username).cursor()
+        usage = show_resource_usage_func(cursor, username)()
+        assert expected_usage == usage
+
+    def all_resource_check(user1_usage=None, user2_usage=None):
+        if user1_usage is not None:
+            resource_check("main", "main", "user1", user1_usage)
+            resource_check("replica_1", "replica", "user1", user1_usage)
+            resource_check("replica_2", "replica", "user1", user1_usage)
+        if user2_usage is not None:
+            resource_check("main", "main", "user2", user2_usage)
+            resource_check("replica_1", "replica", "user2", user2_usage)
+            resource_check("replica_2", "replica", "user2", user2_usage)
+
     # 1/
 
     # CREATE PROFILES
@@ -1124,12 +1153,19 @@ def test_user_profile_replication(connection, test_name):
     # CREATE USER
     execute_and_fetch_all(cursor_main, "CREATE USER user1")
     execute_and_fetch_all(cursor_main, "CREATE USER user2")
+    execute_and_fetch_all(cursor_main, "GRANT USER_PROFILE TO user2")
+    execute_and_fetch_all(cursor_main, "GRANT AUTH TO user2")
     check(
         show_users_func,
         {
             ("user2",),
             ("user1",),
         },
+    )
+
+    all_resource_check(
+        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
     )
 
     # SET PROFILES
@@ -1151,6 +1187,11 @@ def test_user_profile_replication(connection, test_name):
         },
     )
 
+    all_resource_check(
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+    )
+
     # CLEAR PROFILE
     execute_and_fetch_all(cursor_main, "CLEAR PROFILE FOR user1")
     check(
@@ -1166,6 +1207,11 @@ def test_user_profile_replication(connection, test_name):
         {
             ("user2",),
         },
+    )
+
+    all_resource_check(
+        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
     )
 
     # Restart cluster and check values
@@ -1204,6 +1250,11 @@ def test_user_profile_replication(connection, test_name):
         },
     )
 
+    all_resource_check(
+        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")},
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+    )
+
     # DROP USER WITH PROFILE
     execute_and_fetch_all(cursor_main, "DROP USER user2")
     check(
@@ -1211,12 +1262,16 @@ def test_user_profile_replication(connection, test_name):
         set(),  # empty
     )
 
+    all_resource_check({("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+
     # DROP PROFILE WITH USER
     execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
     check(
         partial(show_profile_for_user_func, username="user1"),
         {("p2",)},
     )
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 2)})
+
     execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
     check(
         partial(show_profile_for_user_func, username="user1"),
@@ -1227,7 +1282,9 @@ def test_user_profile_replication(connection, test_name):
         set(),  # empty
     )
 
-    # CREATE ROLE # TODO
+    all_resource_check({("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+
+    # CREATE ROLE
     execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
     check(
         show_roles_func,
@@ -1235,6 +1292,109 @@ def test_user_profile_replication(connection, test_name):
             ("role1",),
         },
     )
+
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
+    check(
+        partial(show_role_for_user_func, username="user1"),
+        {
+            ("role1",),
+        },
+    )
+
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p1 LIMIT SESSIONS 10, TRANSACTIONS_MEMORY 1000MB")
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", 10), ("transactions_memory", "1000MB")},
+    )
+
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR role1 TO p1")
+    check(
+        partial(show_profile_for_user_func, username="role1"),
+        {
+            ("p1",),
+        },
+    )
+    # check(
+    #     partial(show_profile_for_user_func, username="user1"),
+    #     {
+    #         ("p1",),
+    #     },
+    # )
+
+    all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 10)})
+
+    execute_and_fetch_all(cursor_main, "UPDATE PROFILE p1 LIMIT sessions 3")
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", 3), ("transactions_memory", "1000MB")},
+    )
+    all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 3)})
+
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p2 LIMIT SESSIONS 20, TRANSACTIONS_MEMORY 200MB")
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 20), ("transactions_memory", "200MB")},
+    )
+
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {
+            ("p2",),
+            # ("p2\np1",),
+        },
+    )
+
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+
+    # drop profile of user
+
+    execute_and_fetch_all(cursor_main, "DROP ROLE role1")
+    check(
+        partial(show_role_for_user_func, username="user1"),
+        {
+            ("null",),
+        },
+    )
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {
+            ("p2",),
+            # ("p2\np1",),
+        },
+    )
+
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
+
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR role1 TO p1")
+    check(
+        partial(show_profile_for_user_func, username="role1"),
+        {
+            ("p1",),
+        },
+    )
+
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+
+    execute_and_fetch_all(cursor_main, "DROP PROFILE p1")
+    check(
+        partial(show_profile_for_user_func, username="role1"),
+        {
+            ("null",),
+        },
+    )
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
+
+    execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {
+            ("null",),
+        },
+    )
+    all_resource_check({("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
 
 if __name__ == "__main__":

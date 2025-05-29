@@ -29,8 +29,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   bool CreateUser(const std::string &username, const std::optional<std::string> &password,
                   system::Transaction *system_tx) override;
 
-  bool DropUser(const std::string &username, system::Transaction *system_tx,
-                utils::ResourceMonitoring *resource_monitor) override;
+  bool DropUser(const std::string &username, system::Transaction *system_tx) override;
 
   void SetPassword(const std::string &username, const std::optional<std::string> &password,
                    system::Transaction *system_tx) override;
@@ -61,8 +60,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   bool CreateRole(const std::string &rolename, system::Transaction *system_tx) override;
 
-  bool DropRole(const std::string &rolename, system::Transaction *system_tx,
-                utils::ResourceMonitoring *resource_monitor) override;
+  bool DropRole(const std::string &rolename, system::Transaction *system_tx) override;
 
   bool HasRole(const std::string &rolename) override;
 
@@ -76,11 +74,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) override;
 
   void SetRoles(const std::string &username, const std::vector<std::string> &roles,
-                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx,
-                utils::ResourceMonitoring *resource_monitor) override;
+                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
 
-  void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx,
-                  utils::ResourceMonitoring *resource_monitor) override;
+  void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) override;
 
   void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
                   system::Transaction *system_tx) override;
@@ -119,20 +115,16 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
 // User profiles
 #ifdef MG_ENTERPRISE
-  void StartupResourceMonitor(utils::ResourceMonitoring &resource_monitoring);
-
   void CreateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &defined_limits,
                      system::Transaction *system_tx) override;
   void UpdateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &updated_limits,
-                     system::Transaction *system_tx, utils::ResourceMonitoring *resource_monitor) override;
-  void DropProfile(const std::string &profile_name, system::Transaction *system_tx,
-                   utils::ResourceMonitoring *resource_monitor) override;
+                     system::Transaction *system_tx) override;
+  void DropProfile(const std::string &profile_name, system::Transaction *system_tx) override;
   query::UserProfileQuery::limits_t GetProfile(std::string_view name) override;
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AllProfiles() override;
-  void SetProfile(const std::string &profile_name, const std::string &user_or_role, system::Transaction *system_tx,
-                  utils::ResourceMonitoring *resource_monitor) override;
-  void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx,
-                     utils::ResourceMonitoring *resource_monitor) override;
+  void SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                  system::Transaction *system_tx) override;
+  void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) override;
   std::optional<std::string> GetProfileForUser(const std::string &user_or_role) override;
   std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) override;
   std::optional<std::string> GetProfileForRole(const std::string &user_or_role) override;
