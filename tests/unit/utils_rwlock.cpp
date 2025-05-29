@@ -14,11 +14,44 @@
 #include "utils/rw_lock.hpp"
 #include "utils/timer.hpp"
 
+#include <barrier>
 #include <latch>
 #include <shared_mutex>
 #include <thread>
 
 using namespace std::chrono_literals;
+
+TEST(RWLock, MultipleReadersNew) {
+  memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
+  constexpr int num_workers{3};
+
+  std::vector<std::jthread> threads;
+  threads.reserve(num_workers);
+
+  memgraph::utils::Timer const timer;
+  std::chrono::duration<double> start{};
+
+  auto const on_start = [&]() { start = timer.Elapsed(); };
+
+  auto const on_end = [&]() {
+    auto const elapsed = timer.Elapsed() - start;
+    EXPECT_LE(elapsed, 150ms);
+    EXPECT_GE(elapsed, 90ms);
+    spdlog::info("Elapsed ms new {}", std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+  };
+
+  std::barrier start_sync(num_workers, on_start);
+  std::barrier end_sync(num_workers, on_end);
+
+  for (int i = 0; i < num_workers; ++i) {
+    threads.emplace_back([&]() {
+      start_sync.arrive_and_wait();
+      auto lock = std::shared_lock{rwlock};
+      std::this_thread::sleep_for(100ms);
+      end_sync.arrive_and_wait();
+    });
+  }
+}
 
 TEST(RWLock, MultipleReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
@@ -38,8 +71,9 @@ TEST(RWLock, MultipleReaders) {
 
   auto const elapsed = timer.Elapsed();
   // If they are running in parallel, then the total running time should be < 3x100ms
-  EXPECT_LE(elapsed, 300ms);
+  EXPECT_LE(elapsed, 150ms);
   EXPECT_GE(elapsed, 90ms);
+  spdlog::info("Elapsed ms old {}", std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
 TEST(RWLock, SingleWriter) {
