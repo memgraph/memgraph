@@ -54,6 +54,19 @@ PropertyValueRange IsNotNull() { return PropertyValueRange::IsNotNull(); }
 
 }  // namespace pvr
 
+/** Type for  a key-value pair.
+ */
+using KVPair = std::tuple<PropertyId, PropertyValue>;
+
+/** Creates a map from a (possibly nested) list of `KVPair`s.
+ */
+template <typename... Ts>
+auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
+  return PropertyValue{PropertyValue::map_t{
+      {std::get<0>(values),
+       std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
+};
+
 template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
@@ -74,6 +87,7 @@ class IndexTest : public testing::Test {
     this->prop_a = acc->NameToProperty("prop_a");
     this->prop_b = acc->NameToProperty("prop_b");
     this->prop_c = acc->NameToProperty("prop_c");
+    this->prop_d = acc->NameToProperty("prop_d");
     vertex_id = 0;
   }
 
@@ -98,6 +112,7 @@ class IndexTest : public testing::Test {
   PropertyId prop_a;
   PropertyId prop_b;
   PropertyId prop_c;
+  PropertyId prop_d;
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor) {
     VertexAccessor vertex = accessor->CreateVertex();
@@ -3459,4 +3474,193 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
                                  View::OLD),
                    View::OLD),
       UnorderedElementsAre(3, 15, 18));
+}
+
+TYPED_TEST(IndexTest, CompositeIndicesReadOutOfOrderProperties) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite indices currently not supported on disk";
+  }
+
+  // TODO(colinbarry): Temporarily remove this portion of the test from ASAN
+  // tests because it is (correctly) flagged as causing a leak. This is because
+  // of an issue where if a Delta contains any map-type `PropertyValue`, the
+  // storage for the inner part of the map is not deallocated.
+#if __has_feature(address_sanitizer)
+  GTEST_SKIP() << "Skipping portion of index test due to delta leak bug";
+#endif
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    // Note the index properties are not based on monotonic `PropertyId`. They
+    // will need to be permuted when writing and reading from the property store.
+    EXPECT_FALSE(unique_acc
+                     ->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+  {
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(i)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue(i + 10)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue(i + 20)));
+    }
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(this->label1,
+                      std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}},
+                      std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(10)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(20))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(10))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(30)))},
+                      view),
+        view);
+  };
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 2 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 2 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{id + 10}));
+    }
+
+    EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  }
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 3 < 2) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue{"a-string"}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(2, 5, 8));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 3 < 2) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue{id + 20}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(2, 5, 8));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 5 < 3) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(3, 4, 8, 9));
+}
+
+TYPED_TEST(IndexTest, NestedIndicesReadOutOfOrderProperties) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite indices currently not supported on disk";
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    // Note the index properties are not based on monotonic `PropertyId`. They
+    // will need to be permuted when writing and reading from the property store.
+    EXPECT_FALSE(unique_acc
+                     ->CreateIndex(this->label1,
+                                   {PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
+                                    PropertyPath{this->prop_c, this->prop_d}})
+                     .HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+  {
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, MakeMap(KVPair{this->prop_d, PropertyValue(i)})));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, MakeMap(KVPair{this->prop_d, PropertyValue(i + 10)})));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, MakeMap(KVPair{this->prop_d, PropertyValue(i + 20)})));
+    }
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(this->label1,
+                      std::array{PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
+                                 PropertyPath{this->prop_c, this->prop_d}},
+                      std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(10)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(20))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(10))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(30)))},
+                      view),
+        view);
+  };
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 2 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 3 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 5, 7));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, MakeMap(KVPair{this->prop_d, PropertyValue(id)})));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, MakeMap(KVPair{this->prop_d, PropertyValue(id + 10)})));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, MakeMap(KVPair{this->prop_d, PropertyValue(id + 20)})));
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 5, 7));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
 }
