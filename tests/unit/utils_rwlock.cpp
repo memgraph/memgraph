@@ -37,7 +37,6 @@ TEST(RWLock, MultipleReaders) {
     auto const elapsed = timer.Elapsed() - start;
     EXPECT_LE(elapsed, 150ms);
     EXPECT_GE(elapsed, 90ms);
-    spdlog::info("Elapsed ms new {}", std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
   };
 
   std::barrier start_sync(num_workers, on_start);
