@@ -935,8 +935,8 @@ case $command in
             mirror="$(${PROJECT_ROOT}/tools/test-mirrors.sh 'jammy')"
             # set custom mirror within build container
             docker exec -i -u root \
-              -e CUSTOM_MIRROR=${{ env.CUSTOM_MIRROR }} \
-              ${{ env.MAGE_CONTAINER }} \
+              -e CUSTOM_MIRROR=$mirror \
+              $build_container \
             bash -c '
               if [ -n "$CUSTOM_MIRROR" ]; then
                 sed -E -i \
