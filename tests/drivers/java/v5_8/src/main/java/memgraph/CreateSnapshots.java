@@ -78,7 +78,10 @@ public class CreateSnapshots {
       }
 
       // Setup (needs some data for snapshot)
-      ops.writeTask("UNWIND RANGE(1,5000000) as i CREATE (:l)-[:e]->();");
+      // Split query into smaller ones, times out in DEBUG
+      for (int i = 0; i < 50; i++) {
+        ops.writeTask("UNWIND RANGE(1,100000) as i CREATE (:l)-[:e]->();");
+      }
 
       int failed = 0;
       // Check that a read_only (snapshot) tx allows reads but not writes
@@ -100,7 +103,7 @@ public class CreateSnapshots {
       }
 
       try {
-        ops.writeTask("UNWIND RANGE(1,5000000) as i CREATE (:l)-[:e]->();");
+        ops.writeTask("CREATE ();");
       } catch (Exception e) {
         System.out.println("Write explicit transaction failed as expected: " + e);
         failed++;

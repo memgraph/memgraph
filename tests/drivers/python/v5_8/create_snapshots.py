@@ -78,7 +78,9 @@ def main():
                 print("Analytical mode.")
 
             # Setup (needs some data for snapshot)
-            write_task(neo4j_ops, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();")
+            # Split query into smaller ones, times out in DEBUG
+            for x in range(50):
+                write_task(neo4j_ops, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,100000) as i create (:l)-[:e]->();")
 
             # TODO Check that a write tx allows reads and writes, but not read-only (create snapshot)
             #   Currently only cypher queries can timeout, uncomment this when CREATE SNAPSHOT can timeout

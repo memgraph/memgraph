@@ -180,8 +180,11 @@ func main() {
         log.Fatalf("Failed to clear database: %s", err)
     }
 
-    if err := write_task(neo4j_ops, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();"); err != nil {
-        log.Fatalf("Failed to write initial data: %s", err)
+    // Split query into smaller ones, times out in DEBUG
+    for i := 0; i < 50; i++ {
+        if err := write_task(neo4j_ops, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,100000) as i create (:l)-[:e]->();"); err != nil {
+            log.Fatalf("Failed to write initial data: %s", err)
+        }
     }
 
     wg.Add(1)

@@ -88,7 +88,10 @@ async function main() {
         await setupSession.close();
 
         // Setup (needs some data for snapshot)
-        await writeTask(neo4jOps, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,5000000) as i create (:l)-[:e]->();");
+        // Split query into smaller ones, times out in DEBUG
+        for (let i = 0; i < 50; i++) {
+            await writeTask(neo4jOps, "USING PERIODIC COMMIT 10 UNWIND RANGE (1,100000) as i create (:l)-[:e]->();");
+        }
 
         let failed = 0;
         // Check that a read_only (snapshot) tx allows reads but not writes
