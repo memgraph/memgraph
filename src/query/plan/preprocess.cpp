@@ -544,7 +544,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
-  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
+  auto try_add_prop_filter = [&](auto *maybe_lookup, auto *val_expr, PropertyFilter::Type type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     if (is_nested_property_lookup(maybe_lookup)) {
@@ -553,40 +553,16 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         return false;
       }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
-                                              val_expr, PropertyFilter::Type::EQUAL);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties), val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
 
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::EQUAL);
-      all_filters_.emplace_back(filter);
-      return true;
-    }
-    return false;
-  };
-  // Like add_prop_equal, but for adding regex match property filter.
-  auto add_prop_regex_match = [&](auto *maybe_lookup, auto *val_expr) -> bool {
-    PropertyLookup *prop_lookup = nullptr;
-    Identifier *ident = nullptr;
-    if (is_nested_property_lookup(maybe_lookup)) {
-      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
-      if (!ident) {
-        return false;
-      }
-      auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
-                                              val_expr, PropertyFilter::Type::REGEX_MATCH);
-      all_filters_.emplace_back(filter);
-      return true;
-    }
-    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
-      auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::REGEX_MATCH);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -896,9 +872,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Here the `prop` may be different than `value` resulting in `false`. This
     // would compare with the top level `false`, producing `true`. Therefore, it
     // is incorrect to pick up `n.prop = value` for scanning by property index.
-    bool is_prop_filter = add_prop_equal(eq->expression1_, eq->expression2_);
+    bool is_prop_filter = try_add_prop_filter(eq->expression1_, eq->expression2_, PropertyFilter::Type::EQUAL);
     // And reversed.
-    is_prop_filter |= add_prop_equal(eq->expression2_, eq->expression1_);
+    is_prop_filter |= try_add_prop_filter(eq->expression2_, eq->expression1_, PropertyFilter::Type::EQUAL);
     // Try to get ID equality filter.
     bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
     is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
@@ -913,7 +889,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *regex_match = utils::Downcast<RegexMatch>(expr)) {
-    if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
+    if (!try_add_prop_filter(regex_match->string_expr_, regex_match->regex_, PropertyFilter::Type::REGEX_MATCH)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *range = utils::Downcast<RangeOperator>(expr)) {
