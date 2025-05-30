@@ -193,9 +193,9 @@ class VertexCountCache {
     size_t operator()(const LabelPropertiesKey &key) const {
       auto const &[label_id, property_ids] = key;
       std::size_t seed = 0;
-      std::vector<storage::PropertyId> flat{property_ids | std::views::join | ranges::to<std::vector>()};
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
-      boost::hash_combine(seed, utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(flat));
+      boost::hash_combine(
+          seed, utils::FnvCollection<std::vector<storage::PropertyPath>, storage::PropertyPath>{}(property_ids));
       return seed;
     }
   };
@@ -204,9 +204,9 @@ class VertexCountCache {
     size_t operator()(LabelPropertiesRangesKey const &key) const noexcept {
       auto const &[label_id, property_ids, property_ranges] = key;
       std::size_t seed = 0;
-      std::vector<storage::PropertyId> flat{property_ids | std::views::join | ranges::to<std::vector>()};
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
-      boost::hash_combine(seed, utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(flat));
+      boost::hash_combine(
+          seed, utils::FnvCollection<std::vector<storage::PropertyPath>, storage::PropertyPath>{}(property_ids));
       boost::hash_combine(seed,
                           utils::FnvCollection<std::vector<storage::PropertyValueRange>, storage::PropertyValueRange>{}(
                               property_ranges));
