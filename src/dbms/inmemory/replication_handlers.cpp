@@ -458,7 +458,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
       storage->repl_storage_state_.last_durable_timestamp_.store(snapshot_info.durable_timestamp,
                                                                  std::memory_order_release);
-      storage->commit_log_->MarkFinishedInRange(0, snapshot_info.durable_timestamp);
+      // We are the only active transaction, so mark everything up to the next timestamp
+      if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
       RecoverIndicesStatsAndConstraints(&storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_,
                                         &storage->constraints_, storage->config_, recovery_info, indices_constraints,
