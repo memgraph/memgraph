@@ -3253,13 +3253,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   properties_string.reserve(index_query->properties_.size());
 
   for (const auto &property_path : index_query->properties_) {
-    auto path = property_path | rv::transform([&](auto &&property) { return storage->NameToProperty(property.name); }) |
+    auto path = property_path.path |
+                rv::transform([&](auto &&property) { return storage->NameToProperty(property.name); }) |
                 ranges::to_vector;
     properties.push_back(std::move(path));
-
-    auto name = property_path | rv::transform(&PropertyIx::name);
-
-    properties_string.push_back(utils::Join(name, "."));
+    properties_string.push_back(property_path.AsPathString());
   }
 
   auto properties_stringified = utils::Join(properties_string, ", ");

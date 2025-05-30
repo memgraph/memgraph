@@ -390,13 +390,14 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
 
   auto const to_properties = [&](auto &&nested_property_key_names_ctx) {
-    return nested_property_key_names_ctx->propertyKeyName() | srv::transform([&](auto &&property_key_name_ctx) {
-             return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
-           }) |
-           ranges::to_vector;
+    auto as_prop_ix = [&](auto &&property_key_name_ctx) {
+      return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+    };
+    return nested_property_key_names_ctx->propertyKeyName() | srv::transform(as_prop_ix) | ranges::to_vector;
   };
 
-  index_query->properties_ = ctx->nestedPropertyKeyNames() | srv::transform(to_properties) | ranges::to_vector;
+  index_query->properties_ =
+      ctx->nestedPropertyKeyNames() | srv::transform(to_properties) | ranges::to<std::vector<query::PropertyIxPath>>;
 
   // Check composite properties are unique, and in the case of nested properties,
   // that the prefix is also unique (e.g. if we have `a.b`, `a.b.c` is
@@ -404,10 +405,12 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   // By sorting, any potential prefix conflicts will be adjacent.
   std::vector<PropertyIxPath> sorted_properties = index_query->properties_;
   std::ranges::sort(sorted_properties);
-  if (std::ranges::adjacent_find(sorted_properties, [](auto &&lhs, auto &&rhs) {
-        auto min_length = std::min(lhs.size(), rhs.size());
-        return std::ranges::equal(lhs.cbegin(), lhs.cbegin() + min_length, rhs.cbegin(), rhs.cbegin() + min_length);
-      }) != sorted_properties.end()) {
+  auto cmp = [](PropertyIxPath const &lhs, PropertyIxPath const &rhs) {
+    auto min_length = std::min(lhs.path.size(), rhs.path.size());
+    return std::ranges::equal(lhs.path.cbegin(), lhs.path.cbegin() + min_length, rhs.path.cbegin(),
+                              rhs.path.cbegin() + min_length);
+  };
+  if (std::ranges::adjacent_find(sorted_properties, cmp) != sorted_properties.end()) {
     throw SemanticException("Properties cannot be repeated in a composite index.");
   }
 
@@ -421,13 +424,14 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
 
   auto const to_properties = [&](auto &&nested_property_key_names_ctx) {
-    return nested_property_key_names_ctx->propertyKeyName() | srv::transform([&](auto &&property_key_name_ctx) {
-             return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
-           }) |
-           ranges::to_vector;
+    auto as_prop_ix = [&](auto &&property_key_name_ctx) {
+      return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
+    };
+    return nested_property_key_names_ctx->propertyKeyName() | srv::transform(as_prop_ix) | ranges::to_vector;
   };
 
-  index_query->properties_ = ctx->nestedPropertyKeyNames() | srv::transform(to_properties) | ranges::to_vector;
+  index_query->properties_ =
+      ctx->nestedPropertyKeyNames() | srv::transform(to_properties) | ranges::to<std::vector<query::PropertyIxPath>>;
 
   return index_query;
 }

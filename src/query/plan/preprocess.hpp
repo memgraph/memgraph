@@ -553,8 +553,7 @@ class Filters final {
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
-  auto FilteredProperties(const Symbol &symbol) const
-      -> std::set<PropertyIxPath, utils::LessContainerCompare<PropertyIx>>;
+  auto FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -680,9 +679,8 @@ inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector
   return or_labels;
 }
 
-inline auto Filters::FilteredProperties(const Symbol &symbol) const
-    -> std::set<PropertyIxPath, utils::LessContainerCompare<PropertyIx>> {
-  std::set<PropertyIxPath, utils::LessContainerCompare<PropertyIx>> properties;
+inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath> {
+  std::set<PropertyIxPath> properties;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
       properties.insert(filter.property_filter->property_ids_);

@@ -1422,9 +1422,9 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
   encoder.WriteMarker(OperationToMarker(Op));
 }
 
-auto UpgradeForNestedIndices(CompositeStr v) -> CompositePropertyPaths {
+auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr> {
   auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::move(path)}; };
-  return CompositePropertyPaths{v | ranges::views::transform(wrap_singular_path) | ranges::to_vector};
+  return v | ranges::views::transform(wrap_singular_path) | ranges::to_vector;
 };
 
 auto CompositePropertyPaths::convert(memgraph::storage::NameIdMapper *mapper) const
