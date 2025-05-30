@@ -215,7 +215,7 @@ void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
     if (res.snapshot_size > 0) {
       element_count += res.count;
       used_ids.merge(std::move(res.used_ids));
-      const auto current_offset = snapshot_encoder.GetPosition();
+      const auto current_offset = snapshot_encoder.GetPosition();  // Flushes as well
       // Update batch positions
       for (auto &[offset, _] : res.batch_info) {
         offset += current_offset;
@@ -231,12 +231,18 @@ void WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_e
       utils::OnScopeExit cleanup{[part_fd] { close(part_fd); }};
       // Use sendfile for efficient copying (zero-copy)
       off_t offset = 0;
-      const auto size = res.snapshot_size - offset;
-      ssize_t bytes_sent = sendfile(snapshot_encoder.native_handle(), part_fd, &offset, size);
-      if (bytes_sent == -1 || bytes_sent != size) {
-        throw RecoveryFailure("Couldn't copy edge part to snapshot!");
+      auto size = res.snapshot_size;
+      while (size > 0) {
+        ssize_t bytes_sent = sendfile(snapshot_encoder.native_handle(), part_fd, &offset, size);
+        if (bytes_sent == -1) {
+          throw RecoveryFailure("Couldn't copy {} part to snapshot! Error: {}", res.snapshot_path, strerror(errno));
+        }
+        if (bytes_sent == 0) {
+          spdlog::trace("EOF {}", res.snapshot_path);
+          break;
+        }
+        size -= bytes_sent;
       }
-      snapshot_encoder.SetPosition(current_offset + size);
     }
   }
 }
@@ -5330,6 +5336,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   }
 
   // Finalize snapshot file.
+  spdlog::trace("Finalizing snapshot file!");
   snapshot.Finalize();
   spdlog::info("Snapshot creation successful!");
 
