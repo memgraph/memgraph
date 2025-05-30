@@ -1836,7 +1836,20 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   friend class AstStorage;
 };
 
-using PropertyIxPath = std::vector<memgraph::query::PropertyIx>;
+struct PropertyIxPath {
+  PropertyIxPath(std::vector<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+  PropertyIxPath(std::initializer_list<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+
+  std::vector<memgraph::query::PropertyIx> path;
+
+  auto AsPathString() const -> std::string {
+    return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
+  }
+  auto Clone(AstStorage *storage) const -> PropertyIxPath;
+  friend bool operator==(PropertyIxPath const &, PropertyIxPath const &) = default;
+  friend bool operator<(PropertyIxPath const &, PropertyIxPath const &) = default;
+  friend auto operator<=>(PropertyIxPath const &, PropertyIxPath const &) = default;
+};
 
 struct IndexHint {
   static const utils::TypeInfo kType;
@@ -1986,12 +1999,8 @@ class IndexQuery : public memgraph::query::Query {
     object->action_ = action_;
     object->label_ = storage->GetLabelIx(label_.name);
     object->properties_.reserve(properties_.size());
-    for (auto &&nested_properties : properties_) {
-      auto cloned_nested_properties =
-          nested_properties |
-          ranges::views::transform([&](auto &&property) { return storage->GetPropertyIx(property.name); }) |
-          ranges::to_vector;
-      object->properties_.emplace_back(std::move(cloned_nested_properties));
+    for (auto const &prop_path : properties_) {
+      object->properties_.emplace_back(prop_path.Clone(storage));
     }
     return object;
   }
@@ -2017,7 +2026,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
-  memgraph::query::PropertyIxPath properties_;
+  std::vector<memgraph::query::PropertyIx> properties_;
   bool global_{false};
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
@@ -2033,7 +2042,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, PropertyIxPath properties)
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<memgraph::query::PropertyIx> properties)
       : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
@@ -2770,7 +2779,7 @@ struct Constraint {
   memgraph::query::Constraint::Type type;
   std::optional<storage::TypeConstraintKind> type_constraint;
   memgraph::query::LabelIx label;
-  memgraph::query::PropertyIxPath properties;
+  std::vector<memgraph::query::PropertyIx> properties;
 
   Constraint Clone(AstStorage *storage) const {
     Constraint object;
@@ -3723,3 +3732,26 @@ class SessionTraceQuery : public memgraph::query::Query {
 };
 
 }  // namespace memgraph::query
+
+template <>
+class fmt::formatter<memgraph::query::PropertyIxPath> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) {
+    auto out = ctx.out();
+
+    if (!wrapper.path.empty()) {
+      auto it = wrapper.path.begin();
+      auto const e = wrapper.path.end();
+      out = fmt::format_to(out, "{}", it->name);
+      ++it;
+      while (it != e) {
+        out = fmt::format_to(out, ".{}", it->name);
+        ++it;
+      }
+    }
+    return out;
+  }
+};

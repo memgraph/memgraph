@@ -1936,7 +1936,7 @@ TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
   PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
                                      ast_generator.Prop("email")};
-  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.front(); }) | r::to_vector,
+  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to_vector,
             expected_properties);
 }
 
@@ -1947,10 +1947,10 @@ TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleNestedProperties) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
-  auto expected_properties = std::vector{
-      std::vector{ast_generator.Prop("name"), ast_generator.Prop("first")},
-      std::vector{ast_generator.Prop("name"), ast_generator.Prop("second")},
-      std::vector{ast_generator.Prop("address"), ast_generator.Prop("country"), ast_generator.Prop("code")}};
+  auto expected_properties{std::vector{
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("first")},
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("second")},
+      PropertyIxPath{ast_generator.Prop("address"), ast_generator.Prop("country"), ast_generator.Prop("code")}}};
 
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
@@ -1973,9 +1973,9 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleNestedProperties) {
   EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
   auto expected_properties = std::vector{
-      std::vector{ast_generator.Prop("name"), ast_generator.Prop("first")},
-      std::vector{ast_generator.Prop("name"), ast_generator.Prop("second")},
-      std::vector{ast_generator.Prop("address"), ast_generator.Prop("country"), ast_generator.Prop("code")}};
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("first")},
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("second")},
+      PropertyIxPath{ast_generator.Prop("address"), ast_generator.Prop("country"), ast_generator.Prop("code")}};
 
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
@@ -2011,7 +2011,7 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
   PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
                                      ast_generator.Prop("email")};
-  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.front(); }) | r::to_vector,
+  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to_vector,
             expected_properties);
 }
 
@@ -5606,8 +5606,8 @@ TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {
   EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTIES);
   EXPECT_EQ(hints[0].label_ix_.name, "Person");
   ASSERT_EQ(hints[0].property_ixs_.size(), 2);
-  EXPECT_EQ((hints[0].property_ixs_)[0][0].name, "name");
-  EXPECT_EQ((hints[0].property_ixs_)[1][0].name, "country");
+  EXPECT_EQ((hints[0].property_ixs_)[0].path[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[1].path[0].name, "country");
 }
 
 TEST_P(CypherMainVisitorTest, UseHintWithNestedCompositeIndices) {
@@ -5622,14 +5622,14 @@ TEST_P(CypherMainVisitorTest, UseHintWithNestedCompositeIndices) {
   EXPECT_EQ(hints[0].label_ix_.name, "Person");
   ASSERT_EQ(hints[0].property_ixs_.size(), 3);
 
-  ASSERT_EQ(hints[0].property_ixs_[0].size(), 2);
-  EXPECT_EQ((hints[0].property_ixs_)[0][0].name, "name");
-  EXPECT_EQ((hints[0].property_ixs_)[0][1].name, "first");
+  ASSERT_EQ(hints[0].property_ixs_[0].path.size(), 2);
+  EXPECT_EQ((hints[0].property_ixs_)[0].path[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[0].path[1].name, "first");
 
-  ASSERT_EQ(hints[0].property_ixs_[1].size(), 2);
-  EXPECT_EQ((hints[0].property_ixs_)[1][0].name, "name");
-  EXPECT_EQ((hints[0].property_ixs_)[1][1].name, "second");
+  ASSERT_EQ(hints[0].property_ixs_[1].path.size(), 2);
+  EXPECT_EQ((hints[0].property_ixs_)[1].path[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[1].path[1].name, "second");
 
-  ASSERT_EQ(hints[0].property_ixs_[2].size(), 1);
-  EXPECT_EQ((hints[0].property_ixs_)[2][0].name, "country");
+  ASSERT_EQ(hints[0].property_ixs_[2].path.size(), 1);
+  EXPECT_EQ((hints[0].property_ixs_)[2].path[0].name, "country");
 }

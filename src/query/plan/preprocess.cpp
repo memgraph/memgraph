@@ -528,9 +528,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto extract_nested_property_lookup = [&](auto *maybe_lookup) {
     auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
     auto *prev_expr = expr;
-    PropertyIxPath nested_properties;
+    auto nested_properties = std::vector<memgraph::query::PropertyIx>{};
     while (expr) {
-      nested_properties.push_back(expr->property_);
+      nested_properties.emplace_back(expr->property_);
       prev_expr = expr;
       expr = utils::Downcast<PropertyLookup>(expr->expression_);
     }

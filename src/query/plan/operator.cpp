@@ -3549,12 +3549,8 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
   } else if (single_filter.type == Type::Pattern) {
     return "Pattern";
   } else if (single_filter.type == Type::Property) {
-    auto const join_nested_props = [](auto &&path) {
-      using namespace std::string_literals;
-      return path | rv::transform([](auto &&property) { return property.name; }) | rv::join("."s) | r::to<std::string>;
-    };
     return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
-                       join_nested_props(single_filter.property_filter->property_ids_));
+                       single_filter.property_filter->property_ids_);
   } else if (single_filter.type == Type::Point) {
     return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
                        single_filter.point_filter->property_.name);

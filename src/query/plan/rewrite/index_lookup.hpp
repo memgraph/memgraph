@@ -41,6 +41,17 @@ DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace memgraph::query::plan {
 
+namespace {
+template <class TDbAccessor>
+auto property_path_converter(TDbAccessor *db) {
+  return [=](PropertyIxPath const &property_path) -> storage::PropertyPath {
+    return property_path.path |
+           ranges::views::transform([&](auto const &prop_ix) { return db->NameToProperty(prop_ix.name); }) |
+           ranges::to_vector;
+  };
+}
+}  // namespace
+
 /// Holds a given query's index hints after sorting them by type
 struct IndexHints {
   IndexHints() = default;
@@ -57,33 +68,20 @@ struct IndexHints {
         }
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTIES) {
-        auto properties = index_hint.property_ixs_ |
-                          ranges::views::transform([&](PropertyIxPath const &property_path) -> storage::PropertyPath {
-                            std::vector<storage::PropertyId> property_ids;
-                            property_ids.reserve(property_path.size());
-                            for (const auto &property_ix : property_path) {
-                              property_ids.emplace_back(db->NameToProperty(property_ix.name));
-                            }
-                            return {std::move(property_ids)};
-                          }) |
-                          ranges::to<std::vector<storage::PropertyPath>>;
+        auto properties =
+            index_hint.property_ixs_ | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
 
         // Fetching the corresponding index to the hint
         if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
-          auto const join_nested_property_name = [](auto &&property_path) {
-            return property_path |
-                   ranges::views::transform([&](PropertyIx const &p) -> auto const & { return p.name; }) |
-                   ranges::views::join('.');
-          };
           auto property_names = index_hint.property_ixs_ |
-                                ranges::views::transform([&](auto &&path) { return join_nested_property_name(path); }) |
+                                ranges::views::transform([&](auto &&path) { return fmt::format("{}", path); }) |
                                 ranges::views::join(", ") | ranges::to<std::string>;
           spdlog::debug("Index for label doesn't exist: {} with properties {}", label_name, property_names);
           continue;
         }
         label_property_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::POINT) {
-        auto property_name = index_hint.property_ixs_[0][0].name;
+        auto property_name = index_hint.property_ixs_[0].path[0].name;
         if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
           spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
           continue;
@@ -111,15 +109,7 @@ struct IndexHints {
       auto label_id = db->NameToLabel(label_hint.name);
       if (label_id != label) continue;
 
-      auto property_ids = properties_prefix | ranges::views::transform([&](PropertyIxPath const &property_path) {
-                            std::vector<storage::PropertyId> property_ids;
-                            property_ids.reserve(property_path.size());
-                            for (const auto &property_ix : property_path) {
-                              property_ids.emplace_back(db->NameToProperty(property_ix.name));
-                            }
-                            return property_ids;
-                          }) |
-                          ranges::to<std::vector<storage::PropertyPath>>;
+      auto property_ids = properties_prefix | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
       // Check if paths are the same
       for (const auto &path : property_paths) {
         if (std::ranges::find(property_ids, path) != property_ids.end()) {
@@ -135,7 +125,7 @@ struct IndexHints {
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
       auto label_id = db->NameToLabel(label_hint.name);
-      auto property_id = db->NameToProperty(property_hint[0][0].name);
+      auto property_id = db->NameToProperty(property_hint[0].path[0].name);
       if (label_id == label && property_id == property) {
         return true;
       }
@@ -947,7 +937,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // First match with the provided hints
     for (const auto &[index_type, label, properties] : index_hints_.point_index_hints_) {
-      auto property_ix = properties[0][0];
+      auto property_ix = properties[0].path[0];
       auto filter_it = candidate_point_indices.find(std::make_pair(label, property_ix));
       if (filter_it != candidate_point_indices.cend()) {
         // TODO: isn't .vertex_count as max value wrong?
@@ -1020,7 +1010,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto as_propertyIX = [&](auto const &filter) -> auto const & { return filter.property_filter->property_ids_; };
     auto as_property_path = [&](auto const &filter) -> storage::PropertyPath {
       std::vector<storage::PropertyId> storage_property_ids;
-      for (auto const &property : filter.property_filter->property_ids_) {
+      for (auto const &property : filter.property_filter->property_ids_.path) {
         storage_property_ids.emplace_back(GetProperty(property));
       }
       return {std::move(storage_property_ids)};

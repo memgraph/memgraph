@@ -75,9 +75,9 @@ using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesFor
 
 struct CompositePropertyPaths;
 using PathStr = std::vector<std::string>;
-auto UpgradeForNestedIndices(CompositeStr v) -> CompositePropertyPaths;
-using UpgradableSingularPaths = VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty,
-                                                           CompositePropertyPaths, UpgradeForNestedIndices>;
+auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr>;
+using UpgradableSingularPaths =
+    VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty, std::vector<PathStr>, UpgradeForNestedIndices>;
 
 struct CompositePropertyPaths {
   friend bool operator==(CompositePropertyPaths const &, CompositePropertyPaths const &) = default;
