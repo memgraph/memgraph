@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,31 +12,44 @@
 #include <gflags/gflags.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <variant>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
+#include "exceptions.hpp"
+#include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_auth_handler"};
-  memgraph::auth::SynchedAuth auth{
-      test_folder_ / ("unit_auth_handler_test_" + std::to_string(static_cast<int>(getpid()))),
-      memgraph::auth::Auth::Config{/* default */}};
-  memgraph::glue::AuthQueryHandler auth_handler{&auth};
+  std::filesystem::path auth_dir_ =
+      test_folder_ / ("unit_auth_handler_test_" + std::to_string(static_cast<int>(getpid())));
+
+#ifdef MG_ENTERPRISE
+  memgraph::utils::ResourceMonitoring resources;
+  memgraph::auth::FineGrainedAccessHandler handler{};
+#endif
+
+  std::optional<memgraph::auth::SynchedAuth> auth{std::in_place, auth_dir_, memgraph::auth::Auth::Config{/* default */}
+#ifdef MG_ENTERPRISE
+                                                  ,
+                                                  &resources
+#endif
+  };
+  memgraph::glue::AuthQueryHandler auth_handler{&*auth};
 
   std::string user_name = "Mate";
   std::string edge_type_repr = "EdgeType1";
   std::string label_repr = "Label1";
   memgraph::auth::Permissions perms{};
-#ifdef MG_ENTERPRISE
-  memgraph::auth::FineGrainedAccessHandler handler{};
-#endif
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::license::global_license_checker.EnableTesting();
@@ -58,7 +71,7 @@ TEST_F(AuthQueryHandlerFixture, GivenAuthQueryHandlerWhenInitializedHaveNoUserna
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturned) {
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   { ASSERT_EQ(auth_handler.GetUsernames().size(), 1); }
 
@@ -72,7 +85,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturn
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedGrantPermissionThenItIsReturned) {
   perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -93,7 +106,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedGrantPermissionThenItIsReturne
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedDenyPermissionThenItIsReturned) {
   perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -115,7 +128,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturn
   perms.Deny(memgraph::auth::Permission::MATCH);
   perms.Revoke(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 0);
@@ -124,7 +137,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturn
 TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
   perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
 
   { ASSERT_EQ(auth_handler.GetRolenames().size(), 1); }
 
@@ -149,7 +162,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
 TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeDeniedThenItIsReturned) {
   perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
 
   auto privileges = auth_handler.GetPrivileges("Mates_role");
   ASSERT_EQ(privileges.size(), 1);
@@ -171,7 +184,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeRevokedThenNothingIsReturn
   perms.Deny(memgraph::auth::Permission::MATCH);
   perms.Revoke(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
 
   auto privileges = auth_handler.GetPrivileges("Mates_role");
   ASSERT_EQ(privileges.size(), 0);
@@ -181,7 +194,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreRetu
   perms.Grant(memgraph::auth::Permission::MATCH);
   perms.Grant(memgraph::auth::Permission::CREATE);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 2);
@@ -190,10 +203,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreRetu
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThenBothArePrinted) {
   perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   user.SetRole(role);
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -214,10 +227,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenBothArePrinted) {
   perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   user.SetRole(role);
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -239,7 +252,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
   memgraph::auth::Permissions role_perms{};
   role_perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", role_perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
 
   memgraph::auth::Permissions user_perms{};
   user_perms.Grant(memgraph::auth::Permission::MATCH);
@@ -249,7 +262,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
       user_perms,
   };
   user.SetRole(role);
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -271,13 +284,13 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   memgraph::auth::Permissions role_perms{};
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", role_perms};
-  auth->SaveRole(role);
+  auth.value()->SaveRole(role);
 
   memgraph::auth::Permissions user_perms{};
   user_perms.Deny(memgraph::auth::Permission::MATCH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, user_perms};
   user.SetRole(role);
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -306,7 +319,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -335,7 +348,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -365,7 +378,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopO
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -393,7 +406,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -422,7 +435,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -452,7 +465,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -481,7 +494,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -510,7 +523,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -540,7 +553,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -568,7 +581,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -598,7 +611,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -628,7 +641,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -657,7 +670,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -686,7 +699,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -715,7 +728,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   };
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms, handler};
-  auth->SaveUser(user);
+  auth.value()->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
   ASSERT_EQ(privileges.size(), 1);
@@ -732,4 +745,533 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
+
+namespace {
+const memgraph::query::UserProfileQuery::LimitValueResult unlimited{
+    .type = memgraph::query::UserProfileQuery::LimitValueResult::Type::UNLIMITED};
+const memgraph::query::UserProfileQuery::LimitValueResult quantity{
+    .quantity = {.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY, .value = 1}};
+const memgraph::query::UserProfileQuery::LimitValueResult mem_limit{
+    .mem_limit = {
+        .type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT, .value = 1, .scale = 1024}};
+}  // namespace
+
+TEST_F(AuthQueryHandlerFixture, CreateProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_THROW(auth_handler.CreateProfile("profile", {}, nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(
+      auth_handler.CreateProfile(
+          "another_profile",
+          {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], mem_limit}}, nullptr),
+      memgraph::query::QueryRuntimeException);
+
+  {
+    // Stop auth and check if profiles are saved in the durable storage
+    auth.reset();
+    memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    for (const auto &profile : check_durable_profiles.GetAll()) {
+      if (profile.name == "profile") {
+        ASSERT_EQ(profile.limits.size(), 0);
+      } else if (profile.name == "other_profile") {
+        ASSERT_EQ(profile.limits.size(), 1);
+        ASSERT_EQ(profile.limits.begin()->first, memgraph::auth::UserProfiles::Limits::kSessions);
+        ASSERT_FALSE(
+            std::holds_alternative<memgraph::auth::UserProfiles::unlimitted_t>(profile.limits.begin()->second));
+        ASSERT_EQ(std::get<uint64_t>(profile.limits.begin()->second), 1);
+      } else {
+        FAIL() << "Unexpected profile name: " << profile.name;
+      }
+    }
+  }
+}
+
+TEST_F(AuthQueryHandlerFixture, UpdateProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+  ASSERT_THROW(
+      auth_handler.UpdateProfile(
+          "profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], mem_limit}},
+          nullptr),
+      memgraph::query::QueryRuntimeException);
+
+  ASSERT_THROW(auth_handler.UpdateProfile("non_profile", {}, nullptr), memgraph::query::QueryRuntimeException);
+
+  {
+    // Stop auth and check if profiles are saved in the durable storage
+    auth.reset();
+    memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    for (const auto &profile : check_durable_profiles.GetAll()) {
+      if (profile.name == "profile") {
+        ASSERT_EQ(profile.limits.size(), 1);
+        ASSERT_EQ(profile.limits.begin()->first, memgraph::auth::UserProfiles::Limits::kSessions);
+        ASSERT_FALSE(
+            std::holds_alternative<memgraph::auth::UserProfiles::unlimitted_t>(profile.limits.begin()->second));
+        ASSERT_EQ(std::get<uint64_t>(profile.limits.begin()->second), 1);
+      } else if (profile.name == "other_profile") {
+        ASSERT_EQ(profile.limits.size(), 1);
+        ASSERT_EQ(profile.limits.begin()->first, memgraph::auth::UserProfiles::Limits::kSessions);
+        ASSERT_FALSE(
+            std::holds_alternative<memgraph::auth::UserProfiles::unlimitted_t>(profile.limits.begin()->second));
+        ASSERT_EQ(std::get<uint64_t>(profile.limits.begin()->second), 1);
+      } else {
+        FAIL() << "Unexpected profile name: " << profile.name;
+      }
+    }
+  }
+}
+
+TEST_F(AuthQueryHandlerFixture, DropProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_NO_THROW(auth_handler.DropProfile("profile", nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_THROW(auth_handler.DropProfile("non_profile", nullptr), memgraph::query::QueryRuntimeException);
+
+  {
+    // Stop auth and check if profiles are saved in the durable storage
+    auth.reset();
+    memgraph::kvstore::KVStore check_durable_kvstore{this->auth_dir_};
+    memgraph::auth::UserProfiles check_durable_profiles{check_durable_kvstore};
+    for (const auto &profile : check_durable_profiles.GetAll()) {
+      if (profile.name == "profile") {
+        ASSERT_EQ(profile.limits.size(), 0);
+      } else if (profile.name == "other_profile") {
+        ASSERT_EQ(profile.limits.size(), 1);
+        ASSERT_EQ(profile.limits.begin()->first, memgraph::auth::UserProfiles::Limits::kSessions);
+        ASSERT_FALSE(
+            std::holds_alternative<memgraph::auth::UserProfiles::unlimitted_t>(profile.limits.begin()->second));
+        ASSERT_EQ(std::get<uint64_t>(profile.limits.begin()->second), 1);
+      } else {
+        FAIL() << "Unexpected profile name: " << profile.name;
+      }
+    }
+  }
+}
+
+TEST_F(AuthQueryHandlerFixture, GetProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  {
+    const auto profile = auth_handler.GetProfile("profile");
+    ASSERT_EQ(profile.size(), memgraph::auth::UserProfiles::kLimits.size());
+    for (const auto &[name, limit] : profile) {
+      ASSERT_NE(
+          std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name),
+          memgraph::auth::UserProfiles::kLimits.end());
+      ASSERT_EQ(limit, unlimited);
+    }
+  }
+  {
+    const auto profile = auth_handler.GetProfile("other_profile");
+    ASSERT_EQ(profile.size(), memgraph::auth::UserProfiles::kLimits.size());
+    for (const auto &[name, limit] : profile) {
+      ASSERT_NE(
+          std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name),
+          memgraph::auth::UserProfiles::kLimits.end());
+      if (name == memgraph::auth::UserProfiles::kLimits[0]) {
+        ASSERT_EQ(limit, quantity);
+      } else {
+        ASSERT_EQ(limit, unlimited);
+      }
+    }
+  }
+  ASSERT_NO_THROW(auth_handler.DropProfile("profile", nullptr));
+  ASSERT_THROW(auth_handler.GetProfile("profile"), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, AllProfiles) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  {
+    const auto profiles = auth_handler.AllProfiles();
+    ASSERT_EQ(profiles.size(), 2);
+    for (const auto &[name, profile] : profiles) {
+      ASSERT_TRUE(name == "profile" || name == "other_profile");
+      ASSERT_EQ(profile.size(), memgraph::auth::UserProfiles::kLimits.size());
+      for (const auto &[key, limit] : profile) {
+        ASSERT_NE(
+            std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), key),
+            memgraph::auth::UserProfiles::kLimits.end());
+      }
+    }
+  }
+  ASSERT_NO_THROW(auth_handler.DropProfile("profile", nullptr));
+  {
+    const auto profiles = auth_handler.AllProfiles();
+    ASSERT_EQ(profiles.size(), 1);
+    const auto &[name, profile] = profiles[0];
+    ASSERT_TRUE(name == "other_profile");
+    ASSERT_EQ(profile.size(), memgraph::auth::UserProfiles::kLimits.size());
+    for (const auto &[key, limit] : profile) {
+      ASSERT_NE(
+          std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), key),
+          memgraph::auth::UserProfiles::kLimits.end());
+    }
+  }
+  ASSERT_NO_THROW(auth_handler.DropProfile("other_profile", nullptr));
+  {
+    const auto profiles = auth_handler.AllProfiles();
+    ASSERT_EQ(profiles.size(), 0);
+  }
+}
+
+TEST_F(AuthQueryHandlerFixture, SetProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("other_profile", "user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_THROW(auth_handler.SetProfile("non_profile", "user", nullptr), memgraph::query::QueryRuntimeException);
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_THROW(auth_handler.SetProfile("profile", "non_user", nullptr), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, RevokeProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.RevokeProfile("user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.RevokeProfile("user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("other_profile", "user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.RevokeProfile("user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_THROW(auth_handler.RevokeProfile("non_user", nullptr), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("role", nullptr));
+  auth_handler.SetRole("user", "role", nullptr);
+
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "role", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "role", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("other_profile", "role", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], mem_limit}}, nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], unlimited}}, nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  ASSERT_THROW(auth_handler.SetProfile("non_profile", "role", nullptr), memgraph::query::QueryRuntimeException);
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  ASSERT_NO_THROW(auth_handler.RevokeProfile("role", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("other_profile", "role", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  auth_handler.ClearRole("user", nullptr);
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.SetRole("user", "role", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, mem_limit.mem_limit.value * mem_limit.mem_limit.scale);
+  }
+  auth_handler.DropRole("role", nullptr);
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+}
+
+TEST_F(AuthQueryHandlerFixture, GetProfileForUser) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+
+  ASSERT_FALSE(auth_handler.GetProfileForUser("user"));
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user", nullptr));
+  {
+    const auto profile = auth_handler.GetProfileForUser("user");
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile.value(), "profile");
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("other_profile", "user", nullptr));
+  {
+    const auto profile = auth_handler.GetProfileForUser("user");
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile.value(), "other_profile");
+  }
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_NO_THROW(auth_handler.DropProfile("other_profile", nullptr));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+  ASSERT_FALSE(auth_handler.GetProfileForUser("user"));
+
+  ASSERT_THROW(auth_handler.GetProfileForUser("non_user"), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, GetProfileForRole) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateRole("role", nullptr));
+
+  ASSERT_FALSE(auth_handler.GetProfileForRole("role"));
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "role", nullptr));
+  {
+    const auto profile = auth_handler.GetProfileForRole("role");
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile.value(), "profile");
+  }
+  ASSERT_NO_THROW(auth_handler.SetProfile("other_profile", "role", nullptr));
+  {
+    const auto profile = auth_handler.GetProfileForRole("role");
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile.value(), "other_profile");
+  }
+
+  ASSERT_TRUE(auth_handler.CreateUser("user", {}, nullptr));
+  auth_handler.SetRole("user", "role", nullptr);
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+
+  ASSERT_NO_THROW(auth_handler.DropProfile("other_profile", nullptr));
+  ASSERT_FALSE(auth_handler.GetProfileForRole("role"));
+  {
+    const auto resource = resources.GetUser("user");
+    ASSERT_EQ(resource->GetSessions().second, -1);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
+  }
+
+  ASSERT_THROW(auth_handler.GetProfileForRole("non_role"), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, GetUsersForProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user3", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user4", {}, nullptr));
+
+  ASSERT_EQ(auth_handler.GetUsernamesForProfile("profile").size(), 0);
+
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user1", nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user2", nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "user3", nullptr));
+  {
+    const auto users = auth_handler.GetUsernamesForProfile("profile");
+    ASSERT_EQ(users.size(), 3);
+    ASSERT_TRUE(std::find(users.begin(), users.end(), "user1") != users.end());
+    ASSERT_TRUE(std::find(users.begin(), users.end(), "user2") != users.end());
+    ASSERT_TRUE(std::find(users.begin(), users.end(), "user3") != users.end());
+  }
+  ASSERT_NO_THROW(auth_handler.RevokeProfile("user2", nullptr));
+  {
+    const auto users = auth_handler.GetUsernamesForProfile("profile");
+    ASSERT_EQ(users.size(), 2);
+    ASSERT_TRUE(std::find(users.begin(), users.end(), "user1") != users.end());
+    ASSERT_TRUE(std::find(users.begin(), users.end(), "user3") != users.end());
+  }
+  ASSERT_NO_THROW(auth_handler.DropUser("user3", nullptr));
+  {
+    const auto users = auth_handler.GetUsernamesForProfile("profile");
+    ASSERT_EQ(users.size(), 1);
+    ASSERT_TRUE(std::find(users.begin(), users.end(), "user1") != users.end());
+  }
+  ASSERT_THROW(auth_handler.GetUsernamesForProfile("non_profile"), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, GetRolesForProfile) {
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("other_profile", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "other_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], quantity}},
+      nullptr));
+
+  ASSERT_TRUE(auth_handler.CreateRole("role1", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("role2", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("role3", nullptr));
+  ASSERT_TRUE(auth_handler.CreateRole("role4", nullptr));
+
+  ASSERT_EQ(auth_handler.GetRolenamesForProfile("profile").size(), 0);
+
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "role1", nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "role2", nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("profile", "role3", nullptr));
+  {
+    const auto rolenames = auth_handler.GetRolenamesForProfile("profile");
+    ASSERT_EQ(rolenames.size(), 3);
+    ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role1") != rolenames.end());
+    ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role2") != rolenames.end());
+    ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role3") != rolenames.end());
+  }
+  ASSERT_NO_THROW(auth_handler.RevokeProfile("role2", nullptr));
+  {
+    const auto rolenames = auth_handler.GetRolenamesForProfile("profile");
+    ASSERT_EQ(rolenames.size(), 2);
+    ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role1") != rolenames.end());
+    ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role3") != rolenames.end());
+  }
+  ASSERT_NO_THROW(auth_handler.DropRole("role3", nullptr));
+  {
+    const auto rolenames = auth_handler.GetRolenamesForProfile("profile");
+    ASSERT_EQ(rolenames.size(), 1);
+    ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role1") != rolenames.end());
+  }
+  ASSERT_THROW(auth_handler.GetRolenamesForProfile("non_profile"), memgraph::query::QueryRuntimeException);
+}
+
 #endif

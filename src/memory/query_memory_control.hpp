@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include "utils/query_memory_tracker.hpp"
+#include "utils/resource_monitoring.hpp"
 
 namespace memgraph::memory {
 
@@ -42,6 +43,9 @@ void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker);
 // API function call to stop tracking current thread.
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThread();
+
+void StartTrackingUserResource(utils::UserResources *resource);
+void StopTrackingUserResource();
 
 // Is query's memory tracked
 bool IsQueryTracked();
