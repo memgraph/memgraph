@@ -13,8 +13,8 @@
 
 #include <compare>
 #include <cstdint>
-#include <span>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -106,6 +106,7 @@ struct PropertyPath {
 
   PropertyId front() const { return properties_.front(); }
   PropertyId back() const { return properties_.back(); }
+
  private:
   std::vector<PropertyId> properties_;
 };
@@ -153,6 +154,17 @@ struct hash<memgraph::storage::LabelPropKey> {
     boost::hash_combine(seed, lpk.label().AsUint());
     boost::hash_combine(seed, lpk.property().AsUint());
     return seed;
+  }
+};
+
+template <>
+struct hash<memgraph::storage::PropertyPath> {
+  std::size_t operator()(memgraph::storage::PropertyPath const &path) const noexcept {
+    return std::accumulate(path.cbegin(), path.cend(), size_t{},
+                           [](size_t seed, memgraph::storage::PropertyId property_id) {
+                             boost::hash_combine(seed, property_id.AsUint());
+                             return seed;
+                           });
   }
 };
 
