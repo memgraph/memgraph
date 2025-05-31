@@ -21,6 +21,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/disk_utils.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
 
@@ -39,7 +40,7 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     Transaction *transaction) const {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, std::array{property},
+  return mem_label_property_index->Vertices(label, std::array{PropertyPath{property}},
                                             std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
                                             vertices_.access(), view, storage, transaction);
 }
@@ -49,7 +50,7 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool const res = mem_label_property_index->CreateIndex(label, {property}, vertices_.access(), parallel_exec_info);
+  bool const res = mem_label_property_index->CreateIndex(label, {{property}}, vertices_.access(), parallel_exec_info);
   if (res) {
     scanned_label_properties_.insert({label, property});
   }

@@ -185,6 +185,98 @@ def test_label_property_index_hint(memgraph):
     assert explain_no_hint == expected_explain_no_hint and explain_with_hint == expected_explain_with_hint
 
 
+def test_label_property_nested_index_hint(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label1(a.b, c.d);")
+    memgraph.execute("CREATE INDEX ON :Label2(a.b, c.d);")
+
+    explain_with_hint_label1 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a.b, c.d) MATCH (x:Label1)-[r]->(y:Label2) WHERE x.a.b = 23 AND y.a.b = 24 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label1 = [
+        " * Produce {r, x, y}",
+        " * Filter (y :Label2), {y.a.b}",
+        " * Expand (x)-[r]->(y)",
+        " * ScanAllByLabelProperties (x :Label1 {a.b, c.d})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label1 == expected_explain_with_hint_label1
+
+    explain_with_hint_label2 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label2(a.b, c.d) MATCH (x:Label1)-[r]->(y:Label2) WHERE x.a.b = 23 AND y.a.b = 24 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label2 = [
+        " * Produce {r, x, y}",
+        " * Filter (x :Label1), {x.a.b}",
+        " * Expand (y)<-[r]-(x)",
+        " * ScanAllByLabelProperties (y :Label2 {a.b, c.d})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label2 == expected_explain_with_hint_label2
+
+
+def test_label_property_composite_index_hint_prefix(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label1(a);")
+    memgraph.execute("CREATE INDEX ON :Label1(a, b.c);")
+    memgraph.execute("CREATE INDEX ON :Label1(a, b.c, d.e.f);")
+
+    explain_with_hint_label1 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a) MATCH (x:Label1) WHERE x.a = 42 AND x.b.c = 23 AND x.d.e.f = 11 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label1 = [
+        " * Produce {x}",
+        " * Filter {x.b.c}, {x.d.e.f}",
+        " * ScanAllByLabelProperties (x :Label1 {a})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label1 == expected_explain_with_hint_label1
+
+    explain_with_hint_label2 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a, b.c) MATCH (x:Label1) WHERE x.a = 42 AND x.b.c = 23 AND x.d.e.f = 11 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label2 = [
+        " * Produce {x}",
+        " * Filter {x.d.e.f}",
+        " * ScanAllByLabelProperties (x :Label1 {a, b.c})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label2 == expected_explain_with_hint_label2
+
+    explain_with_hint_label3 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a, b.c, d.e.f) MATCH (x:Label1) WHERE x.a = 42 AND x.b.c = 23 AND x.d.e.f = 11 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label3 = [
+        " * Produce {x}",
+        " * ScanAllByLabelProperties (x :Label1 {a, b.c, d.e.f})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label3 == expected_explain_with_hint_label3
+
+
 def test_label_property_index_hint_alternative_orderings(memgraph):
     memgraph.execute("FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i}));")
     memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label {id2: i % 5}));")

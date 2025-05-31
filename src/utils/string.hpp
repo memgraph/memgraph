@@ -135,20 +135,24 @@ inline std::string ToUpperCase(const std::string_view s) {
  * Join the `strings` collection separated by a given separator into `out`.
  * @return pointer to `out`.
  */
-template <class TCollection, class TAllocator>
-std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const TCollection &strings,
-    const std::string_view separator) {
+template <class TAllocator, std::ranges::forward_range Range>
+auto Join(std::basic_string<char, std::char_traits<char>, TAllocator> *out, Range const &strings,
+          const std::string_view separator) -> std::basic_string<char, std::char_traits<char>, TAllocator> * {
   out->clear();
   if (strings.empty()) return out;
-  int64_t total_size = 0;
-  for (const auto &x : strings) {
-    total_size += x.size();
+
+  if constexpr (std::ranges::sized_range<Range>) {
+    // Initial pass to precompute total size
+    int64_t total_size = separator.size() * (static_cast<int64_t>(strings.size()) - 1);
+    for (const auto &x : strings) {
+      total_size += x.size();
+    }
+    out->reserve(total_size);
   }
-  total_size += separator.size() * (static_cast<int64_t>(strings.size()) - 1);
-  out->reserve(total_size);
-  *out += strings[0];
-  for (auto it = strings.begin() + 1; it != strings.end(); ++it) {
+
+  *out += *strings.begin();
+  auto const e = strings.end();
+  for (auto it = std::next(strings.begin()); it != e; ++it) {
     *out += separator;
     *out += *it;
   }

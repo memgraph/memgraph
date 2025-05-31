@@ -28,6 +28,7 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
 using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
 using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
+namespace ms = memgraph::storage;
 
 /** A fixture for cost estimation. Sets up the database
  * and accessor (adds some vertices). Provides convenience
@@ -36,13 +37,14 @@ using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
-  std::optional<std::unique_ptr<memgraph::storage::Storage::Accessor>> storage_dba;
+  std::unique_ptr<ms::Storage> db = std::make_unique<ms::InMemoryStorage>();
+  std::optional<std::unique_ptr<ms::Storage::Accessor>> storage_dba;
   std::optional<memgraph::query::DbAccessor> dba;
-  memgraph::storage::LabelId label = db->NameToLabel("label");
-  memgraph::storage::PropertyId prop_a = db->NameToProperty("a");
-  memgraph::storage::PropertyId prop_b = db->NameToProperty("b");
-  memgraph::storage::PropertyId prop_c = db->NameToProperty("c");
+  ms::LabelId label = db->NameToLabel("label");
+  ms::PropertyId prop_a = db->NameToProperty("a");
+  ms::PropertyId prop_b = db->NameToProperty("b");
+  ms::PropertyId prop_c = db->NameToProperty("c");
+  ms::PropertyId prop_d = db->NameToProperty("d");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -69,6 +71,12 @@ class QueryCostEstimator : public ::testing::Test {
       ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_c, prop_a, prop_b}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label, {ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}})
+                       .HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());
   }
@@ -84,9 +92,14 @@ class QueryCostEstimator : public ::testing::Test {
         ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       }
       if (i < property_count) {
-        ASSERT_TRUE(vertex.SetProperty(prop_a, memgraph::storage::PropertyValue(i)).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(prop_b, memgraph::storage::PropertyValue(i)).HasValue());
-        ASSERT_TRUE(vertex.SetProperty(prop_c, memgraph::storage::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(prop_a, ms::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(prop_b, ms::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(prop_c, ms::PropertyValue(i)).HasValue());
+
+        ASSERT_TRUE(vertex
+                        .SetProperty(prop_d, ms::PropertyValue{ms::PropertyValue::map_t{
+                                                 {prop_a, ms::PropertyValue(i)}, {prop_b, ms::PropertyValue(i)}}})
+                        .HasValue());
       }
     }
 
@@ -113,7 +126,7 @@ class QueryCostEstimator : public ::testing::Test {
   template <typename TValue>
   Expression *Parameter(TValue value) {
     int token_position = parameters_.size();
-    parameters_.Add(token_position, memgraph::storage::ExternalPropertyValue(value));
+    parameters_.Add(token_position, ms::ExternalPropertyValue(value));
     return storage_.Create<ParameterLookup>(token_position);
   }
 
@@ -144,7 +157,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Equal(const_val)});
     EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
   }
@@ -154,7 +167,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{prop_a},
+        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
         std::vector{ExpressionRange::Equal(storage_.Create<UnaryPlusOperator>(const_val))});
     // once we make expression const-folding this test case will fail
     EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelProperties);
@@ -164,7 +177,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesConstExpr) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesUpperConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Range(std::nullopt, InclusiveBound(const_val))});
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(13 * CostParam::kScanAllByLabelProperties);
@@ -174,7 +187,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesUpperConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesLowerConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(17), Parameter(17)}) {
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Range(InclusiveBound(const_val), std::nullopt)});
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(3 * CostParam::kScanAllByLabelProperties);
@@ -187,7 +200,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertieRangeConstExpr) {
     auto bound = std::make_optional(
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
 
-    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{prop_a},
+    MakeOp<ScanAllByLabelProperties>(nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_a}},
                                      std::vector{ExpressionRange::Range(bound, std::nullopt)});
 
     EXPECT_COST(20 * CardParam::kFilter * CostParam::kScanAllByLabelProperties);
@@ -200,7 +213,8 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite) {
     auto bound = InclusiveBound(const_val);
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{prop_c, prop_a, prop_b},
+        nullptr, NextSymbol(), label,
+        std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(bound, bound),
                     ExpressionRange::Range(bound, bound)});
 
@@ -215,7 +229,8 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite_CostIs0IfPropIsNotI
     auto bound = InclusiveBound(const_val);
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{prop_c, prop_a, prop_b},
+        nullptr, NextSymbol(), label,
+        std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound),
                     ExpressionRange::Range(bound, bound)});
 
@@ -232,24 +247,72 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesComposite_EstimateCostWhenOpC
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
 
     MakeOp<ScanAllByLabelProperties>(
-        nullptr, NextSymbol(), label, std::vector{prop_c, prop_a, prop_b},
+        nullptr, NextSymbol(), label,
+        std::vector{ms::PropertyPath{prop_c}, ms::PropertyPath{prop_a}, ms::PropertyPath{prop_b}},
         std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound),
                     ExpressionRange::Range(bound, bound)});
 
+    // This computation is based on having 60 vertices in the index. Technically
+    // incorrect, as we only have 20, but each time we set a property `a`, `b`,
+    // or `c`, an new index entry is created. We over-estimate the cost by
+    // a factor or 3. We could account for this in the costing?
     EXPECT_COST(15 * CostParam::kScanAllByLabelProperties);
+  }
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    auto bound = InclusiveBound(const_val);
+
+    MakeOp<ScanAllByLabelProperties>(
+        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
+        std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(bound, bound)});
+
+    EXPECT_COST(1 * CostParam::kScanAllByLabelProperties);
+  }
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested_CostIs0IfPropIsNotInRange) {
+  AddVertices(100, 30, 20);
+  auto b_bound = InclusiveBound(Literal(1000));
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    auto bound = InclusiveBound(const_val);
+
+    MakeOp<ScanAllByLabelProperties>(
+        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
+        std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound)});
+
+    EXPECT_COST(CostParam::kMinimumCost);
+  }
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertiesCompositeNested_EstimateCostWhenOpCannotUseExactValues) {
+  AddVertices(100, 30, 20);
+
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    auto bound = InclusiveBound(const_val);
+    auto b_bound = std::make_optional(
+        memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
+
+    MakeOp<ScanAllByLabelProperties>(
+        nullptr, NextSymbol(), label, std::vector{ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}},
+        std::vector{ExpressionRange::Range(bound, bound), ExpressionRange::Range(b_bound, b_bound)});
+
+    EXPECT_COST(5 * CostParam::kScanAllByLabelProperties);
   }
 }
 
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                 std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
+                 std::vector<ms::EdgeTypeId>{}, false, ms::View::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
-                         EdgeAtom::Direction::IN, std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, nullptr,
-                         false, ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt);
+                         EdgeAtom::Direction::IN, std::vector<ms::EdgeTypeId>{}, false, nullptr, nullptr, false,
+                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 

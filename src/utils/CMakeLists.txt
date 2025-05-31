@@ -43,6 +43,7 @@ target_sources(mg-utils
     scheduler.hpp
     priority_thread_pool.hpp
     barrier.hpp
+    transparent_compare.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

@@ -26,6 +26,7 @@
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
+#include "utils/transparent_compare.hpp"
 
 namespace memgraph::query::plan {
 
@@ -398,15 +399,21 @@ class PropertyFilter {
   /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, const std::optional<Bound> &,
                  const std::optional<Bound> &);
+  /// Construct with Expression being the equality or regex match check used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIxPath, Expression *, Type);
+  /// Construct the range based filter used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIxPath, const std::optional<Bound> &,
+                 const std::optional<Bound> &);
   /// Construct a filter without an expression that produces a value.
   /// Used for the "PROP IS NOT NULL" filter, and can be used for any
   /// property filter that doesn't need to use an expression to produce
   /// values that should be filtered further.
   PropertyFilter(Symbol, PropertyIx, Type);
+  PropertyFilter(Symbol, PropertyIxPath, Type);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
-  PropertyIx property_;
+  PropertyIxPath property_ids_;
   Type type_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
@@ -546,7 +553,7 @@ class Filters final {
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
-  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
+  auto FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -672,12 +679,11 @@ inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector
   return or_labels;
 }
 
-inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
-  std::unordered_set<PropertyIx> properties;
-
+inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath> {
+  std::set<PropertyIxPath> properties;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
-      properties.insert(filter.property_filter->property_);
+      properties.insert(filter.property_filter->property_ids_);
     }
   }
   return properties;

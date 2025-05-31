@@ -13,7 +13,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <set>
 #include <string>
 
@@ -34,6 +33,10 @@
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
+namespace memgraph::storage {
+class NameIdMapper;
+};
+
 namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a WAL.
@@ -52,10 +55,38 @@ struct WalInfo {
 template <auto MIN_VER, typename Type>
 struct VersionDependant {};
 
+// Note this is highly composable
+// `Before` can also be VersionDependantUpgradable:
+// e.g. VersionDependantUpgradable<10, VersionDependantUpgradable<9, int, int, AddOne>, int, Multiply2>
+// if version read was < 9
+// - version is less than 10 so does its Before -> VersionDependantUpgradable<9, int, int, AddOne>
+// - version is less than 9 so does its Before -> int
+// - Inner VersionDependantUpgradable gets int, applies AddOne to get a new int
+// - Outer VersionDependantUpgradable gets int, applies Multiply2 to get a new int
 template <auto MIN_VER, typename Before, typename After, auto Upgrader>
 struct VersionDependantUpgradable {};
 
 // Common structures used by more than one WAL Delta
+
+using CompositeStr = std::vector<std::string>;
+inline auto UpgradeForCompositeIndices(std::string v) -> CompositeStr { return std::vector{std::move(v)}; };
+using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
+                                                            CompositeStr, UpgradeForCompositeIndices>;
+
+struct CompositePropertyPaths;
+using PathStr = std::vector<std::string>;
+auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr>;
+using UpgradableSingularPaths =
+    VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty, std::vector<PathStr>, UpgradeForNestedIndices>;
+
+struct CompositePropertyPaths {
+  friend bool operator==(CompositePropertyPaths const &, CompositePropertyPaths const &) = default;
+  using ctr_types = std::tuple<UpgradableSingularPaths>;
+  std::vector<PathStr> property_paths_;
+
+  auto convert(memgraph::storage::NameIdMapper *mapper) const -> std::vector<memgraph::storage::PropertyPath>;
+};
+
 struct VertexOpInfo {
   friend bool operator==(const VertexOpInfo &, const VertexOpInfo &) = default;
   using ctr_types = std::tuple<Gid>;
@@ -88,12 +119,9 @@ struct LabelPropertyOpInfo {
 };
 struct LabelOrderedPropertiesOpInfo {
   friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
-  using ctr_types =
-      std::tuple<std::string,
-                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
-                                            [](std::string v) { return std::vector{v}; }>>;
+  using ctr_types = std::tuple<std::string, CompositePropertyPaths>;
   std::string label;
-  std::vector<std::string> properties;
+  CompositePropertyPaths composite_property_paths;
 };
 
 struct LabelUnorderedPropertiesOpInfo {
@@ -184,13 +212,9 @@ struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
 struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
 struct WalLabelPropertyIndexStatsSet {
   friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
-  using ctr_types =
-      std::tuple<std::string,
-                 VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string, std::vector<std::string>,
-                                            [](std::string v) { return std::vector{v}; }>,
-                 std::string>;
+  using ctr_types = std::tuple<std::string, CompositePropertyPaths, std::string>;
   std::string label;
-  std::vector<std::string> properties;
+  CompositePropertyPaths composite_property_paths;
   std::string json_stats;
 };
 struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
@@ -368,14 +392,14 @@ void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, En
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                           std::vector<PropertyId> const &properties);
+                           std::span<PropertyPath const> properties);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties);
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
                           TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats);
+                              std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
@@ -467,3 +491,28 @@ class WalFile {
 };
 
 }  // namespace memgraph::storage::durability
+
+template <>
+class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) {
+    auto out = ctx.out();
+    bool first_path = true;
+
+    for (auto const &path : wrapper.property_paths_) {
+      if (!first_path) out = fmt::format_to(out, ", ");
+      first_path = false;
+
+      bool first_id = true;
+      for (auto const &prop_name : path) {
+        if (!first_id) out = fmt::format_to(out, ".");
+        first_id = false;
+        out = fmt::format_to(out, "{}", prop_name);
+      }
+    }
+    return out;
+  }
+};

@@ -703,7 +703,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
 
-        const auto &property = filter.property_filter->property_;
+        const auto &property = filter.property_filter->property_ids_.path[0];
         if (!db_->EdgeTypePropertyIndexExists(GetEdgeType(edge_type), GetProperty(property))) {
           continue;
         }
@@ -725,7 +725,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      const auto &property = filter.property_filter->property_;
+      const auto &property = filter.property_filter->property_ids_.path[0];
       if (!db_->EdgePropertyIndexExists(GetProperty(property))) {
         continue;
       }
@@ -747,7 +747,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      const auto &property = filter.property_filter->property_;
+      const auto &property = filter.property_filter->property_ids_.path[0];
       if (!db_->EdgeTypePropertyIndexExists(edge_type_from_relationship.value(), GetProperty(property))) {
         continue;
       }
@@ -877,7 +877,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
         return std::make_unique<ScanAllByEdgeTypePropertyRange>(
             input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_), prop_filter.lower_bound_,
+            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_ids_.path[0]), prop_filter.lower_bound_,
             prop_filter.upper_bound_, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
@@ -886,8 +886,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
         return std::make_unique<ScanAllByEdgeTypePropertyRange>(
             input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_), std::make_optional(lower_bound),
-            std::nullopt, view);
+            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_ids_.path[0]),
+            std::make_optional(lower_bound), std::nullopt, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperties + Filter should be considered
@@ -898,17 +898,17 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
         return std::make_unique<ScanAllByEdgeTypePropertyValue>(
             std::move(unwind_operator), common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_), expression, view);
+            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_ids_.path[0]), expression, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
         return std::make_unique<ScanAllByEdgeTypeProperty>(
             input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_), view);
+            GetEdgeType(found_index.value()), GetProperty(prop_filter.property_ids_.path[0]), view);
       }
       MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
       return std::make_unique<ScanAllByEdgeTypePropertyValue>(
           input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-          GetEdgeType(*found_index), GetProperty(prop_filter.property_), prop_filter.value_, view);
+          GetEdgeType(*found_index), GetProperty(prop_filter.property_ids_.path[0]), prop_filter.value_, view);
     }
 
     // if no edge type property index found, we try to see if we can add an index from the relationship
@@ -948,7 +948,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return std::make_unique<ScanAllByEdgePropertyRange>(
           input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-          GetProperty(prop_filter.property_), prop_filter.lower_bound_, prop_filter.upper_bound_, view);
+          GetProperty(prop_filter.property_ids_.path[0]), prop_filter.lower_bound_, prop_filter.upper_bound_, view);
     }
     if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
       // Generate index scan using the empty string as a lower bound.
@@ -956,7 +956,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto lower_bound = utils::MakeBoundInclusive(empty_string);
       return std::make_unique<ScanAllByEdgePropertyRange>(
           input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
-          GetProperty(prop_filter.property_), std::make_optional(lower_bound), std::nullopt, view);
+          GetProperty(prop_filter.property_ids_.path[0]), std::make_optional(lower_bound), std::nullopt, view);
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       // TODO(buda): ScanAllByLabelProperties + Filter should be considered
@@ -965,19 +965,19 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
       expression->MapTo(symbol);
       auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
-      return std::make_unique<ScanAllByEdgePropertyValue>(std::move(unwind_operator), common.edge_symbol,
-                                                          common.node1_symbol, common.node2_symbol, common.direction,
-                                                          GetProperty(prop_filter.property_), expression, view);
+      return std::make_unique<ScanAllByEdgePropertyValue>(
+          std::move(unwind_operator), common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
+          GetProperty(prop_filter.property_ids_.path[0]), expression, view);
     }
     if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
       return std::make_unique<ScanAllByEdgeProperty>(input, common.edge_symbol, common.node1_symbol,
                                                      common.node2_symbol, common.direction,
-                                                     GetProperty(prop_filter.property_), view);
+                                                     GetProperty(prop_filter.property_ids_.path[0]), view);
     }
     MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
-    return std::make_unique<ScanAllByEdgePropertyValue>(input, common.edge_symbol, common.node1_symbol,
-                                                        common.node2_symbol, common.direction,
-                                                        GetProperty(prop_filter.property_), prop_filter.value_, view);
+    return std::make_unique<ScanAllByEdgePropertyValue>(
+        input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
+        GetProperty(prop_filter.property_ids_.path[0]), prop_filter.value_, view);
   }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {

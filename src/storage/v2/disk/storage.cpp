@@ -597,16 +597,17 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                      std::span<storage::PropertyValueRange const> property_ranges,
                                                      View view) {
   if (properties.size() != 1) throw utils::NotYetImplemented("composite index");
+  if (properties[0].size() != 1) throw utils::NotYetImplemented("nested index");
 
   auto const &range{property_ranges.front()};
   if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    return Vertices(label, properties.front(), view);
+    return Vertices(label, properties[0][0], view);
   } else {
-    return Vertices(label, properties.front(), range.lower_, range.upper_, view);
+    return Vertices(label, properties[0][0], range.lower_, range.upper_, view);
   }
 }
 
@@ -2048,18 +2049,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> properties) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
   }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
+  }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->CreateIndex(label, properties[0],
-                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0]))) {
+  if (!disk_label_property_index->CreateIndex(
+          label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
@@ -2100,11 +2104,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
+  }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
   }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2113,6 +2120,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);

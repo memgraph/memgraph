@@ -1836,6 +1836,21 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   friend class AstStorage;
 };
 
+struct PropertyIxPath {
+  PropertyIxPath(std::vector<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+  PropertyIxPath(std::initializer_list<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+
+  std::vector<memgraph::query::PropertyIx> path;
+
+  auto AsPathString() const -> std::string {
+    return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
+  }
+  auto Clone(AstStorage *storage) const -> PropertyIxPath;
+  friend bool operator==(PropertyIxPath const &, PropertyIxPath const &) = default;
+  friend bool operator<(PropertyIxPath const &, PropertyIxPath const &) = default;
+  friend auto operator<=>(PropertyIxPath const &, PropertyIxPath const &) = default;
+};
+
 struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -1845,7 +1860,7 @@ struct IndexHint {
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::vector<memgraph::query::PropertyIx> property_ixs_;
+  std::vector<PropertyIxPath> property_ixs_;
 
   IndexHint Clone(AstStorage *storage) const;
 };
@@ -1977,21 +1992,21 @@ class IndexQuery : public memgraph::query::Query {
 
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
-  std::vector<memgraph::query::PropertyIx> properties_;
+  std::vector<query::PropertyIxPath> properties_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
     object->action_ = action_;
     object->label_ = storage->GetLabelIx(label_.name);
-    object->properties_.resize(properties_.size());
-    for (auto i = 0; i < object->properties_.size(); ++i) {
-      object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
+    object->properties_.reserve(properties_.size());
+    for (auto const &prop_path : properties_) {
+      object->properties_.emplace_back(prop_path.Clone(storage));
     }
     return object;
   }
 
  protected:
-  IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
+  IndexQuery(Action action, LabelIx label, std::vector<PropertyIxPath> properties)
       : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
@@ -2027,7 +2042,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<PropertyIx> properties)
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<memgraph::query::PropertyIx> properties)
       : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
@@ -3717,3 +3732,26 @@ class SessionTraceQuery : public memgraph::query::Query {
 };
 
 }  // namespace memgraph::query
+
+template <>
+class fmt::formatter<memgraph::query::PropertyIxPath> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) {
+    auto out = ctx.out();
+
+    if (!wrapper.path.empty()) {
+      auto it = wrapper.path.begin();
+      auto const e = wrapper.path.end();
+      out = fmt::format_to(out, "{}", it->name);
+      ++it;
+      while (it != e) {
+        out = fmt::format_to(out, ".{}", it->name);
+        ++it;
+      }
+    }
+    return out;
+  }
+};

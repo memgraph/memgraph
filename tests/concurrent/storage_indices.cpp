@@ -15,6 +15,7 @@
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "utils/thread.hpp"
@@ -148,7 +149,8 @@ TEST(Storage, LabelPropertyIndex) {
         }
         {
           auto acc = store->Access();
-          auto vertices = acc->Vertices(label, std::array{prop}, memgraph::storage::View::OLD);
+          auto vertices =
+              acc->Vertices(label, std::array{memgraph::storage::PropertyPath{prop}}, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {

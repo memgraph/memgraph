@@ -11,6 +11,8 @@
 
 #include "label_property_index.hpp"
 
+#include <span>
+
 namespace r = ranges;
 namespace rv = r::views;
 
@@ -50,11 +52,11 @@ auto build_permutation_cycles(std::span<std::size_t const> permutation_index)
 }
 }  // end namespace
 
-PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyId const> properties)
+PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath const> properties)
     : sorted_properties_(properties.begin(), properties.end()) {
   auto inverse_permutation = rv::iota(size_t{}, properties.size()) | r::to_vector;
   r::sort(rv::zip(inverse_permutation, sorted_properties_), std::less{},
-          [](auto const &value) -> decltype(auto) { return (std::get<1>(value)); });
+          [](auto const &value) -> decltype(auto) { return std::get<1>(value); });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
 }
@@ -76,14 +78,22 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
   return {std::move(values)};
 }
 
-auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
+auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
-    -> std::optional<std::pair<std::ptrdiff_t, bool>> {
-  auto it = std::ranges::find(sorted_properties_, property_id);
-  if (it == sorted_properties_.end()) return std::nullopt;
+    -> std::vector<std::pair<std::ptrdiff_t, bool>> {
+  auto enum_properties = rv::enumerate(sorted_properties_);
+  auto relevant_paths =
+      r::equal_range(enum_properties, outer_prop_id, {}, [&](auto &&el) { return std::get<1>(el)[0]; });
 
-  auto pos = std::distance(sorted_properties_.begin(), it);
-  return std::pair{pos, values.values_[position_lookup_[pos]] == value};
+  auto is_match = [&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
+    auto &&[index, path] = el;
+    auto const &cmp_value = values.values_[position_lookup_[index]];
+    // Outer property was already read to get `value`, strip that off of the path
+    DMG_ASSERT(!path.empty(), "PropertyPath should be at least 1");
+    auto const *nested_value = ReadNestedPropertyValue(value, path | rv::drop(1));
+    return {index, nested_value && *nested_value == cmp_value};
+  };
+  return relevant_paths | rv::transform(is_match) | r::to_vector;
 }
 
 auto PropertiesPermutationHelper::MatchesValues(PropertyStore const &properties,
