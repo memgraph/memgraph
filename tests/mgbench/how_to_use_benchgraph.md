@@ -165,6 +165,25 @@ To run this on memgraph, the command looks like this:
 
 ```python3 benchmark.py vendor-docker --vendor-name memgraph-docker benchmarks demo/*/*/* --export-results results.json --no-authorization```
 
+## Running Benchmarks with the `mgbench-client` Docker Image
+
+You can use the `memgraph/mgbench-client:<version>-full` Docker image to benchmark a Memgraph instance, just as you would by invoking `benchmark.py`. For example:
+
+```bash
+docker run --rm --network host --name mgbench \
+  memgraph/mgbench-client:0.0.4-full \
+  external-vendor \
+  --num-workers-for-benchmark 4 \
+  --export-results=benchmark_result.json \
+  --no-authorization \
+  pokec/small/arango/single_vertex_write \
+  --client-bolt-address 192.168.1.100
+```
+
+* **Image tag**: Replace `0.0.4` with the actual version of `mgbench-client` you’re using.
+* **`-full` suffix**: This variant includes the benchmarking code; the tag without `-full` contains only the client binary.
+* **`--client-bolt-address`**: IP or hostname of your Memgraph server (e.g. `192.168.1.100`).
+
 ## How to configure benchmark run
 
 Hopefully, you should get logs from `benchmark.py` process managing the benchmark and execution from the command above. The script takes a lot of arguments. Some used in the run above are self-explanatory. But let's break down the most important ones:
