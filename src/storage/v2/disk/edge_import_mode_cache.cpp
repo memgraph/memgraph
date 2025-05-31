@@ -37,11 +37,12 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) const {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, std::array{property},
-                                            std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
-                                            vertices_.access(), view, storage, transaction);
+  auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
+  auto *active_indices = static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get());
+
+  return active_indices->Vertices(label, std::array{property},
+                                  std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)}, vertices_.access(),
+                                  view, storage, transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(
@@ -49,11 +50,16 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool const res = mem_label_property_index->CreateIndex(label, {property}, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_label_properties_.insert({label, property});
-  }
-  return res;
+  bool const res = mem_label_property_index->RegisterIndex(label, std::array{property});
+  if (!res) return false;
+
+  auto res2 = mem_label_property_index->PopulateIndex(label, {property}, vertices_.access(), parallel_exec_info);
+  if (res2.HasError()) return false;
+
+  mem_label_property_index->PublishIndex(label, std::array{property});
+
+  scanned_label_properties_.insert({label, property});
+  return true;
 }
 
 bool EdgeImportModeCache::CreateIndex(

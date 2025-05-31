@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "label_property_index.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -76,6 +77,22 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
   return {std::move(values)};
 }
 
+auto PropertiesPermutationHelper::ApplyPermutation(std::map<PropertyId, PropertyValue> &&values) const
+    -> IndexOrderedPropertyValues {
+  // TODO: name is not correct, does more than ApplyPermutation
+  std::vector<PropertyValue> values_vec;
+  values_vec.reserve(sorted_properties_.size());
+  for (auto id : sorted_properties_) {
+    auto const it = values.find(id);
+    if (it == values.end()) {
+      values_vec.emplace_back();
+    } else {
+      values_vec.emplace_back(std::move(it->second));
+    }
+  }
+  return ApplyPermutation(std::move(values_vec));
+}
+
 auto PropertiesPermutationHelper::MatchesValue(PropertyId property_id, PropertyValue const &value,
                                                IndexOrderedPropertyValues const &values) const
     -> std::optional<std::pair<std::ptrdiff_t, bool>> {
@@ -101,6 +118,10 @@ size_t PropertyValueRange::hash() const noexcept {
   boost::hash_combine(seed, prop_value_hash(lower));
   boost::hash_combine(seed, prop_value_hash(upper));
   return seed;
+}
+
+void LabelPropertyIndex::AbortProcessor::process(LabelPropertyIndex &index, Transaction &tx) {
+  tx.active_indices_->AbortEntries(cleanup_collection, tx.start_timestamp);
 }
 
 }  // namespace memgraph::storage

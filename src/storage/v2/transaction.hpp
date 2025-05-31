@@ -25,6 +25,7 @@
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -47,7 +48,8 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, std::optional<uint64_t> last_durable_ts = std::nullopt)
+              PointIndexContext point_index_ctx, std::unique_ptr<LabelPropertyIndex::ActiveIndices> active_indices,
+              std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -66,6 +68,7 @@ struct Transaction {
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
+        active_indices_{std::move(active_indices)},
         last_durable_ts_{last_durable_ts} {}
 
   Transaction(Transaction &&other) noexcept = default;
@@ -144,6 +147,7 @@ struct Transaction {
   std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
   std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
+
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;
   /// Hold point index relevant to this txn+command
@@ -153,6 +157,8 @@ struct Transaction {
   /// Tracking schema changes done during the transaction
   LocalSchemaTracking schema_diff_;
   SchemaInfoPostProcess post_process_;
+
+  std::unique_ptr<LabelPropertyIndex::ActiveIndices> active_indices_;
 
   /// Query memory tracker
   std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
