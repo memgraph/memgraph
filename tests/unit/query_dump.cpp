@@ -264,10 +264,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &[label, properties] : info.label_properties) {
       using namespace std::string_literals;
-      auto properties_as_strings = properties | ranges::views::transform([&](auto &&path) {
-                                     return path | rv::transform([&](auto prop) { return dba->PropertyToName(prop); }) |
-                                            rv::join("."s) | r::to<std::string>();
-                                   }) |
+      auto properties_as_strings = properties |
+                                   ranges::views::transform([&](auto &&path) { return ToString(path, dba.get()); }) |
                                    ranges::to_vector;
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }

@@ -1403,10 +1403,8 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 
 std::string ScanAllByLabelProperties::ToString() const {
   // TODO: better diagnostics...info about expression_ranges_?
-  auto const property_names = properties_ | rv::transform([&](std::span<storage::PropertyId const> property_ids) {
-                                return utils::IterableToString(property_ids, ".", [&](auto &&property_id) {
-                                  return dba_->PropertyToName(property_id);
-                                });
+  auto const property_names = properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+                                return storage::ToString(property_path, dba_);
                               }) |
                               ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
