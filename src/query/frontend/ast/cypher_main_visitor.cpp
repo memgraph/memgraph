@@ -300,6 +300,18 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
   return cypher_query;
 }
 
+auto get_index_properties(auto &&ctx, CypherMainVisitor &cypher_main_visitor) -> std::vector<PropertyIxPath> {
+  auto const as_prop_ix = [&](auto &&property_key_name_ctx) {
+    return std::any_cast<PropertyIx>(property_key_name_ctx->accept(&cypher_main_visitor));
+  };
+
+  auto const as_prop_ix_path = [&](auto &&nested_property_key_names) -> PropertyIxPath {
+    return {nested_property_key_names->propertyKeyName() | srv::transform(as_prop_ix) | r::to_vector};
+  };
+
+  return ctx | srv::transform(as_prop_ix_path) | r::to_vector;
+}
+
 antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
   PreQueryDirectives pre_query_directives;
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
@@ -312,21 +324,12 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
               IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
           continue;
         }
-        std::vector<PropertyIxPath> property_ixs;
-        property_ixs.reserve(index_hint_ctx->nestedPropertyKeyNames().size());
-        for (auto &&nested_property_key_names : index_hint_ctx->nestedPropertyKeyNames()) {
-          auto nested_properties = nested_property_key_names->propertyKeyName() |
-                                   srv::transform([&](auto &&property_key_name_ctx) {
-                                     return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
-                                   }) |
-                                   ranges::to_vector;
-          property_ixs.emplace_back(std::move(nested_properties));
-        }
+
         pre_query_directives.index_hints_.emplace_back(
             // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
                       .label_ix_ = label,
-                      .property_ixs_ = std::move(property_ixs)});
+                      .property_ixs_ = get_index_properties(index_hint_ctx->nestedPropertyKeyNames(), *this)});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
@@ -386,18 +389,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   auto *index_query = storage_->Create<IndexQuery>();
 
   index_query->action_ = IndexQuery::Action::CREATE;
-
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-
-  auto const to_properties = [&](auto &&nested_property_key_names_ctx) {
-    auto as_prop_ix = [&](auto &&property_key_name_ctx) {
-      return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
-    };
-    return nested_property_key_names_ctx->propertyKeyName() | srv::transform(as_prop_ix) | ranges::to_vector;
-  };
-
-  index_query->properties_ =
-      ctx->nestedPropertyKeyNames() | srv::transform(to_properties) | ranges::to<std::vector<query::PropertyIxPath>>;
+  index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
 
   // Check composite properties are unique, and in the case of nested properties,
   // that the prefix is also unique (e.g. if we have `a.b`, `a.b.c` is
@@ -421,17 +414,7 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  index_query->properties_.reserve(ctx->nestedPropertyKeyNames().size());
-
-  auto const to_properties = [&](auto &&nested_property_key_names_ctx) {
-    auto as_prop_ix = [&](auto &&property_key_name_ctx) {
-      return std::any_cast<PropertyIx>(property_key_name_ctx->accept(this));
-    };
-    return nested_property_key_names_ctx->propertyKeyName() | srv::transform(as_prop_ix) | ranges::to_vector;
-  };
-
-  index_query->properties_ =
-      ctx->nestedPropertyKeyNames() | srv::transform(to_properties) | ranges::to<std::vector<query::PropertyIxPath>>;
+  index_query->properties_ = get_index_properties(ctx->nestedPropertyKeyNames(), *this);
 
   return index_query;
 }

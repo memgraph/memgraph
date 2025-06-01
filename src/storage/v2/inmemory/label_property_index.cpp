@@ -92,15 +92,10 @@ bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label, Prope
           if (resProp) {
             // Only test if so far everything has already matched
             if (all_matched) {
-              if (property_path.get().size() == 1) {
-                if (resProp->get() != value.get()) {
-                  all_matched = false;
-                }
-              } else {
-                auto const *nested_value_ptr = ReadNestedPropertyValue(*resProp, property_path.get() | rv::drop(1));
-                if (nested_value_ptr && *nested_value_ptr != value.get()) {
-                  all_matched = false;
-                }
+              auto const *nested_value_ptr = ReadNestedPropertyValue(*resProp, property_path.get() | rv::drop(1));
+              if ((nested_value_ptr && *nested_value_ptr != value.get()) ||
+                  (!nested_value_ptr && !value.get().IsNull())) {
+                all_matched = false;
               }
             }
           } else {
@@ -770,23 +765,23 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
                                                             std::span<PropertyPath const> properties) const {
   auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
-  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
   return it2->second.skiplist.size();
 }
 
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                                             std::span<PropertyValue const> values) const {
   auto const it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
 
   auto const it2 = it->second.find(properties);
-  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
 
   auto acc = it2->second.skiplist.access();
   if (!ranges::all_of(values, [](auto &&prop) { return prop.IsNull(); })) {
@@ -808,12 +803,12 @@ uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                                             std::span<PropertyValueRange const> bounds) const {
   auto const it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
 
   auto const it2 = it->second.find(properties);
-  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
 
   auto acc = it2->second.skiplist.access();
 
@@ -904,11 +899,11 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(LabelI
                                                                           Transaction *transaction) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
-  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
   return {it2->second.skiplist.access(),
           std::move(vertices_acc),
           label,
@@ -925,11 +920,11 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it != index_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
-  MG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
-            JoinPropertiesAsString(properties));
+  DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+             JoinPropertiesAsString(properties));
 
   return {it2->second.skiplist.access(),
           std::move(vertices_acc),

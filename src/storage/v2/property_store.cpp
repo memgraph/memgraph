@@ -2180,14 +2180,14 @@ class ReaderPropPositionHistory {
   ExpectedPropertyStatus ScanToPropertyPathParent(Reader &reader, PropertyPath const &path) {
     std::span<PropertyId const> parent_map{path.begin(), path.end() - 1};
 
-    auto [prev, next] = r::mismatch(history_, parent_map, {}, &History::property_id);
+    auto [history_fork_it, parent_map_fork_it] = r::mismatch(history_, parent_map, {}, &History::property_id);
 
-    if (prev != history_.end()) {
-      reader.SetPosition(prev->property_end);
-      history_.erase(prev, history_.end());
+    if (history_fork_it != history_.end()) {
+      reader.SetPosition(history_fork_it->offset_to_property_end);
+      history_.erase(history_fork_it, history_.end());
     }
 
-    for (auto inner_property_id : std::ranges::subrange(next, parent_map.end())) {
+    for (auto inner_property_id : std::ranges::subrange(parent_map_fork_it, parent_map.end())) {
       auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner_property_id);
       if (info.status != ExpectedPropertyStatus::EQUAL) return info.status;
       history_.emplace_back(inner_property_id, info.property_end);
@@ -2206,7 +2206,7 @@ class ReaderPropPositionHistory {
  private:
   struct History {
     PropertyId property_id;
-    uint32_t property_end;
+    uint32_t offset_to_property_end;
   };
   std::vector<History> history_;
 };
