@@ -2195,9 +2195,6 @@ class ReaderPropPositionHistory {
 
       reader.SetPosition(info.property_begin);
       auto metadata = reader.ReadMetadata();
-      DMG_ASSERT(metadata, "impossible: metadata has disappeared since `FindSpecificPropertyAndBufferInfoMinimal`");
-      if (!metadata) [[unlikely]]
-        return ExpectedPropertyStatus::MISSING_DATA;
       reader.SkipBytes(SizeToByteSize(metadata->id_size) + SizeToByteSize(metadata->payload_size));
     }
 
