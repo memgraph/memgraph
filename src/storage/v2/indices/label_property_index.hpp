@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -264,4 +265,5 @@ template <>
 struct hash<memgraph::storage::PropertyValueRange> {
   size_t operator()(const memgraph::storage::PropertyValueRange &pvr) const noexcept { return pvr.hash(); }
 };
+
 }  // namespace std

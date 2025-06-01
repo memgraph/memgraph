@@ -29,6 +29,8 @@ DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
 
+struct PropertyPath;
+
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
                 "PropertyStore supports only architectures using little-endian.");

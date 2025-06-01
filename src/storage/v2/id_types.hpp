@@ -13,16 +13,12 @@
 
 #include <compare>
 #include <cstdint>
-#include <ranges>
-#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <vector>
 
 #include <boost/functional/hash.hpp>
 #include "utils/cast.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -73,44 +69,6 @@ struct LabelPropKey {
   PropertyId property_;
 };
 
-/**
- * `PropertyPath` identifies one or more properties for indexing, which may
- * either be a single `PropertyId` (for the case of `CREATE INDEX ON L1(a)`), or
- * an ordered hierarchy of nested `PropertyId`s (for the case of
- * `CREATE INDEX ON :L1(a.b.c.d)`). This light-weight `vector<PropertyId>`
- * wrapper is used mainly to cleanly distinguish the inner and outer vector when
- * we have composite nested indices. As such, the constructors are deliberately
- * not explicit so we can implicitly wrap one or more `PropertyId`s.
- */
-struct PropertyPath {
-  PropertyPath() = default;
-  PropertyPath(std::vector<PropertyId> properties) : properties_{std::move(properties)} {}
-  PropertyPath(std::initializer_list<PropertyId> properties) : properties_{properties} {}
-  PropertyPath(PropertyId property) : properties_{{property}} {}
-
-  using const_iterator = std::vector<PropertyId>::const_iterator;
-
-  auto operator[](std::size_t pos) const -> PropertyId const & { return properties_[pos]; }
-  auto size() const noexcept -> std::size_t { return properties_.size(); }
-  bool empty() const { return properties_.empty(); };
-  auto begin() const -> const_iterator { return properties_.begin(); }
-  auto end() const -> const_iterator { return properties_.end(); }
-  auto cbegin() const -> const_iterator { return properties_.cbegin(); }
-  auto cend() const -> const_iterator { return properties_.cend(); }
-  void insert(PropertyId property_id) { properties_.push_back(property_id); }
-  void reserve(std::size_t size) { properties_.reserve(size); }
-  auto as_span() const -> std::span<PropertyId const> { return std::span{properties_}; }
-
-  friend bool operator==(PropertyPath const &lhs, PropertyPath const &rhs) = default;
-  friend auto operator<=>(PropertyPath const &lhs, PropertyPath const &rhs) = default;
-
-  PropertyId front() const { return properties_.front(); }
-  PropertyId back() const { return properties_.back(); }
-
- private:
-  std::vector<PropertyId> properties_;
-};
-
 }  // namespace memgraph::storage
 
 namespace std {
@@ -142,17 +100,6 @@ struct hash<memgraph::storage::LabelPropKey> {
     boost::hash_combine(seed, lpk.label().AsUint());
     boost::hash_combine(seed, lpk.property().AsUint());
     return seed;
-  }
-};
-
-template <>
-struct hash<memgraph::storage::PropertyPath> {
-  std::size_t operator()(memgraph::storage::PropertyPath const &path) const noexcept {
-    return std::accumulate(path.cbegin(), path.cend(), size_t{},
-                           [](size_t seed, memgraph::storage::PropertyId property_id) {
-                             boost::hash_combine(seed, property_id.AsUint());
-                             return seed;
-                           });
   }
 };
 

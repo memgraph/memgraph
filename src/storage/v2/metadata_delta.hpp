@@ -18,6 +18,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
 namespace memgraph::storage {
