@@ -981,6 +981,7 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   }
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -1458,6 +1459,7 @@ RecoveredSnapshot LoadSnapshotVersion14(Decoder &snapshot, const std::filesystem
   return {info, ret, std::move(indices_constraints)};
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -1746,6 +1748,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -2091,6 +2094,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem::path &path,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -2479,6 +2483,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
 
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
 /// hence same load for 18 will work for 19
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesystem::path &path,
                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                             utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -2924,6 +2929,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesystem::path &path,
                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                             utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -3420,6 +3426,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesystem::path &path,
                                             utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                             utils::SkipList<EdgeMetadata> *edges_metadata,
@@ -3959,6 +3966,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
+// NOSONAR - suppress warnings about duplication
 RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path const &path,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         utils::SkipList<EdgeMetadata> *edges_metadata,
