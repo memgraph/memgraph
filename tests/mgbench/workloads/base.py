@@ -13,6 +13,7 @@ from abc import ABC
 
 import helpers
 from benchmark_context import BenchmarkContext
+from constants import DatabaseLanguage, GraphVendors
 
 
 # Base dataset class used as a template to create each individual dataset. All
@@ -38,6 +39,8 @@ class Workload(ABC):
     URL_FILE = None
     URL_FILE_NODES = None
     URL_FILE_EDGES = None
+
+    SQL_URL_FILE = None
 
     # Index files
     LOCAL_INDEX_FILE = None
@@ -160,7 +163,7 @@ class Workload(ABC):
             raise ValueError("Vendor does not have INDEX for dataset!")
 
     def _set_local_files(self) -> None:
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and self._vendor != GraphVendors.NEO4J:
             if self.LOCAL_FILE_NODES is not None:
                 self._local_file_nodes = self.LOCAL_FILE_NODES.get(self._variant, None)
             else:
@@ -177,7 +180,7 @@ class Workload(ABC):
                 self._local_file = None
 
     def _set_url_files(self) -> None:
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and self._vendor == GraphVendors.MEMGRAPH:
             if self.URL_FILE_NODES is not None:
                 self._url_file_nodes = self.URL_FILE_NODES.get(self._variant, None)
             else:
@@ -187,8 +190,13 @@ class Workload(ABC):
             else:
                 self._url_file_edges = None
         else:
-            if self.URL_FILE is not None:
-                self._url_file = self.URL_FILE.get(self._variant, None)
+            url_file = (
+                self.URL_FILE
+                if GraphVendors.get_database_language(self._vendor) == DatabaseLanguage.CYPHER
+                else self.SQL_URL_FILE
+            )
+            if url_file is not None:
+                self._url_file = url_file.get(self._variant, None)
             else:
                 self._url_file = None
 
@@ -200,12 +208,24 @@ class Workload(ABC):
 
     def _set_url_index_file(self) -> None:
         if self.URL_INDEX_FILE is not None:
-            self._url_index = self.URL_INDEX_FILE.get(self._vendor, None)
-        else:
-            self._url_index = None
+            for vendor, url in self.URL_INDEX_FILE.items():
+                if vendor in self._vendor:
+                    self._url_index = url
+                    return
+
+        self._url_index = None
+
+    def _get_dataset_file_extension(self) -> str:
+        match self.benchmark_context.vendor_name:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return DatabaseLanguage.CYPHER
+            case GraphVendors.POSTGRESQL:
+                return DatabaseLanguage.SQL
+            case _:
+                raise Exception(f"Unknown vendor name {self.benchmark_context.vendor_name} for dataset file extension!")
 
     def prepare(self, directory):
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and self._vendor != GraphVendors.NEO4J:
             self._prepare_dataset_for_on_disk_workload(directory)
         else:
             self._prepare_dataset_for_in_memory_workload(directory)
@@ -214,7 +234,7 @@ class Workload(ABC):
             print("Using local index file:", self._local_index)
             self._file_index = self._local_index
         elif self._url_index is not None:
-            cached_index, exists = directory.get_file(self._vendor + ".cypher")
+            cached_index, exists = directory.get_file(self._vendor + f".{self._get_dataset_file_extension()}")
             if not exists:
                 print("Downloading index file:", self._url_index)
                 downloaded_file = helpers.download_file(self._url_index, directory.get_path())
@@ -232,7 +252,7 @@ class Workload(ABC):
             print("Using local dataset file for nodes:", self._local_file_nodes)
             self._node_file = self._local_file_nodes
         elif self._url_file_nodes is not None:
-            cached_input, exists = directory.get_file("dataset_nodes.cypher")
+            cached_input, exists = directory.get_file(f"dataset_nodes.{self._get_dataset_file_extension()}")
             if not exists:
                 print("Downloading dataset file for nodes:", self._url_file_nodes)
                 downloaded_file = helpers.download_file(self._url_file_nodes, directory.get_path())
@@ -246,7 +266,7 @@ class Workload(ABC):
             print("Using local dataset file for edges:", self._local_file_edges)
             self._edge_file = self._local_file_edges
         elif self._url_file_edges is not None:
-            cached_input, exists = directory.get_file("dataset_edges.cypher")
+            cached_input, exists = directory.get_file(f"dataset_edges.{self._get_dataset_file_extension()}")
             if not exists:
                 print("Downloading dataset file for edges:", self._url_file_edges)
                 downloaded_file = helpers.download_file(self._url_file_edges, directory.get_path())
@@ -260,7 +280,7 @@ class Workload(ABC):
             print("Using local dataset file:", self._local_file)
             self._file = self._local_file
         elif self._url_file is not None:
-            cached_input, exists = directory.get_file("dataset.cypher")
+            cached_input, exists = directory.get_file(f"dataset.{self._get_dataset_file_extension()}")
             if not exists:
                 print("Downloading dataset file:", self._url_file)
                 downloaded_file = helpers.download_file(self._url_file, directory.get_path())
@@ -307,7 +327,7 @@ class Workload(ABC):
         """Returns number of vertices/edges for the current variant."""
         return self._size
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         print("Workload does not have a custom import")
         return False
 
