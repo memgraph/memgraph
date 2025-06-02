@@ -136,9 +136,6 @@ install() {
     # enable EPEL repo for rpmlint
     sudo dnf install -y epel-release
 
-    # --nobest is used because of libipt because we install custom versions
-    # because libipt-devel is not available on CentOS 9 Stream
-    dnf update -y --nobest
     dnf install -y wget git python3 python3-pip
     # CRB repo is required for, e.g. texinfo, ninja-build
     dnf config-manager --set-enabled crb

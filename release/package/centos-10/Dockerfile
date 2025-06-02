@@ -2,8 +2,7 @@ FROM dokken/centos-stream-10
 
 ARG TOOLCHAIN_VERSION
 
-RUN dnf -y update \
-    && dnf install -y wget git
+RUN dnf install -y wget git
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 
