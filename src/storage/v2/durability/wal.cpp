@@ -25,7 +25,9 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
@@ -309,25 +311,24 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
   }
 }
 
-template <bool is_read>
-auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, std::vector<std::string>, void> {
+template <bool is_read, typename T>
+auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-    std::vector<std::string> strings;
-    strings.reserve(*count);
+    std::vector<T> values;
+    values.reserve(*count);
     for (uint64_t i = 0; i < *count; ++i) {
-      auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
-      strings.emplace_back(*std::move(str));
+      auto value = Decode<true>(utils::tag_t<T>, decoder, 0);
+      values.emplace_back(std::move(value));
     }
-    return strings;
+    return values;
   } else {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      Decode<false>(utils::tag_t<T>, decoder, 0);
     }
   }
 }
@@ -365,6 +366,27 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
 }
 
 // ========== concrete type decoders end here ==========
+
+template <typename T>
+auto Read(BaseDecoder *decoder, const uint64_t version) -> T;
+template <typename T>
+auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
+
+template <typename T>
+concept IsReadSkip = requires {
+  typename T::ctr_types;
+};
+
+// Generic helper decoder, please keep after the concrete type decoders
+template <bool is_read, IsReadSkip T>
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, T, void> {
+  if constexpr (is_read) {
+    return Read<T>(decoder, version);
+  } else {
+    Skip<T>(decoder, version);
+  }
+}
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
@@ -982,15 +1004,13 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
@@ -1008,15 +1028,13 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto properties = data.properties | rv::transform(name_to_id) | r::to_vector;
-
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
           throw RecoveryFailure("Failed to read statistics!");
         }
         indices_constraints->indices.label_property_stats.emplace_back(label_id,
-                                                                       std::make_pair(std::move(properties), stats));
+                                                                       std::make_pair(std::move(prop_ids), stats));
       },
       [&](WalLabelPropertyIndexStatsClear const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1322,11 +1340,14 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 }
 
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats) {
+                              std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
-  for (auto const &prop : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  for (auto const &path : properties) {
+    encoder.WriteUint(path.size());
+    for (auto const &segment : path) {
+      encoder.WriteString(name_id_mapper.IdToName(segment.AsUint()));
+    }
   }
   encoder.WriteString(ToJson(stats));
 }
@@ -1351,11 +1372,14 @@ void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
 }
 
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                           std::vector<PropertyId> const &properties) {
+                           std::span<PropertyPath const> properties) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
-  for (const auto &property : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  for (const auto &path : properties) {
+    encoder.WriteUint(path.size());
+    for (const auto &property : path) {
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+    }
   }
 }
 
@@ -1399,4 +1423,19 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
   encoder.WriteMarker(OperationToMarker(Op));
 }
 
+auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr> {
+  auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::forward<decltype(path)>(path)}; };
+  return v | ranges::views::transform(wrap_singular_path) | ranges::to_vector;
+};
+
+auto CompositePropertyPaths::convert(memgraph::storage::NameIdMapper *mapper) const
+    -> std::vector<memgraph::storage::PropertyPath> {
+  auto to_propertyid = [&](std::string_view prop_name) -> PropertyId {
+    return PropertyId::FromUint(mapper->NameToId(prop_name));
+  };
+  auto to_path = [&](PathStr const &path) -> PropertyPath {
+    return PropertyPath{path | rv::transform(to_propertyid) | r::to_vector};
+  };
+  return property_paths_ | rv::transform(to_path) | r::to_vector;
+}
 }  // namespace memgraph::storage::durability

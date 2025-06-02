@@ -14,6 +14,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
@@ -185,34 +186,34 @@ void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *
   }
 }
 
-bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyId> const &properties) {
-  return index_.erase({label, properties[0]}) > 0U;
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties) {
+  return index_.erase({label, properties[0][0]}) > 0U;
 }
 
-bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyId const> properties) const {
-  return utils::Contains(index_, std::make_pair(label, properties[0]));
+bool DiskLabelPropertyIndex::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
+  return utils::Contains(index_, std::make_pair(label, properties[0][0]));
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskLabelPropertyIndex::ListIndices() const {
-  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyId>> {
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>> DiskLabelPropertyIndex::ListIndices() const {
+  auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
     auto [label, property] = index;
-    return {label, {property}};
+    return {label, {PropertyPath{property}}};
   };
 
   return index_ | ranges::views::transform(convert) | ranges::to_vector;
 }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
-                                                        std::span<PropertyId const> /*properties*/) const {
+                                                        std::span<PropertyPath const> /*properties*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyId const> /*properties*/,
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
                                                         std::span<PropertyValue const> /*values*/) const {
   return 10;
 }
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyId const> /*properties*/,
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::span<PropertyPath const> /*properties*/,
                                                         std::span<PropertyValueRange const> /*bounds*/) const {
   return 10;
 }
@@ -229,7 +230,7 @@ RocksDBStorage *DiskLabelPropertyIndex::GetRocksDBStorage() const { return kvsto
 std::set<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::GetInfo() const { return index_; }
 
 std::vector<LabelPropertiesIndicesInfo> DiskLabelPropertyIndex::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   // NOTE: only looking for singular property index, as disk does not support composite indices
   for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {

@@ -71,6 +71,9 @@
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
 // NOLINTNEXTLINE
@@ -1357,7 +1360,8 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgePropertyRange::Clone(AstStorage *s
 }
 
 ScanAllByLabelProperties::ScanAllByLabelProperties(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                                   storage::LabelId label, std::vector<storage::PropertyId> properties,
+                                                   storage::LabelId label,
+                                                   std::vector<storage::PropertyPath> properties,
                                                    std::vector<ExpressionRange> expression_ranges, storage::View view)
     : ScanAll(input, output_symbol, view),
       label_(label),
@@ -1379,7 +1383,7 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
 
     auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
-    auto prop_value_ranges = expression_ranges_ | ranges::views::transform(to_property_value_range) | ranges::to_vector;
+    auto prop_value_ranges = expression_ranges_ | rv::transform(to_property_value_range) | ranges::to_vector;
 
     auto const bound_is_null = [](auto &&range) {
       return (range.lower_ && range.lower_->value().IsNull()) || (range.upper_ && range.upper_->value().IsNull());
@@ -1399,8 +1403,10 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem)
 
 std::string ScanAllByLabelProperties::ToString() const {
   // TODO: better diagnostics...info about expression_ranges_?
-  auto const property_names =
-      properties_ | ranges::views::transform([&](storage::PropertyId prop) { return dba_->PropertyToName(prop); });
+  auto const property_names = properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+                                return storage::ToString(property_path, dba_);
+                              }) |
+                              ranges::to_vector;
   auto const properties_stringified = utils::Join(property_names, ", ");
   return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      properties_stringified);
@@ -1414,7 +1420,7 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   object->label_ = label_;
   object->properties_ = properties_;
   object->expression_ranges_ = expression_ranges_ |
-                               ranges::views::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
+                               rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
   return object;
 }
@@ -3542,7 +3548,7 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
     return "Pattern";
   } else if (single_filter.type == Type::Property) {
     return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
-                       single_filter.property_filter->property_.name);
+                       single_filter.property_filter->property_ids_);
   } else if (single_filter.type == Type::Point) {
     return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
                        single_filter.point_filter->property_.name);
@@ -5369,7 +5375,7 @@ class OrderByCursor : public Cursor {
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
       ranges::sort(
-          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          rv::zip(order_by, output), self_.compare_.lex_cmp(),
           [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms

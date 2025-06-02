@@ -272,11 +272,11 @@ inline mgp_list *list_all_existence_constraints(mgp_graph *graph, mgp_memory *me
   return MgInvoke<mgp_list *>(mgp_list_all_existence_constraints, graph, memory);
 }
 
-inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_list *properties) {
   return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, label, properties);
 }
 
-inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_list *properties) {
   return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, label, properties);
 }
 

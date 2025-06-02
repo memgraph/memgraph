@@ -1392,7 +1392,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> properties) {
   MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1471,7 +1471,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1479,6 +1479,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1683,7 +1684,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 }
 
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
-    LabelId label, std::span<storage::PropertyId const> properties,
+    LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
@@ -3049,11 +3050,10 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
-                                                      std::span<storage::PropertyId const> properties,
+                                                      std::span<storage::PropertyPath const> properties,
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
                                       std::vector(properties.begin(), properties.end()), stats);
 }
@@ -3065,7 +3065,7 @@ bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::Lab
   return res;
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>>
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>>
 InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());

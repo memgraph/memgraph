@@ -41,6 +41,10 @@
 #include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
 
+namespace ms = memgraph::storage;
+namespace r = ranges;
+namespace rv = r::views;
+
 const char *kPropertyId = "property_id";
 
 const char *kCreateInternalIndex = "CREATE INDEX ON :__mg_vertex__(__mg_id__);";
@@ -259,10 +263,10 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       label_indices.insert({dba->LabelToName(item)});
     }
     for (const auto &[label, properties] : info.label_properties) {
-      auto properties_as_strings =
-          properties |
-          ranges::views::transform([&](memgraph::storage::PropertyId prop) { return dba->PropertyToName(prop); }) |
-          ranges::to_vector;
+      using namespace std::string_literals;
+      auto properties_as_strings = properties |
+                                   ranges::views::transform([&](auto &&path) { return ToString(path, dba.get()); }) |
+                                   ranges::to_vector;
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
     for (const auto &item : info.text_indices) {
@@ -770,6 +774,44 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
     VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`, `prop_b`, `prop_c`);", kCreateInternalIndex,
                   "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});", kDropInternalIndex,
                   kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite/nested indices not implemented for disk storage";
+  }
+
+  {
+    auto dba = this->db->Access();
+    auto prop_id = dba->NameToProperty("p");
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                                   {ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                     this->db->storage()->NameToProperty("prop_b")},
+                                    ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                     this->db->storage()->NameToProperty("prop_c")}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`.`prop_b`, `prop_a`.`prop_c`);",
+                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 
