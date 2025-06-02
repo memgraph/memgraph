@@ -31,16 +31,12 @@ TEST(RWLock, MultipleReaders) {
   auto timer = std::make_shared<memgraph::utils::Timer>();
   auto start = std::make_shared<std::chrono::duration<double>>();
 
-  auto const on_start = [start, timer]() { *start = timer->Elapsed(); };
-
-  auto const on_end = [start, timer]() {
+  std::barrier start_sync(num_workers, [start, timer]() { *start = timer->Elapsed(); });
+  std::barrier end_sync(num_workers, [start, timer]() {
     auto const elapsed = timer->Elapsed() - *start;
     EXPECT_LE(elapsed, 150ms);
     EXPECT_GE(elapsed, 90ms);
-  };
-
-  std::barrier start_sync(num_workers, on_start);
-  std::barrier end_sync(num_workers, on_end);
+  });
 
   for (int i = 0; i < num_workers; ++i) {
     threads.emplace_back([&]() {
