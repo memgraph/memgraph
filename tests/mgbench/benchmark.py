@@ -451,7 +451,11 @@ def mixed_workload(
 
 
 def warmup(condition: str, client, queries: list = None):
-    if condition == DATABASE_CONDITION_HOT:
+    if condition == DATABASE_CONDITION_HOT and client._vendor in [
+        GraphVendors.MEMGRAPH,
+        GraphVendors.NEO4J,
+        GraphVendors.FALKORDB,
+    ]:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(
             queries=WARMUP_TO_HOT_QUERIES,
@@ -707,7 +711,7 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     return usage[MEMORY]
 
 
-def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_emtpy_db):
+def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_empty_db):
     rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
     vendor_runner.start_db(rss_db)
     usage = vendor_runner.stop_db(rss_db)
@@ -715,14 +719,14 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
         usage = {"memory": 0, "cpu": 0}
     # Save total memory usage with imported data to be able to calculate only execution memory usage later
     total_usage_with_imported_data = usage[MEMORY]
-    usage[MEMORY] -= memory_usage_of_emtpy_db
+    usage[MEMORY] -= memory_usage_of_empty_db
     key = [workload.NAME, workload.get_variant(), IMPORTED_DATA]
     results.set_value(*key, value={DATABASE: usage})
     return total_usage_with_imported_data
 
 
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
-    memory_usage_of_emtpy_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
+    memory_usage_of_empty_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
     if not generated_queries:
         log.warning("Generated import dataset is empty, probably dataset_generator under workload function is wrong.")
@@ -731,7 +735,7 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
     )
     save_import_results(workload, results, import_results, rss_usage)
     memory_usage_with_imported_data = save_memory_usage_of_imported_data(
-        vendor_runner, workload, results, memory_usage_of_emtpy_db
+        vendor_runner, workload, results, memory_usage_of_empty_db
     )
 
     for group in sorted(bench_queries.keys()):
