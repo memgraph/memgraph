@@ -196,7 +196,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
-        repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
+        repl_storage_state_.last_durable_timestamp_.store(*info->last_durable_timestamp, std::memory_order_release);
         spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", *info->last_durable_timestamp,
                       timestamp_);
       }
@@ -2689,7 +2689,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+    if (repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) != kTimestampInitialId) {
       handler_error();
       return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
     }
@@ -3003,7 +3003,7 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  repl_storage_state_.last_durable_timestamp_ = 0;
+  repl_storage_state_.last_durable_timestamp_.store(0, std::memory_order_release);
   repl_storage_state_.history.clear();
 
   last_snapshot_digest_ = std::nullopt;
