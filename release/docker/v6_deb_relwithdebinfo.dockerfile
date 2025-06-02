@@ -19,7 +19,6 @@ RUN if [ -n "$CUSTOM_MIRROR" ]; then \
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
   gdb procps linux-tools-common linux-tools-generic linux-tools-generic libc6-dbg \
-  gdb valgrind perf \
   --no-install-recommends && \
   apt install -y libxmlsec1-dev xmlsec1 && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
