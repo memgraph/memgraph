@@ -4,6 +4,16 @@ FROM ubuntu:24.04
 ARG BINARY_NAME
 ARG EXTENSION
 ARG TARGETARCH
+ARG CUSTOM_MIRROR
+
+# If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
+# and security.ubuntu.com URIs in your .sources file
+RUN if [ -n "$CUSTOM_MIRROR" ]; then \
+      sed -E -i \
+        -e '/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
+        -e '/^URIs:/ s#https?://security\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
 
 RUN apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
@@ -28,6 +38,14 @@ RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"
 # truth requirements file is located under
 # src/auth/reference_modules/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /usr/lib/memgraph/auth_module/requirements.txt
+
+# revert to default mirror
+RUN if [ -n "$CUSTOM_MIRROR" ]; then \
+      sed -E -i \
+        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
+        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687
