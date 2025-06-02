@@ -1323,6 +1323,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       switch (filter.property_filter->type_) {
         case PropertyFilter::Type::EQUAL:
         case PropertyFilter::Type::IN: {
+          // Because of the unwind rewrite IN is the same as EQUAL
           return ExpressionRange::Equal(filter.property_filter->value_);
         }
         case PropertyFilter::Type::REGEX_MATCH: {
@@ -1343,16 +1344,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // TODO: Currently IN uses unwind, this means multiple scans, this could be better
     //  performance if we use single scan
     // NOTE: make_unwinds has side-effectm changes input to include new unwind stage
-    auto make_unwinds = [&](FilterInfo const &filter_info) -> Expression * {
-      auto prop_filter = *filter_info.property_filter;
-      if (prop_filter.type_ == PropertyFilter::Type::IN) {
+    auto make_unwinds = [&](FilterInfo const &filter_info) -> FilterInfo {
+      if (filter_info.property_filter->type_ == PropertyFilter::Type::IN) {
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
         auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
         expression->MapTo(symbol);
-        input = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
-        return expression;
+        input = std::make_unique<Unwind>(input, filter_info.property_filter->value_, symbol);
+        FilterInfo cpy = filter_info;
+        cpy.property_filter->value_ = expression;
+        return cpy;
       }
-      return prop_filter.value_;
+      return filter_info;
     };
 
     // First, try to see if we can find a vertex by ID.
@@ -1437,9 +1439,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
-      auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
 
-      auto expr_ranges = found_index->filters | ranges::views::transform(to_expression_range) | ranges::to_vector;
+      auto value_expressions = found_index->filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
+      auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
 
       return std::make_unique<ScanAllByLabelProperties>(input, node_symbol, GetLabel(found_index->label),
                                                         std::move(found_index->properties), std::move(expr_ranges),
@@ -1502,8 +1504,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
             auto value_expressions =
                 label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-            auto expr_ranges =
-                label_property_index.filters | ranges::views::transform(to_expression_range) | ranges::to_vector;
+            auto expr_ranges = value_expressions | ranges::views::transform(to_expression_range) | ranges::to_vector;
             auto label_property_index_scan = std::make_unique<ScanAllByLabelProperties>(
                 input, node_symbol, GetLabel(label_property_index.label), std::move(label_property_index.properties),
                 std::move(expr_ranges), view);
