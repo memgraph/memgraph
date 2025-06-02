@@ -841,7 +841,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
       auto map = PropertyValue::map_t{};
-      map.reserve(*size);
+      do_reserve(map, *size);
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
@@ -942,7 +942,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return std::nullopt;
       auto map = PropertyValue::map_t{};
-      map.reserve(*size);
+      do_reserve(map, *size);
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return std::nullopt;
