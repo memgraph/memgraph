@@ -1424,7 +1424,7 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 }
 
 auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr> {
-  auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::move(path)}; };
+  auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::forward<decltype(path)>(path)}; };
   return v | ranges::views::transform(wrap_singular_path) | ranges::to_vector;
 };
 
