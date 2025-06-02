@@ -25,15 +25,15 @@ TEST(RWLock, MultipleReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
   constexpr int num_workers{3};
 
-  std::vector<std::jthread> threads;
+  std::vector<std::thread> threads;
   threads.reserve(num_workers);
 
-  auto timer = std::make_shared<memgraph::utils::Timer>();
-  auto start = std::make_shared<std::chrono::duration<double>>();
+  auto timer = memgraph::utils::Timer();
+  auto start = std::chrono::duration<double>();
 
-  std::barrier start_sync(num_workers, [start, timer]() { *start = timer->Elapsed(); });
-  std::barrier end_sync(num_workers, [start, timer]() {
-    auto const elapsed = timer->Elapsed() - *start;
+  std::barrier start_sync(num_workers, [&start, &timer]() { start = timer.Elapsed(); });
+  std::barrier end_sync(num_workers, [&start, &timer]() {
+    auto const elapsed = timer.Elapsed() - start;
     EXPECT_LE(elapsed, 150ms);
     EXPECT_GE(elapsed, 90ms);
   });
@@ -45,6 +45,10 @@ TEST(RWLock, MultipleReaders) {
       std::this_thread::sleep_for(100ms);
       end_sync.arrive_and_wait();
     });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
   }
 }
 
