@@ -2165,9 +2165,13 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
     dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    // Unwind produces a sybmol, then scan would be based on that identifier
+    // CheckPlan ATM is only checking stucture and types, values are not checked
+    // Hence a fake Identifier is enough for this test
+    auto fake_identifier = IDENT("fake");
     CheckPlan(planner.plan(), symbol_table, ExpectUnwind(),
               ExpectScanAllByLabelProperties(label, std::vector{ms::PropertyPath{property.second}},
-                                             std::vector{ExpressionRange::Equal(lit_list_a)}),
+                                             std::vector{ExpressionRange::Equal(fake_identifier)}),
               ExpectProduce());
   }
 }
