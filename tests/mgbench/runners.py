@@ -23,7 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkClientLanguage, BenchmarkInstallationType, GraphVendors
+from constants import BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -103,10 +103,12 @@ class BaseClient(ABC):
 
     def get_check_db_query(self) -> str:
         match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return "RETURN 0;"
             case GraphVendors.POSTGRESQL:
                 return "SELECT 1 AS result;"
             case _:
-                return "RETURN 0;"
+                raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
 
 
 class BoltClient(BaseClient):
@@ -191,6 +193,7 @@ class BoltClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._bolt_port,
+            address=self._bolt_address,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
             databases=self._databases,
@@ -493,7 +496,7 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        if benchmark_context.external_vendor:
+        if benchmark_context.installation_type == BenchmarkInstallationType.EXTERNAL:
             return ExternalVendor(benchmark_context=benchmark_context)
 
         subclass_name = (
@@ -512,6 +515,7 @@ class BaseRunner(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._bolt_port = 7687
 
     @abstractmethod
     def start_db_init(self, arg):
@@ -931,7 +935,7 @@ class MemgraphDocker(BaseRunner):
         self._vendor_args = benchmark_context.vendor_args
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
-        self._image_name = "memgraph/memgraph-mage"
+        self._image_name = "memgraph/memgraph"
         self._image_version = "3.2.1"
         self._container_ip = None
         self._config_file = None
@@ -960,7 +964,7 @@ class MemgraphDocker(BaseRunner):
                 "--storage_snapshot_interval_sec=0",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            ret = self._run_command(command)
+            self._run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start Memgraph docker container.")
             log.error(
@@ -1004,7 +1008,6 @@ class MemgraphDocker(BaseRunner):
         log.init("Starting database for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
 
@@ -1262,7 +1265,7 @@ class FalkorDBDocker(BaseRunner):
                 f"{self._image_name}:{self._image_version}",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            ret = self._run_command(command)
+            self._run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start FalkorDB docker container.")
             log.error(
@@ -1277,7 +1280,6 @@ class FalkorDBDocker(BaseRunner):
         log.init("Starting FalkorDB for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._falkordb_port, delay=0.5)
         log.log("Database started.")
 
@@ -1386,9 +1388,7 @@ class FalkorDBDocker(BaseRunner):
         return cpu_time
 
     def _get_cpu_memory_usage(self):
-        usage = {"cpu": 0, "memory": 0}
-        usage["memory"] = self._get_memory_usage()
-        usage["cpu"] = self._get_cpu_usage()
+        usage = {"cpu": self._get_cpu_usage(), "memory": self._get_memory_usage()}
 
         return usage
 
@@ -1462,8 +1462,8 @@ class PostgreSQLDocker(BaseRunner):
     def clean_db(self):
         self.remove_container(self._container_name)
 
-    def fetch_client(self) -> BaseClient:
-        return PythonClient(self.benchmark_context, self._port)
+    def get_database_port(self):
+        return self._port
 
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]

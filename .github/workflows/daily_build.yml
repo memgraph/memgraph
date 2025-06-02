@@ -107,11 +107,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         arch: [amd, arm]
-        build_type: [Release]
-        include: # Include an extra docker build with RelWithDebInfo for amd
-          - os: ubuntu-24.04
-            arch: amd
-            build_type: RelWithDebInfo
+        build_type: [Release, RelWithDebInfo]
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
@@ -142,7 +138,7 @@ jobs:
           aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
-        
+
       - name: Aggregate Test Results and Builds
         env:
           TEST_INDIVIDUAL_RESULT: ${{ needs.TestBuild.outputs.test_status }}
@@ -153,7 +149,7 @@ jobs:
           echo "BUILD_TEST_RESULTS=$(python3 tools/aggregate_build_tests.py)" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
-        env: 
+        env:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           payload="${BUILD_TEST_RESULTS}"
@@ -163,7 +159,7 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/memgraph/daily-builds/dispatches \
-            -d "$payload"    
+            -d "$payload"
 
   TriggerMageDailyBuild:
     if: ${{ !inputs.trigger_mage && always() }}
@@ -182,7 +178,7 @@ jobs:
           echo "MAGE_PAYLOAD=$(python3 tools/trigger_mage_payload.py)" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
-        env: 
+        env:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           # Send the dispatch request to trigger MAGE daily build
@@ -206,11 +202,11 @@ jobs:
           fi
 
           # now reformat it as JSON
-          payload="{\"date\": ${build_date}}"    
+          payload="{\"date\": ${build_date}}"
           echo "MAGE_PAYLOAD=${payload}" >> $GITHUB_ENV
 
       - name: Trigger Daily Builds Page Update
-        env: 
+        env:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           # Send the dispatch request to trigger MAGE daily build

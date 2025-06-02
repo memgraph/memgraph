@@ -456,12 +456,14 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-      storage->repl_storage_state_.last_durable_timestamp_ = snapshot_info.durable_timestamp;
+      storage->repl_storage_state_.last_durable_timestamp_.store(snapshot_info.durable_timestamp,
+                                                                 std::memory_order_release);
+      // We are the only active transaction, so mark everything up to the next timestamp
+      if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
-      storage::durability::RecoverIndicesStatsAndConstraints(
-          &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
-          storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges,
-          snapshot_observer_info);
+      RecoverIndicesStatsAndConstraints(&storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_,
+                                        &storage->constraints_, storage->config_, recovery_info, indices_constraints,
+                                        storage->config_.salient.items.properties_on_edges, snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
@@ -475,7 +477,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   }
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_recovery_snapshot_path);
 
-  const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
+  const storage::replication::SnapshotRes res{
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   auto const not_recovery_snapshot = [&recovery_snapshot_path](auto const &snapshot_info) {

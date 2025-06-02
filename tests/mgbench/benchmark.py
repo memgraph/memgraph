@@ -75,7 +75,7 @@ def parse_args():
         type=str,
         default=BenchmarkInstallationType.NATIVE,
         choices=BenchmarkInstallationType.get_all_installation_types(),
-        help="Installation type (native, docker)",
+        help="Installation type (native, docker, external)",
     )
 
     benchmark_parser.add_argument(
@@ -244,14 +244,7 @@ def parse_args():
         type=str,
         default=BenchmarkClientLanguage.CPP,
         choices=BenchmarkClientLanguage.get_all_client_languages(),
-        help="Client language implementation (cpp or docker)",
-    )
-
-    benchmark_parser.add_argument(
-        "--external-vendor",
-        action="store_true",
-        default=False,
-        help="Database/cluster is run separately from the test",
+        help="Client language implementation (cpp or python)",
     )
 
     return benchmark_parser.parse_args()
@@ -458,7 +451,11 @@ def mixed_workload(
 
 
 def warmup(condition: str, client, queries: list = None):
-    if condition == DATABASE_CONDITION_HOT:
+    if condition == DATABASE_CONDITION_HOT and client._vendor in [
+        GraphVendors.MEMGRAPH,
+        GraphVendors.NEO4J,
+        GraphVendors.FALKORDB,
+    ]:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(
             queries=WARMUP_TO_HOT_QUERIES,
@@ -952,11 +949,15 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary if args.installation_type == "native" else None,
+        vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
         vendor_name=args.vendor_name,
-        external_vendor=args.external_vendor,
         installation_type=args.installation_type,
-        client_binary=args.client_binary if args.installation_type == "native" else None,
+        # Client binary present in native and external installation types
+        client_binary=(
+            args.client_binary
+            if args.installation_type in [BenchmarkInstallationType.NATIVE, BenchmarkInstallationType.EXTERNAL]
+            else None
+        ),
         client_language=args.client_language,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,

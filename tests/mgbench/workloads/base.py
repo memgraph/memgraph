@@ -216,10 +216,13 @@ class Workload(ABC):
         self._url_index = None
 
     def _get_dataset_file_extension(self) -> str:
-        if self.benchmark_context.vendor_name == GraphVendors.POSTGRESQL:
-            return "sql"
-
-        return "cypher"
+        match self.benchmark_context.vendor_name:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J, GraphVendors.FALKORDB:
+                return DatabaseLanguage.CYPHER
+            case GraphVendors.POSTGRESQL:
+                return DatabaseLanguage.SQL
+            case _:
+                raise Exception(f"Unknown vendor name {self.benchmark_context.vendor_name} for dataset file extension!")
 
     def prepare(self, directory):
         if self.disk_workload and self._vendor != GraphVendors.NEO4J:

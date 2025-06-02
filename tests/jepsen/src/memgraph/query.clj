@@ -97,6 +97,11 @@
   RETURN n.id as id;
   ")
 
+(dbclient/defquery create-unique-constraint
+  "
+  CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE;
+  ")
+
 (dbclient/defquery add-nodes
   "MATCH (n:Node)
   WITH coalesce(max(n.id), 0) as max_idx
