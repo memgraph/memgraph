@@ -167,6 +167,7 @@ ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &stora
                  : std::nullopt} {}
 
 auto ExpressionRange::Equal(Expression *value) -> ExpressionRange {
+  // Only store lower bound, Evaluate will only use the lower bound
   return {Type::EQUAL, utils::MakeBoundInclusive(value), std::nullopt};
 }
 
@@ -175,10 +176,6 @@ auto ExpressionRange::RegexMatch() -> ExpressionRange { return {Type::REGEX_MATC
 auto ExpressionRange::Range(std::optional<utils::Bound<Expression *>> lower,
                             std::optional<utils::Bound<Expression *>> upper) -> ExpressionRange {
   return {Type::RANGE, std::move(lower), std::move(upper)};
-}
-
-auto ExpressionRange::In(Expression *value) -> ExpressionRange {
-  return {Type::IN, utils::MakeBoundInclusive(value), std::nullopt};
 }
 
 auto ExpressionRange::IsNotNull() -> ExpressionRange { return {Type::IS_NOT_NULL, std::nullopt, std::nullopt}; }
