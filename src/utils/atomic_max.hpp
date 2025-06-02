@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <atomic>
 
-// Replace with C++26 version
+// Replace with C++26 code when available
 template <class T>
 T atomic_fetch_max_explicit(std::atomic<T> *current, typename std::atomic<T>::value_type const value,
                             std::memory_order m_order) noexcept {
