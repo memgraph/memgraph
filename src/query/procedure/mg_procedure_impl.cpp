@@ -1847,7 +1847,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list,
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map, memgraph::storage::NameIdMapper *name_id_mapper) {
   auto result_map = memgraph::storage::PropertyValue::map_t{};
-  result_map.reserve(map.items.size());
+  do_reserve(result_map, map.items.size());
   for (const auto &[key, value] : map.items) {
     auto property_id = memgraph::storage::PropertyId::FromUint(name_id_mapper->NameToId(key));
     result_map.insert_or_assign(property_id, ToPropertyValue(value, name_id_mapper));
@@ -1908,7 +1908,7 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_list 
 
 memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_map &map) {
   auto result_map = memgraph::storage::ExternalPropertyValue::map_t{};
-  result_map.reserve(map.items.size());
+  do_reserve(result_map, map.items.size());
   for (const auto &[key, value] : map.items) {
     result_map.insert_or_assign(std::string{key}, ToExternalPropertyValue(value));
   }
@@ -4581,7 +4581,7 @@ struct MgProcedureResultStream final {
 
 memgraph::storage::ExternalPropertyValue::map_t CreateQueryParams(mgp_map *params) {
   auto query_params = memgraph::storage::ExternalPropertyValue::map_t{};
-  query_params.reserve(params->items.size());
+  do_reserve(query_params, params->items.size());
   for (auto &[k, v] : params->items) {
     query_params.emplace(k, ToExternalPropertyValue(v));
   }
