@@ -94,7 +94,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-
     if (IsThreadTracked()) [[unlikely]] {
       TrackFreeOnCurrentThread(size);
     }
@@ -160,7 +159,6 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
     return err;
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-
   if (IsThreadTracked()) [[unlikely]] {
     TrackFreeOnCurrentThread(size);
   }

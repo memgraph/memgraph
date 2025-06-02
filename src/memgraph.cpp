@@ -20,6 +20,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -62,12 +63,14 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
 #include "utils/stat.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
 #include <spdlog/spdlog.h>
@@ -480,8 +483,15 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   std::unique_ptr<memgraph::auth::SynchedAuth> auth_;
+#ifdef MG_ENTERPRISE
+  // Resource monitoring
+  auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
+  try {
+    auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config, &resource_monitoring);
+#else
   try {
     auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config);
+#endif
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
     exit(1);
@@ -597,6 +607,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
+      &resource_monitoring,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
 
