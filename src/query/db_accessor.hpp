@@ -297,7 +297,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
-  VerticesIterable Vertices(storage::View view, storage::LabelId label, std::span<storage::PropertyId const> properties,
+  VerticesIterable Vertices(storage::View view, storage::LabelId label,
+                            std::span<storage::PropertyPath const> properties,
                             std::span<storage::PropertyValueRange const> property_ranges) {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
   }
@@ -484,12 +485,12 @@ class DbAccessor final {
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->LabelPropertyIndexExists(label, properties);
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
-                                          std::span<storage::PropertyId const> properties) const
+                                          std::span<storage::PropertyPath const> properties) const
       -> std::vector<storage::LabelPropertiesIndicesInfo> {
     return accessor_->RelevantLabelPropertiesIndicesInfo(labels, properties);
   }
@@ -538,12 +539,12 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label);
   }
 
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                std::span<storage::PropertyId const> properties) const {
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->GetIndexStats(label, properties);
   }
 
-  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> DeleteLabelPropertyIndexStats(
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> DeleteLabelPropertyIndexStats(
       const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
   }
@@ -554,7 +555,7 @@ class DbAccessor final {
     accessor_->SetIndexStats(label, stats);
   }
 
-  void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
+  void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties,
                      const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, properties, stats);
   }
@@ -563,17 +564,17 @@ class DbAccessor final {
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) const {
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->ApproximateVertexCount(label, properties);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValue const> values) const {
     return accessor_->ApproximateVertexCount(label, properties, values);
   }
 
   // TODO: rename to ApproximateVertexCount?
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) const {
     return accessor_->ApproximateVertexCount(label, properties, bounds);
   }
@@ -633,7 +634,7 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
     return accessor_->CreateIndex(label, std::move(properties));
   }
 
@@ -655,7 +656,7 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::LabelId label, std::vector<storage::PropertyId> &&properties) {
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
     return accessor_->DropIndex(label, std::move(properties));
   }
 

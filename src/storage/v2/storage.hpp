@@ -17,6 +17,7 @@
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -71,7 +72,7 @@ class EdgeAccessor;
 
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_properties;
+  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
@@ -227,10 +228,10 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
-    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+    virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                       std::span<storage::PropertyValueRange const> property_ranges, View view) = 0;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties, View view) {
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
       return Vertices(label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()),
                       view);
     };
@@ -266,12 +267,12 @@ class Storage {
 
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                             std::span<PropertyValue const> values) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                             std::span<PropertyValueRange const> bounds) const = 0;
 
     virtual uint64_t ApproximateEdgeCount() const = 0;
@@ -300,16 +301,16 @@ class Storage {
 
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
-    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
+    virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
         -> std::optional<storage::LabelPropertyIndexStats> = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
-    virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> property,
+    virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> property,
                                const LabelPropertyIndexStats &stats) = 0;
 
     virtual auto DeleteLabelPropertyIndexStats(const storage::LabelId &label)
-        -> std::vector<std::pair<LabelId, std::vector<PropertyId>>> = 0;
+        -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
@@ -322,10 +323,10 @@ class Storage {
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const = 0;
+    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyId const> properties) const
+                                            std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
       return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
@@ -410,7 +411,7 @@ class Storage {
                                                                               bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
@@ -423,7 +424,7 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 

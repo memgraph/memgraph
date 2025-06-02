@@ -58,17 +58,22 @@ inline bool ConfrontJSON(const nlohmann::json &lhs, const nlohmann::json &rhs) {
  */
 template <typename Accessor>
 std::size_t CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::storage::LabelId label,
-                                  std::span<memgraph::storage::PropertyId const> props,
+                                  std::span<memgraph::storage::PropertyPath const> props,
                                   std::span<memgraph::storage::PropertyValueRange const> ranges,
                                   auto &&props_validator) {
   auto iterable = acc->Vertices(label, props, ranges, memgraph::storage::View::OLD);
   size_t found_vertices = 0;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     auto vertex = *it;
-    auto results =
-        props |
-        ranges::views::transform([&](auto &&prop) { return *vertex.GetProperty(prop, memgraph::storage::View::OLD); }) |
-        ranges::to_vector;
+    auto results = props | ranges::views::transform([&](auto &&prop) {
+                     auto result = vertex.GetProperty(prop[0], memgraph::storage::View::OLD);
+                     if (!result.HasValue()) {
+                       return memgraph::storage::PropertyValue{};
+                     }
+                     auto value = ReadNestedPropertyValue(*result, prop | ranges::views::drop(1));
+                     return value ? *value : memgraph::storage::PropertyValue{};
+                   }) |
+                   ranges::to_vector;
     props_validator(results);
     ++found_vertices;
   }

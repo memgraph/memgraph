@@ -423,7 +423,7 @@ class ExpectScanAllByLabel : public OpChecker<ScanAllByLabel> {
 class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties> {
  public:
   ExpectScanAllByLabelProperties(memgraph::storage::LabelId label,
-                                 std::vector<memgraph::storage::PropertyId> properties,
+                                 std::vector<memgraph::storage::PropertyPath> properties,
                                  std::vector<ExpressionRange> expression_ranges)
       : label_(label), properties_(std::move(properties)), expression_ranges_(std::move(expression_ranges)) {}
 
@@ -454,7 +454,7 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
 
  private:
   memgraph::storage::LabelId label_;
-  std::vector<memgraph::storage::PropertyId> properties_;
+  std::vector<memgraph::storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
 };
 
@@ -671,7 +671,7 @@ class FakeDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label,
-                        std::span<memgraph::storage::PropertyId const> properties) const {
+                        std::span<memgraph::storage::PropertyPath const> properties) const {
     auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
       return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
     });
@@ -712,7 +712,8 @@ class FakeDbAccessor {
     return label_index_.find(label) != label_index_.end();
   }
 
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+  bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
+                                memgraph::storage::PropertyPath const &property) const {
     std::vector const properties{property};
     for (const auto &index : label_properties_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == properties) {
@@ -723,14 +724,14 @@ class FakeDbAccessor {
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
-                                std::span<memgraph::storage::PropertyId const> properties) const {
+                                std::span<memgraph::storage::PropertyPath const> properties) const {
     return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
              return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
            }) != label_properties_index_.end();
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
-                                          std::span<storage::PropertyId const> properties) const
+                                          std::span<storage::PropertyPath const> properties) const
       -> std::vector<storage::LabelPropertiesIndicesInfo> {
     auto res = std::vector<storage::LabelPropertiesIndicesInfo>{};
 
@@ -781,12 +782,7 @@ class FakeDbAccessor {
   bool EdgePropertyIndexExists(memgraph::storage::PropertyId property) const { return false; }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
-      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
-    return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
-  }
-
-  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
-      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties) const {
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
   }
 
@@ -796,7 +792,7 @@ class FakeDbAccessor {
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
 
-  void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
+  void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyPath const &property, int64_t count) {
     std::vector properties{property};
     for (auto &index : label_properties_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == properties) {
@@ -807,7 +803,7 @@ class FakeDbAccessor {
     label_properties_index_.emplace_back(label, std::move(properties), count);
   }
 
-  void SetIndexCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties,
+  void SetIndexCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
                      int64_t count) {
     auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
       return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
@@ -877,7 +873,7 @@ class FakeDbAccessor {
   std::unordered_map<std::string, memgraph::storage::PropertyId> properties_;
 
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
-  std::vector<std::tuple<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyId>, int64_t>>
+  std::vector<std::tuple<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyPath>, int64_t>>
       label_properties_index_;
   std::unordered_map<memgraph::storage::EdgeTypeId, int64_t> edge_type_index_;
   std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
