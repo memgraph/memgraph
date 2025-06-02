@@ -947,9 +947,20 @@ auto InMemoryLabelPropertyIndex::GetAbortProcessor() const -> LabelPropertyIndex
   AbortProcessor res{};
   for (const auto &[label, per_properties] : index_) {
     for (auto const &[props, index] : per_properties) {
-      for (auto const &prop : props) {
-        res.l2p[label][prop[0]].emplace_back(&props, &index.permutations_helper);
-        res.p2l[prop[0]][label].emplace_back(&props, &index.permutations_helper);
+      // Root properties may be duplicated in nested indices, such
+      // as having a.b, a.c, and a.d. In that case, we only need to build
+      // an abort processor for a single `a`.
+      auto const unique_props = std::invoke(
+          [](auto props) {
+            auto root_props = props | rv::transform([](auto &&el) { return el[0]; }) | r::to_vector;
+            r::sort(root_props);
+            return rv::unique(root_props) | r::to_vector;
+          },
+          props);
+
+      for (auto const &root_prop : unique_props) {
+        res.l2p[label][root_prop].emplace_back(&props, &index.permutations_helper);
+        res.p2l[root_prop][label].emplace_back(&props, &index.permutations_helper);
       }
     }
   }
