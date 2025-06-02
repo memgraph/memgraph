@@ -172,7 +172,7 @@ You can use the `memgraph/mgbench-client:<version>-full` Docker image to benchma
 ```bash
 docker run --rm --network host --name mgbench \
   memgraph/mgbench-client:0.0.4-full \
-  external-vendor \
+  --installation-type external
   --num-workers-for-benchmark 4 \
   --export-results=benchmark_result.json \
   --no-authorization \
