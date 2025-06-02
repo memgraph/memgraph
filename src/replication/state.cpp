@@ -257,7 +257,7 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   if (!HasDurability()) return true;
 
   // If any replicas are persisted then Role must be persisted
-  if (role_persisted.load(std::memory_order_acquire) == RolePersisted::YES) {
+  if (role_persisted.load(std::memory_order_acquire) != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
     auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
     if (!TryPersistRoleMain(std::move(epoch_str), main_uuid)) return false;
