@@ -111,10 +111,7 @@ Feature: Indices
 
     Scenario: IN works with label+property indices
         Given an empty graph
-        And having executed:
-            """
-            CREATE INDEX ON :L1(a);
-            """
+        And with new index :L1(a)
         And having executed:
             """
             CREATE (:L1 {a: 2}), (:L1 {a: 3}), (:L1 {a: 5});
