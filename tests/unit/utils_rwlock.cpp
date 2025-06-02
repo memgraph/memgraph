@@ -28,13 +28,13 @@ TEST(RWLock, MultipleReaders) {
   std::vector<std::jthread> threads;
   threads.reserve(num_workers);
 
-  memgraph::utils::Timer const timer;
-  std::chrono::duration<double> start{};
+  auto timer = std::make_shared<memgraph::utils::Timer>();
+  auto start = std::make_shared<std::chrono::duration<double>>();
 
-  auto const on_start = [&]() { start = timer.Elapsed(); };
+  auto const on_start = [start, timer]() { *start = timer->Elapsed(); };
 
-  auto const on_end = [&]() {
-    auto const elapsed = timer.Elapsed() - start;
+  auto const on_end = [start, timer]() {
+    auto const elapsed = timer->Elapsed() - *start;
     EXPECT_LE(elapsed, 150ms);
     EXPECT_GE(elapsed, 90ms);
   };
