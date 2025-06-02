@@ -108,3 +108,19 @@ Feature: Indices
             ANALYZE GRAPH DELETE STATISTICS;
             """
         Then the result should be empty
+
+    Scenario: IN works with label+property indices
+        Given an empty graph
+        And with new index :L1(a)
+        And having executed:
+            """
+            CREATE (:L1 {a: 2}), (:L1 {a: 3}), (:L1 {a: 5});
+            """
+        When executing query:
+            """
+            MATCH (x:L1) WHERE x.a IN [2, 5] RETURN x.a;
+            """
+        Then the result should be:
+            | x.a |
+            | 2   |
+            | 5   |
