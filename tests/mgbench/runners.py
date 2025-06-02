@@ -1460,8 +1460,8 @@ class PostgreSQLDocker(BaseRunner):
     def clean_db(self):
         self.remove_container(self._container_name)
 
-    def fetch_client(self) -> BaseClient:
-        return PythonClient(self.benchmark_context, self._port)
+    def get_database_port(self):
+        return self._port
 
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]
