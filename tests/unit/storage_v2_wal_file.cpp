@@ -21,6 +21,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -33,6 +34,8 @@
 static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
 
+namespace mg = memgraph::storage;
+
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
  public:
@@ -40,11 +43,46 @@ class DeltaGenerator final {
    private:
     friend class DeltaGenerator;
 
+    struct ActiveIndices : mg::LabelPropertyIndex::ActiveIndices {
+      void UpdateOnAddLabel(mg::LabelId added_label, mg::Vertex *vertex_after_update,
+                            const mg::Transaction &tx) override {};
+      void UpdateOnSetProperty(mg::PropertyId property, const mg::PropertyValue &value, mg::Vertex *vertex,
+                               const mg::Transaction &tx) override {};
+      bool IndexExists(mg::LabelId label, std::span<mg::PropertyId const> properties) const override { return false; }
+      auto RelevantLabelPropertiesIndicesInfo(std::span<mg::LabelId const> labels,
+                                              std::span<mg::PropertyId const> properties) const
+          -> std::vector<mg::LabelPropertiesIndicesInfo> override {
+        return {};
+      }
+      void UpdateOnRemoveLabel(mg::LabelId removed_label, mg::Vertex *vertex_after_update,
+                               const mg::Transaction &tx) override {}
+
+      std::vector<std::pair<mg::LabelId, std::vector<mg::PropertyId>>> ListIndices() const override { return {}; }
+
+      uint64_t ApproximateVertexCount(mg::LabelId label, std::span<mg::PropertyId const> properties) const override {
+        return 0;
+      }
+      uint64_t ApproximateVertexCount(mg::LabelId label, std::span<mg::PropertyId const> properties,
+                                      std::span<mg::PropertyValue const> values) const override {
+        return 0;
+      }
+      uint64_t ApproximateVertexCount(mg::LabelId label, std::span<mg::PropertyId const> properties,
+                                      std::span<mg::PropertyValueRange const> bounds) const override {
+        return 0;
+      }
+
+      void AbortEntries(mg::LabelPropertyIndex::AbortableInfo const &, uint64_t start_timestamp) override {}
+    };
+
+    std::unique_ptr<mg::LabelPropertyIndex::ActiveIndices> GetActiveIndices() {
+      return std::make_unique<ActiveIndices>();
+    }
+
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
                        gen->storage_mode_, false, false,
-                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext()) {}
+                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(), GetActiveIndices()) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {

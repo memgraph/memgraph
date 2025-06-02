@@ -204,9 +204,18 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
     for (auto const &[label, properties] : indices_metadata.label_properties) {
-      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
-                                                 snapshot_info))
+      if (!mem_label_property_index->RegisterIndex(label, properties))
         throw RecoveryFailure("The label+property index must be created here!");
+      auto cancel_check = []() {
+        // TODO: ATM, PopulateIndex here does no error handling.
+        //       We should add it. Then we can allow the recovery to be canceled when server is shutting down.
+        return false;
+      };
+      auto res = mem_label_property_index->PopulateIndex(label, properties, vertices->access(), parallel_exec_info,
+                                                         snapshot_info, cancel_check);
+      if (res.HasError()) throw RecoveryFailure("The label+property index must be created here!");
+
+      mem_label_property_index->PublishIndex(label, properties);
 
       auto id_to_name = [&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); };
       auto properties_string = properties | rv::transform(id_to_name) | rv::join(", ") | r::to<std::string>;

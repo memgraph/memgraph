@@ -64,21 +64,21 @@ void Indices::DropGraphClearIndices() {
   }
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
-  label_property_index_->UpdateOnAddLabel(label, vertex, tx);
+  tx.active_indices_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
-  label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  tx.active_indices_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(label, vertex);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  const Transaction &tx) const {
-  label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+                                  Transaction &tx) const {
+  tx.active_indices_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
 }
 
@@ -99,6 +99,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(c
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
+
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
       edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
       edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>();
@@ -113,13 +114,14 @@ Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(c
   });
 }
 
-Indices::AbortProcessor Indices::GetAbortProcessor() const {
-  return {static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
-          static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->GetAbortProcessor(),
-          static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->GetAbortProcessor(),
-          static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
-          static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
-          vector_index_.Analysis()};
+auto Indices::GetAbortProcessor(Transaction const &transaction) const -> AbortProcessor {
+  return {
+      static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction.active_indices_.get())->GetAbortProcessor(),
+      static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->GetAbortProcessor(),
+      static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
+      static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
+      vector_index_.Analysis()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -136,9 +138,9 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
   property_label_.collect_on_property_change(propId, vertex);
 }
 
-void Indices::AbortProcessor::Process(Indices &indices, uint64_t start_timestamp) {
-  label_.process(*indices.label_index_, start_timestamp);
-  property_label_.process(*indices.label_property_index_, start_timestamp);
-  edge_type_.Process(*indices.edge_type_index_, start_timestamp);
+void Indices::AbortProcessor::Process(Indices &indices, Transaction &tx) {
+  label_.process(*indices.label_index_, tx.start_timestamp);
+  property_label_.process(*indices.label_property_index_, tx);
+  edge_type_.Process(*indices.edge_type_index_, tx.start_timestamp);
 }
 }  // namespace memgraph::storage
