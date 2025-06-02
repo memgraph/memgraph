@@ -211,7 +211,7 @@ storage::ExternalPropertyValue::map_t DeserializeExternalPropertyValueMap(nlohma
   const nlohmann::json::object_t &values = data.at("value");
 
   auto property_values = storage::ExternalPropertyValue::map_t{};
-  property_values.reserve(values.size());
+  do_reserve(property_values, values.size());
   for (const auto &[key, value] : values) {
     property_values.emplace(key, DeserializeExternalPropertyValue(value, storage_acc));
   }

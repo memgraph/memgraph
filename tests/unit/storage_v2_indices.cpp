@@ -3664,3 +3664,22 @@ TYPED_TEST(IndexTest, NestedIndicesReadOutOfOrderProperties) {
   EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 5, 7));
   EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
 }
+
+TYPED_TEST(IndexTest, DeltaDoesNotLeak) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    GTEST_SKIP() << "Testing in-memory only";
+  }
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+  {
+    auto acc = this->storage->Access();
+    auto vertex = this->CreateVertex(acc.get());
+    vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue("hello"))));
+    // vvv This create a `Delta` containing the above `PropertyValue` map,
+    // which ASAN reports as a leak.
+    vertex.SetProperty(this->prop_a, PropertyValue("goodbye"));
+  }
+  this->storage->FreeMemory();
+}
