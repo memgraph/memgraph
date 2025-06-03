@@ -26,6 +26,7 @@ class TransactionReplication {
  public:
   // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
   // proceed with the Commit.
+  /*
   TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector const &db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
@@ -39,6 +40,15 @@ class TransactionReplication {
         streams.clear();
         return;
       }
+    }
+  }
+  */
+
+  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
+      : locked_clients{clients.ReadLock()} {
+    streams.reserve(locked_clients->size());
+    for (const auto &client : *locked_clients) {
+      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc));
     }
   }
 
