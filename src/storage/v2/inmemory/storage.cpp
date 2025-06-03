@@ -2576,7 +2576,14 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return tx_replication.FinalizePrepareCommitPhase(durability_commit_timestamp, std::move(db_acc));
+  bool const finalize_prepare_status = tx_replication.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
+  if (!finalize_prepare_status) {
+    // Send Abort and wait for all to reply
+    return false;
+  } else {
+    // Send Commit and wait for all to reply
+    return true;
+  }
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
