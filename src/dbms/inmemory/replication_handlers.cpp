@@ -330,10 +330,11 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  // TODO: (andi) Not sure if emptying the stream is needed?
+  // TODO: (andi) Not sure if emptying the stream is needed? PR remove-emptying-stream, rebase on it
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
     // Empty the stream
-    bool transaction_complete = false;
+
+    bool transaction_complete{false};
     while (!transaction_complete) {
       spdlog::info("Skipping delta");
       const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
