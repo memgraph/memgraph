@@ -210,9 +210,9 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
+  server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+        InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
@@ -278,22 +278,22 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
-void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
-                                                      const std::optional<utils::UUID> &current_main_uuid,
-                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
-  storage::replication::AppendDeltasReq req;
+void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                                       const std::optional<utils::UUID> &current_main_uuid,
+                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::PrepareCommitReq req;
   slk::Load(&req, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    const storage::replication::AppendDeltasRes res{false};
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -303,7 +303,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto maybe_epoch_id = decoder.ReadString();
   if (!maybe_epoch_id) {
     spdlog::error("Invalid replication message, couldn't read epoch id.");
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -339,7 +339,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
@@ -351,12 +351,12 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
         "unsuccessfully.",
         e.what());
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
 
-  const storage::replication::AppendDeltasRes res{true};
+  const storage::replication::PrepareCommitRes res{true};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 

@@ -192,8 +192,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
         [this](Gid edge_gid) { return FindEdge(edge_gid); }, name());
     if (info) {
-      vertex_id_ = info->next_vertex_id;
-      edge_id_ = info->next_edge_id;
+      vertex_id_.store(info->next_vertex_id, std::memory_order_release);
+      edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
         repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
@@ -409,14 +409,14 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
   auto const inform_gc_vertex_deletion = utils::OnScopeExit{[this, &deleted_vertices = deleted_vertices]() {
     if (!deleted_vertices.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      mem_storage->gc_full_scan_vertices_delete_ = true;
+      mem_storage->gc_full_scan_vertices_delete_.store(true, std::memory_order_release);
     }
   }};
 
   auto const inform_gc_edge_deletion = utils::OnScopeExit{[this, &deleted_edges = deleted_edges]() {
     if (!deleted_edges.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      mem_storage->gc_full_scan_edges_delete_ = true;
+      mem_storage->gc_full_scan_edges_delete_.store(true, std::memory_order_release);
     }
   }};
 
@@ -803,7 +803,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
         if (is_main_or_replica_write) {
           could_replicate_all_sync_replicas =
-              mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
+              mem_storage->HandleDurabilityAndReplicate(transaction_, durability_commit_timestamp, std::move(db_acc));
 
           if (config_.enable_schema_info) {
             mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
@@ -821,7 +821,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
           DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
-          mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
+          mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
+                                                                         std::memory_order_release);
         }
 
         // Install the new point index, if needed
@@ -1893,8 +1894,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
   deleted_edges_.WithLock([&](auto &deleted_edges) { current_deleted_edges.swap(deleted_edges); });
 
-  auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
-  auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
+  auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false, std::memory_order_acq_rel);
+  auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false, std::memory_order_acq_rel);
 
   // Short lock, to move to local variable. Hence allows other transactions to commit.
   auto linked_undo_buffers = std::list<GCDeltas>{};
@@ -2270,22 +2271,25 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
-                                  DatabaseAccessProtector db_acc) {
+bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transaction, uint64_t durability_commit_timestamp,
+                                                   DatabaseAccessProtector db_acc) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
-  // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  auto tx_replication = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
+  auto tx_replication = repl_storage_state_.StartPrepareCommitPhase(wal_file_->SequenceNumber(), this, db_acc);
+  // TODO: (andi) How to abort inside the commit if we couldn't retrieve all RPC streams?
+  if (!tx_replication.ReplicationStartSuccessful()) {
+    spdlog::error("Need to abort somehow!");
+  }
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
   //            unique transaction to apply the index creation safely.
-  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
+  auto const apply_encode = [&](durability::StorageMetadataOperation const op, auto &&encode_operation) {
     auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
       EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
       encode_operation(encoder);
@@ -2573,19 +2577,17 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   // Handle MVCC deltas
   if (!transaction.deltas.empty()) {
-    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp) {
-      wal_file_->AppendDelta(delta, parent, durability_commit_timestamp);
-      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp);
+    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
+      wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
+      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp_arg);
     });
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
-  // TODO: (andi) I think this should happen in reverse order because it could happen that we fsync on replica
-  // before than on main.
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return tx_replication.FinalizeTransaction(durability_commit_timestamp, std::move(db_acc));
+  return tx_replication.FinalizePrepareCommitPhase(durability_commit_timestamp, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
@@ -2712,8 +2714,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     spdlog::trace("Set epoch to {} for db {}", recovered_snapshot.snapshot_info.epoch_id, name());
     repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
-    vertex_id_ = recovery_info.next_vertex_id;
-    edge_id_ = recovery_info.next_edge_id;
+    vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
+    edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
     repl_storage_state_.last_durable_timestamp_.store(recovered_snapshot.snapshot_info.durable_timestamp,
                                                       std::memory_order_release);
@@ -2963,12 +2965,12 @@ void InMemoryStorage::Clear() {
   // Clear main memory
   vertices_.clear();
   vertices_.run_gc();
-  vertex_id_ = 0;
+  vertex_id_.store(0, std::memory_order_release);
 
   edges_.clear();
   edges_.run_gc();
-  edge_id_ = 0;
-  edge_count_ = 0;
+  edge_id_.store(0, std::memory_order_release);
+  edge_count_.store(0, std::memory_order_release);
 
   timestamp_ = kTimestampInitialId;
   transaction_id_ = kTransactionInitialId;
@@ -3090,7 +3092,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
-  mem_storage->edge_count_.store(0);
+  mem_storage->edge_count_.store(0, std::memory_order_release);
 
   memory::PurgeUnusedMemory();
 }
