@@ -34,6 +34,11 @@ void PrepareCommitRes::Load(PrepareCommitRes *self, memgraph::slk::Reader *reade
   memgraph::slk::Load(self, reader);
 }
 
+void CommitReq::Save(const CommitReq &self, memgraph::slk::Builder *builder) {}
+void CommitReq::Load(CommitReq *self, memgraph::slk::Reader *reader) {}
+void CommitRes::Save(const CommitRes &self, memgraph::slk::Builder *builder) {}
+void CommitRes::Load(CommitRes *self, memgraph::slk::Reader *reader) {}
+
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
@@ -62,11 +67,15 @@ void CurrentWalRes::Load(CurrentWalRes *self, memgraph::slk::Reader *reader) { m
 
 }  // namespace storage::replication
 
-constexpr utils::TypeInfo storage::replication::PrepareCommitReq::kType{utils::TypeId::REP_APPEND_DELTAS_REQ,
+constexpr utils::TypeInfo storage::replication::PrepareCommitReq::kType{utils::TypeId::PREPARE_COMMIT_REQ,
                                                                         "PrepareCommitReq", nullptr};
 
-constexpr utils::TypeInfo storage::replication::PrepareCommitRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
+constexpr utils::TypeInfo storage::replication::PrepareCommitRes::kType{utils::TypeId::PREPARE_COMMIT_RES,
                                                                         "PrepareCommitRes", nullptr};
+
+constexpr utils::TypeInfo storage::replication::CommitReq::kType{utils::TypeId::COMMIT_REQ, "CommitReq", nullptr};
+
+constexpr utils::TypeInfo storage::replication::CommitRes::kType{utils::TypeId::COMMIT_RES, "CommitRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::InProgressRes::kType{utils::TypeId::REP_IN_PROGRESS_RES,
                                                                      "InProgressRes", nullptr};
