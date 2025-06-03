@@ -211,14 +211,12 @@ void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::
 void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(self.previous_commit_timestamp, builder);
   memgraph::slk::Save(self.seq_num, builder);
 }
 
 void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
-  memgraph::slk::Load(&self->previous_commit_timestamp, reader);
   memgraph::slk::Load(&self->seq_num, reader);
 }
 
