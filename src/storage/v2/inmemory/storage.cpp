@@ -311,12 +311,12 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
-    Abort();
+    InMemoryAccessor::Abort();
     // We didn't actually commit
     commit_timestamp_.reset();
   }
 
-  FinalizeTransaction();
+  InMemoryAccessor::FinalizeTransaction();
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
@@ -821,6 +821,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);
 
+        // TODO: (andi) Be careful about this fast discard of deltas
         // while still holding engine lock
         // and after durability + replication
         // check if we can fast discard deltas (ie. do not hand over to GC)
@@ -941,7 +942,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   //      we are the only transaction, no one is reading those unlinked deltas
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
 
-  // 1.b.0) old committed_transactions_ need mininal unlinking + remove + clear
+  // 1.b.0) old committed_transactions_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas>{};
   mem_storage->committed_transactions_.WithLock(
@@ -2270,6 +2271,7 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
 
   auto tx_replication = repl_storage_state_.StartPrepareCommitPhase(wal_file_->SequenceNumber(), this, db_acc);
   // TODO: (andi) How to abort inside the commit if we couldn't retrieve all RPC streams?
+  // Should be possible because we do Abort if unique constaint is violated
   if (!tx_replication.ReplicationStartSuccessful()) {
     spdlog::error("Need to abort somehow!");
   }
