@@ -83,7 +83,7 @@ TYPED_TEST_SUITE(TransactionQueueSimpleTest, StorageTypes);
 
 TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
   std::atomic<bool> started{false};
-  std::jthread running_thread = std::jthread(
+  auto running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         this->running_interpreter.Interpret("BEGIN");
         started.store(true, std::memory_order_release);
@@ -97,15 +97,19 @@ TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
     this->main_interpreter.Interpret("CREATE (:Person {prop: 1})");
     auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream.GetResults().size(), 2U);
-    // superadmin executing the transaction
-    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
-    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
-    EXPECT_EQ(show_stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
-    // Also anonymous user executing
+
+    // superadmin executing the transaction. Because transactions are now
+    // sorted by increasing id, this will always be the second entry because
+    // its interpreter will always `Interpret` after the `running_interpreter`.
     EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
     ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
+    ASSERT_EQ(show_stream.GetResults()[1][2].ValueList().size(), 1);
+    EXPECT_EQ(show_stream.GetResults()[1][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+    // Also anonymous user executing
+    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
+    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
     // Kill the other transaction
-    std::string run_trans_id = show_stream.GetResults()[1][1].ValueString();
+    std::string run_trans_id = show_stream.GetResults()[0][1].ValueString();
     std::string esc_run_trans_id = "'" + run_trans_id + "'";
     auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS " + esc_run_trans_id);
     // check result of killing
