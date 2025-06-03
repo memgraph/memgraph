@@ -1035,8 +1035,11 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             }
             // fallback if from_gid not available
             auto found_edge = storage->FindEdge(edge->gid);
-            if (!found_edge)
-              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+            if (!found_edge) {
+              constexpr auto src_loc{std::source_location()};
+              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(),
+                                          src_loc.line());
+            }
             const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
             return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
           });
@@ -1337,7 +1340,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
     applied_deltas++;
   }
 
-  if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
+  if (commit_timestamp_and_accessor) {
+    throw utils::BasicException("Did not finish the transaction!");
+  }
 
   spdlog::debug("Applied {} deltas", applied_deltas);
   return {current_delta_idx, current_batch_counter};
