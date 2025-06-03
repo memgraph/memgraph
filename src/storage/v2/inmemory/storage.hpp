@@ -151,7 +151,7 @@ class InMemoryStorage final : public Storage {
     void CheckForFastDiscardOfDeltas();
 
     template <class T, class TMutex = std::mutex>
-    static void CreateAutoIndices(utils::Synchronized<T, TMutex> &indices) {
+    void CreateAutoIndices(utils::Synchronized<T, TMutex> &indices) {
       indices.WithLock([&](auto &label_indices) {
         for (auto &label : label_indices) {
           --label.second;
