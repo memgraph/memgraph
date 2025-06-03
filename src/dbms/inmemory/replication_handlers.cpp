@@ -328,22 +328,6 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     }
   }
 
-  // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  // TODO: (andi) Not sure if emptying the stream is needed?
-  if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load()) {
-    // Empty the stream
-    bool transaction_complete = false;
-    while (!transaction_complete) {
-      spdlog::info("Skipping delta");
-      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
-      transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
-    }
-
-    const storage::replication::AppendDeltasRes res{false};
-    rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
-    return;
-  }
-
   try {
     ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
   } catch (const utils::BasicException &e) {

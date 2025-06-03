@@ -307,14 +307,10 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           maybe_stream_handler = client_.rpc_client_.TryStream<replication::AppendDeltasRpc>(
-              std::optional<std::chrono::milliseconds>{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-              current_wal_seq_num);
+              std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(), current_wal_seq_num);
         } else {
           maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::AppendDeltasRpc>(
-              main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-              current_wal_seq_num));
+              main_uuid_, storage->uuid(), current_wal_seq_num));
         }
 
         if (!maybe_stream_handler.has_value()) {
