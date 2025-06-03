@@ -10,12 +10,12 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/rpc.hpp"
-#include <cstdint>
-#include <rpc/version.hpp>
 
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
+
+#include <cstdint>
 
 namespace memgraph {
 
