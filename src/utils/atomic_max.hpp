@@ -20,7 +20,7 @@ T atomic_fetch_max_explicit(std::atomic<T> *current, typename std::atomic<T>::va
                             std::memory_order m_order = std::memory_order_acq_rel) noexcept {
   auto old = current->load(std::memory_order_acquire);
   while (std::max(old, value) != old) {
-    if (current->compare_exchange_weak(old, value, m_order, m_order)) {
+    if (current->compare_exchange_weak(old, value, m_order, std::memory_order_acquire)) {
       return old;
     }
   }
