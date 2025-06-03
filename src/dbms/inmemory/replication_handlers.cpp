@@ -1034,8 +1034,11 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             }
             // fallback if from_gid not available
             auto found_edge = storage->FindEdge(edge->gid);
-            if (!found_edge)
-              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+            if (!found_edge) {
+              constexpr auto src_loc{std::source_location()};
+              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(),
+                                          src_loc.line());
+            }
             const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
             return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
           });
@@ -1052,7 +1055,9 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Invalid commit data!");
           auto ret = commit_timestamp_and_accessor->second.Commit(
               {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
-          if (ret.HasError()) throw utils::BasicException("Committing failed on receiving transaction end delta.");
+          if (ret.HasError()) {
+            throw utils::BasicException("Committing failed on receiving transaction end delta.");
+          }
           commit_timestamp_and_accessor = std::nullopt;
         },
         [&](WalLabelIndexCreate const &data) {
@@ -1333,9 +1338,13 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
     applied_deltas++;
   }
 
-  if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
+  if (commit_timestamp_and_accessor) {
+    throw utils::BasicException("Did not finish the transaction!");
+  }
 
-  storage->repl_storage_state_.last_durable_timestamp_ = max_delta_timestamp;
+  // TODO: (andi) Rebase if this gets merged https://github.com/memgraph/memgraph/pull/3024
+  // Shouldn't be needed because a single txn must be within a single WAL file
+  storage->repl_storage_state_.last_durable_timestamp_.store(max_delta_timestamp, std::memory_order_release);
 
   spdlog::debug("Applied {} deltas", applied_deltas);
   return {current_delta_idx, current_batch_counter};
