@@ -143,6 +143,28 @@ class InMemoryStorage final : public Storage {
                               StorageMode storage_mode,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
+    std::optional<ConstraintViolation> ExistenceConstraintsViolation() const;
+
+    std::optional<ConstraintViolation> UniqueConstraintsViolation() const;
+
+    void CheckForFastDiscardOfDeltas();
+
+    template <class T, class TMutex = std::mutex>
+    static void CreateAutoIndices(utils::Synchronized<T, TMutex> &indices) {
+      indices.WithLock([&](auto &label_indices) {
+        for (auto &label : label_indices) {
+          --label.second;
+          // If there are multiple transactions that would like to create an
+          // auto-created index on a specific label, we only build the index
+          // when the last one commits.
+          if (label.second == 0) {
+            CreateIndex(label.first, false);
+            label_indices.erase(label.first);
+          }
+        }
+      });
+    }
+
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
     InMemoryAccessor &operator=(const InMemoryAccessor &) = delete;
