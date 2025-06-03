@@ -58,7 +58,7 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 
 namespace memgraph::metrics {
 extern const Event HeartbeatRpc_us;
-extern const Event AppendDeltasRpc_us;
+extern const Event PrepareCommitRpc_us;
 extern const Event ReplicaStream_us;
 extern const Event StartTxnReplication_us;
 extern const Event FinalizeTxnReplication_us;
@@ -318,15 +318,15 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case READY: {
       try {
         utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
-        std::optional<rpc::Client::StreamHandler<replication::AppendDeltasRpc>> maybe_stream_handler;
+        std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          maybe_stream_handler = client_.rpc_client_.TryStream<replication::AppendDeltasRpc>(
-              std::optional<std::chrono::milliseconds>{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
+          maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
+              std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
               storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
               current_wal_seq_num);
         } else {
-          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::AppendDeltasRpc>(
+          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_, storage->uuid(),
               storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
               current_wal_seq_num));
@@ -396,7 +396,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
       return replica_state_.WithLock([this, response, db_acc = std::move(db_acc), &replica_stream_obj,
                                       durability_commit_timestamp](auto &state) mutable {
         replica_stream_obj.reset();
-        // If we didn't receive successful response to AppendDeltas, or we got into MAYBE_BEHIND state since the
+        // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
         // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
         // MAYBE_BEHIND state if we missed next txn.
         if (state != ReplicaState::REPLICATING) {
@@ -621,7 +621,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream)
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream)
     : storage_{storage}, stream_(std::move(stream)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
@@ -643,8 +643,8 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::AppendDeltasRes ReplicaStream::Finalize() {
-  utils::MetricsTimer const timer{metrics::AppendDeltasRpc_us};
+replication::PrepareCommitRes ReplicaStream::Finalize() {
+  utils::MetricsTimer const timer{metrics::PrepareCommitRpc_us};
   return stream_.SendAndWaitProgress();
 }
 }  // namespace memgraph::storage

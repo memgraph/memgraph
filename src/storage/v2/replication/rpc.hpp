@@ -17,21 +17,40 @@
 
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
-#include "slk/streams.hpp"
 #include "storage/v2/config.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage::replication {
 
-struct AppendDeltasReq {
+struct CommitReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(AppendDeltasReq *self, memgraph::slk::Reader *reader);
-  static void Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder);
-  AppendDeltasReq() = default;
-  AppendDeltasReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t previous_commit_timestamp,
-                  uint64_t seq_num)
+  static void Load(CommitReq *self, slk::Reader *reader);
+  static void Save(const CommitReq &self, slk::Builder *builder);
+  CommitReq() = default;
+};
+
+struct CommitRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(CommitRes *self, slk::Reader *reader);
+  static void Save(const CommitRes &self, slk::Builder *builder);
+  CommitRes() = default;
+};
+
+using CommitRpc = rpc::RequestResponse<CommitReq, CommitRes>;
+
+struct PrepareCommitReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(PrepareCommitReq *self, slk::Reader *reader);
+  static void Save(const PrepareCommitReq &self, slk::Builder *builder);
+  PrepareCommitReq() = default;
+  PrepareCommitReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t const previous_commit_timestamp,
+                   uint64_t const seq_num)
       : main_uuid{main_uuid}, uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
 
   utils::UUID main_uuid;
@@ -40,18 +59,20 @@ struct AppendDeltasReq {
   uint64_t seq_num;
 };
 
-struct AppendDeltasRes {
+struct PrepareCommitRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(AppendDeltasRes *self, memgraph::slk::Reader *reader);
-  static void Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder);
-  AppendDeltasRes() = default;
+  static void Load(PrepareCommitRes *self, slk::Reader *reader);
+  static void Save(const PrepareCommitRes &self, slk::Builder *builder);
+  PrepareCommitRes() = default;
 
-  explicit AppendDeltasRes(bool const success) : success(success) {}
+  explicit PrepareCommitRes(bool const success) : success(success) {}
 
   bool success;
 };
+
+using PrepareCommitRpc = rpc::RequestResponse<PrepareCommitReq, PrepareCommitRes>;
 
 struct InProgressRes {
   static const utils::TypeInfo kType;
@@ -59,8 +80,6 @@ struct InProgressRes {
 
   InProgressRes() = default;
 };
-
-using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
 
 struct HeartbeatReq {
   static const utils::TypeInfo kType;
@@ -225,13 +244,13 @@ void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::sl
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::storage::replication::PrepareCommitRes &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader);
+void Load(memgraph::storage::replication::PrepareCommitRes *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader);
+void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
 
