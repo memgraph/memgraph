@@ -655,6 +655,73 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
   edge_to_modify->from_vertex = from_vertex;
 }
 
+std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::ExistenceConstraintsViolation() const {
+  // ExistenceConstraints validation block
+  auto const has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
+  if (has_any_existence_constraints && transaction_.constraint_verification_info &&
+      transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
+    const auto vertices_to_update =
+        transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
+    for (auto const *vertex : vertices_to_update) {
+      // No need to take any locks here because we modified this vertex and no
+      // one else can touch it until we commit.
+      if (auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
+          validation_result.has_value()) {
+        return validation_result;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueConstraintsViolation() const {
+  auto *mem_unique_constraints =
+      static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+
+  auto const has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
+  if (has_any_unique_constraints && transaction_.constraint_verification_info &&
+      transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
+    // Before committing and validating vertices against unique constraints,
+    // we have to update unique constraints with the vertices that are going
+    // to be validated/committed.
+    const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
+
+    for (auto const *vertex : vertices_to_update) {
+      mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
+    }
+
+    for (auto const *vertex : vertices_to_update) {
+      // No need to take any locks here because we modified this vertex and no
+      // one else can touch it until we commit.
+      if (auto const maybe_unique_constraint_violation =
+              mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
+          maybe_unique_constraint_violation.has_value()) {
+        auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
+        storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
+        return maybe_unique_constraint_violation;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
+  // while still holding engine lock and after durability + replication,
+  // check if we can fast discard deltas (i.e. do not hand over to GC)
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
+  bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
+  if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+    // STEP 0) Can only do fast discard if GC is not running
+    //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
+    //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
+    auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
+    if (gc_guard.try_lock()) {
+      FastDiscardOfDeltas(std::move(gc_guard));
+    }
+  }
+}
+
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
@@ -674,29 +741,16 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
 
-    // ExistenceConstraints validation block
-    auto has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
-    if (has_any_existence_constraints && transaction_.constraint_verification_info &&
-        transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
-      const auto vertices_to_update =
-          transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
-      for (auto const *vertex : vertices_to_update) {
-        // No need to take any locks here because we modified this vertex and no
-        // one else can touch it until we commit.
-        auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
-        if (validation_result) {
-          Abort();
-          // We have not started a commit timestamp no cleanup needed for that
-          DMG_ASSERT(!commit_timestamp_.has_value());
-          return StorageManipulationError{*validation_result};
-        }
-      }
+    if (auto const maybe_violation = ExistenceConstraintsViolation(); maybe_violation.has_value()) {
+      Abort();
+      // We have not started a commit timestamp no cleanup needed for that
+      DMG_ASSERT(!commit_timestamp_.has_value());
+      return StorageManipulationError{*maybe_violation};
     }
 
-    // Result of validating the vertex against unqiue constraints. It has to be
-    // declared outside of the critical section scope because its value is
+    // Result of validating the vertex against unique constraints. It has to be
+    // declared outside the critical section scope because its value is
     // tested for Abort call which has to be done out of the scope.
-    std::optional<ConstraintViolation> unique_constraint_violation;
 
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
@@ -706,147 +760,92 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
-        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-          for (auto &label : label_indices) {
-            --label.second;
-            // If there are multiple transactions that would like to create an
-            // auto-created index on a specific label, we only build the index
-            // when the last one commits.
-            if (label.second == 0) {
-              // TODO: (andi) Handle auto-creation issue
-              CreateIndex(label.first, false);
-              label_indices.erase(label.first);
-            }
-          }
-        });
+        CreateAutoIndices(storage_->edge_types_to_auto_index_);
       }
 
       // EdgeIndex auto-creation block.
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
-        storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-          for (auto &edge_type : edge_type_indices) {
-            --edge_type.second;
-            // If there are multiple transactions that would like to create an
-            // auto-created index on a specific edge-type, we only build the index
-            // when the last one commits.
-            if (edge_type.second == 0) {
-              // TODO: (andi) Handle silent failure
-              CreateIndex(edge_type.first, false);
-              edge_type_indices.erase(edge_type.first);
-            }
-          }
-        });
+        CreateAutoIndices(storage_->edge_types_to_auto_index_);
       }
-
-      auto *mem_unique_constraints =
-          static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
 
       commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
-      auto has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
-      if (has_any_unique_constraints && transaction_.constraint_verification_info &&
-          transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
-        // Before committing and validating vertices against unique constraints,
-        // we have to update unique constraints with the vertices that are going
-        // to be validated/committed.
-        const auto vertices_to_update =
-            transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-
-        for (auto const *vertex : vertices_to_update) {
-          mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
-        }
-
-        for (auto const *vertex : vertices_to_update) {
-          // No need to take any locks here because we modified this vertex and no
-          // one else can touch it until we commit.
-          unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
-          if (unique_constraint_violation) {
-            auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
-            storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
-            break;
-          }
-        }
+      // Unique constraints violated
+      if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
+          maybe_unique_constraint_violation.has_value()) {
+        // Release engine lock because we don't have to hold it anymore
+        engine_guard.unlock();
+        Abort();
+        // We have aborted, need to release/cleanup commit_timestamp_ here
+        DMG_ASSERT(commit_timestamp_.has_value());
+        mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+        commit_timestamp_.reset();
+        return StorageManipulationError{*maybe_unique_constraint_violation};
       }
 
-      if (!unique_constraint_violation) {
-        // Durability stage
-        [[maybe_unused]] bool const is_main_or_replica_write =
-            reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
+      // Unique constraints not violated
+      // Durability stage
+      [[maybe_unused]] bool const is_main_or_replica_write =
+          reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
 
-        // Currently there are queries that write to some subsystem that are allowed on a replica
-        // ex. analyze graph stats
-        // There are probably others. We not to check all of them and figure out if they are allowed and what are
-        // they even doing here...
+      // Currently there are queries that write to some subsystem that are allowed on a replica
+      // ex. analyze graph stats
+      // There are probably others. We not to check all of them and figure out if they are allowed and what are
+      // they even doing here...
 
-        // Write transaction to WAL while holding the engine lock to make sure
-        // that committed transactions are sorted by the commit timestamp in the
-        // WAL files. We supply the new commit timestamp to the function so that
-        // it knows what will be the final commit timestamp. The WAL must be
-        // written before actually committing the transaction (before setting
-        // the commit timestamp) so that no other transaction can see the
-        // modifications before they are written to disk.
-        // Replica can log only the write transaction received from Main
-        // so the Wal files are consistent
-        auto const durability_commit_timestamp =
-            reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
+      // Write transaction to WAL while holding the engine lock to make sure
+      // that committed transactions are sorted by the commit timestamp in the
+      // WAL files. We supply the new commit timestamp to the function so that
+      // it knows what will be the final commit timestamp. The WAL must be
+      // written before actually committing the transaction (before setting
+      // the commit timestamp) so that no other transaction can see the
+      // modifications before they are written to disk.
+      // Replica can log only the write transaction received from Main
+      // so the wal files are consistent
 
-        if (is_main_or_replica_write) {
-          could_replicate_all_sync_replicas =
-              mem_storage->HandleDurabilityAndReplicate(transaction_, durability_commit_timestamp, std::move(db_acc));
+      auto const durability_commit_timestamp =
+          reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
 
-          if (config_.enable_schema_info) {
-            mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                         transaction_.start_timestamp, transaction_.transaction_id,
-                                                         mem_storage->config_.salient.items.properties_on_edges);
-          }
+      if (is_main_or_replica_write) {
+        could_replicate_all_sync_replicas =
+            mem_storage->HandleDurabilityAndReplicate(transaction_, durability_commit_timestamp, std::move(db_acc));
 
-          // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-          // Replica can only update the last durable timestamp with
-          // the commits received from main.
-          // Update the last durable timestamp
+        // TODO: (andi) This should go into FinalizeTransaction, commit decision
+        if (config_.enable_schema_info) {
+          mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
+                                                       transaction_.start_timestamp, transaction_.transaction_id,
+                                                       mem_storage->config_.salient.items.properties_on_edges);
+        }
+
+        // TODO: (andi) This should go into FinalizeTransaction, commit decision
+        // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+
+        // TODO: (andi) This should go into FinalizeTransaction, commit decision
+        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+
 #ifndef NDEBUG
-          auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
-          DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
+        auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+        DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
-          mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
-                                                                         std::memory_order_release);
-        }
 
-        // Install the new point index, if needed
-        mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                                transaction_.point_index_ctx_);
-
-        // TODO: can and should this be moved earlier?
-        mem_storage->commit_log_->MarkFinished(start_timestamp);
-
-        // TODO: (andi) Be careful about this fast discard of deltas
-        // while still holding engine lock
-        // and after durability + replication
-        // check if we can fast discard deltas (ie. do not hand over to GC)
-        bool no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
-        bool no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-        if (no_older_transactions && no_newer_transactions) [[unlikely]] {
-          // STEP 0) Can only do fast discard if GC is not running
-          //         We can't unlink our transcations deltas until all of the older deltas in GC have been unlinked
-          //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
-          auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
-          if (gc_guard.try_lock()) {
-            FastDiscardOfDeltas(std::move(gc_guard));
-          }
-        }
+        // TODO: (andi) This should go into FinalizeTransaction, commit decision
+        mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
+                                                                       std::memory_order_release);
       }
-    }  // Release engine lock because we don't have to hold it anymore
 
-    if (unique_constraint_violation) {
-      Abort();
-      // We have aborted, hence we have not committed, need to release/cleanup commit_timestamp_ here
-      DMG_ASSERT(commit_timestamp_.has_value());
-      mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-      commit_timestamp_.reset();
-      return StorageManipulationError{*unique_constraint_violation};
-    }
+      // TODO: (andi) This should go into FinalizeTransaction, commit decision
+      // Install the new point index, if needed
+      mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                              transaction_.point_index_ctx_);
+
+      // TODO: (andi) This should go into FinalizeTransaction, commit decision
+      // TODO: can and should this be moved earlier?
+      mem_storage->commit_log_->MarkFinished(start_timestamp);
+
+      // TODO: (andi) This should go into FinalizeTransaction, commit decision
+      CheckForFastDiscardOfDeltas();
+    }  // Release engine lock because we don't have to hold it anymore
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       mem_storage->indices_.text_index_.Commit();
