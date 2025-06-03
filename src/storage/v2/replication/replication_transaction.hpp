@@ -63,8 +63,8 @@ class TransactionReplication {
     }
   }
 
-  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector const &db_acc) {
-    bool finalized_on_all_replicas{true};
+  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
+    bool sync_replicas_succ{true};
     MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
               "handle ASYNC tasks");
@@ -74,14 +74,23 @@ class TransactionReplication {
       const auto finalized =
           client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+        sync_replicas_succ = finalized && sync_replicas_succ;
       }
     }
-    return finalized_on_all_replicas;
+    return sync_replicas_succ;
   }
 
-  // TODO: (andi) Maybe you need DatabaseAccessProtector here
-  bool SendCommitRpc() const { return true; }
+  // TODO: (andi) Do you need db_acc protector here?
+  // TODO: (andi) Handle ASYNC replication, we don't need 2PC there for sure
+  // TODO: (andi) Do we have add 2 RPCs, one for Abort and one for Commit or do we handle both with one RPC with some
+  // argument: 'decision'
+  bool SendCommitRpc(DatabaseAccessProtector db_acc) const {
+    bool sync_replicas_succ{true};
+    for (auto &&client : *locked_clients) {
+      sync_replicas_succ &= client->SendCommitRpc(db_acc);
+    }
+    return sync_replicas_succ;
+  }
 
   auto ReplicationStartSuccessful() const -> bool { return !streams.empty(); }
 

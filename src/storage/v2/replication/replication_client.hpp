@@ -178,6 +178,8 @@ class ReplicationStorageClient {
                                                     std::optional<ReplicaStream> &&replica_stream,
                                                     uint64_t durability_commit_timestamp) const;
 
+  [[nodiscard]] bool SendCommitRpc(DatabaseAccessProtector db_acc);
+
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
    *

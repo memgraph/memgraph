@@ -17,7 +17,7 @@ namespace memgraph::storage {
 
 auto ReplicationStorageState::StartPrepareCommitPhase(uint64_t seq_num, Storage *storage,
                                                       DatabaseAccessProtector db_acc) -> TransactionReplication {
-  return {seq_num, storage, std::move(db_acc), replication_storage_clients_};
+  return {seq_num, storage, db_acc, replication_storage_clients_};
 }
 
 std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view const name) const {
