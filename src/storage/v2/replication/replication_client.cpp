@@ -336,6 +336,13 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
+// TODO: (andi) Do we need here db_acc protector?
+[[nodiscard]] bool ReplicationStorageClient::SendCommitRpc(DatabaseAccessProtector /*db_acc*/) {
+  auto stream{client_.rpc_client_.Stream<replication::CommitRpc>()};
+  stream.SendAndWait();
+  return true;
+}
+
 bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
                                                               std::optional<ReplicaStream> &&replica_stream,
                                                               uint64_t durability_commit_timestamp) const {
