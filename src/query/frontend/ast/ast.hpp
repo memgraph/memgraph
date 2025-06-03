@@ -3731,6 +3731,24 @@ class SessionTraceQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class ResetPlanCacheQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ResetPlanCacheQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ResetPlanCacheQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ResetPlanCacheQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query
 
 template <>

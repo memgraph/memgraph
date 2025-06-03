@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,4 +108,14 @@ TEST(LRUCacheTest, LargeCacheTest) {
     EXPECT_TRUE(value.has_value());
     EXPECT_EQ(value.value(), i);
   }
+}
+
+TEST(LRUCacheTest, ResetTest) {
+  memgraph::utils::LRUCache<int, int> cache(2);
+  cache.put(1, 1);
+  cache.put(2, 2);
+  EXPECT_EQ(cache.size(), 2);
+
+  cache.reset();
+  EXPECT_EQ(cache.size(), 0);
 }

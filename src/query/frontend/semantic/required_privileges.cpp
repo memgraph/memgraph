@@ -172,6 +172,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
+  void Visit(ResetPlanCacheQuery & /*reset_plan_cache_query*/) override {}
 
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);

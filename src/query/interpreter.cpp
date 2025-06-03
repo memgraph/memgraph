@@ -6015,6 +6015,31 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                        RWType::R, current_db.db_acc_->get()->name()};
 }
 
+PreparedQuery PrepareResetPlanCacheQuery(ParsedQuery parsed_query, CurrentDB &current_db,
+                                         const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw ResetPlanCacheInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Reset plan cache query expects a current DB");
+  memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+
+  auto *reset_plan_cache_query = utils::Downcast<ResetPlanCacheQuery>(parsed_query.query);
+  MG_ASSERT(reset_plan_cache_query);
+
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+  utils::OnScopeExit const cache_invalidator(invalidate_plan_cache);
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -6509,6 +6534,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
+    } else if (utils::Downcast<ResetPlanCacheQuery>(parsed_query.query)) {
+      prepared_query = PrepareResetPlanCacheQuery(std::move(parsed_query), current_db_, in_explicit_transaction_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
