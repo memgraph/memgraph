@@ -586,8 +586,8 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetInfo() override;
 
   /// Return true in all cases except if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
-                                 DatabaseAccessProtector db_acc);
+  [[nodiscard]] bool HandleDurabilityAndReplicate(const Transaction &transaction, uint64_t durability_commit_timestamp,
+                                                  DatabaseAccessProtector db_acc);
   uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;

@@ -24,11 +24,21 @@ namespace memgraph::storage {
 
 class TransactionReplication {
  public:
-  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
+  // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
+  // proceed with the Commit.
+  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector const &db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc));
+      // If ASYNC or SYNC and valid stream, save the stream
+      if (auto stream = client->StartTransactionReplication(seq_num, storage, db_acc);
+          stream.has_value() || client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+        streams.push_back(std::move(stream));
+      } else {
+        // For 2PC, we need valid replication streams for all instances. Clear streams, release RPC locks and return
+        streams.clear();
+        return;
+      }
     }
   }
 
@@ -53,7 +63,7 @@ class TransactionReplication {
     }
   }
 
-  bool FinalizeTransaction(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
+  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector const &db_acc) {
     bool finalized_on_all_replicas{true};
     MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
@@ -69,6 +79,11 @@ class TransactionReplication {
     }
     return finalized_on_all_replicas;
   }
+
+  // TODO: (andi) Maybe you need DatabaseAccessProtector here
+  bool SendCommitRpc() const { return true; }
+
+  auto ReplicationStartSuccessful() const -> bool { return !streams.empty(); }
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
