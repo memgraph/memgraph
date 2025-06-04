@@ -6243,7 +6243,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write label+properties indices.
     {
-      auto label_property = storage->indices_.label_property_index_->ListIndices();
+      // TODO: filter by committed
+      auto label_property = transaction->active_indices_.label_properties_->ListIndices();
       snapshot.WriteUint(label_property.size());
       for (const auto &[label, property_paths] : label_property) {
         write_mapping(label);
@@ -6264,7 +6265,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     {
       // NOTE: On-disk does not support snapshots
       auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
-      auto label_property_path_pair = inmem_index->ListIndices();
+      // TODO: filter by committed
+      auto label_property_path_pair = transaction->active_indices_.label_properties_->ListIndices();
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;

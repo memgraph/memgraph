@@ -192,8 +192,7 @@ class DiskStorage final : public Storage {
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_property_index_->IndexExists(label, properties);
+      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
     }
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
