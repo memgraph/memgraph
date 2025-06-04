@@ -53,6 +53,8 @@ inline constexpr std::string_view kCapacity = "capacity";
 inline constexpr std::string_view kResizeCoefficient = "resize_coefficient";
 inline constexpr std::uint16_t kDefaultResizeCoefficient = 2;
 inline constexpr std::string_view kDefaultMetric = "l2sq";
+inline constexpr std::string_view kScalarKind = "scalar_kind";
+inline constexpr std::string_view kDefaultScalarKind = "f32";
 
 class UnaryOperator : public memgraph::query::Expression {
  public:

@@ -1822,10 +1822,8 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
                          }) |
                          ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
 
-  auto metric_str = transformed_map.contains(kMetric.data())
-                        ? std::string(transformed_map.at(kMetric.data()).ValueString())
-                        : std::string(kDefaultMetric);
-  auto metric_kind = storage::VectorIndex::MetricFromName(metric_str);
+  auto metric_kind = storage::VectorIndex::MetricFromName(
+      transformed_map.contains(kMetric) ? transformed_map.find(kMetric)->second.ValueString() : kDefaultMetric);
   auto dimension = transformed_map.find(kDimension.data());
   if (dimension == transformed_map.end()) {
     throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
@@ -1841,7 +1839,10 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
                                 ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
                                 : kDefaultResizeCoefficient;
-  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient};
+  auto scalar_kind = storage::VectorIndex::ScalarFromName(transformed_map.contains(kScalarKind.data())
+                                                              ? transformed_map.at(kScalarKind.data()).ValueString()
+                                                              : kDefaultScalarKind);
+  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
