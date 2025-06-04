@@ -764,42 +764,73 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
+    auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(indices.Size(), 1);
+    auto index_info = indices[0].ValueString();
+    ASSERT_EQ(index_info, "User:name");
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(updated_indices.Size(), 0);
 
-  auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(indices.Size(), 1);
-  auto index_info = indices[0].ValueString();
-  ASSERT_EQ(index_info, "User:name");
-
-  ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
-  auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(updated_indices.Size(), 0);
-
-  ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
+    ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
   if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     GTEST_SKIP() << "TestNestedIndex runs only on InMemoryStorage.";
   }
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+    ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(indices.Size(), 1);
+    auto index_info = indices[0].ValueString();
+    ASSERT_EQ(index_info, "Label:nested1.nested2.nested3");
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(indices.Size(), 1);
-  auto index_info = indices[0].ValueString();
-  ASSERT_EQ(index_info, "Label:nested1.nested2.nested3");
-
-  ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-  auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(updated_indices.Size(), 0);
+    auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(updated_indices.Size(), 0);
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
