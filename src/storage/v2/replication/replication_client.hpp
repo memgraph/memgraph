@@ -178,7 +178,9 @@ class ReplicationStorageClient {
                                                     std::optional<ReplicaStream> &&replica_stream,
                                                     uint64_t durability_commit_timestamp) const;
 
-  [[nodiscard]] bool SendCommitRpc(DatabaseAccessProtector db_acc);
+  [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
+                                           DatabaseAccessProtector db_acc,
+                                           uint64_t durability_commit_timestamp) noexcept;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary

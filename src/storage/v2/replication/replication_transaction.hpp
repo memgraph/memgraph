@@ -26,7 +26,7 @@ class TransactionReplication {
  public:
   // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
   // proceed with the Commit.
-  /*
+
   TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector const &db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
@@ -36,14 +36,14 @@ class TransactionReplication {
           stream.has_value() || client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
         streams.push_back(std::move(stream));
       } else {
-        // For 2PC, we need valid replication streams for all instances. Clear streams, release RPC locks and return
+        // For 2PC, we need valid replication streams for all instances. Clear streams, release RPC locks and return.
         streams.clear();
         return;
       }
     }
   }
-  */
 
+  /*
   TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
@@ -51,6 +51,7 @@ class TransactionReplication {
       streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc));
     }
   }
+  */
 
   template <typename... Args>
   void AppendDelta(Args &&...args) {
@@ -92,17 +93,16 @@ class TransactionReplication {
 
   // TODO: (andi) Do you need db_acc protector here?
   // TODO: (andi) Handle ASYNC replication, we don't need 2PC there for sure
-  // TODO: (andi) Do we have add 2 RPCs, one for Abort and one for Commit or do we handle both with one RPC with some
-  // argument: 'decision'
-  bool SendCommitRpc(DatabaseAccessProtector db_acc) const {
+  bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
+                             uint64_t const durability_commit_timestamp) const noexcept {
     bool sync_replicas_succ{true};
     for (auto &&client : *locked_clients) {
-      sync_replicas_succ &= client->SendCommitRpc(db_acc);
+      sync_replicas_succ &= client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp);
     }
     return sync_replicas_succ;
   }
 
-  auto ReplicationStartSuccessful() const -> bool { return !streams.empty(); }
+  auto ReplicationStartSuccessful() const -> bool { return locked_clients->empty() || !streams.empty(); }
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
