@@ -20,7 +20,6 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/observer.hpp"
 
@@ -204,6 +203,8 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 }  // namespace
 
+std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> InMemoryReplicationHandlers::cached_commit_accessor_;
+
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
@@ -349,7 +350,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   try {
-    ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
+    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
+    cached_commit_accessor_ = std::move(deltas_res.commit_acc);
   } catch (const utils::BasicException &e) {
     spdlog::error(
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
@@ -387,6 +389,12 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   storage->repl_storage_state_.last_durable_timestamp_.store(req.durability_commit_timestamp,
                                                              std::memory_order_release);
+
+  MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
+
+  cached_commit_accessor_->FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
+                                               req.durability_commit_timestamp);
+  cached_commit_accessor_.reset();
   storage::replication::FinalizeCommitRes const res(true);
   rpc::SendFinalResponse(res, res_builder);
 }
@@ -779,10 +787,14 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 
     uint32_t local_batch_counter = start_batch_counter;
     for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
-      auto const [current_delta_idx, current_batch_counter] =
+      auto const deltas_res =
           ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, local_batch_counter);
-      local_delta_idx += current_delta_idx;
-      local_batch_counter = current_batch_counter;
+      local_delta_idx += deltas_res.current_delta_idx;
+      local_batch_counter = deltas_res.current_batch_counter;
+      // Call immediately Commit instead of waiting for MAIN's approval
+      deltas_res.commit_acc->FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
+                                                 deltas_res.durability_commit_timestamp);
+      // accessor should get destroyed at this point
     }
 
     spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
@@ -797,7 +809,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 }
 
 // The number of applied deltas also includes skipped deltas.
-std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
+storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
     slk::Builder *res_builder, uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
@@ -1088,7 +1100,6 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
-          commit_timestamp_and_accessor = std::nullopt;
         },
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
@@ -1368,15 +1379,14 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
     applied_deltas++;
   }
 
-  if (commit_timestamp_and_accessor) {
-    throw utils::BasicException("Did not finish the transaction!");
-  }
-
-  // TODO: (andi) Rebase if this gets merged https://github.com/memgraph/memgraph/pull/3024
-  // Shouldn't be needed because a single txn must be within a single WAL file
-  storage->repl_storage_state_.last_durable_timestamp_.store(max_delta_timestamp, std::memory_order_release);
-
   spdlog::debug("Applied {} deltas", applied_deltas);
-  return {current_delta_idx, current_batch_counter};
+  MG_ASSERT(commit_timestamp_and_accessor.has_value(),
+            "Commit timestamp and accessor need to be available before caching it");
+  return storage::SingleTxnDeltasProcessingResult{
+      .commit_acc = std::make_unique<storage::InMemoryStorage::ReplicationAccessor>(
+          std::move(commit_timestamp_and_accessor->second)),
+      .current_delta_idx = current_delta_idx,
+      .durability_commit_timestamp = commit_timestamp_and_accessor->first,
+      .current_batch_counter = current_batch_counter};
 }
 }  // namespace memgraph::dbms

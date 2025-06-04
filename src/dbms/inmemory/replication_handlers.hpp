@@ -12,11 +12,8 @@
 #pragma once
 
 #include "replication/state.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/serialization.hpp"
-
-namespace memgraph::storage {
-class InMemoryStorage;
-}  // namespace memgraph::storage
 
 namespace memgraph::dbms {
 
@@ -53,10 +50,12 @@ class InMemoryReplicationHandlers {
   static std::pair<bool, uint32_t> LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
                                            slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
-  static std::pair<uint64_t, uint32_t> ReadAndApplyDeltasSingleTxn(storage::InMemoryStorage *storage,
-                                                                   storage::durability::BaseDecoder *decoder,
-                                                                   uint64_t version, slk::Builder *,
-                                                                   uint32_t start_batch_counter = 0);
+  static storage::SingleTxnDeltasProcessingResult ReadAndApplyDeltasSingleTxn(storage::InMemoryStorage *storage,
+                                                                              storage::durability::BaseDecoder *decoder,
+                                                                              uint64_t version, slk::Builder *,
+                                                                              uint32_t start_batch_counter = 0);
+
+  static std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> cached_commit_accessor_;
 };
 
 }  // namespace memgraph::dbms
