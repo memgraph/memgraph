@@ -149,7 +149,7 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
-struct CommitReplArgs {
+struct CommitReplicationArgs {
   // REPLICA on receipt of Deltas will have a desired commit timestamp
   std::optional<uint64_t> desired_commit_timestamp{std::nullopt};
   bool is_main{true};
@@ -364,10 +364,10 @@ class Storage {
 
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
-        CommitReplArgs reparg = {}, DatabaseAccessProtector db_acc = {}) = 0;
+        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                               DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;

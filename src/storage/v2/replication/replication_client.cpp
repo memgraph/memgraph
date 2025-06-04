@@ -352,10 +352,20 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 }
 
 // TODO: (andi) Do we need here db_acc protector?
-[[nodiscard]] bool ReplicationStorageClient::SendCommitRpc(DatabaseAccessProtector /*db_acc*/) {
-  auto stream{client_.rpc_client_.Stream<replication::CommitRpc>()};
-  stream.SendAndWait();
-  return true;
+// ReSharper disable once CppMemberFunctionMayBeConst
+[[nodiscard]] bool ReplicationStorageClient::SendFinalizeCommitRpc(
+    bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector /*db_acc*/,
+    uint64_t const durability_commit_timestamp) noexcept {
+  try {
+    auto stream{client_.rpc_client_.Stream<replication::FinalizeCommitRpc>(decision, main_uuid_, storage_uuid,
+                                                                           durability_commit_timestamp)};
+    stream.SendAndWait();
+    return true;
+  } catch (const rpc::RpcFailedException &) {
+    // TODO: (andi) If we received exception here, in which state do we put replica, will 2PC be part of replication
+    // state machine
+    return false;
+  }
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProtector db_acc,

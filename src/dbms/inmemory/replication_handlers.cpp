@@ -214,6 +214,10 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
+  server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, req_reader, res_builder);
@@ -360,6 +364,33 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   const storage::replication::PrepareCommitRes res{true};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
+}
+
+void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                                        const std::optional<utils::UUID> &current_main_uuid,
+                                                        slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::FinalizeCommitReq req;
+  slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
+    storage::replication::FinalizeCommitRes const res(false);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
+  if (!db_acc) {
+    storage::replication::FinalizeCommitRes const res(false);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  storage->repl_storage_state_.last_durable_timestamp_.store(req.durability_commit_timestamp,
+                                                             std::memory_order_release);
+  storage::replication::FinalizeCommitRes const res(true);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
@@ -1054,8 +1085,11 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
-          auto ret = commit_timestamp_and_accessor->second.PrepareForCommitPhase(
+          auto const ret = commit_timestamp_and_accessor->second.PrepareForCommitPhase(
               {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
+          if (ret.HasError()) {
+            throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
+          }
           if (ret.HasError()) throw utils::BasicException("Committing failed on receiving transaction end delta.");
           commit_timestamp_and_accessor = std::nullopt;
         },

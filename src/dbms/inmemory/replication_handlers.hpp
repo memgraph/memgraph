@@ -27,12 +27,16 @@ class InMemoryReplicationHandlers {
   static void Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data);
 
  private:
-  // RPC handlers
+  // RPC handle
   static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void PrepareCommitHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                    slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                    const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
+                                    slk::Builder *res_builder);
 
   static void SnapshotHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                               slk::Reader *req_reader, slk::Builder *res_builder);
