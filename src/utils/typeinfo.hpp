@@ -85,8 +85,8 @@ enum class TypeId : uint64_t {
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
   PREPARE_COMMIT_REQ = 2000,
   PREPARE_COMMIT_RES,
-  COMMIT_REQ,
-  COMMIT_RES,
+  FINALIZE_COMMIT_REQ,
+  FINALIZE_COMMIT_RES,
   REP_IN_PROGRESS_RES,
   REP_HEARTBEAT_REQ,
   REP_HEARTBEAT_RES,

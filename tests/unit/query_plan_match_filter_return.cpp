@@ -3088,7 +3088,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label);
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3150,7 +3150,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3243,7 +3243,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3282,7 +3282,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3315,7 +3315,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3371,7 +3371,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3407,7 +3407,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3440,7 +3440,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3484,7 +3484,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   // Make sure there are `vertex_count` vertices
