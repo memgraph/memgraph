@@ -1671,7 +1671,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PrepareForCommitPhase(
     CommitReplArgs reparg, DatabaseAccessProtector /*db_acc*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");

@@ -22,7 +22,6 @@
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
-#include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
@@ -66,7 +65,7 @@ extern const Event PeakMemoryRes;
 
 namespace memgraph::storage {
 namespace {
-constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durability::StorageMetadataOperation {
+constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define add_case(E)              \
   case MetadataDelta::Action::E: \
@@ -734,14 +733,14 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
+utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
-  auto could_replicate_all_sync_replicas = true;
-
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  utils::OnScopeExit cleanup{[&] { is_transaction_active_ = false; }};
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
@@ -764,118 +763,105 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // tested for Abort call which has to be done out of the scope.
 
     // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
 
-    {
-      auto engine_guard = std::unique_lock{storage_->engine_lock_};
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
-      // LabelIndex auto-creation block.
-      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
-        CreateAutoIndices(storage_->labels_to_auto_index_);
-      }
+    // LabelIndex auto-creation block.
+    if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+      CreateAutoIndices(storage_->labels_to_auto_index_);
+    }
 
-      // EdgeIndex auto-creation block.
-      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
-        CreateAutoIndices(storage_->edge_types_to_auto_index_);
-      }
+    // EdgeIndex auto-creation block.
+    if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+      CreateAutoIndices(storage_->edge_types_to_auto_index_);
+    }
 
-      commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+    commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
-      // Unique constraints violated
-      if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
-          maybe_unique_constraint_violation.has_value()) {
-        // Release engine lock because we don't have to hold it anymore
-        engine_guard.unlock();
-        Abort();
-        // We have aborted, need to release/cleanup commit_timestamp_ here
-        DMG_ASSERT(commit_timestamp_.has_value());
-        mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-        commit_timestamp_.reset();
-        return StorageManipulationError{*maybe_unique_constraint_violation};
-      }
+    // Unique constraints violated
+    if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
+        maybe_unique_constraint_violation.has_value()) {
+      // Release engine lock because we don't have to hold it anymore
+      engine_guard.unlock();
+      Abort();
+      // We have aborted, need to release/cleanup commit_timestamp_ here
+      DMG_ASSERT(commit_timestamp_.has_value());
+      mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+      commit_timestamp_.reset();
+      return StorageManipulationError{*maybe_unique_constraint_violation};
+    }
+    // Currently there are queries that write to some subsystem that are allowed on a replica
+    // ex. analyze graph stats
+    // There are probably others. We not to check all of them and figure out if they are allowed and what are
+    // they even doing here...
 
-      // Unique constraints not violated
-      // Durability stage
-      [[maybe_unused]] bool const is_main_or_replica_write =
-          reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
+    // Write transaction to WAL while holding the engine lock to make sure
+    // that committed transactions are sorted by the commit timestamp in the
+    // WAL files. We supply the new commit timestamp to the function so that
+    // it knows what will be the final commit timestamp. The WAL must be
+    // written before actually committing the transaction (before setting
+    // the commit timestamp) so that no other transaction can see the
+    // modifications before they are written to disk.
+    // Replica can log only the write transaction received from Main
+    // so the wal files are consistent
 
-      // Currently there are queries that write to some subsystem that are allowed on a replica
-      // ex. analyze graph stats
-      // There are probably others. We not to check all of them and figure out if they are allowed and what are
-      // they even doing here...
-
-      // Write transaction to WAL while holding the engine lock to make sure
-      // that committed transactions are sorted by the commit timestamp in the
-      // WAL files. We supply the new commit timestamp to the function so that
-      // it knows what will be the final commit timestamp. The WAL must be
-      // written before actually committing the transaction (before setting
-      // the commit timestamp) so that no other transaction can see the
-      // modifications before they are written to disk.
-      // Replica can log only the write transaction received from Main
-      // so the wal files are consistent
-
+    if (reparg.is_main || reparg.desired_commit_timestamp.has_value()) {
       auto const durability_commit_timestamp =
           reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
+      bool const could_replicate_all_sync_replicas =
+          mem_storage->HandleDurabilityAndReplicate(transaction_, durability_commit_timestamp, std::move(db_acc));
+      FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
 
-      if (is_main_or_replica_write) {
-        could_replicate_all_sync_replicas =
-            mem_storage->HandleDurabilityAndReplicate(transaction_, durability_commit_timestamp, std::move(db_acc));
-
-        // TODO: (andi) This should go into FinalizeTransaction, commit decision
-        if (config_.enable_schema_info) {
-          mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                                       transaction_.start_timestamp, transaction_.transaction_id,
-                                                       mem_storage->config_.salient.items.properties_on_edges);
-        }
-
-        // TODO: (andi) This should go into FinalizeTransaction, commit decision
-        // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-
-        // TODO: (andi) This should go into FinalizeTransaction, commit decision
-        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-
-#ifndef NDEBUG
-        auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
-        DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
-#endif
-
-        // TODO: (andi) This should go into FinalizeTransaction, commit decision
-        mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
-                                                                       std::memory_order_release);
+      if (!could_replicate_all_sync_replicas) {
+        return StorageManipulationError{ReplicationError{}};
       }
-
-      // TODO: (andi) This should go into FinalizeTransaction, commit decision
-      // Install the new point index, if needed
-      mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
-                                                              transaction_.point_index_ctx_);
-
-      // TODO: (andi) This should go into FinalizeTransaction, commit decision
-      // TODO: can and should this be moved earlier?
-      mem_storage->commit_log_->MarkFinished(start_timestamp);
-
-      // TODO: (andi) This should go into FinalizeTransaction, commit decision
-      CheckForFastDiscardOfDeltas();
-    }  // Release engine lock because we don't have to hold it anymore
-
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      mem_storage->indices_.text_index_.Commit();
     }
-  }
-
-  is_transaction_active_ = false;
-
-  if (!could_replicate_all_sync_replicas) {
-    return StorageManipulationError{ReplicationError{}};
   }
 
   return {};
 }
 
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<utils::SpinLock> engine_guard,
+                                                            uint64_t const durability_commit_timestamp) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  if (config_.enable_schema_info) {
+    mem_storage->schema_info_.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
+                                                 transaction_.start_timestamp, transaction_.transaction_id,
+                                                 mem_storage->config_.salient.items.properties_on_edges);
+  }
+
+  MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+  transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+
+#ifndef NDEBUG
+  auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+  DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
+#endif
+
+  mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
+                                                                 std::memory_order_release);
+
+  // Install the new point index, if needed
+  mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                          transaction_.point_index_ctx_);
+
+  // TODO: can and should this be moved earlier?
+  mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  CheckForFastDiscardOfDeltas();
+
+  // Committing text index doesn't need to be done under the engine lock
+  engine_guard.unlock();
+
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    mem_storage->indices_.text_index_.Commit();
+  }
+}
+
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
-  auto result = Commit(reparg, db_acc);
+  auto result = PrepareForCommitPhase(reparg, db_acc);
 
   const auto fatal_error =
       result.HasError() && std::visit(
