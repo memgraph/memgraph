@@ -163,6 +163,10 @@ class InMemoryStorage final : public Storage {
       });
     }
 
+    [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+                                                    DatabaseAccessProtector db_acc,
+                                                    TransactionReplication &replicating_txn);
+
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
     InMemoryAccessor &operator=(const InMemoryAccessor &) = delete;
@@ -349,9 +353,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
-        CommitReplArgs reparg = {}, DatabaseAccessProtector db_acc = {}) override;
+        CommitReplicationArgs repl_args = {}, DatabaseAccessProtector db_acc = {}) override;
 
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) override;
 
     /// Represents the 2nd phase of the 2PC protocol
@@ -611,9 +615,6 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo() override;
 
-  /// Return true in all cases except if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool HandleDurabilityAndReplicate(const Transaction &transaction, uint64_t durability_commit_timestamp,
-                                                  DatabaseAccessProtector db_acc);
   uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;

@@ -34,10 +34,13 @@ void PrepareCommitRes::Load(PrepareCommitRes *self, memgraph::slk::Reader *reade
   memgraph::slk::Load(self, reader);
 }
 
-void CommitReq::Save(const CommitReq &self, memgraph::slk::Builder *builder) {}
-void CommitReq::Load(CommitReq *self, memgraph::slk::Reader *reader) {}
-void CommitRes::Save(const CommitRes &self, memgraph::slk::Builder *builder) {}
-void CommitRes::Load(CommitRes *self, memgraph::slk::Reader *reader) {}
+void FinalizeCommitReq::Save(const FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self, builder);
+}
+void FinalizeCommitReq::Load(FinalizeCommitReq *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
+
+void FinalizeCommitRes::Save(const FinalizeCommitRes &self, memgraph::slk::Builder *builder) {}
+void FinalizeCommitRes::Load(FinalizeCommitRes *self, memgraph::slk::Reader *reader) {}
 
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -73,9 +76,11 @@ constexpr utils::TypeInfo storage::replication::PrepareCommitReq::kType{utils::T
 constexpr utils::TypeInfo storage::replication::PrepareCommitRes::kType{utils::TypeId::PREPARE_COMMIT_RES,
                                                                         "PrepareCommitRes", nullptr};
 
-constexpr utils::TypeInfo storage::replication::CommitReq::kType{utils::TypeId::COMMIT_REQ, "CommitReq", nullptr};
+constexpr utils::TypeInfo storage::replication::FinalizeCommitReq::kType{utils::TypeId::FINALIZE_COMMIT_REQ,
+                                                                         "FinalizeCommitReq", nullptr};
 
-constexpr utils::TypeInfo storage::replication::CommitRes::kType{utils::TypeId::COMMIT_RES, "CommitRes", nullptr};
+constexpr utils::TypeInfo storage::replication::FinalizeCommitRes::kType{utils::TypeId::FINALIZE_COMMIT_RES,
+                                                                         "FinalizeCommitRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::InProgressRes::kType{utils::TypeId::REP_IN_PROGRESS_RES,
                                                                      "InProgressRes", nullptr};
@@ -229,6 +234,28 @@ void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk:
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->previous_commit_timestamp, reader);
   memgraph::slk::Load(&self->seq_num, reader);
+}
+
+// Serialize code for FinalizeCommitRes
+
+void Save(const storage::replication::FinalizeCommitRes &self, Builder *builder) {}
+
+void Load(storage::replication::FinalizeCommitRes *self, Reader *reader) {}
+
+// Serialize code for FinalizeCommitReq
+
+void Save(const memgraph::storage::replication::FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self.decision, builder);
+  slk::Save(self.main_uuid, builder);
+  slk::Save(self.storage_uuid, builder);
+  slk::Save(self.durability_commit_timestamp, builder);
+}
+
+void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk::Reader *reader) {
+  slk::Load(&self->decision, reader);
+  slk::Load(&self->main_uuid, reader);
+  slk::Load(&self->storage_uuid, reader);
+  slk::Load(&self->durability_commit_timestamp, reader);
 }
 
 // Serialize SalientConfig
