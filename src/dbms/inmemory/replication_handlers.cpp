@@ -303,6 +303,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
+  spdlog::info("Preparing for commit");
+
   // Read at the beginning so that SLK stream gets cleared even when the request is invalid
   storage::replication::Decoder decoder(req_reader);
   auto maybe_epoch_id = decoder.ReadString();
@@ -350,7 +352,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   try {
-    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
+    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder, false);
     cached_commit_accessor_ = std::move(deltas_res.commit_acc);
   } catch (const utils::BasicException &e) {
     spdlog::error(
@@ -391,6 +393,8 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
                                                              std::memory_order_release);
 
   MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
+
+  spdlog::info("Finalizing commit");
 
   cached_commit_accessor_->FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
                                                req.durability_commit_timestamp);
@@ -788,13 +792,9 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     uint32_t local_batch_counter = start_batch_counter;
     for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
       auto const deltas_res =
-          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, local_batch_counter);
+          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, true, local_batch_counter);
       local_delta_idx += deltas_res.current_delta_idx;
       local_batch_counter = deltas_res.current_batch_counter;
-      // Call immediately Commit instead of waiting for MAIN's approval
-      deltas_res.commit_acc->FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
-                                                 deltas_res.durability_commit_timestamp);
-      // accessor should get destroyed at this point
     }
 
     spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
@@ -811,7 +811,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 // The number of applied deltas also includes skipped deltas.
 storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, uint32_t const start_batch_counter) {
+    slk::Builder *res_builder, bool const loading_wal, uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -1099,6 +1099,12 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
               {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
+          }
+          // Call immediately Commit instead of waiting for MAIN's approval if loading txns from WAL file
+          if (loading_wal) {
+            commit_timestamp_and_accessor->second.FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
+                                                                      commit_timestamp_and_accessor->first);
+            commit_timestamp_and_accessor.reset();
           }
         },
         [&](WalLabelIndexCreate const &data) {
