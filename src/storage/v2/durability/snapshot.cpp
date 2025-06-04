@@ -530,6 +530,18 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   return info;
 }
 
+void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid) {
+  auto info = ReadSnapshotInfo(path);
+  if (info.uuid == uuid) return;  // No need to overwrite if the UUID is already correct.
+  SnapshotEncoder snapshot;
+  snapshot.Initialize(path);
+  snapshot.SetPosition(info.offset_metadata);
+  // Write the new UUID.
+  snapshot.WriteMarker(Marker::SECTION_METADATA);
+  snapshot.WriteString(std::string{uuid});
+  snapshot.Sync();
+}
+
 std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
   std::vector<BatchInfo> infos;
   const auto infos_size = snapshot.ReadUint();
@@ -5898,6 +5910,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   // Write metadata.
   auto const uuid_str = std::string{uuid};
   {
+    // Important that this order is kept. UUID can be rewritten in case of forced recovery.
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid_str);

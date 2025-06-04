@@ -2671,7 +2671,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   // Copy to local snapshot dir
   std::error_code ec{};
   const auto local_path = recovery_.snapshot_directory_ / path.filename();
-  if (local_path != path) {
+  const bool file_in_local_dir = local_path == path;
+  if (!file_in_local_dir) {
     std::filesystem::copy_file(path, local_path, ec);
     if (ec) {
       spdlog::warn("Failed to copy snapshot into local snapshots directory.");
@@ -2681,7 +2682,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
 
   auto handler_error = [&]() {
     // If file was copied over, delete...
-    if (local_path != path) file_retainer_.DeleteFile(local_path);
+    if (!file_in_local_dir) file_retainer_.DeleteFile(local_path);
   };
 
   auto file_locker = file_retainer_.AddLocker();
@@ -2708,7 +2709,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
         local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
         &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot recovered successfully");
-    uuid().set(recovered_snapshot.snapshot_info.uuid);
+    // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
+    // This snapshot creates a new state and cannot have any WALs associated with it at this point
+    // If the storage's snapshot has been reused, the old version will be put in the .old directory
     spdlog::trace("Set epoch to {} for db {}", recovered_snapshot.snapshot_info.epoch_id, name());
     repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
@@ -2745,10 +2748,25 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     }
 
     auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
-    for (const auto &[snapshot_path, _1, _2] : snapshot_files) {
+    for (const auto &[snapshot_path, snapshot_uuid, _2] : snapshot_files) {
       if (local_path != snapshot_path) {
         spdlog::trace("Moving snapshot file {}", snapshot_path);
         file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
+      } else if (uuid() != snapshot_uuid) {
+        // This is the recovered snapshot, but it has a different UUID than the current storage UUID
+        if (file_in_local_dir) {
+          // Used a snapshot for the local storage, back it up before updating the UUID
+          std::filesystem::copy_file(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename(),
+                                     ec);
+          if (ec) {
+            spdlog::warn(
+                "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
+                "manually.");
+            return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+          }
+        }
+        // Rewrite the UUID in the snapshot file
+        durability::OverwriteSnapshotUUID(local_path, uuid());
       }
     }
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
