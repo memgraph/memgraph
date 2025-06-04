@@ -150,12 +150,9 @@ struct EdgeInfoForDeletion {
 };
 
 struct CommitReplArgs {
-  // REPLICA on recipt of Deltas will have a desired commit timestamp
-  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
-
-  bool is_main = true;
-
-  bool IsMain() const { return is_main; }
+  // REPLICA on receipt of Deltas will have a desired commit timestamp
+  std::optional<uint64_t> desired_commit_timestamp{std::nullopt};
+  bool is_main{true};
 };
 
 class Storage {
@@ -366,8 +363,8 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplArgs reparg = {}, DatabaseAccessProtector db_acc = {}) = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
