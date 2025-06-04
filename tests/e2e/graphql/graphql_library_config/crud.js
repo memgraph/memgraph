@@ -3,17 +3,17 @@ const { ApolloServer, gql } = require("apollo-server");
 const neo4j = require("neo4j-driver");
 
 const typeDefs = gql`
-type Post {
+  type Post @node {
     id: ID! @id
     content: String!
-    creator: User! @relationship(type: "HAS_POST", direction: IN)
-}
+    creator: User!
+  }
 
-type User {
+  type User @node {
     id: ID! @id
     name: String
     posts: [Post!]! @relationship(type: "HAS_POST", direction: OUT)
-}
+  }
 `;
 
 const driver = neo4j.driver(
