@@ -53,6 +53,7 @@ class InMemoryReplicationHandlers {
   static storage::SingleTxnDeltasProcessingResult ReadAndApplyDeltasSingleTxn(storage::InMemoryStorage *storage,
                                                                               storage::durability::BaseDecoder *decoder,
                                                                               uint64_t version, slk::Builder *,
+                                                                              bool loading_wal,
                                                                               uint32_t start_batch_counter = 0);
 
   static std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> cached_commit_accessor_;
