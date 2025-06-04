@@ -6883,7 +6883,8 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
+  auto maybe_commit_error =
+      current_db_.db_transactional_accessor_->PrepareForCommitPhase({.is_main = is_main}, current_db_.db_acc_);
   // Proactively unlock repl_state
   locked_repl_state.reset();
 

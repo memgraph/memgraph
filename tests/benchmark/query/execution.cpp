@@ -69,7 +69,7 @@ class PoolResource final {
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {
   auto dba = db->Access();
   for (int i = 0; i < vertex_count; i++) dba->CreateVertex();
-  MG_ASSERT(!dba->Commit().HasError());
+  MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
 }
 
 static const char *kStartLabel = "start";
@@ -87,7 +87,7 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
         prev_vertex = dest;
       }
     }
-    MG_ASSERT(!dba->Commit().HasError());
+    MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
   }
   {
     auto unique_acc = db->UniqueAccess();
@@ -112,7 +112,7 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
       MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).HasValue());
       vertices.push_back(v);
     }
-    MG_ASSERT(!dba->Commit().HasError());
+    MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
   }
   {
     auto unique_acc = db->UniqueAccess();

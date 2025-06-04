@@ -869,7 +869,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto spec = memgraph::storage::VectorIndexSpec{index_name,         label,        property,   metric, dimension,
                                                    resize_coefficient, max_elements, scalar_kind};
     ASSERT_FALSE(db_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->PrepareForCommitPhase().HasError());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);

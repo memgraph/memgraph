@@ -1054,7 +1054,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
-          auto ret = commit_timestamp_and_accessor->second.Commit(
+          auto ret = commit_timestamp_and_accessor->second.PrepareForCommitPhase(
               {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
           if (ret.HasError()) throw utils::BasicException("Committing failed on receiving transaction end delta.");
           commit_timestamp_and_accessor = std::nullopt;

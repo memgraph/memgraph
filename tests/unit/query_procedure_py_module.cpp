@@ -128,7 +128,7 @@ TYPED_TEST(PyModule, PyVertex) {
     auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase().HasError());
   }
   // Get the first vertex as an mgp_value.
   auto storage_dba = this->db->Access();
@@ -178,7 +178,7 @@ TYPED_TEST(PyModule, PyEdge) {
         e.GetValue().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
     ASSERT_TRUE(
         e.GetValue().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase().HasError());
   }
   // Get the edge as an mgp_value.
   auto storage_dba = this->db->Access();
@@ -225,7 +225,7 @@ TYPED_TEST(PyModule, PyPath) {
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
     ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase().HasError());
   }
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());

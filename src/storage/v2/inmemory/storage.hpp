@@ -27,12 +27,9 @@
 /// REPLICATION ///
 
 #include "storage/v2/delta_container.hpp"
-#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/memory.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -158,6 +155,7 @@ class InMemoryStorage final : public Storage {
           // auto-created index on a specific label, we only build the index
           // when the last one commits.
           if (label.second == 0) {
+            // NOLINTNEXTLINE
             CreateIndex(label.first, false);
             label_indices.erase(label.first);
           }
@@ -342,18 +340,24 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
+    /// Represents the 1st phase of 2PC protocol.
     /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occures. Error can be:
+    /// Returns `StorageDataManipulationError` if an error occurred. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                              DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplArgs reparg = {}, DatabaseAccessProtector db_acc = {}) override;
 
     utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) override;
+
+    /// Represents the 2nd phase of the 2PC protocol
+    /// Returns void because it must not fail
+    /// TODO: (andi) Think if all methods inside can be noexcept
+    void FinalizeCommitPhase(std::unique_lock<utils::SpinLock> engine_guard, uint64_t durability_commit_timestamp);
 
     /// @throw std::bad_alloc
     void Abort() override;
