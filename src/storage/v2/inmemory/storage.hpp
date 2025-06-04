@@ -717,4 +717,11 @@ class InMemoryStorage final : public Storage {
   void Clear();
 };
 
+struct SingleTxnDeltasProcessingResult {
+  std::unique_ptr<InMemoryStorage::ReplicationAccessor> commit_acc;
+  uint64_t current_delta_idx;
+  uint64_t durability_commit_timestamp;
+  uint32_t current_batch_counter;
+};
+
 }  // namespace memgraph::storage
