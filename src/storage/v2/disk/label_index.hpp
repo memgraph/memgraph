@@ -26,7 +26,7 @@ class DiskLabelIndex : public storage::LabelIndex {
  public:
   explicit DiskLabelIndex(const Config &config);
 
-  [[nodiscard]] bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
+  bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
   std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction() const;
 
