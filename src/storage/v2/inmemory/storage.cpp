@@ -771,7 +771,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
-        CreateAutoIndices(storage_->edge_types_to_auto_index_);
+        CreateAutoIndices(storage_->labels_to_auto_index_);
       }
 
       // EdgeIndex auto-creation block.
