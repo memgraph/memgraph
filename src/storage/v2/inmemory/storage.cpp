@@ -101,6 +101,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(POINT_INDEX_DROP);
     add_case(VECTOR_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
+    default:
+      LOG_FATAL("Unknown MetadataDelta::Action");
   }
 #undef add_case
 }
@@ -723,7 +725,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
+    CommitReplicationArgs const repl_args, DatabaseAccessProtector db_acc) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -794,14 +796,52 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // Replica can log only the write transaction received from Main
     // so the wal files are consistent
 
-    if (reparg.is_main || reparg.desired_commit_timestamp.has_value()) {
+    if (repl_args.is_main || repl_args.desired_commit_timestamp.has_value()) {
       auto const durability_commit_timestamp =
-          reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
-      bool const could_replicate_all_sync_replicas =
-          mem_storage->HandleDurabilityAndReplicate(transaction_, durability_commit_timestamp, std::move(db_acc));
-      FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
+          repl_args.desired_commit_timestamp.has_value() ? *repl_args.desired_commit_timestamp : *commit_timestamp_;
 
-      if (!could_replicate_all_sync_replicas) {
+      // No need, durability mode is not periodic snapshot with WALs
+      if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
+        return {};
+      }
+
+      // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
+      // couldn't be retrieved. As long as this object is alive, RPC streams are held
+      auto replicating_txn = mem_storage->repl_storage_state_.StartPrepareCommitPhase(
+          mem_storage->wal_file_->SequenceNumber(), mem_storage, db_acc);
+
+      // This will block until we receive OK votes from all replicas if we are main
+      // If we are replica, we will make durable our deltas and return
+      bool const repl_prepare_phase_status =
+          HandleDurabilityAndReplicate(durability_commit_timestamp, db_acc, replicating_txn);
+
+      // If I am replica with write txn return because the 2nd phase will be executed once we receive FinalizeCommitRpc
+      if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
+        return {};
+      }
+
+      /// If we are here, it means we are the main executing the commit
+      if (repl_prepare_phase_status) {
+        // TODO: (andi) One optimization says that we can return OK to clients as soon as we received OK votes to
+        // prepare message from all replicas
+        if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), db_acc, durability_commit_timestamp)) {
+          spdlog::info("Received OK from all replicas to FinalizeCommitRpc");
+          FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
+        } else {
+          spdlog::info("One of replicas couldn't commit when FinalizeCommitRpc was received");
+          // TODO: (andi) What if we are here, replicas should guarantee that they commit once they replied with yes
+          // They need to be blocked until they commit, they cannot commit some order txn, that would be out of order
+        }
+
+      } else {
+        // Send Abort RPC. How to abort our deltas which were already made durable?
+        bool const repl_commit_phase_status =
+            replicating_txn.SendFinalizeCommitRpc(false, mem_storage->uuid(), db_acc, durability_commit_timestamp);
+        // TODO: (andi) How can we abort here since we made deltas already durable? BIG PROBLEM
+        // TODO: (andi) What do we do with the replicas response true/false.
+      }
+
+      if (!repl_prepare_phase_status) {
         return StorageManipulationError{ReplicationError{}};
       }
     }
@@ -849,7 +889,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<uti
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
-    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
+    CommitReplicationArgs reparg, DatabaseAccessProtector db_acc) {
   auto result = PrepareForCommitPhase(reparg, db_acc);
 
   const auto fatal_error =
@@ -1352,7 +1392,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed) {
+    LabelId label, bool const unique_access_needed) {
   if (unique_access_needed) {
     MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
   }
@@ -2246,19 +2286,21 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transaction, uint64_t durability_commit_timestamp,
-                                                   DatabaseAccessProtector db_acc) {
-  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
-    return true;
-  }
-  // A single transaction will always be contained in a single WAL file.
-  auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
+bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+                                                                     DatabaseAccessProtector db_acc,
+                                                                     TransactionReplication &replicating_txn) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto tx_replication = repl_storage_state_.StartPrepareCommitPhase(wal_file_->SequenceNumber(), this, db_acc);
-  // TODO: (andi) How to abort inside the commit if we couldn't retrieve all RPC streams?
-  // Should be possible because we do Abort if unique constaint is violated
-  if (!tx_replication.ReplicationStartSuccessful()) {
-    spdlog::error("Need to abort somehow!");
+  // A single transaction will always be contained in a single WAL file.
+  auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
+
+  // Safe to abort here because deltas weren't made durable yet
+  if (!replicating_txn.ReplicationStartSuccessful()) {
+    Abort();
+    DMG_ASSERT(commit_timestamp_.has_value());
+    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+    commit_timestamp_.reset();
+    return false;
   }
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
@@ -2271,33 +2313,32 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
       encode_operation(encoder);
     };
 
-    // durability
-    full_encode_operation(wal_file_->encoder());
-    wal_file_->UpdateStats(durability_commit_timestamp);
-    // replication
-    tx_replication.EncodeToReplicas(full_encode_operation);
+    full_encode_operation(mem_storage->wal_file_->encoder());
+    mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
+    replicating_txn.EncodeToReplicas(full_encode_operation);
   };
 
   // Handle metadata deltas
-  for (const auto &md_delta : transaction.md_deltas) {
+  for (const auto &md_delta : transaction_.md_deltas) {
     auto const op = ActionToStorageOperation(md_delta.action);
     switch (md_delta.action) {
       case MetadataDelta::Action::LABEL_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        apply_encode(op,
-                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label);
+        });
         break;
       }
       case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
+          EncodeLabel(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label);
         });
         break;
       }
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
+          EncodeLabelPropertyStats(encoder, *mem_storage->name_id_mapper_, md_delta.label_property_stats.label,
                                    md_delta.label_property_stats.properties, md_delta.label_property_stats.stats);
         });
         break;
@@ -2305,14 +2346,14 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
       case MetadataDelta::Action::EDGE_INDEX_CREATE:
       case MetadataDelta::Action::EDGE_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
+          EncodeEdgeTypeIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type);
         });
         break;
       }
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_type_property.edge_type,
+          EncodeEdgeTypePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_type_property.edge_type,
                                       md_delta.edge_type_property.property);
         });
         break;
@@ -2320,14 +2361,14 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_property.property);
+          EncodeEdgePropertyIndex(encoder, *mem_storage->name_id_mapper_, md_delta.edge_property.property);
         });
         break;
       }
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_ordered_properties.label,
+          EncodeLabelProperties(encoder, *mem_storage->name_id_mapper_, md_delta.label_ordered_properties.label,
                                 md_delta.label_ordered_properties.properties);
         });
         break;
@@ -2337,27 +2378,29 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
       case MetadataDelta::Action::POINT_INDEX_CREATE:
       case MetadataDelta::Action::POINT_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
+          EncodeLabelProperty(encoder, *mem_storage->name_id_mapper_, md_delta.label_property.label,
                               md_delta.label_property.property);
         });
         break;
       }
       case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+          EncodeLabelStats(encoder, *mem_storage->name_id_mapper_, md_delta.label_stats.label,
+                           md_delta.label_stats.stats);
         });
         break;
       }
       case MetadataDelta::Action::TEXT_INDEX_CREATE:
       case MetadataDelta::Action::TEXT_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
+          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index.index_name,
+                          md_delta.text_index.label);
         });
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorIndexSpec(encoder, *name_id_mapper_, md_delta.vector_index_spec);
+          EncodeVectorIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_index_spec);
         });
         break;
       }
@@ -2369,7 +2412,7 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_unordered_properties.label,
+          EncodeLabelProperties(encoder, *mem_storage->name_id_mapper_, md_delta.label_unordered_properties.label,
                                 md_delta.label_unordered_properties.properties);
         });
         break;
@@ -2377,26 +2420,26 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
       case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTypeConstraint(encoder, *name_id_mapper_, md_delta.label_property_type.label,
+          EncodeTypeConstraint(encoder, *mem_storage->name_id_mapper_, md_delta.label_property_type.label,
                                md_delta.label_property_type.property, md_delta.label_property_type.type);
         });
         break;
       }
       case MetadataDelta::Action::ENUM_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
+          EncodeEnumCreate(encoder, mem_storage->enum_store_, md_delta.enum_create_info.etype);
         });
         break;
       }
       case MetadataDelta::Action::ENUM_ALTER_ADD: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
+          EncodeEnumAlterAdd(encoder, mem_storage->enum_store_, md_delta.enum_alter_add_info.value);
         });
         break;
       }
       case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
+          EncodeEnumAlterUpdate(encoder, mem_storage->enum_store_, md_delta.enum_alter_update_info.value,
                                 md_delta.enum_alter_update_info.old_value);
         });
         break;
@@ -2439,7 +2482,7 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2458,11 +2501,13 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown Delta Action");
         }
       });
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2480,11 +2525,13 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown Delta Action");
         }
       });
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
@@ -2502,11 +2549,13 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown Delta Action");
         }
       });
     }
     // 4. Process all Vertex deltas and store all operations that delete edges.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2524,11 +2573,13 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown Delta Action");
         }
       });
     }
     // 5. Process all Vertex deltas and store all operations that delete vertices.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2546,31 +2597,27 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown Delta Action");
         }
       });
     }
   };
 
   // Handle MVCC deltas
-  if (!transaction.deltas.empty()) {
+  if (!transaction_.deltas.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
-      wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
-      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp_arg);
+      mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
+      replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
     });
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
-  wal_file_->AppendTransactionEnd(durability_commit_timestamp);
-  FinalizeWalFile();
+  mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+  mem_storage->FinalizeWalFile();
 
-  bool const finalize_prepare_status = tx_replication.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
-  if (!finalize_prepare_status) {
-    // Send Abort and wait for all to reply
-    return false;
-  } else {
-    // Send Commit and wait for all to reply
-    return true;
-  }
+  // Ships deltas to instances and waits for the reply
+  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

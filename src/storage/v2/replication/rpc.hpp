@@ -22,25 +22,42 @@
 
 namespace memgraph::storage::replication {
 
-struct CommitReq {
+struct FinalizeCommitReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(CommitReq *self, slk::Reader *reader);
-  static void Save(const CommitReq &self, slk::Builder *builder);
-  CommitReq() = default;
+  static void Load(FinalizeCommitReq *self, slk::Reader *reader);
+  static void Save(const FinalizeCommitReq &self, slk::Builder *builder);
+  FinalizeCommitReq() = default;
+
+  FinalizeCommitReq(bool const decision_arg, const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
+                    uint64_t const durability_commit_timestamp_arg)
+      : decision(decision_arg),
+        main_uuid(main_uuid_arg),
+        storage_uuid(storage_uuid_arg),
+        durability_commit_timestamp(durability_commit_timestamp_arg) {}
+
+  // If true, commit should be done, if false abort
+  bool decision;
+  utils::UUID main_uuid;
+  utils::UUID storage_uuid;
+  uint64_t durability_commit_timestamp;
 };
 
-struct CommitRes {
+struct FinalizeCommitRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(CommitRes *self, slk::Reader *reader);
-  static void Save(const CommitRes &self, slk::Builder *builder);
-  CommitRes() = default;
+  static void Load(FinalizeCommitRes *self, slk::Reader *reader);
+  static void Save(const FinalizeCommitRes &self, slk::Builder *builder);
+  FinalizeCommitRes() = default;
+
+  explicit FinalizeCommitRes(bool const success_arg) : success(success_arg) {}
+
+  bool success;
 };
 
-using CommitRpc = rpc::RequestResponse<CommitReq, CommitRes>;
+using FinalizeCommitRpc = rpc::RequestResponse<FinalizeCommitReq, FinalizeCommitRes>;
 
 struct PrepareCommitReq {
   static const utils::TypeInfo kType;
@@ -251,6 +268,14 @@ void Load(memgraph::storage::replication::PrepareCommitRes *self, memgraph::slk:
 void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::FinalizeCommitRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::FinalizeCommitRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::FinalizeCommitReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
 
