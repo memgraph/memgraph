@@ -1282,10 +1282,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  auto *label_properties_active_indices =
+      static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.label_properties_.get());
+
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
       !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts)) {
+      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(
+          transaction->start_timestamp, commit_ts, label_properties_active_indices->entries_for_deletion_)) {
     return StorageManipulationError{SerializationError{}};
   }
   return {};
@@ -2277,11 +2281,13 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
+  std::optional<ActiveIndices> active_indices;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
+    active_indices = GetActiveIndices();
   }
 
   return {transaction_id,
@@ -2290,7 +2296,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           storage_mode,
           edge_import_mode_active,
           !constraints_.empty(),
-          empty_point_index_.CreatePointIndexContext()};
+          empty_point_index_.CreatePointIndexContext(),
+          *std::move(active_indices)};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
@@ -2350,11 +2357,9 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(),
-          disk_label_property_index->ListIndices(),
+          transaction_.active_indices_.label_properties_->ListIndices(),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

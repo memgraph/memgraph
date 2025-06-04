@@ -70,6 +70,7 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
 struct Transaction;
 class EdgeAccessor;
 
+// TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
@@ -328,7 +329,7 @@ class Storage {
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
@@ -637,6 +638,12 @@ class Storage {
 
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
+  }
+
+  auto GetActiveIndices() -> ActiveIndices {
+    return {
+        indices_.label_property_index_->GetActiveIndices(),
+    };
   }
 
   // TODO: make non-public
