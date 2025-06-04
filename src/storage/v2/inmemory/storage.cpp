@@ -993,7 +993,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    auto index_abort_processor = storage_->indices_.GetAbortProcessor();
+    auto index_abort_processor = storage_->indices_.GetAbortProcessor(transaction_.active_indices_);
 
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
@@ -1303,7 +1303,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_, transaction_.start_timestamp);
+    index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
@@ -1672,13 +1672,12 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
   return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
 }
 
-VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
-  return VerticesIterable(
-      mem_label_property_index->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
+  auto *active_indices =
+      static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(transaction_.active_indices_.label_properties_.get());
+  return VerticesIterable(active_indices->Vertices(label, properties, property_ranges, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
@@ -1753,6 +1752,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   uint64_t start_timestamp = 0;
   uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
+  std::optional<ActiveIndices> active_indices;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
@@ -1761,6 +1761,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts
     last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+    active_indices = GetActiveIndices();
   }
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1770,6 +1771,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           false,
           !constraints_.empty(),
           *std::move(point_index_context),
+          *std::move(active_indices),
           last_durable_ts};
 }
 
@@ -3031,8 +3033,9 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto &point_index = storage_->indices_.point_index_;
   auto &vector_index = storage_->indices_.vector_index_;
 
+  // TODO: add status populating/ready?
   return {mem_label_index->ListIndices(),
-          mem_label_property_index->ListIndices(),
+          transaction_.active_indices_.label_properties_->ListIndices(),
           mem_edge_type_index->ListIndices(),
           mem_edge_type_property_index->ListIndices(),
           mem_edge_property_index->ListIndices(),

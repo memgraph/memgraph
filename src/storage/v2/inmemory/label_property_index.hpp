@@ -24,6 +24,10 @@
 
 namespace memgraph::storage {
 
+enum class Status : uint8_t {
+  POPULATING = 0,
+};
+
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
@@ -39,43 +43,39 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
+  struct IndividualIndex {
+    IndividualIndex(PropertiesPermutationHelper permutations_helper)
+        : permutations_helper(std::move(permutations_helper)) {}
+    PropertiesPermutationHelper const permutations_helper;
+    utils::SkipList<Entry> skiplist{};
+    std::atomic<Status> status = Status::POPULATING;
+  };
+  struct Compare {
+    template <std::ranges::forward_range T, std::ranges::forward_range U>
+    bool operator()(T const &lhs, U const &rhs) const {
+      return std::ranges::lexicographical_compare(lhs, rhs);
+    }
+
+    using is_transparent = void;
+  };
+
+  using PropertiesIndices = std::map<PropertiesPaths, std::shared_ptr<IndividualIndex>, Compare>;
+  using IndexContainer = std::map<LabelId, PropertiesIndices, std::less<>>;
+  using EntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex *>;
+  using ReverseIndexContainer = std::unordered_map<PropertyId, std::multimap<LabelId, EntryDetail>>;
+  using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
+
   InMemoryLabelPropertyIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::vector<PropertyPath> const &properties,
-                   utils::SkipList<Vertex>::Accessor vertices,
+  bool CreateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &it,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
-
-  /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
-
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
-
-  /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override;
-
-  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) override;
-
-  bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
-
-  auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                          std::span<PropertyPath const> properties) const
-      -> std::vector<LabelPropertiesIndicesInfo> override;
-
-  std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ListIndices() const override;
-
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
-
-  auto GetAbortProcessor() const -> AbortProcessor;
-
-  void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-             LabelId label, PropertiesIds const *properties, PropertiesPermutationHelper const *permutation_helper,
+             LabelId label, PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
              std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
@@ -108,7 +108,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     // These describe the composite index
     LabelId label_;
-    PropertiesIds const *properties_;
+    PropertiesPaths const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
@@ -119,17 +119,69 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Transaction *transaction_;
   };
 
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override;
+  struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
+    ActiveIndices(IndexContainer index_container = {}) : index_container_{std::move(index_container)} {
+      for (auto const &[label, by_label] : index_container_) {
+        for (auto const &[propertyPaths, entry] : by_label) {
+          auto const ed = EntryDetail{&propertyPaths, entry.get()};
+          for (auto const &prop : propertyPaths) {
+            // Only the top level path
+            reverse_index_container_[prop[0]].emplace(label, ed);
+          }
+        }
+      }
+    }
 
-  /// Supplying a specific value into the count estimation function will return
-  /// an estimated count of nodes which have their property's value set to
-  /// `value`. If the `values` specified are all `Null`, then an average number
-  /// equal elements is returned.
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                  std::span<PropertyValue const> values) const override;
+    void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
-  uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
-                                  std::span<PropertyValueRange const> bounds) const override;
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update, const Transaction &tx) override {}
+
+    void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                             const Transaction &tx) override;
+
+    bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
+
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
+
+    auto ListIndices() const -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
+
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
+    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
+
+    /// Supplying a specific value into the count estimation function will return
+    /// an estimated count of nodes which have their property's value set to
+    /// `value`. If the `values` specified are all `Null`, then an average number
+    /// equal elements is returned.
+    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                std::span<PropertyValue const> values) const -> uint64_t override;
+
+    auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                std::span<PropertyValueRange const> bounds) const -> uint64_t override;
+
+    auto GetAbortProcessor() const -> AbortProcessor override;
+
+    auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+                  View view, Storage *storage, Transaction *transaction) -> Iterable;
+
+    auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
+                  memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+                  Storage *storage, Transaction *transaction) -> Iterable;
+
+    IndexContainer index_container_;
+    // This is keyed on the top-level property of a nested property. So for
+    // nested property `a.b.c`, only a key for the top-most `a` exists.
+    // Used to make UpdateOnSetProperty faster
+    ReverseIndexContainer reverse_index_container_;
+  };
+
+  auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
+
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+
+  bool DropIndex(LabelId label, std::vector<PropertyPath> const &properties) override;
 
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ClearIndexStats();
 
@@ -143,40 +195,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                    View view, Storage *storage, Transaction *transaction);
-
-  Iterable Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
-                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
-                    Storage *storage, Transaction *transaction);
-
   void DropGraphClearIndices() override;
 
-  struct IndividualIndex {
-    PropertiesPermutationHelper permutations_helper;
-    utils::SkipList<Entry> skiplist;
-  };
-
  private:
-  struct Compare {
-    template <std::ranges::forward_range T, std::ranges::forward_range U>
-    bool operator()(T const &lhs, U const &rhs) const {
-      return std::ranges::lexicographical_compare(lhs, rhs);
-    }
+  utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
 
-    using is_transparent = void;
-  };
-
-  using PropertiesIndices = std::map<PropertiesIds, IndividualIndex, Compare>;
-  std::map<LabelId, PropertiesIndices, std::less<>> index_;
-
-  using EntryDetail = std::tuple<PropertiesIds const *, IndividualIndex *>;
-  using PropToIndexLookup = std::multimap<LabelId, EntryDetail>;
-  // This is keyed on the top-level property of a nested property. So for
-  // nested property `a.b.c`, only a key for the top-most `a` exists.
-  std::unordered_map<PropertyId, PropToIndexLookup> indices_by_property_;
-
-  using PropertiesIndicesStats = std::map<PropertiesIds, storage::LabelPropertyIndexStats, Compare>;
+  //  ReverseIndexContainer indices_by_property_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

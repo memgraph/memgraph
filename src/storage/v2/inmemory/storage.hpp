@@ -204,7 +204,7 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties);
+      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties);
     }
 
     /// Return approximate number of vertices with the given label and the given
@@ -212,7 +212,7 @@ class InMemoryStorage final : public Storage {
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValue const> values) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, values);
+      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties, values);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -220,7 +220,7 @@ class InMemoryStorage final : public Storage {
     /// bounds.
     uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
-      return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, bounds);
+      return transaction_.active_indices_.label_properties_->ApproximateVertexCount(label, properties, bounds);
     }
 
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
@@ -299,7 +299,7 @@ class InMemoryStorage final : public Storage {
     bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
-      return storage_->indices_.label_property_index_->IndexExists(label, properties);
+      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
     }
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {
