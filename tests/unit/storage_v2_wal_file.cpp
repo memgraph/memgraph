@@ -32,6 +32,7 @@
 
 static constexpr auto kMetricKind = "l2sq";
 static constexpr auto kResizeCoefficient = 2;
+static constexpr auto kScalarKind = unum::usearch::scalar_kind_t::f32_k;
 
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
@@ -240,7 +241,7 @@ class DeltaGenerator final {
           vector_index_name, label_id,
           first_property_id, memgraph::storage::VectorIndex::MetricFromName(kMetricKind),
           vector_dimension,  kResizeCoefficient,
-          vector_capacity};
+          vector_capacity,   kScalarKind};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
@@ -437,7 +438,7 @@ class DeltaGenerator final {
             return {WalPointIndexDrop{label, first_property}};
           case VECTOR_INDEX_CREATE:
             return {WalVectorIndexCreate{vector_index_name, label, first_property, kMetricKind, vector_dimension,
-                                         kResizeCoefficient, vector_capacity}};
+                                         kResizeCoefficient, vector_capacity, static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
         }
