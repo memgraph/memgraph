@@ -49,8 +49,9 @@ def test_nested_create_query(query_server):
 
 def test_delete_node_query(query_server):
     created_node_uuid = create_node_query(query_server)
-
-    delete_query = 'mutation{deleteUsers(where:{id:"' + created_node_uuid + '"}){nodesDeleted relationshipsDeleted}}'
+    delete_query = (
+        'mutation{deleteUsers(where:{ id: { eq:"' + created_node_uuid + '"} }){nodesDeleted relationshipsDeleted}}'
+    )
     expected_delete_response = '{"data":{"deleteUsers":{"nodesDeleted":1,"relationshipsDeleted":0}}}\n'
 
     gotten = query_server.send_query(delete_query)
