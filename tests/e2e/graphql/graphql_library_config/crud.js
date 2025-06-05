@@ -30,7 +30,8 @@ async function start() {
     schema,
     context: () => ({
       driver,
-      sessionConfig: { database: "memgraph" }
+      sessionConfig: { database: "memgraph" },
+      cypherQueryOptions: { addVersionPrefix: false }
     }),
   });
 
