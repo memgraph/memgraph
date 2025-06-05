@@ -156,6 +156,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     : Storage(config, config.salient.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
+      repl_durability_(config.durability.storage_directory / durability::kTxnProcessingDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
@@ -822,11 +823,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       /// If we are here, it means we are the main executing the commit
       if (repl_prepare_phase_status) {
+        FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
         // TODO: (andi) One optimization says that we can return OK to clients as soon as we received OK votes to
         // prepare message from all replicas
         if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), db_acc, durability_commit_timestamp)) {
           spdlog::info("Received OK from all replicas to FinalizeCommitRpc");
-          FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
         } else {
           spdlog::info("One of replicas couldn't commit when FinalizeCommitRpc was received");
           // TODO: (andi) What if we are here, replicas should guarantee that they commit once they replied with yes
@@ -870,6 +871,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<uti
 
   mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
                                                                  std::memory_order_release);
+
+  mem_storage->wal_file_->AppendTransactionCommit(durability_commit_timestamp);
+  spdlog::info("Appended txn commit");
+  mem_storage->FinalizeWalFile();
+  spdlog::info("Finalized WAL file");
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
@@ -2614,11 +2620,12 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Add a delta that indicates that the transaction is fully written to the WAL
   mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
-  mem_storage->FinalizeWalFile();
 
   // Ships deltas to instances and waits for the reply
   spdlog::info("Sending prepare for commit RPC to instances");
-  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
+  // Returns only the status of SYNC replicas.
+  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc,
+                                                    &mem_storage->repl_durability_);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

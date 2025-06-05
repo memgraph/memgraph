@@ -55,6 +55,8 @@ class ReplicaStream {
   /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
+  void AppendTransactionCommit(uint64_t final_commit_timestamp);
+
   /// @throw rpc::RpcFailedException
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
