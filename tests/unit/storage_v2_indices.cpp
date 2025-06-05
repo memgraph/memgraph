@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
@@ -3682,4 +3683,40 @@ TYPED_TEST(IndexTest, DeltaDoesNotLeak) {
     vertex.SetProperty(this->prop_a, PropertyValue("goodbye"));
   }
   this->storage->FreeMemory();
+}
+
+TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Regex index search currently not supported on disk";
+  }
+  auto const values = std::vector{
+      PropertyValue{false},    PropertyValue{true},    PropertyValue{2},
+      PropertyValue{3},        PropertyValue{"apple"}, PropertyValue{"banana"},
+      PropertyValue{"cherry"}, PropertyValue{"date"},  PropertyValue{"eggplant"},
+  };
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+
+  for (auto &&value : values) {
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, value));
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(
+            this->label1, std::array{PropertyPath{this->prop_val}},
+            std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue("")),
+                                  memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String))},
+            view),
+        view);
+  };
+
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(4, 5, 6, 7, 8));
 }
