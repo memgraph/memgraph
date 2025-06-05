@@ -30,6 +30,7 @@ static constexpr std::string_view kMetric = "metric";
 static constexpr std::string_view kReturnDimension = "dimension";
 static constexpr std::string_view kReturnCapacity = "capacity";
 static constexpr std::string_view kReturnSize = "size";
+static constexpr std::string_view kReturnScalarKind = "scalar_kind";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -80,6 +81,7 @@ void VectorSearch::ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_
       record.Insert(VectorSearch::kReturnDimension.data(), info_list[4].ValueInt());
       record.Insert(VectorSearch::kReturnCapacity.data(), info_list[5].ValueInt());
       record.Insert(VectorSearch::kReturnSize.data(), info_list[6].ValueInt());
+      record.Insert(VectorSearch::kReturnScalarKind.data(), std::string(info_list[7].ValueString()));
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -111,6 +113,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Return(VectorSearch::kReturnDimension, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnCapacity, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnSize, mgp::Type::Int),
+                     mgp::Return(VectorSearch::kReturnScalarKind, mgp::Type::String),
                  },
                  module, memory);
   } catch (const std::exception &e) {

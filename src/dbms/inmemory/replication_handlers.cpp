@@ -1304,6 +1304,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
+          auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
+                                              : unum::usearch::scalar_kind_t::f32_k;
 
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
@@ -1313,6 +1315,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
               .dimension = data.dimension,
               .resize_coefficient = data.resize_coefficient,
               .capacity = data.capacity,
+              .scalar_kind = scalar_kind,
           });
           if (res.HasError()) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);

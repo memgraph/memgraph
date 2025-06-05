@@ -248,12 +248,12 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
       throw query::VectorSearchException("Given vector index already exists.");
     }
-    pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
     auto mg_vector_index = mg_vector_index_t::make(metric);
     if (!mg_vector_index) {
       throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
                                                      spec.index_name, mg_vector_index.error.what()));
     }
+    pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
     if (mg_vector_index.index.try_reserve(limits)) {
       spdlog::info("Created vector index {}", spec.index_name);
     } else {
