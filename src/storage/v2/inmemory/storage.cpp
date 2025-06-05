@@ -2660,10 +2660,6 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (replication_role == ReplicationRole::REPLICA) {
     return InMemoryStorage::RecoverSnapshotError::DisabledForReplica;
   }
-  if (!repl_storage_state_.replication_storage_clients_->empty()) {
-    // MAIN would need to reset its storage handler and force update the replicas to this snapshot. ATM not supported!
-    return InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas;
-  }
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
     return InMemoryStorage::RecoverSnapshotError::MissingFile;
   }

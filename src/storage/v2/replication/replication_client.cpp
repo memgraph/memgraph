@@ -245,6 +245,18 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
   });
 }
 
+void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseAccessProtector db_acc) const {
+  spdlog::debug("Force recoverying replica {} for db {}", client_.name_,
+                static_cast<InMemoryStorage *>(main_storage)->name());
+  replica_state_.WithLock([&](auto &state) {
+    state = ReplicaState::RECOVERY;
+    client_.thread_pool_.AddTask([main_storage, gk = std::move(db_acc), this] {
+      this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage,
+                           true);  // needs force reset so we need to recover from 0.
+    });
+  });
+}
+
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc) {
   try {
     UpdateReplicaState(main_storage, std::move(db_acc));

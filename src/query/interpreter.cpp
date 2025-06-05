@@ -4543,18 +4543,15 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
-      [storage, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
+      [db_acc = *current_db.db_acc_, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
        force = recover_query->force_](AnyStream * /*stream*/,
-                                      std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+                                      std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::InMemoryStorage::RecoverSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to recover a snapshot. Replica instances are not allowed to create them.");
-            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas:
-              throw utils::BasicException(
-                  "Failed to recover a snapshot. Cannot recover if instance has registered replicas.");
             case storage::InMemoryStorage::RecoverSnapshotError::NonEmptyStorage:
               throw utils::BasicException("Failed to recover a snapshot. Storage is not clean. Try using FORCE.");
             case storage::InMemoryStorage::RecoverSnapshotError::MissingFile:
@@ -4565,6 +4562,11 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
               throw utils::BasicException(
                   "Failed to clear local wal and snapshots directories. Please clean them manually.");
           }
+        }
+        // REPLICATION
+        const auto locked_clients = mem_storage->repl_storage_state_.replication_storage_clients_.ReadLock();
+        for (const auto &client : *locked_clients) {
+          client->ForceRecoverReplica(mem_storage, db_acc);
         }
         return QueryHandlerResult::COMMIT;
       },
