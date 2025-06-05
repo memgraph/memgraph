@@ -33,7 +33,7 @@ enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
   V2,  // epoch, replica prefix introduced
   V3,  // version where main uuid was introduced
-  V4   // addresses as provided by users are saved to disk instead of eager evaluation
+  V4,  // addresses as provided by users are saved to disk instead of eager evaluation
 };
 
 // fragment of key: "__replication_role"

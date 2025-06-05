@@ -660,6 +660,11 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
+void ReplicaStream::AppendTransactionCommit(uint64_t const final_commit_timestamp) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  durability::EncodeTransactionCommit(&encoder, final_commit_timestamp);
+}
+
 replication::PrepareCommitRes ReplicaStream::Finalize() {
   utils::MetricsTimer const timer{metrics::PrepareCommitRpc_us};
   return stream_.SendAndWaitProgress();
