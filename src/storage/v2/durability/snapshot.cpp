@@ -31,6 +31,7 @@
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
@@ -3808,7 +3809,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 
         indices_constraints.indices.vector_indices.emplace_back(
             std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<std::uint16_t>(*dimension), static_cast<std::uint16_t>(*resize_coefficient), *capacity);
+            static_cast<std::uint16_t>(*dimension), static_cast<std::uint16_t>(*resize_coefficient), *capacity,
+            VectorIndex::ScalarFromName(query::kDefaultScalarKind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -4394,7 +4396,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_indices.emplace_back(
             std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity);
+            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+            VectorIndex::ScalarFromName(query::kDefaultScalarKind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
@@ -4975,7 +4978,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
 
         indices_constraints.indices.vector_indices.emplace_back(
             std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
-            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity);
+            static_cast<uint16_t>(*dimension), static_cast<uint16_t>(*resize_coefficient), *capacity,
+            VectorIndex::ScalarFromName(query::kDefaultScalarKind));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }
