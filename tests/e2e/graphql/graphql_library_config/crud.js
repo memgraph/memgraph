@@ -16,26 +16,27 @@ const typeDefs = gql`
   }
 `;
 
-const driver = neo4j.driver(
-    "bolt://localhost:7687",
-    neo4j.auth.basic("", "")
-);
+const driver = neo4j.driver("bolt://localhost:7687", neo4j.auth.basic("", ""));
 
 const neoSchema = new Neo4jGraphQL({
-    typeDefs, driver,
-    config: {
-        driverConfig: {
-            database: "memgraph",
-        },
-    }
-});
+    typeDefs,
+    driver
+  });
 
-neoSchema.getSchema().then((schema) => {
-    const server = new ApolloServer({
-        schema,
-    });
+async function start() {
+  const schema = await neoSchema.getSchema();
 
-    server.listen().then(({ url }) => {
-        console.log(`🚀 Server ready at ${url}`);
-    });
-})
+  const server = new ApolloServer({
+    schema,
+    context: () => ({
+      driver,
+      sessionConfig: { database: "memgraph" }
+    }),
+  });
+
+  server.listen().then(({ url }) => {
+    console.log(`🚀 Server ready at ${url}`);
+  });
+}
+
+start();
