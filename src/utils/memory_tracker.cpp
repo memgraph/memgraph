@@ -13,11 +13,9 @@
 
 #include <atomic>
 #include <exception>
-#include <stdexcept>
 
-#include "utils/likely.hpp"
+#include "utils/atomic_max.hpp"
 #include "utils/logging.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 
 namespace memgraph::utils {
@@ -77,9 +75,7 @@ void MemoryTracker::SetHardLimit(const int64_t limit) {
 }
 
 void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
-  int64_t old_limit = hard_limit_.load(std::memory_order_relaxed);
-  while (old_limit < limit && !hard_limit_.compare_exchange_weak(old_limit, limit))
-    ;
+  atomic_fetch_max_explicit(&hard_limit_, limit, std::memory_order_acq_rel);
 }
 
 void MemoryTracker::ResetTrackings() {
