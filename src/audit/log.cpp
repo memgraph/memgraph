@@ -129,12 +129,12 @@ Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t b
       started_(false) {}
 
 void Log::Start() {
-  MG_ASSERT(!started_, "Trying to start an already started audit log!");
+  MG_ASSERT(!started_.load(std::memory_order_acquire), "Trying to start an already started audit log!");
 
   utils::EnsureDirOrDie(storage_directory_);
 
   buffer_.emplace(buffer_size_);
-  started_ = true;
+  started_.store(true, std::memory_order_release);
 
   ReopenLog();
   scheduler_.SetInterval(std::chrono::milliseconds(buffer_flush_interval_millis_));
@@ -142,9 +142,9 @@ void Log::Start() {
 }
 
 Log::~Log() {
-  if (!started_) return;
+  if (!started_.load(std::memory_order_acquire)) return;
 
-  started_ = false;
+  started_.store(false, std::memory_order_release);
   std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
   scheduler_.Stop();
