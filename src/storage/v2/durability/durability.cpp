@@ -546,7 +546,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         auto info = ReadWalInfo(item.path());
         wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
       } catch (const RecoveryFailure &e) {
-        continue;
+        spdlog::error("Recovery failure while reading wal file: {}", e.what());
       }
     }
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());

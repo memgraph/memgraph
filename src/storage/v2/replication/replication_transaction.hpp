@@ -74,7 +74,8 @@ class TransactionReplication {
     }
   }
 
-  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
+  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc,
+                                  kvstore::KVStore const *repl_durability) {
     bool sync_replicas_succ{true};
     MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
@@ -82,8 +83,15 @@ class TransactionReplication {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                      replica_stream);
+      if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+        spdlog::info("Appended txn commit for ASYNC replica: {}", client->Name());
+        client->IfStreamingTransaction(
+            [&](auto &stream) { stream.AppendTransactionCommit(durability_commit_timestamp); }, replica_stream);
+      }
+
       const auto finalized =
           client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
+
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         sync_replicas_succ = finalized && sync_replicas_succ;
       }
@@ -92,12 +100,17 @@ class TransactionReplication {
   }
 
   // TODO: (andi) Do you need db_acc protector here?
-  // TODO: (andi) Handle ASYNC replication, we don't need 2PC there for sure
   bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
-                             uint64_t const durability_commit_timestamp) const noexcept {
+                             uint64_t const durability_commit_timestamp) noexcept {
     bool sync_replicas_succ{true};
-    for (auto &&client : *locked_clients) {
-      sync_replicas_succ &= client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp);
+    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
+        // TODO: durability commit timestamp
+        client->IfStreamingTransaction(
+            [&](auto &stream) { stream.AppendTransactionCommit(durability_commit_timestamp); }, replica_stream);
+        sync_replicas_succ &=
+            client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp);
+      }
     }
     return sync_replicas_succ;
   }
