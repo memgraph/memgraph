@@ -223,17 +223,17 @@ void Load(storage::replication::PrepareCommitRes *self, Reader *reader) { memgra
 // Serialize code for PrepareCommitReq
 
 void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(self.previous_commit_timestamp, builder);
-  memgraph::slk::Save(self.seq_num, builder);
+  slk::Save(self.main_uuid, builder);
+  slk::Save(self.storage_uuid, builder);
+  slk::Save(self.previous_commit_timestamp, builder);
+  slk::Save(self.seq_num, builder);
 }
 
 void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->uuid, reader);
-  memgraph::slk::Load(&self->previous_commit_timestamp, reader);
-  memgraph::slk::Load(&self->seq_num, reader);
+  slk::Load(&self->main_uuid, reader);
+  slk::Load(&self->storage_uuid, reader);
+  slk::Load(&self->previous_commit_timestamp, reader);
+  slk::Load(&self->seq_num, reader);
 }
 
 // Serialize code for FinalizeCommitRes

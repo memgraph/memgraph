@@ -278,8 +278,9 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   auto const *storage = db_acc->get()->storage();
-  const storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
-                                               std::string{storage->repl_storage_state_.epoch_.id()}};
+  const storage::replication::HeartbeatRes res{
+      true, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+      std::string{storage->repl_storage_state_.epoch_.id()}};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
@@ -296,7 +297,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
     const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
@@ -853,7 +854,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
   uint32_t current_batch_counter = start_batch_counter;
-  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
 
   auto current_durable_commit_timestamp = max_delta_timestamp;
   spdlog::trace("Current durable commit timestamp: {}", current_durable_commit_timestamp);
@@ -1100,12 +1101,16 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
-          // Call immediately Commit instead of waiting for MAIN's approval if loading txns from WAL file
-          if (loading_wal) {
-            commit_timestamp_and_accessor->second.FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
-                                                                      commit_timestamp_and_accessor->first);
-            commit_timestamp_and_accessor.reset();
-          }
+          spdlog::info("Handled WalTransactionEnd delta");
+        },
+        [&](WalTransactionCommit const &) {
+          spdlog::trace("   Delta {}. Transaction commit", current_delta_idx);
+          if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != delta_timestamp)
+            throw utils::BasicException("Invalid commit data!");
+          commit_timestamp_and_accessor->second.FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
+                                                                    commit_timestamp_and_accessor->first);
+          commit_timestamp_and_accessor.reset();
+          spdlog::info("Handled WalTransactionCommit delta");
         },
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
@@ -1386,8 +1391,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
   }
 
   spdlog::debug("Applied {} deltas", applied_deltas);
-  MG_ASSERT(commit_timestamp_and_accessor.has_value(),
-            "Commit timestamp and accessor need to be available before caching it");
+
   return storage::SingleTxnDeltasProcessingResult{
       .commit_acc = std::make_unique<storage::InMemoryStorage::ReplicationAccessor>(
           std::move(commit_timestamp_and_accessor->second)),
