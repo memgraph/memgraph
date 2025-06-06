@@ -2266,8 +2266,7 @@ bool InMemoryStorage::HandleDurabilityAndReplicate(const Transaction &transactio
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
   auto tx_replication = repl_storage_state_.StartPrepareCommitPhase(wal_file_->SequenceNumber(), this, db_acc);
-  // TODO: (andi) How to abort inside the commit if we couldn't retrieve all RPC streams?
-  // Should be possible because we do Abort if unique constaint is violated
+  // Should be possible because we do Abort if unique constraint is violated
   if (!tx_replication.ReplicationStartSuccessful()) {
     spdlog::error("Need to abort somehow!");
   }
