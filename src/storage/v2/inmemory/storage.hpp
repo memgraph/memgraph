@@ -561,6 +561,8 @@ class InMemoryStorage final : public Storage {
     Transaction &GetTransaction() { return transaction_; }
   };
 
+  static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication accessor isn't move constructible");
+
   using Storage::Access;
   std::unique_ptr<Accessor> Access(Accessor::Type rw_type, std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
