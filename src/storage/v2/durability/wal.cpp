@@ -356,16 +356,6 @@ auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const ui
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, uint8_t, void> {
-  const auto uint8 = decoder->ReadUint();
-  if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
-  if constexpr (is_read) {
-    return static_cast<uint8_t>(*uint8);
-  }
-}
-
-template <bool is_read>
 auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
@@ -1157,11 +1147,9 @@ std::optional<RecoveryInfo> LoadWal(
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = VectorIndex::MetricFromName(data.metric_kind);
-        auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
-                                            : unum::usearch::scalar_kind_t::f32_k;
         indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
                                                                  unum_metric_kind, data.dimension,
-                                                                 data.resize_coefficient, data.capacity, scalar_kind);
+                                                                 data.resize_coefficient, data.capacity);
       },
       [&](WalVectorIndexDrop const &data) {
         std::erase_if(indices_constraints->indices.vector_indices,
@@ -1425,7 +1413,6 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);
-  encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
