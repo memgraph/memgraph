@@ -53,6 +53,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/atomic_max.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -1590,10 +1591,7 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
@@ -1878,10 +1876,7 @@ RecoveredSnapshot LoadSnapshotVersion16(Decoder &snapshot, const std::filesystem
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
@@ -2223,10 +2218,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
@@ -2651,10 +2643,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
@@ -3096,10 +3085,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper);
           edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
@@ -3594,10 +3580,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
                                       items, snapshot_has_edges, get_edge_type_from_id, name_id_mapper, snapshot_info);
           edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
+          atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
           recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
@@ -4138,10 +4121,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                                                         batch.offset, batch.count, items, snapshot_has_edges,
                                                         get_edge_type_from_id, name_id_mapper, snapshot_info);
             edge_count->fetch_add(result.edge_count);
-            auto known_highest_edge_gid = highest_edge_gid.load();
-            while (known_highest_edge_gid < result.highest_edge_id) {
-              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-            }
+            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
           },
           vertex_batches);

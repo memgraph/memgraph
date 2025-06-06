@@ -36,7 +36,7 @@ class SimpleBarrier {
       phase1_done_.wait(false);
     }
     // Phase2 decrement and return
-    // This guards against the barrier's desctruction while threads are waiting
+    // This guards against the barrier's destruction while threads are waiting
     if (--phase2_ == 0) {
       phase2_done_ = true;
       phase2_done_.notify_all();

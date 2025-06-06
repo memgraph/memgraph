@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,7 +81,9 @@ struct Transaction {
     actions_.clear();
   }
 
-  auto last_committed_system_timestamp() const -> uint64_t { return state_->last_committed_system_timestamp_.load(); }
+  auto last_committed_system_timestamp() const -> uint64_t {
+    return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
+  }
   auto timestamp() const -> uint64_t { return timestamp_; }
 
  private:
