@@ -273,8 +273,9 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   auto const *storage = db_acc->get()->storage();
-  const storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
-                                               std::string{storage->repl_storage_state_.epoch_.id()}};
+  const storage::replication::HeartbeatRes res{
+      true, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+      std::string{storage->repl_storage_state_.epoch_.id()}};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
@@ -794,7 +795,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
   uint32_t current_batch_counter = start_batch_counter;
-  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
 
   auto current_durable_commit_timestamp = max_delta_timestamp;
   spdlog::trace("Current durable commit timestamp: {}", current_durable_commit_timestamp);
@@ -1318,7 +1319,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
 
-  storage->repl_storage_state_.last_durable_timestamp_ = max_delta_timestamp;
+  storage->repl_storage_state_.last_durable_timestamp_.store(max_delta_timestamp, std::memory_order_release);
 
   spdlog::debug("Applied {} deltas", applied_deltas);
   return {current_delta_idx, current_batch_counter};
