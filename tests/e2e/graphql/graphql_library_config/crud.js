@@ -3,39 +3,41 @@ const { ApolloServer, gql } = require("apollo-server");
 const neo4j = require("neo4j-driver");
 
 const typeDefs = gql`
-type Post {
+  type Post @node {
     id: ID! @id
     content: String!
-    creator: User! @relationship(type: "HAS_POST", direction: IN)
-}
+    creator: User!
+  }
 
-type User {
+  type User @node {
     id: ID! @id
     name: String
     posts: [Post!]! @relationship(type: "HAS_POST", direction: OUT)
-}
+  }
 `;
 
-const driver = neo4j.driver(
-    "bolt://localhost:7687",
-    neo4j.auth.basic("", "")
-);
+const driver = neo4j.driver("bolt://localhost:7687", neo4j.auth.basic("", ""));
 
 const neoSchema = new Neo4jGraphQL({
-    typeDefs, driver,
-    config: {
-        driverConfig: {
-            database: "memgraph",
-        },
-    }
-});
+    typeDefs,
+    driver
+  });
 
-neoSchema.getSchema().then((schema) => {
-    const server = new ApolloServer({
-        schema,
-    });
+async function start() {
+  const schema = await neoSchema.getSchema();
 
-    server.listen().then(({ url }) => {
-        console.log(`🚀 Server ready at ${url}`);
-    });
-})
+  const server = new ApolloServer({
+    schema,
+    context: () => ({
+      driver,
+      sessionConfig: { database: "memgraph" },
+      cypherQueryOptions: { addVersionPrefix: false }
+    }),
+  });
+
+  server.listen().then(({ url }) => {
+    console.log(`🚀 Server ready at ${url}`);
+  });
+}
+
+start();
