@@ -99,7 +99,7 @@ void Reader::GetSegment(bool should_be_final) {
     throw SlkReaderException("Got a non-empty SLK segment when expecting the final segment!");
   }
   if (!should_be_final && len == 0) {
-    throw SlkReaderNoDataException("Got an empty SLK segment when expecting a non-empty segment!");
+    throw SlkReaderException("Got an empty SLK segment when expecting a non-empty segment!");
   }
 
   // The position is incremented after the checks above so that the new

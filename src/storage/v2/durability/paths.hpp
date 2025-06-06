@@ -22,7 +22,6 @@ static constexpr std::string_view kSnapshotDirectory{"snapshots"};
 static constexpr std::string_view kWalDirectory{"wal"};
 static constexpr std::string_view kBackupDirectory{".backup"};
 static constexpr std::string_view kLockFile{".lock"};
-static constexpr std::string_view kTxnProcessingDirectory{"transactions"};
 
 // This is the prefix used for Snapshot and WAL filenames. It is a timestamp
 // format that equals to: YYYYmmddHHMMSSffffff

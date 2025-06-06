@@ -631,9 +631,6 @@ class InMemoryStorage final : public Storage {
   // Durability
   durability::Recovery recovery_;
 
-  // Replication durability
-  kvstore::KVStore repl_durability_;
-
   std::filesystem::path lock_file_path_;
   std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
