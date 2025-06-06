@@ -835,7 +835,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       } else {
         // Send Abort RPC. How to abort our deltas which were already made durable?
         spdlog::info("One of replicas didn't vote for committing, sending abort to replicas and aborting locally");
-        bool const repl_commit_phase_status =
+        bool const _ =
             replicating_txn.SendFinalizeCommitRpc(false, mem_storage->uuid(), db_acc, durability_commit_timestamp);
         // TODO: (andi) How can we abort here since we made deltas already durable? BIG PROBLEM
         // TODO: (andi) What do we do with the replicas response true/false.
@@ -2611,7 +2611,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
       mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
       replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
-
     });
   }
 
