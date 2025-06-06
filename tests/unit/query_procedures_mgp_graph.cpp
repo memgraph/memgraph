@@ -630,7 +630,7 @@ TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
     const auto result =
         edge.SetProperty(accessor->NameToProperty(property_to_update), memgraph::storage::PropertyValue(42));
     ASSERT_TRUE(result.HasValue());
-    ASSERT_FALSE(accessor->Commit().HasError());
+    ASSERT_FALSE(accessor->PrepareForCommitPhase().HasError());
   }
   auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
 
