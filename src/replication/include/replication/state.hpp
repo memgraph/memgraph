@@ -50,7 +50,6 @@ struct RoleMainData {
   utils::UUID uuid_;  // also used in ReplicationStorageClient but important thing is that at both places, the value is
   // immutable.
   bool writing_enabled_{false};
-  std::string txn_status_;
 };
 
 struct RoleReplicaData {
@@ -58,7 +57,6 @@ struct RoleReplicaData {
   std::unique_ptr<ReplicationServer> server;
   // uuid of main instance that replica is listening to
   std::optional<utils::UUID> uuid_;
-  std::string txn_status_;
 };
 
 // Global (instance) level object
@@ -122,8 +120,6 @@ struct ReplicationState {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
     return std::get<RoleReplicaData>(replication_data_);
   }
-
-  kvstore::KVStore *GetDurability() const { return durability_.get(); }
 
   bool HasDurability() const { return nullptr != durability_; }
 

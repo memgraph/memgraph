@@ -156,7 +156,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     : Storage(config, config.salient.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
-      repl_durability_(config.durability.storage_directory / durability::kTxnProcessingDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
@@ -872,10 +871,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<uti
   mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
                                                                  std::memory_order_release);
 
-  mem_storage->wal_file_->AppendTransactionCommit(durability_commit_timestamp);
-  spdlog::info("Appended txn commit");
   mem_storage->FinalizeWalFile();
-  spdlog::info("Finalized WAL file");
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
@@ -2624,8 +2620,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // Ships deltas to instances and waits for the reply
   spdlog::info("Sending prepare for commit RPC to instances");
   // Returns only the status of SYNC replicas.
-  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc,
-                                                    &mem_storage->repl_durability_);
+  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

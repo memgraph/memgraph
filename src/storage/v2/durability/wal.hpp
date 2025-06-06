@@ -193,11 +193,6 @@ struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
   using ctr_types = std::tuple<>;
 };
-struct WalTransactionCommit {
-  friend bool operator==(const WalTransactionCommit &, const WalTransactionCommit &) = default;
-  using ctr_types = std::tuple<>;
-};
-
 struct WalLabelIndexCreate : LabelOpInfo {};
 struct WalLabelIndexDrop : LabelOpInfo {};
 struct WalLabelIndexStatsClear : LabelOpInfo {};
@@ -284,16 +279,16 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionEnd, WalTransactionCommit,
-               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
-               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
-               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
-               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
-               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
-               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
-               WalVectorIndexCreate, WalVectorIndexDrop>
-      data_ = WalTransactionCommit{};
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionEnd, WalLabelIndexCreate,
+               WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
+               WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
+               WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
+               WalExistenceConstraintCreate, WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet,
+               WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate,
+               WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate,
+               WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
+               WalVectorIndexDrop>
+      data_ = WalTransactionEnd{};
 };
 
 constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta) {
@@ -309,9 +304,8 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalEdgeDelete const &) { return false; },
                         [](WalEdgeSetProperty const &) { return false; },
 
-                        [](WalTransactionCommit const &) { return true; },
-
-                        [](WalTransactionEnd const &) { return false; },
+                        // This delta explicitly indicates that a transaction is done.
+                        [](WalTransactionEnd const &) { return true; },
 
                         // These operations aren't transactional and they are encoded only using
                         // a single delta, so they each individually mark the end of their
@@ -355,7 +349,7 @@ constexpr bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uin
   }
   // All deltas are now handled in a transactional scope, this is because it is
   // possible to have metadeltas and deltas in the same txn
-  return std::holds_alternative<WalTransactionCommit>(delta.data_);
+  return std::holds_alternative<WalTransactionEnd>(delta.data_);
 }
 
 /// Function used to read information about the WAL file.
@@ -389,9 +383,6 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
-
-/// Function used to encode the transaction commit
-void EncodeTransactionCommit(BaseEncoder *encoder, uint64_t timestamp);
 
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
@@ -450,8 +441,6 @@ class WalFile {
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
 
   void AppendTransactionEnd(uint64_t timestamp);
-
-  void AppendTransactionCommit(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,

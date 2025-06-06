@@ -24,7 +24,7 @@ class InMemoryReplicationHandlers {
   static void Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data);
 
  private:
-  // RPC handle
+  // RPC handlers
   static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                slk::Reader *req_reader, slk::Builder *res_builder);
 
@@ -53,7 +53,6 @@ class InMemoryReplicationHandlers {
   static storage::SingleTxnDeltasProcessingResult ReadAndApplyDeltasSingleTxn(storage::InMemoryStorage *storage,
                                                                               storage::durability::BaseDecoder *decoder,
                                                                               uint64_t version, slk::Builder *,
-                                                                              bool loading_wal,
                                                                               uint32_t start_batch_counter = 0);
 
   static std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> cached_commit_accessor_;

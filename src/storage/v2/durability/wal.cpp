@@ -174,13 +174,11 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_EDGE_DELETE:
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
-    // Because of the 2PC
-    case DELTA_TRANSACTION_END:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
     // NOLINTNEXTLINE (bugprone-branch-clone)
-    case DELTA_TRANSACTION_COMMIT:
+    case DELTA_TRANSACTION_END:
       return true;
 
     // These operations aren't transactional and they are encoded only using
@@ -253,7 +251,7 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
     return IsMarkerImplicitTransactionEndVersion15(marker);
   }
   // All deltas are now handled in a transactional scope
-  return marker == Marker::DELTA_TRANSACTION_COMMIT;
+  return marker == Marker::DELTA_TRANSACTION_END;
 }
 
 // ========== concrete type decoders start here ==========
@@ -482,7 +480,6 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(EDGE_CREATE, WalEdgeCreate);
     read_skip(EDGE_DELETE, WalEdgeDelete);
     read_skip(TRANSACTION_END, WalTransactionEnd);
-    read_skip(TRANSACTION_COMMIT, WalTransactionCommit);
     read_skip(LABEL_INDEX_CREATE, WalLabelIndexCreate);
     read_skip(LABEL_INDEX_DROP, WalLabelIndexDrop);
     read_skip(LABEL_INDEX_STATS_CLEAR, WalLabelIndexStatsClear);
@@ -767,16 +764,10 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   }
 }
 
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t const timestamp) {
+void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
-}
-
-void EncodeTransactionCommit(BaseEncoder *encoder, uint64_t const timestamp) {
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  encoder->WriteMarker(Marker::DELTA_TRANSACTION_COMMIT);
 }
 
 std::optional<RecoveryInfo> LoadWal(
@@ -811,13 +802,13 @@ std::optional<RecoveryInfo> LoadWal(
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
+
   auto delta_apply = utils::Overloaded{
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
         if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
         ret.next_vertex_id = std::max(ret.next_vertex_id, data.gid.AsUint() + 1);
         if (schema_info) schema_info->AddVertex(&*vertex);
-        spdlog::info("Vertex created delta");
       },
       [&](WalVertexDelete const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -836,7 +827,6 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        spdlog::info("Label created delta");
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -968,8 +958,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
       },
-      [&](WalTransactionEnd const &) { spdlog::info("Txn end delta"); },
-      [&](WalTransactionCommit const &) { spdlog::info("Txn commit delta"); },
+      [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");
@@ -1296,13 +1285,8 @@ void WalFile::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timesta
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendTransactionEnd(uint64_t const timestamp) {
+void WalFile::AppendTransactionEnd(uint64_t timestamp) {
   EncodeTransactionEnd(&wal_, timestamp);
-  UpdateStats(timestamp);
-}
-
-void WalFile::AppendTransactionCommit(uint64_t const timestamp) {
-  EncodeTransactionCommit(&wal_, timestamp);
   UpdateStats(timestamp);
 }
 
