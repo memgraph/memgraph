@@ -156,24 +156,18 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
 
 constexpr uint32_t kDeltasBatchProgressSize = 100000;
 
-std::optional<std::pair<uint64_t, WalDeltaData>> ReadDelta(storage::durability::BaseDecoder *decoder,
-                                                           const uint64_t version) {
+std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
     spdlog::trace("       Timestamp {}", timestamp);
     auto delta = ReadWalDeltaData(decoder, version);
-    return std::pair<uint64_t, WalDeltaData>{timestamp, delta};
-  } catch (const slk::SlkReaderNoDataException &e) {
-    // Probably in the real version it would make sense to have 2 deltas, one for the 1st phase and the other for
-    // the 2nd phase
-    spdlog::error("Got to the end of the stream");
+    return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
   } catch (const storage::durability::RecoveryFailure &) {
     throw utils::BasicException("Invalid data!");
   }
-  return std::nullopt;
-};
+}
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
@@ -349,11 +343,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     bool transaction_complete{false};
     while (!transaction_complete) {
       spdlog::info("Skipping delta");
-      auto const maybe_delta = ReadDelta(&decoder, storage::durability::kVersion);
-      if (!maybe_delta) {
-        LOG_FATAL("End of the stream without finding the end of the delta");
-      }
-      const auto [_, delta] = *maybe_delta;
+      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
@@ -363,7 +353,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   try {
-    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder, false);
+    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
     cached_commit_accessor_ = std::move(deltas_res.commit_acc);
   } catch (const utils::BasicException &e) {
     spdlog::error(
@@ -803,7 +793,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     uint32_t local_batch_counter = start_batch_counter;
     for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
       auto const deltas_res =
-          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, true, local_batch_counter);
+          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, local_batch_counter);
       local_delta_idx += deltas_res.current_delta_idx;
       local_batch_counter = deltas_res.current_batch_counter;
     }
@@ -822,7 +812,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 // The number of applied deltas also includes skipped deltas.
 storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, bool const loading_wal, uint32_t const start_batch_counter) {
+    slk::Builder *res_builder, uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -879,12 +869,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
     }
 
     // End of the stream
-    auto const maybe_delta = ReadDelta(decoder, version);
-    if (!maybe_delta) {
-      break;
-    }
-
-    const auto [delta_timestamp, delta] = *maybe_delta;
+    auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
       prev_printed_timestamp = delta_timestamp;
@@ -1118,15 +1103,6 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
           spdlog::info("Handled WalTransactionEnd delta");
-        },
-        [&](WalTransactionCommit const &) {
-          spdlog::trace("   Delta {}. Transaction commit", current_delta_idx);
-          if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != delta_timestamp)
-            throw utils::BasicException("Invalid commit data!");
-          commit_timestamp_and_accessor->second.FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
-                                                                    commit_timestamp_and_accessor->first);
-          commit_timestamp_and_accessor.reset();
-          spdlog::info("Handled WalTransactionCommit delta");
         },
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
