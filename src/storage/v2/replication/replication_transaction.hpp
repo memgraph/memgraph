@@ -83,6 +83,7 @@ class TransactionReplication {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                      replica_stream);
+      // TODO: (andi) This is not correct because that would mean ASYNC replicas would commit independently from SYNC
       if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
         spdlog::info("Appended txn commit for ASYNC replica: {}", client->Name());
         client->IfStreamingTransaction(
@@ -105,7 +106,6 @@ class TransactionReplication {
     bool sync_replicas_succ{true};
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        // TODO: durability commit timestamp
         client->IfStreamingTransaction(
             [&](auto &stream) { stream.AppendTransactionCommit(durability_commit_timestamp); }, replica_stream);
         sync_replicas_succ &=

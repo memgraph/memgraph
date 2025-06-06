@@ -156,17 +156,23 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
 
 constexpr uint32_t kDeltasBatchProgressSize = 100000;
 
-std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
+std::optional<std::pair<uint64_t, WalDeltaData>> ReadDelta(storage::durability::BaseDecoder *decoder,
+                                                           const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
     spdlog::trace("       Timestamp {}", timestamp);
     auto delta = ReadWalDeltaData(decoder, version);
-    return {timestamp, delta};
+    return std::pair<uint64_t, WalDeltaData>{timestamp, delta};
+  } catch (const slk::SlkReaderNoDataException &e) {
+    // Probably in the real version it would make sense to have 2 deltas, one for the 1st phase and the other for
+    // the 2nd phase
+    spdlog::error("Got to the end of the stream");
   } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
   } catch (const storage::durability::RecoveryFailure &) {
     throw utils::BasicException("Invalid data!");
   }
+  return std::nullopt;
 };
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
@@ -343,7 +349,11 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     bool transaction_complete{false};
     while (!transaction_complete) {
       spdlog::info("Skipping delta");
-      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      auto const maybe_delta = ReadDelta(&decoder, storage::durability::kVersion);
+      if (!maybe_delta) {
+        LOG_FATAL("End of the stream without finding the end of the delta");
+      }
+      const auto [_, delta] = *maybe_delta;
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
@@ -868,7 +878,13 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
       current_batch_counter = 0;
     }
 
-    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
+    // End of the stream
+    auto const maybe_delta = ReadDelta(decoder, version);
+    if (!maybe_delta) {
+      break;
+    }
+
+    const auto [delta_timestamp, delta] = *maybe_delta;
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
       prev_printed_timestamp = delta_timestamp;
