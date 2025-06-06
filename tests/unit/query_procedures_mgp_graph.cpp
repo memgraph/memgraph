@@ -632,6 +632,7 @@ TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
     ASSERT_TRUE(result.HasValue());
     ASSERT_FALSE(accessor->PrepareForCommitPhase().HasError());
   }
+
   auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
 
   mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
