@@ -20,7 +20,6 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/observer.hpp"
 
@@ -168,7 +167,7 @@ std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *de
   } catch (const storage::durability::RecoveryFailure &) {
     throw utils::BasicException("Invalid data!");
   }
-};
+}
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
@@ -204,15 +203,21 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 }  // namespace
 
+std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> InMemoryReplicationHandlers::cached_commit_accessor_;
+
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
+  server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+        InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
@@ -279,32 +284,34 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
-void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
-                                                      const std::optional<utils::UUID> &current_main_uuid,
-                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
-  storage::replication::AppendDeltasReq req;
+void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                                       const std::optional<utils::UUID> &current_main_uuid,
+                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::PrepareCommitReq req;
   slk::Load(&req, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    const storage::replication::AppendDeltasRes res{false};
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
+
+  spdlog::info("Preparing for commit");
 
   // Read at the beginning so that SLK stream gets cleared even when the request is invalid
   storage::replication::Decoder decoder(req_reader);
   auto maybe_epoch_id = decoder.ReadString();
   if (!maybe_epoch_id) {
     spdlog::error("Invalid replication message, couldn't read epoch id.");
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -330,35 +337,71 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  // TODO: (andi) Not sure if emptying the stream is needed?
+  // TODO: (andi) Not sure if emptying the stream is needed? PR remove-emptying-stream, rebase on it
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
     // Empty the stream
-    bool transaction_complete = false;
+    bool transaction_complete{false};
     while (!transaction_complete) {
       spdlog::info("Skipping delta");
       const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
 
   try {
-    ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
+    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
+    cached_commit_accessor_ = std::move(deltas_res.commit_acc);
   } catch (const utils::BasicException &e) {
     spdlog::error(
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
         "unsuccessfully.",
         e.what());
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
 
-  const storage::replication::AppendDeltasRes res{true};
+  const storage::replication::PrepareCommitRes res{true};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
+}
+
+void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                                        const std::optional<utils::UUID> &current_main_uuid,
+                                                        slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::FinalizeCommitReq req;
+  slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
+    storage::replication::FinalizeCommitRes const res(false);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
+  if (!db_acc) {
+    storage::replication::FinalizeCommitRes const res(false);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  storage->repl_storage_state_.last_durable_timestamp_.store(req.durability_commit_timestamp,
+                                                             std::memory_order_release);
+
+  MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
+
+  spdlog::info("Finalizing commit");
+
+  cached_commit_accessor_->FinalizeCommitPhase(std::unique_lock{storage->engine_lock_},
+                                               req.durability_commit_timestamp);
+  cached_commit_accessor_.reset();
+  storage::replication::FinalizeCommitRes const res(true);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
@@ -749,10 +792,10 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 
     uint32_t local_batch_counter = start_batch_counter;
     for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
-      auto const [current_delta_idx, current_batch_counter] =
+      auto const deltas_res =
           ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, local_batch_counter);
-      local_delta_idx += current_delta_idx;
-      local_batch_counter = current_batch_counter;
+      local_delta_idx += deltas_res.current_delta_idx;
+      local_batch_counter = deltas_res.current_batch_counter;
     }
 
     spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
@@ -767,7 +810,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 }
 
 // The number of applied deltas also includes skipped deltas.
-std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
+storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
     slk::Builder *res_builder, uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
@@ -825,7 +868,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
       current_batch_counter = 0;
     }
 
-    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
+    // End of the stream
+    auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
       prev_printed_timestamp = delta_timestamp;
@@ -1034,8 +1078,11 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             }
             // fallback if from_gid not available
             auto found_edge = storage->FindEdge(edge->gid);
-            if (!found_edge)
-              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+            if (!found_edge) {
+              constexpr auto src_loc{std::source_location()};
+              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(),
+                                          src_loc.line());
+            }
             const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
             return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
           });
@@ -1050,10 +1097,12 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
-          auto ret = commit_timestamp_and_accessor->second.Commit(
+          auto const ret = commit_timestamp_and_accessor->second.PrepareForCommitPhase(
               {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
-          if (ret.HasError()) throw utils::BasicException("Committing failed on receiving transaction end delta.");
-          commit_timestamp_and_accessor = std::nullopt;
+          if (ret.HasError()) {
+            throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
+          }
+          spdlog::info("Handled WalTransactionEnd delta");
         },
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
@@ -1335,12 +1384,17 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
     std::visit(delta_apply, delta.data_);
     applied_deltas++;
   }
-
-  if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
-
+  
+  // TODO: (andi) Remove if PR gets merged, already opened
   storage->repl_storage_state_.last_durable_timestamp_.store(max_delta_timestamp, std::memory_order_release);
 
   spdlog::debug("Applied {} deltas", applied_deltas);
-  return {current_delta_idx, current_batch_counter};
+
+  return storage::SingleTxnDeltasProcessingResult{
+      .commit_acc = std::make_unique<storage::InMemoryStorage::ReplicationAccessor>(
+          std::move(commit_timestamp_and_accessor->second)),
+      .current_delta_idx = current_delta_idx,
+      .durability_commit_timestamp = commit_timestamp_and_accessor->first,
+      .current_batch_counter = current_batch_counter};
 }
 }  // namespace memgraph::dbms

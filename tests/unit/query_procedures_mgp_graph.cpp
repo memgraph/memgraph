@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -630,8 +630,9 @@ TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
     const auto result =
         edge.SetProperty(accessor->NameToProperty(property_to_update), memgraph::storage::PropertyValue(42));
     ASSERT_TRUE(result.HasValue());
-    ASSERT_FALSE(accessor->Commit().HasError());
+    ASSERT_FALSE(accessor->PrepareForCommitPhase().HasError());
   }
+
   auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
 
   mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);

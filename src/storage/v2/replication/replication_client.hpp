@@ -44,7 +44,7 @@ class ReplicationStorageClient;
 // You need to acquire the RPC lock before creating ReplicaStream object
 class ReplicaStream {
  public:
-  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream);
+  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream);
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -65,7 +65,7 @@ class ReplicaStream {
                        const std::set<PropertyId> &properties, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
-  replication::AppendDeltasRes Finalize();
+  replication::PrepareCommitRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
@@ -73,7 +73,7 @@ class ReplicaStream {
 
  private:
   Storage *storage_;
-  rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
+  rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream_;
 };
 
 class ReplicaStreamExecutor {
@@ -177,6 +177,10 @@ class ReplicationStorageClient {
   [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
                                                     std::optional<ReplicaStream> &&replica_stream,
                                                     uint64_t durability_commit_timestamp) const;
+
+  [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
+                                           DatabaseAccessProtector db_acc,
+                                           uint64_t durability_commit_timestamp) noexcept;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary

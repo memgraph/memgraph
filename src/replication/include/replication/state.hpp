@@ -21,14 +21,12 @@
 #include "status.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
-#include "utils/variant_helpers.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <list>
 #include <optional>
 #include <variant>
-#include <vector>
 
 namespace memgraph::replication {
 
