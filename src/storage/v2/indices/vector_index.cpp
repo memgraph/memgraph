@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <ranges>
 #include <shared_mutex>
-#include <stdexcept>
 #include <stop_token>
 #include <string_view>
 
@@ -139,11 +138,108 @@ unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) 
                   name));
 }
 
+const char *VectorIndex::NameFromScalar(unum::usearch::scalar_kind_t scalar) {
+  switch (scalar) {
+    case unum::usearch::scalar_kind_t::b1x8_k:
+      return "b1x8";
+    case unum::usearch::scalar_kind_t::u40_k:
+      return "u40";
+    case unum::usearch::scalar_kind_t::uuid_k:
+      return "uuid";
+    case unum::usearch::scalar_kind_t::bf16_k:
+      return "bf16";
+    case unum::usearch::scalar_kind_t::f64_k:
+      return "f64";
+    case unum::usearch::scalar_kind_t::f32_k:
+      return "f32";
+    case unum::usearch::scalar_kind_t::f16_k:
+      return "f16";
+    case unum::usearch::scalar_kind_t::f8_k:
+      return "f8";
+    case unum::usearch::scalar_kind_t::u64_k:
+      return "u64";
+    case unum::usearch::scalar_kind_t::u32_k:
+      return "u32";
+    case unum::usearch::scalar_kind_t::u16_k:
+      return "u16";
+    case unum::usearch::scalar_kind_t::u8_k:
+      return "u8";
+    case unum::usearch::scalar_kind_t::i64_k:
+      return "i64";
+    case unum::usearch::scalar_kind_t::i32_k:
+      return "i32";
+    case unum::usearch::scalar_kind_t::i16_k:
+      return "i16";
+    case unum::usearch::scalar_kind_t::i8_k:
+      return "i8";
+    default:
+      throw query::VectorSearchException(
+          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+          "u64, u32, u16, u8, i64, i32, i16, and i8.");
+  }
+}
+
+unum::usearch::scalar_kind_t VectorIndex::ScalarFromName(std::string_view name) {
+  if (name == "b1x8" || name == "binary") {
+    return unum::usearch::scalar_kind_t::b1x8_k;
+  }
+  if (name == "u40") {
+    return unum::usearch::scalar_kind_t::u40_k;
+  }
+  if (name == "uuid") {
+    return unum::usearch::scalar_kind_t::uuid_k;
+  }
+  if (name == "bf16" || name == "bfloat16") {
+    return unum::usearch::scalar_kind_t::bf16_k;
+  }
+  if (name == "f64" || name == "float64" || name == "double") {
+    return unum::usearch::scalar_kind_t::f64_k;
+  }
+  if (name == "f32" || name == "float32" || name == "float") {
+    return unum::usearch::scalar_kind_t::f32_k;
+  }
+  if (name == "f16" || name == "float16") {
+    return unum::usearch::scalar_kind_t::f16_k;
+  }
+  if (name == "f8" || name == "float8") {
+    return unum::usearch::scalar_kind_t::f8_k;
+  }
+  if (name == "u64" || name == "uint64") {
+    return unum::usearch::scalar_kind_t::u64_k;
+  }
+  if (name == "u32" || name == "uint32") {
+    return unum::usearch::scalar_kind_t::u32_k;
+  }
+  if (name == "u16" || name == "uint16") {
+    return unum::usearch::scalar_kind_t::u16_k;
+  }
+  if (name == "u8" || name == "uint8") {
+    return unum::usearch::scalar_kind_t::u8_k;
+  }
+  if (name == "i64" || name == "int64") {
+    return unum::usearch::scalar_kind_t::i64_k;
+  }
+  if (name == "i32" || name == "int32") {
+    return unum::usearch::scalar_kind_t::i32_k;
+  }
+  if (name == "i16" || name == "int16") {
+    return unum::usearch::scalar_kind_t::i16_k;
+  }
+  if (name == "i8" || name == "int8") {
+    return unum::usearch::scalar_kind_t::i8_k;
+  }
+
+  throw query::VectorSearchException(
+      fmt::format("Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+                  "u64, u32, u16, u8, i64, i32, i16, and i8.",
+                  name));
+}
+
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     // Create the index
-    const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, unum::usearch::scalar_kind_t::f32_k);
+    const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
 
     // use the number of workers as the number of possible concurrent index operations
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
@@ -152,12 +248,12 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
       throw query::VectorSearchException("Given vector index already exists.");
     }
-    pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
     auto mg_vector_index = mg_vector_index_t::make(metric);
     if (!mg_vector_index) {
       throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
                                                      spec.index_name, mg_vector_index.error.what()));
     }
+    pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
     if (mg_vector_index.index.try_reserve(limits)) {
       spdlog::info("Created vector index {}", spec.index_name);
     } else {
@@ -233,7 +329,7 @@ bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
     if (!exclusively_locked_index->try_reserve(new_limits)) {
-      throw std::runtime_error("Failed to resize vector index.");
+      throw query::VectorSearchException("Failed to resize vector index.");
     }
   }
 
@@ -291,7 +387,8 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
     auto locked_index = mg_index->ReadLock();
     result.emplace_back(VectorIndexInfo{
         spec.index_name, spec.label, spec.property, NameFromMetric(locked_index->metric().metric_kind()),
-        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size()});
+        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size(),
+        NameFromScalar(locked_index->metric().scalar_kind())});
   }
   return result;
 }
