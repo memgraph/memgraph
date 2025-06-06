@@ -103,9 +103,7 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasNoTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream_handler = client.Stream<AppendDeltasRpc>(
-      UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+  auto stream_handler = client.Stream<AppendDeltasRpc>(UUID{}, main_storage.uuid(), 1);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_NO_THROW(stream.Finalize());
@@ -141,9 +139,7 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream_handler = client.Stream<AppendDeltasRpc>(
-      UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+  auto stream_handler = client.Stream<AppendDeltasRpc>(UUID{}, main_storage.uuid(), 1);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
@@ -182,9 +178,7 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream_handler = client.Stream<AppendDeltasRpc>(
-      UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+  auto stream_handler = client.Stream<AppendDeltasRpc>(UUID{}, main_storage.uuid(), 1);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
