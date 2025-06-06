@@ -548,6 +548,8 @@ class InMemoryStorage final : public Storage {
    public:
     explicit ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
 
+    ReplicationAccessor(ReplicationAccessor &&other) noexcept : InMemoryAccessor(std::move(other)) {}
+
     /// @throw std::bad_alloc
     std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
 
