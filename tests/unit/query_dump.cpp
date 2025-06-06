@@ -919,6 +919,7 @@ TYPED_TEST(DumpTest, VectorIndices) {
   static constexpr uint16_t dimension = 2;
   static constexpr std::size_t capacity = 10;
   static constexpr uint16_t resize_coefficient = 2;
+  static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
 
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     GTEST_SKIP() << "Vector index not implemented for ondisk";
@@ -940,7 +941,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          metric,
                                                          dimension,
                                                          resize_coefficient,
-                                                         capacity};
+                                                         capacity,
+                                                         scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
@@ -953,7 +955,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          metric,
                                                          dimension,
                                                          resize_coefficient,
-                                                         capacity};
+                                                         capacity,
+                                                         scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
@@ -969,8 +972,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
     }
     VerifyQueries(
         stream.GetResults(),
-        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
-        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
+        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }

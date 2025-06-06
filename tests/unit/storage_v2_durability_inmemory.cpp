@@ -128,10 +128,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_dim = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
-    const auto vector_index_spec =
-        memgraph::storage::VectorIndexSpec{vector_index_name,    label_indexed,    property_vector,
-                                           vector_index_metric,  vector_index_dim, vector_index_resize_coefficient,
-                                           vector_index_capacity};
+    const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
+    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
+        vector_index_name,     label_indexed,           property_vector,
+        vector_index_metric,   vector_index_dim,        vector_index_resize_coefficient,
+        vector_index_capacity, vector_index_scalar_kind};
 
     {
       // Create enum.
@@ -483,10 +484,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_dim = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
-    const auto vector_index_spec =
-        memgraph::storage::VectorIndexSpec{vector_index_name,    base_label_indexed, property_vector,
-                                           vector_index_metric,  vector_index_dim,   vector_index_resize_coefficient,
-                                           vector_index_capacity};
+    const auto vector_index_scalar_kind = unum::usearch::scalar_kind_t::f32_k;
+    const auto vector_index_spec = memgraph::storage::VectorIndexSpec{
+        vector_index_name,     base_label_indexed,      property_vector,
+        vector_index_metric,   vector_index_dim,        vector_index_resize_coefficient,
+        vector_index_capacity, vector_index_scalar_kind};
 
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
