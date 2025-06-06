@@ -17,6 +17,7 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "utils/atomic_max.hpp"
 #include "utils/logging.hpp"
 
 #include <regex>
@@ -75,12 +76,8 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      uint64_t old_committed_idx = last_committed_idx_.load(std::memory_order_acquire);
-      while (old_committed_idx < parsed_snapshot_id &&
-             !last_committed_idx_.compare_exchange_weak(old_committed_idx, parsed_snapshot_id,
-                                                        std::memory_order_acq_rel, std::memory_order_acquire)) {
-        // old is updated by compare_exchange_weak
-      }
+
+      atomic_fetch_max_explicit(&last_committed_idx_, parsed_snapshot_id, std::memory_order_acq_rel);
 
       // NOLINTNEXTLINE (misc-const-correctness)
       auto snapshot_ctx = std::make_shared<SnapshotCtx>();

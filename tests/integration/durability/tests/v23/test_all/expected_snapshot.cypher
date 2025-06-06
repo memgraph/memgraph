@@ -23,7 +23,7 @@ CREATE INDEX ON :`label`;
 CREATE INDEX ON :`label2`(`prop`);
 CREATE INDEX ON :`label2`(`prop2`);
 CREATE POINT INDEX ON :`has_coord`(`coord`);
-CREATE VECTOR INDEX `vector_index_name` ON :`Label`(`embedding`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2 };
+CREATE VECTOR INDEX `vector_index_name` ON :`Label`(`embedding`) WITH CONFIG { "dimension": 3, "metric": "l2sq", "capacity": 1000, "resize_coefficient": 2, "scalar_kind": "f32" };
 CREATE CONSTRAINT ON (u:`label`) ASSERT EXISTS (u.`ext`);
 CREATE CONSTRAINT ON (u:`label2`) ASSERT u.`prop`, u.`prop2` IS UNIQUE;
 CREATE CONSTRAINT ON (u:`label`) ASSERT u.`is_point` IS TYPED POINT;

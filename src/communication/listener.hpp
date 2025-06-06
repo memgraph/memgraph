@@ -67,7 +67,7 @@ class Listener final {
     for (auto &thread : worker_threads_) {
       if (thread.joinable()) worker_alive = true;
     }
-    MG_ASSERT(!alive_ && !worker_alive && !timeout_thread_.joinable(),
+    MG_ASSERT(!alive_.load(std::memory_order_acquire) && !worker_alive && !timeout_thread_.joinable(),
               "You should call Shutdown and AwaitShutdown on "
               "communication::Listener!");
   }
@@ -105,8 +105,8 @@ class Listener final {
    * This function starts the listener
    */
   void Start() {
-    MG_ASSERT(!alive_, "The listener is already started!");
-    alive_.store(true);
+    MG_ASSERT(!alive_.load(std::memory_order_acquire), "The listener is already started!");
+    alive_.store(true, std::memory_order_release);
 
     spdlog::info("Starting {} {} workers", workers_count_, service_name_);
 
@@ -114,7 +114,7 @@ class Listener final {
     for (size_t i = 0; i < workers_count_; ++i) {
       worker_threads_.emplace_back([this, service_name, i]() {
         utils::ThreadSetName(fmt::format("{} worker {}", service_name, i + 1));
-        while (alive_) {
+        while (alive_.load(std::memory_order_acquire)) {
           WaitAndProcessEvents();
         }
       });
@@ -123,7 +123,7 @@ class Listener final {
     if (inactivity_timeout_sec_ > 0) {
       timeout_thread_ = std::thread([this, service_name]() {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
-        while (alive_) {
+        while (alive_.load(std::memory_order_acquire)) {
           {
             auto guard = std::lock_guard{lock_};
             for (auto &session : sessions_) {
@@ -148,7 +148,7 @@ class Listener final {
   /**
    * This function starts a graceful shutdown of the listener.
    */
-  void Shutdown() { alive_.store(false); }
+  void Shutdown() { alive_.store(false, std::memory_order_release); }
 
   /**
    * This function blocks the calling thread until the listener shutdown is

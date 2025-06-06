@@ -30,10 +30,12 @@ struct State {
     if (durability_) {
       durability_->Put(kLastCommitedSystemTsKey, std::to_string(timestamp));
     }
-    last_committed_system_timestamp_.store(timestamp);
+    last_committed_system_timestamp_.store(timestamp, std::memory_order_release);
   }
 
-  auto LastCommittedSystemTimestamp() const -> uint64_t { return last_committed_system_timestamp_.load(); }
+  auto LastCommittedSystemTimestamp() const -> uint64_t {
+    return last_committed_system_timestamp_.load(std::memory_order_acquire);
+  }
 
  private:
   friend struct ReplicaHandlerAccessToState;
@@ -46,9 +48,13 @@ struct State {
 struct ReplicaHandlerAccessToState {
   explicit ReplicaHandlerAccessToState(memgraph::system::State &state) : state_{&state} {}
 
-  auto LastCommitedTS() const -> uint64_t { return state_->last_committed_system_timestamp_.load(); }
+  auto LastCommitedTS() const -> uint64_t {
+    return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
+  }
 
-  void SetLastCommitedTS(uint64_t new_timestamp) { state_->last_committed_system_timestamp_.store(new_timestamp); }
+  void SetLastCommitedTS(uint64_t new_timestamp) {
+    state_->last_committed_system_timestamp_.store(new_timestamp, std::memory_order_release);
+  }
 
  private:
   State *state_;

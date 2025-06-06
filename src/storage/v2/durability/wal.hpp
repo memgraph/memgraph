@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <set>
 #include <string>
+#include <usearch/index_plugins.hpp>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/delta.hpp"
@@ -26,6 +27,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -248,8 +250,8 @@ struct WalEnumAlterUpdate {
 };
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
-  using ctr_types =
-      std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t, std::size_t>;
+  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
+                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
   std::string label;
   std::string property;
@@ -257,6 +259,7 @@ struct WalVectorIndexCreate {
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
+  std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
 };
 struct WalVectorIndexDrop {
   friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;

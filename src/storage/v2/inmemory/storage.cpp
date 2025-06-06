@@ -48,6 +48,7 @@
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/atomic_max.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
@@ -197,7 +198,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
-        repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
+        repl_storage_state_.last_durable_timestamp_.store(*info->last_durable_timestamp, std::memory_order_release);
         spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", *info->last_durable_timestamp,
                       timestamp_);
       }
@@ -349,14 +350,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto current_vertex_id = mem_storage->vertex_id_.load(std::memory_order_acquire);
-  bool updated = false;
-  auto next_vertex_id = gid.AsUint() + 1;
-  // Only update if larger
-  while (!updated && current_vertex_id < next_vertex_id) {
-    updated =
-        mem_storage->vertex_id_.compare_exchange_weak(current_vertex_id, next_vertex_id, std::memory_order_acq_rel);
-  }
+  atomic_fetch_max_explicit(&mem_storage->vertex_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -603,12 +597,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const next_edge_id = gid.AsUint() + 1;
-  auto current_edge_id = mem_storage->edge_id_.load(std::memory_order_acquire);
-  bool updated = false;
-  while (!updated && current_edge_id < next_edge_id) {
-    updated = mem_storage->edge_id_.compare_exchange_weak(current_edge_id, next_edge_id, std::memory_order_acq_rel);
-  }
+  atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -2622,6 +2611,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
       mem_storage->wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
       replicating_txn.AppendDelta(delta, parent, durability_commit_timestamp_arg);
+
     });
   }
 
@@ -2736,7 +2726,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+    if (repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) != kTimestampInitialId) {
       handler_error();
       return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
     }
@@ -3050,7 +3040,7 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  repl_storage_state_.last_durable_timestamp_ = 0;
+  repl_storage_state_.last_durable_timestamp_.store(0, std::memory_order_release);
   repl_storage_state_.history.clear();
 
   last_snapshot_digest_ = std::nullopt;

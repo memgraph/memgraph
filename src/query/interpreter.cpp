@@ -30,6 +30,7 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <usearch/index_plugins.hpp>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -1822,26 +1823,29 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
                          }) |
                          ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
 
-  auto metric_str = transformed_map.contains(kMetric.data())
-                        ? std::string(transformed_map.at(kMetric.data()).ValueString())
-                        : std::string(kDefaultMetric);
-  auto metric_kind = storage::VectorIndex::MetricFromName(metric_str);
-  auto dimension = transformed_map.find(kDimension.data());
+  auto metric_kind_it = transformed_map.find(kMetric);
+  auto metric_kind = storage::VectorIndex::MetricFromName(
+      metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
+  auto dimension = transformed_map.find(kDimension);
   if (dimension == transformed_map.end()) {
     throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
   }
   auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
 
-  auto capacity = transformed_map.find(kCapacity.data());
+  auto capacity = transformed_map.find(kCapacity);
   if (capacity == transformed_map.end()) {
     throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
   }
   auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
 
-  auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
-                                ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
+  auto resize_coefficient_it = transformed_map.find(kResizeCoefficient);
+  auto resize_coefficient = resize_coefficient_it != transformed_map.end()
+                                ? static_cast<std::uint16_t>(resize_coefficient_it->second.ValueInt())
                                 : kDefaultResizeCoefficient;
-  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient};
+  auto scalar_kind_it = transformed_map.find(kScalarKind);
+  auto scalar_kind = storage::VectorIndex::ScalarFromName(
+      scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
+  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
@@ -3560,12 +3564,13 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
             .dimension = vector_index_config.dimension,
             .resize_coefficient = vector_index_config.resize_coefficient,
             .capacity = vector_index_config.capacity,
+            .scalar_kind = vector_index_config.scalar_kind,
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (maybe_error.HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Vector index on label {} and property {} already exists.", label_name, prop_name);
+          index_notification.title = fmt::format(
+              "Error while creating vector index on label {}, property {}, for more information check the logs.",
+              label_name, prop_name);
         }
         return index_notification;
       };
@@ -4985,7 +4990,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       break;
     }
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
-      header = {"index_name", "label", "property", "capacity", "dimension", "metric", "size"};
+      header = {"index_name", "label", "property", "capacity", "dimension", "metric", "size", "scalar_kind"};
       handler = [database, dba] {
         auto *storage = database->storage();
         auto vector_indices = dba->ListAllVectorIndices();
@@ -4997,7 +5002,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(spec.index_name), TypedValue(storage->LabelToName(spec.label)),
                              TypedValue(storage->PropertyToName(spec.property)),
                              TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
-                             TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size))});
+                             TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size)),
+                             TypedValue(spec.scalar_kind)});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};

@@ -1354,6 +1354,8 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
           auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
+          auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
+                                              : unum::usearch::scalar_kind_t::f32_k;
 
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
@@ -1363,6 +1365,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
               .dimension = data.dimension,
               .resize_coefficient = data.resize_coefficient,
               .capacity = data.capacity,
+              .scalar_kind = scalar_kind,
           });
           if (res.HasError()) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
@@ -1381,6 +1384,9 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
     std::visit(delta_apply, delta.data_);
     applied_deltas++;
   }
+  
+  // TODO: (andi) Remove if PR gets merged, already opened
+  storage->repl_storage_state_.last_durable_timestamp_.store(max_delta_timestamp, std::memory_order_release);
 
   spdlog::debug("Applied {} deltas", applied_deltas);
 

@@ -3544,7 +3544,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
   }
 
-  for (const auto &[index_name, label, property, metric, dimension, capacity, size] : info) {
+  for (const auto &[index_name, label, property, metric, dimension, capacity, size, scalar_kind] : info) {
     mgp_value *index_name_value = nullptr;
     mgp_value *label_value = nullptr;
     mgp_value *property_value = nullptr;
@@ -3552,6 +3552,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value *dimension_value = nullptr;
     mgp_value *capacity_value = nullptr;
     mgp_value *size_value = nullptr;
+    mgp_value *scalar_kind_value = nullptr;
     if (const auto err = mgp_value_make_string(index_name.c_str(), memory, &index_name_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
@@ -3587,8 +3588,13 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       throw std::logic_error("Retrieving vector search results failed during creation of a int mgp_value");
     }
 
+    if (const auto err = mgp_value_make_string(scalar_kind.c_str(), memory, &scalar_kind_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
+    }
+
     mgp_list *index_info = nullptr;
-    if (const auto err = mgp_list_make_empty(5, memory, &index_info); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_list_make_empty(6, memory, &index_info); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
     }
 
@@ -3627,6 +3633,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
     }
 
+    if (const auto err = mgp_list_append_extend(index_info, scalar_kind_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+
     mgp_value *index_info_value = nullptr;
     if (const auto err = mgp_value_make_list(index_info, &index_info_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a list mgp_value");
@@ -3645,6 +3656,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(dimension_value);
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);
+    mgp_value_destroy(scalar_kind_value);
   }
 
   mgp_value *search_results_value = nullptr;

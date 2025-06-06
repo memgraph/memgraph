@@ -39,7 +39,6 @@ using memgraph::rpc::Client;
 using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
-using memgraph::slk::Save;
 using memgraph::storage::Config;
 using memgraph::storage::CoordinateReferenceSystem;
 using memgraph::storage::Edge;
@@ -58,7 +57,6 @@ using memgraph::storage::Point2d;
 using memgraph::storage::PointIndexStorage;
 using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyPath;
-using memgraph::storage::PropertyStore;
 using memgraph::storage::PropertyValue;
 using memgraph::storage::SnapshotObserverInfo;
 using memgraph::storage::TypeConstraintKind;
@@ -81,6 +79,7 @@ static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kin
 static constexpr std::size_t resize_coefficient = 2;
 static constexpr uint16_t kDimension = 2;
 static constexpr uint16_t kCapacity = 16;
+static constexpr unum::usearch::scalar_kind_t kScalarKind = unum::usearch::scalar_kind_t::f32_k;
 
 class SnapshotRpcProgressTest : public ::testing::Test {
  public:
@@ -517,7 +516,8 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto const spec = VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity};
+  auto const spec =
+      VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
@@ -535,7 +535,8 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   auto label = LabelId::FromUint(1);
   auto prop = PropertyId::FromUint(1);
 
-  auto const spec = VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity};
+  auto const spec =
+      VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity, kScalarKind};
 
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
