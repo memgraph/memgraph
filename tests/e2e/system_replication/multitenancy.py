@@ -12,6 +12,7 @@
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any, Dict
 
 import interactive_mg_runner
@@ -1419,6 +1420,127 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_nam
     except mgclient.DatabaseError:
         failed = True
     assert failed
+
+
+def test_multitenancy_snapshot_recovery(connection, test_name):
+    # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
+    # Original storage should persist in a nameless state until tx is over
+    # needs replicating over
+    # 0/ Setup replication
+    # 1/ MAIN CREATE DATABASE A
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+    # 4/ Start A transaction on replica 1, Use A on replica2
+    # 5/ Check that the drop/create replicated
+    # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    do_manual_setting_up(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+
+    # 2/
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'M'});")
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT;")
+    execute_and_fetch_all(main_cursor, "MATCH (n) DELETE n;")
+    execute_and_fetch_all(main_cursor, "CREATE (:New);")
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT;")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+
+    # 3/
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    def check_data(cursor):
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+        res = execute_and_fetch_all(cursor, "MATCH (n) RETURN n;")
+        assert len(res) == 1
+        assert res[0][0].labels == {"New"}
+        assert res[0][0].properties == {}
+        execute_and_fetch_all(cursor, "USE DATABASE A;")
+        res = execute_and_fetch_all(cursor, "MATCH (n) RETURN n;")
+        assert len(res) == 1
+        assert res[0][0].labels == {"Node"}
+        assert res[0][0].properties == {"on": "M"}
+
+    # 4/
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    snapshot_a = None
+    try:
+        main_dir = f"{get_data_path(file, test_name)}/main"
+        main_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", main_dir, "snapshots")
+        dir_path = Path(main_dir)
+        files = [f for f in dir_path.iterdir() if f.is_file() and not f.name.startswith(".")]
+        assert files, f"No files found in '{main_dir}'."
+        snapshot_a = min(files, key=lambda f: f.stat().st_mtime)
+    except Exception as e:
+        assert False, f"Error: {e}"
+
+    execute_and_fetch_all(main_cursor, f'RECOVER SNAPSHOT "{snapshot_a}" FORCE;')
+    check_data(main_cursor)
+
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 2, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 2, "behind": 0, "status": "ready"}, "memgraph": {"ts": 7, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    check_data(replica1_cursor)
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    check_data(replica2_cursor)
+
+    # 5/
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=True)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    check_data(main_cursor)
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    check_data(replica1_cursor)
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    check_data(replica2_cursor)
+
+    # Cleanup
+    interactive_mg_runner.stop_all(keep_directories=False)
 
 
 if __name__ == "__main__":

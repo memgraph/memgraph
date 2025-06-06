@@ -186,6 +186,13 @@ class ReplicationStorageClient {
    */
   void TryCheckReplicaStateAsync(Storage *main_storage, DatabaseAccessProtector db_acc);
 
+  /**
+   * @brief Force reset a replica.
+   * @param main_storage pointer to the storage associated with the client
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void ForceRecoverReplica(Storage *storage, DatabaseAccessProtector db_acc) const;
+
  private:
   /**
    * @brief Get necessary recovery steps and execute them.

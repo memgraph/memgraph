@@ -117,6 +117,8 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       spdlog::error("Tried to lock a non-existent snapshot path while obtaining recovery steps.");
       return false;
     }
+    spdlog::trace("Found snapshot at path {} with timestamp {}.", latest_snapshot->path,
+                  latest_snapshot->start_timestamp);
     recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
     last_durable_timestamp = std::max(last_durable_timestamp, latest_snapshot->start_timestamp);
     return true;
@@ -188,6 +190,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
         }
         rw.emplace_back(std::move(wal.path));
       }
+      spdlog::trace("Found {} WAL files to recover from.", rw.size());
       recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(rw));
     }
 
@@ -204,9 +207,12 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   // If we have a current wal file we need to use it
   if (last_durable_timestamp < current_wal_timestamp && current_wal_seq_num) {
     // NOTE: File not handled directly, so no need to lock it
+    spdlog::trace("Found current WAL file with seq_num {} and timestamp {}.", *current_wal_seq_num,
+                  *current_wal_timestamp);
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }
 
+  spdlog::trace("Found {} recovery steps.", recovery_steps.size());
   return recovery_steps;
 }
 

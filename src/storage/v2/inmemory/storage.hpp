@@ -115,7 +115,6 @@ class InMemoryStorage final : public Storage {
   };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
-    DisabledForMainWithReplicas,
     NonEmptyStorage,
     MissingFile,
     CopyFailure,
