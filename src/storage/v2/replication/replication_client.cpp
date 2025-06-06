@@ -362,8 +362,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     stream.SendAndWait();
     return true;
   } catch (const rpc::RpcFailedException &) {
-    // TODO: (andi) If we received exception here, in which state do we put replica, will 2PC be part of replication
-    // state machine
+    // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
     return false;
   }
 }
@@ -658,11 +657,6 @@ auto ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t c
 void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
-}
-
-void ReplicaStream::AppendTransactionCommit(uint64_t const final_commit_timestamp) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  durability::EncodeTransactionCommit(&encoder, final_commit_timestamp);
 }
 
 replication::PrepareCommitRes ReplicaStream::Finalize() {

@@ -26,12 +26,13 @@ class TransactionReplication {
  public:
   // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
   // proceed with the Commit.
-
   TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector const &db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      // If ASYNC or SYNC and valid stream, save the stream
+      // TODO: (andi) Think about this when handling ASYNC replication
+      // For SYNC replicas we should be able to always acquire the stream because we will block until that happens
+      // For ASYNC replicas we only try to acquire stream and hence may fail. However, we still add nullopt to streams
       if (auto stream = client->StartTransactionReplication(seq_num, storage, db_acc);
           stream.has_value() || client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
         streams.push_back(std::move(stream));
@@ -42,16 +43,6 @@ class TransactionReplication {
       }
     }
   }
-
-  /*
-  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
-      : locked_clients{clients.ReadLock()} {
-    streams.reserve(locked_clients->size());
-    for (const auto &client : *locked_clients) {
-      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc));
-    }
-  }
-  */
 
   template <typename... Args>
   void AppendDelta(Args &&...args) {
@@ -74,8 +65,7 @@ class TransactionReplication {
     }
   }
 
-  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc,
-                                  kvstore::KVStore const *repl_durability) {
+  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
     bool sync_replicas_succ{true};
     MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
@@ -83,12 +73,6 @@ class TransactionReplication {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                      replica_stream);
-      // TODO: (andi) This is not correct because that would mean ASYNC replicas would commit independently from SYNC
-      if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-        spdlog::info("Appended txn commit for ASYNC replica: {}", client->Name());
-        client->IfStreamingTransaction(
-            [&](auto &stream) { stream.AppendTransactionCommit(durability_commit_timestamp); }, replica_stream);
-      }
 
       const auto finalized =
           client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
@@ -106,8 +90,6 @@ class TransactionReplication {
     bool sync_replicas_succ{true};
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        client->IfStreamingTransaction(
-            [&](auto &stream) { stream.AppendTransactionCommit(durability_commit_timestamp); }, replica_stream);
         sync_replicas_succ &=
             client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp);
       }
@@ -115,6 +97,7 @@ class TransactionReplication {
     return sync_replicas_succ;
   }
 
+  // If we don't check locked_clients, this check would fail for replicas since replicas have empty locked_clients
   auto ReplicationStartSuccessful() const -> bool { return locked_clients->empty() || !streams.empty(); }
 
  private:
