@@ -83,10 +83,16 @@ class SlkReaderException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderException)
 };
 
-class SlkReaderLeftoverDataException : public utils::BasicException {
+class SlkReaderLeftoverDataException : public SlkReaderException {
  public:
-  using utils::BasicException::BasicException;
+  using slk::SlkReaderException::SlkReaderException;
   SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderLeftoverDataException)
+};
+
+class SlkReaderNoDataException final : public SlkReaderException {
+ public:
+  using slk::SlkReaderException::SlkReaderException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkReaderNoDataException)
 };
 
 /// Reader used to read data from a SLK segment stream.

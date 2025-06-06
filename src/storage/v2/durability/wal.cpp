@@ -811,7 +811,6 @@ std::optional<RecoveryInfo> LoadWal(
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
-
   auto delta_apply = utils::Overloaded{
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
