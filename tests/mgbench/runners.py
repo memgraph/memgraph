@@ -110,6 +110,10 @@ class BaseClient(ABC):
             case _:
                 raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
 
+    @property
+    def vendor(self):
+        return self._vendor
+
 
 class BoltClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):

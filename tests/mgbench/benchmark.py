@@ -31,12 +31,6 @@ from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
 
-WARMUP_TO_HOT_QUERIES = [
-    ("CREATE ();", {}),
-    ("CREATE ()-[:TempEdge]->();", {}),
-    ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
-]
-
 SETUP_AUTH_QUERIES = [
     ("CREATE USER user IDENTIFIED BY 'test';", {}),
     ("GRANT ALL PRIVILEGES TO user;", {}),
@@ -57,6 +51,20 @@ SETUP_DISK_STORAGE = [
 SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
     ("STORAGE MODE IN_MEMORY_ANALYTICAL;", {}),
 ]
+
+
+def get_warmup_to_hot_queries(client):
+    match client.vendor:
+        case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+            return [
+                ("CREATE ();", {}),
+                ("CREATE ()-[:TempEdge]->();", {}),
+                ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
+            ]
+        case GraphVendors.POSTGRESQL:
+            return []
+        case _:
+            raise Exception(f"Unknown vendor name {client.vendor} for warmup queries!")
 
 
 def parse_args():
@@ -451,16 +459,14 @@ def mixed_workload(
 
 
 def warmup(condition: str, client, queries: list = None):
-    if condition == DATABASE_CONDITION_HOT and client._vendor in [
-        GraphVendors.MEMGRAPH,
-        GraphVendors.NEO4J,
-        GraphVendors.FALKORDB,
-    ]:
+    if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
-        client.execute(
-            queries=WARMUP_TO_HOT_QUERIES,
-            num_workers=1,
-        )
+        warmup_to_hot_queries = get_warmup_to_hot_queries(client)
+        if len(queries) > 0:
+            client.execute(
+                queries=warmup_to_hot_queries,
+                num_workers=1,
+            )
     elif condition == DATABASE_CONDITION_VULCANIC:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(queries=queries)
