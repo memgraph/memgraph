@@ -65,9 +65,10 @@ fi
 
 # Run Python: Mgbench - Neo4j
 echo "Running Python: Mgbench - Neo4j"
-python3  benchmark.py vendor-native \
+python3 benchmark.py \
     --vendor-binary "$neo4j_path" \
     --vendor-name neo4j \
+    --installation-type docker \
     --num-workers-for-benchmark "$num_workers" \
     --num-workers-for-import "$num_workers" \
     --no-load-query-counts \
@@ -78,9 +79,10 @@ python3  benchmark.py vendor-native \
 
 # Run Python: Mgbench - Memgraph - on-disk
 echo "Running Python: Mgbench - Memgraph - on-disk"
-python3 benchmark.py vendor-native \
+python3 benchmark.py \
     --vendor-binary "$memgraph_path" \
     --vendor-name memgraph \
+    --installation-type docker \
     --num-workers-for-benchmark "$num_workers" \
     --num-workers-for-import "$num_workers" \
     --no-load-query-counts \

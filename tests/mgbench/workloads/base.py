@@ -13,6 +13,7 @@ from abc import ABC
 
 import helpers
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 
 
 # Base dataset class used as a template to create each individual dataset. All
@@ -160,7 +161,7 @@ class Workload(ABC):
             raise ValueError("Vendor does not have INDEX for dataset!")
 
     def _set_local_files(self) -> None:
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and self._vendor != GraphVendors.NEO4J:
             if self.LOCAL_FILE_NODES is not None:
                 self._local_file_nodes = self.LOCAL_FILE_NODES.get(self._variant, None)
             else:
@@ -177,7 +178,7 @@ class Workload(ABC):
                 self._local_file = None
 
     def _set_url_files(self) -> None:
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and self._vendor != GraphVendors.NEO4J:
             if self.URL_FILE_NODES is not None:
                 self._url_file_nodes = self.URL_FILE_NODES.get(self._variant, None)
             else:
@@ -200,12 +201,15 @@ class Workload(ABC):
 
     def _set_url_index_file(self) -> None:
         if self.URL_INDEX_FILE is not None:
-            self._url_index = self.URL_INDEX_FILE.get(self._vendor, None)
-        else:
-            self._url_index = None
+            for vendor, url in self.URL_INDEX_FILE.items():
+                if vendor in self._vendor:
+                    self._url_index = url
+                    return
+
+        self._url_index = None
 
     def prepare(self, directory):
-        if self.disk_workload and self._vendor != "neo4j":
+        if self.disk_workload and self._vendor != GraphVendors.NEO4J:
             self._prepare_dataset_for_on_disk_workload(directory)
         else:
             self._prepare_dataset_for_in_memory_workload(directory)
@@ -307,7 +311,7 @@ class Workload(ABC):
         """Returns number of vertices/edges for the current variant."""
         return self._size
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         print("Workload does not have a custom import")
         return False
 
