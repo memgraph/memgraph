@@ -217,7 +217,7 @@ class Workload(ABC):
 
     def _get_dataset_file_extension(self) -> str:
         match self.benchmark_context.vendor_name:
-            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J, GraphVendors.FALKORDB:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 return DatabaseLanguage.CYPHER
             case GraphVendors.POSTGRESQL:
                 return DatabaseLanguage.SQL
