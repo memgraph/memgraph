@@ -23,13 +23,13 @@
 #include "storage/v2/inmemory/storage.hpp"
 
 /*
-Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
-corresponding interpreter/.
+Tests rely on the fact that interpreters are sequentially added to running_interpreters to get transaction_id of its
+corresponding interpreter.
 */
 template <typename StorageType>
 class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
-  const std::string testSuite = "transactin_queue";
+  const std::string testSuite = "transaction_queue";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
 
   memgraph::storage::Config config{
@@ -82,36 +82,41 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(TransactionQueueSimpleTest, StorageTypes);
 
 TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
-  bool started = false;
-  std::jthread running_thread = std::jthread(
+  std::atomic<bool> started{false};
+  auto running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         this->running_interpreter.Interpret("BEGIN");
-        started = true;
+        started.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     this->main_interpreter.Interpret("CREATE (:Person {prop: 1})");
     auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream.GetResults().size(), 2U);
-    // superadmin executing the transaction
-    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
-    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
-    EXPECT_EQ(show_stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
-    // Also anonymous user executing
+
+    // superadmin executing the transaction. Because transactions are now
+    // sorted by increasing id, this will always be the second entry because
+    // its interpreter will always `Interpret` after the `running_interpreter`.
     EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
     ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
+    ASSERT_EQ(show_stream.GetResults()[1][2].ValueList().size(), 1);
+    EXPECT_EQ(show_stream.GetResults()[1][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+    // Also anonymous user executing
+    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
+    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
     // Kill the other transaction
-    std::string run_trans_id = show_stream.GetResults()[1][1].ValueString();
+    std::string run_trans_id = show_stream.GetResults()[0][1].ValueString();
     std::string esc_run_trans_id = "'" + run_trans_id + "'";
     auto terminate_stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS " + esc_run_trans_id);
     // check result of killing
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
+    this->running_interpreter.HandlePendingTermination();
     // check the number of transactions now
     auto show_stream_after_killing = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream_after_killing.GetResults().size(), 1U);
