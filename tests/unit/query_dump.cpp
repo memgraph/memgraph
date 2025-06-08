@@ -41,6 +41,10 @@
 #include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
 
+namespace ms = memgraph::storage;
+namespace r = ranges;
+namespace rv = r::views;
+
 const char *kPropertyId = "property_id";
 
 const char *kCreateInternalIndex = "CREATE INDEX ON :__mg_vertex__(__mg_id__);";
@@ -259,10 +263,10 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       label_indices.insert({dba->LabelToName(item)});
     }
     for (const auto &[label, properties] : info.label_properties) {
-      auto properties_as_strings =
-          properties |
-          ranges::views::transform([&](memgraph::storage::PropertyId prop) { return dba->PropertyToName(prop); }) |
-          ranges::to_vector;
+      using namespace std::string_literals;
+      auto properties_as_strings = properties |
+                                   ranges::views::transform([&](auto &&path) { return ToString(path, dba.get()); }) |
+                                   ranges::to_vector;
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
     for (const auto &item : info.text_indices) {
@@ -773,6 +777,44 @@ TYPED_TEST(DumpTest, CompositeIndicesKeys) {
   }
 }
 
+TYPED_TEST(DumpTest, CompositeNestedIndicesKeys) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite/nested indices not implemented for disk storage";
+  }
+
+  {
+    auto dba = this->db->Access();
+    auto prop_id = dba->NameToProperty("p");
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{prop_id, memgraph::storage::PropertyValue(1)}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->db->storage()->NameToLabel("Label1"),
+                                   {ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                     this->db->storage()->NameToProperty("prop_b")},
+                                    ms::PropertyPath{this->db->storage()->NameToProperty("prop_a"),
+                                                     this->db->storage()->NameToProperty("prop_c")}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop_a`.`prop_b`, `prop_a`.`prop_c`);",
+                  kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
@@ -877,6 +919,7 @@ TYPED_TEST(DumpTest, VectorIndices) {
   static constexpr uint16_t dimension = 2;
   static constexpr std::size_t capacity = 10;
   static constexpr uint16_t resize_coefficient = 2;
+  static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
 
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     GTEST_SKIP() << "Vector index not implemented for ondisk";
@@ -898,7 +941,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          metric,
                                                          dimension,
                                                          resize_coefficient,
-                                                         capacity};
+                                                         capacity,
+                                                         scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
@@ -911,7 +955,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
                                                          metric,
                                                          dimension,
                                                          resize_coefficient,
-                                                         capacity};
+                                                         capacity,
+                                                         scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
@@ -927,8 +972,8 @@ TYPED_TEST(DumpTest, VectorIndices) {
     }
     VerifyQueries(
         stream.GetResults(),
-        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
-        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
+        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }

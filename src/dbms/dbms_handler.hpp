@@ -169,9 +169,10 @@ class DbmsHandler {
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
       spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
-                    db->storage()->repl_storage_state_.last_durable_timestamp_);
+                    db->storage()->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire));
       // This seems correct, if database made progress
-      if (db->storage()->repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+      if (db->storage()->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) !=
+          storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
       }

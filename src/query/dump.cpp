@@ -310,11 +310,16 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                              std::span<storage::PropertyId const> properties) {
-  auto prop_names =
-      properties | rv::transform([&](auto &&property) { return EscapeName(dba->PropertyToName(property)); });
+                              std::span<storage::PropertyPath const> properties) {
+  using namespace std::literals::string_view_literals;
+  auto const concat_nested_props = [&](auto &&path) {
+    return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+           rv::join("."sv) | r::to<std::string>();
+  };
 
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << utils::Join(prop_names, ", ") << ");";
+  auto prop_names = properties | rv::transform(concat_nested_props) | rv::join(", "sv) | r::to<std::string>();
+
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
@@ -332,7 +337,8 @@ void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::Ve
       << "\"dimension\": " << spec.dimension << ", "
       << R"("metric": ")" << storage::VectorIndex::NameFromMetric(spec.metric_kind) << "\", "
       << "\"capacity\": " << spec.capacity << ", "
-      << "\"resize_coefficient\": " << spec.resize_coefficient << " };";
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::VectorIndex::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,

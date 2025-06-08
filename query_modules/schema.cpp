@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -540,7 +540,7 @@ AssertedUniqueConstraintsStorage CreateUniqueConstraintsForLabel(
 
     if (unique_constraint_exists(label, properties_coll, existing_unique_constraints)) {
       InsertRecordForUniqueConstraint(record_factory, label, properties_list, Schema::kStatusKept);
-    } else if (mgp::CreateUniqueConstraint(memgraph_graph, label, properties.ptr())) {
+    } else if (mgp::CreateUniqueConstraint(memgraph_graph, label, properties_list.GetPtr())) {
       InsertRecordForUniqueConstraint(record_factory, label, properties_list, Schema::kStatusCreated);
     }
     asserted_unique_constraints.emplace(std::move(properties_coll));
@@ -620,7 +620,7 @@ void ProcessUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph 
           unique_constraint_list.AppendExtend(mgp::Value(property));
         });
 
-        if (mgp::DropUniqueConstraint(memgraph_graph, label, mgp::Value(unique_constraint_list).ptr())) {
+        if (mgp::DropUniqueConstraint(memgraph_graph, label, unique_constraint_list.GetPtr())) {
           InsertRecordForUniqueConstraint(record_factory, label, unique_constraint_list, Schema::kStatusDropped);
         }
       });

@@ -507,7 +507,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
       auto value = ExternalPropertyValue::map_t{};
-      value.reserve(*size);
+      do_reserve(value, *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;

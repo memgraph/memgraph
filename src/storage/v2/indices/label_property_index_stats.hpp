@@ -19,6 +19,8 @@ namespace memgraph::storage {
 struct LabelPropertyIndexStats {
   uint64_t count, distinct_values_count;
   double statistic, avg_group_size, avg_degree;
+
+  auto operator<=>(const LabelPropertyIndexStats &) const = default;
 };
 
 static inline std::string ToJson(const LabelPropertyIndexStats &in) {
