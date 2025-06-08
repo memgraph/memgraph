@@ -60,8 +60,23 @@ SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
+
+    benchmark_parser.add_argument(
+        "--vendor-name",
+        type=str,
+        default=GraphVendors.MEMGRAPH,
+        choices=GraphVendors.get_all_vendors(),
+        help="Input vendor binary name (memgraph, neo4j, falkordb)",
+    )
+
+    benchmark_parser.add_argument(
+        "--installation-type",
+        type=str,
+        default=BenchmarkInstallationType.NATIVE,
+        choices=BenchmarkInstallationType.get_all_installation_types(),
+        help="Installation type (native, docker, external)",
+    )
 
     benchmark_parser.add_argument(
         "benchmarks",
@@ -210,59 +225,29 @@ def parse_args():
         help="Comma-separated list of databases",
     )
 
-    subparsers = parser.add_subparsers(help="Subparsers", dest="run_option")
-
-    parser_vendor_native = subparsers.add_parser(
-        "vendor-native",
-        help="Running database in binary native form",
-        parents=[benchmark_parser],
-    )
-    parser_vendor_native.add_argument(
-        "--vendor-name",
-        default="memgraph",
-        choices=["memgraph", "neo4j"],
-        help="Input vendor binary name (memgraph, neo4j)",
-    )
-    parser_vendor_native.add_argument(
+    benchmark_parser.add_argument(
         "--vendor-binary",
+        type=str,
         help="Vendor binary used for benchmarking, by default it is memgraph",
-        default=helpers.get_binary_path("memgraph"),
+        default=helpers.get_binary_path(GraphVendors.MEMGRAPH),
     )
 
-    parser_vendor_native.add_argument(
+    benchmark_parser.add_argument(
         "--client-binary",
+        type=str,
         default=helpers.get_binary_path("tests/mgbench/client"),
         help="Client binary used for benchmarking",
     )
 
-    parser_vendor_docker = subparsers.add_parser(
-        "vendor-docker", help="Running database in docker", parents=[benchmark_parser]
-    )
-    parser_vendor_docker.add_argument(
-        "--vendor-name",
-        default="memgraph",
-        choices=["memgraph-docker", "neo4j-docker"],
-        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker)",
+    benchmark_parser.add_argument(
+        "--client-language",
+        type=str,
+        default=BenchmarkClientLanguage.CPP,
+        choices=BenchmarkClientLanguage.get_all_client_languages(),
+        help="Client language implementation (cpp or python)",
     )
 
-    parser_vendor_external = subparsers.add_parser(
-        "external-vendor", help="Database/cluster is run separately from the test", parents=[benchmark_parser]
-    )
-
-    parser_vendor_external.add_argument(
-        "--client-binary",
-        default=helpers.get_binary_path("tests/mgbench/client"),
-        help="Client binary used for benchmarking",
-    )
-
-    parser_vendor_external.add_argument(
-        "--vendor-name",
-        default="memgraph",
-        choices=["memgraph", "neo4j"],
-        help="Input vendor binary name (memgraph, neo4j)",
-    )
-
-    return parser.parse_args()
+    return benchmark_parser.parse_args()
 
 
 def sanitize_args(args):
@@ -500,16 +485,17 @@ def get_query_cache_count(
         client.execute(queries=queries, num_workers=1)
         count = 1
         while True:
-            ret = client.execute(queries=get_queries(func, count), num_workers=1)
+            augmented_queries = get_queries(func, count)
+            ret = client.execute(queries=augmented_queries, num_workers=1)
             duration = ret[0][DURATION]
-            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
+            expected_throughput_for_count = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
             log.log(
                 "Executed_queries={}, total_duration={}, query_duration={}, estimated_count={}".format(
-                    count, duration, duration / count, should_execute
+                    count, duration, duration / count, expected_throughput_for_count
                 )
             )
-            if should_execute / (count * 10) < 10:
-                count = should_execute
+            if expected_throughput_for_count / (count * 10) < 10:
+                count = expected_throughput_for_count
                 break
             else:
                 count = count * 10
@@ -673,7 +659,7 @@ def run_isolated_workload_without_authorization(
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    if benchmark_context.vendor_name == "memgraph":
+    if benchmark_context.vendor_name != GraphVendors.NEO4J:
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
         vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
@@ -688,7 +674,7 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
         log.info("Using workload information for importing dataset and creating indices")
         log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-        imported = workload.custom_import()
+        imported = workload.custom_import(client)
         if not imported:
             client.execute(file_path=workload.get_index(), num_workers=1)
             log.info("Finished setting up indexes.")
@@ -711,8 +697,9 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
 
 def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     rss_db = workload.NAME + workload.get_variant() + "_" + EMPTY_DB
-    vendor_runner.start_db(rss_db)
+    vendor_runner.start_db_init(rss_db)
     usage = vendor_runner.stop_db(rss_db)
+    vendor_runner.clean_db()
     if usage is None:
         usage = {"memory": 0, "cpu": 0}
     key = [workload.NAME, workload.get_variant(), EMPTY_DB]
@@ -802,14 +789,24 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
                 )
 
 
+def get_runner_client(runner, benchmark_context):
+    if benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+        if (
+            benchmark_context.vendor_name is None
+            or benchmark_context.installation_type != BenchmarkInstallationType.DOCKER
+        ):
+            return runners.BoltClient(benchmark_context=benchmark_context)
+        return runners.BoltClientDocker(benchmark_context=benchmark_context)
+    elif benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+        return runners.PythonClient(benchmark_context=benchmark_context, database_port=runner.get_database_port())
+    else:
+        raise Exception("Unknown runner client type!")
+
+
 def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
     log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
     disk_vendor_runner = client_runner_factory(benchmark_context)
-    disk_client = (
-        runners.BoltClient(benchmark_context=benchmark_context)
-        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
-        else runners.BoltClientDocker(benchmark_context=benchmark_context)
-    )
+    disk_client = get_runner_client(disk_vendor_runner, benchmark_context)
 
     disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
     disk_client.execute(queries=SETUP_DISK_STORAGE)
@@ -823,11 +820,7 @@ def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queri
 def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_queries, in_memory_analytical_results):
     log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
     in_memory_analytical_vendor_runner = client_runner_factory(benchmark_context)
-    in_memory_analytical_client = (
-        runners.BoltClient(benchmark_context=benchmark_context)
-        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
-        else runners.BoltClientDocker(benchmark_context=benchmark_context)
-    )
+    in_memory_analytical_client = get_runner_client(in_memory_analytical_vendor_runner, benchmark_context)
 
     in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
     in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
@@ -847,11 +840,7 @@ def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_querie
 def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, in_memory_txn_results):
     log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
     in_memory_txn_vendor_runner = client_runner_factory(benchmark_context)
-    in_memory_txn_client = (
-        runners.BoltClient(benchmark_context=benchmark_context)
-        if benchmark_context.vendor_name is None or DOCKER not in benchmark_context.vendor_name
-        else runners.BoltClientDocker(benchmark_context=benchmark_context)
-    )
+    in_memory_txn_client = get_runner_client(in_memory_txn_vendor_runner, benchmark_context)
 
     run_target_workload(
         benchmark_context,
@@ -956,12 +945,18 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
+        vendor_binary=args.vendor_binary if args.installation_type == BenchmarkInstallationType.NATIVE else None,
+        vendor_name=args.vendor_name,
+        installation_type=args.installation_type,
+        # Client binary present in native and external installation types
+        client_binary=(
+            args.client_binary
+            if args.installation_type in [BenchmarkInstallationType.NATIVE, BenchmarkInstallationType.EXTERNAL]
+            else None
+        ),
+        client_language=args.client_language,
         databases=args.databases,
         client_bolt_address=args.client_bolt_address,
-        external_vendor=args.run_option == "external-vendor",
-        vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else helpers.get_binary_path("memgraph"),
-        vendor_name=args.vendor_name.replace("-", ""),
-        client_binary=getattr(args, "client_binary", None),
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,

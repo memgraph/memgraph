@@ -16,7 +16,9 @@ from pathlib import Path
 
 import helpers
 from benchmark_context import BenchmarkContext
-from runners import BaseRunner
+from constants import GraphVendors
+from runners import BaseClient, BaseRunner
+from workloads.importers.base import BaseImporter
 
 # Removed speaks/email from person header
 HEADERS_INTERACTIVE = {
@@ -54,11 +56,17 @@ HEADERS_INTERACTIVE = {
 }
 
 
-class ImporterLDBCInteractive:
+class ImporterLDBCInteractive(BaseImporter):
     def __init__(
-        self, benchmark_context: BenchmarkContext, dataset_name: str, variant: str, index_file: str, csv_dict: dict
+        self,
+        benchmark_context: BenchmarkContext,
+        client: BaseClient,
+        dataset_name: str,
+        variant: str,
+        index_file: str,
+        csv_dict: dict,
     ) -> None:
-        self._benchmark_context = benchmark_context
+        super().__init__(benchmark_context, client)
         self._dataset_name = dataset_name
         self._variant = variant
         self._index_file = index_file
@@ -68,9 +76,8 @@ class ImporterLDBCInteractive:
         vendor_runner = BaseRunner.create(
             benchmark_context=self._benchmark_context,
         )
-        client = vendor_runner.fetch_client()
 
-        if self._benchmark_context.vendor_name == "neo4j":
+        if self._benchmark_context.vendor_name == GraphVendors.NEO4J:
             print("Runnning Neo4j import")
             dump_dir = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "dump"
             dump_dir.mkdir(parents=True, exist_ok=True)
@@ -166,9 +173,7 @@ class ImporterLDBCInteractive:
 
             vendor_runner.start_db_init("Index preparation")
             print("Executing database index setup")
-            client.execute(file_path=self._index_file, num_workers=1)
-            vendor_runner.stop_db_init("Stop index preparation")
-
+            self._client.execute(file_path=self._index_file, num_workers=1)
             return True
         else:
             return False

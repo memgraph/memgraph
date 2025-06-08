@@ -14,20 +14,22 @@ from pathlib import Path
 import log
 from benchmark_context import BenchmarkContext
 from constants import *
-from runners import BaseRunner
+from runners import BaseClient, BaseRunner
+from workloads.importers.base import BaseImporter
 
 
-class DiskImporterPokec:
+class DiskImporterPokec(BaseImporter):
     def __init__(
         self,
         benchmark_context: BenchmarkContext,
+        client: BaseClient,
         dataset_name: str,
         variant: str,
         index_file: str,
         dataset_nodes_file: str,
         dataset_edges_file: str,
     ) -> None:
-        self._benchmark_context = benchmark_context
+        super().__init__(benchmark_context, client)
         self._dataset_name = dataset_name
         self._variant = variant
         self._index_file = index_file
@@ -35,7 +37,7 @@ class DiskImporterPokec:
         self._dataset_edges_file = dataset_edges_file
 
     def execute_import(self):
-        if self._benchmark_context.vendor_name == "neo4j":
+        if self._benchmark_context.vendor_name == GraphVendors.NEO4J:
             neo4j_dump = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "neo4j.dump"
             vendor_runner = BaseRunner.create(
                 benchmark_context=self._benchmark_context,
@@ -45,18 +47,16 @@ class DiskImporterPokec:
                 log.log("Loading database from existing dump...")
                 vendor_runner.load_db_from_dump(path=neo4j_dump.parent)
             else:
-                client = vendor_runner.fetch_client()
                 vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
                 log.log("Executing database index setup")
-                client.execute(file_path=self._index_file, num_workers=1)
+                self._client.execute(file_path=self._index_file, num_workers=1)
                 log.log("Started importing dataset")
-                client.execute(
+                self._client.execute(
                     file_path=self._dataset_nodes_file, num_workers=self._benchmark_context.num_workers_for_import
                 )
-                client.execute(
+                self._client.execute(
                     file_path=self._dataset_edges_file, num_workers=self._benchmark_context.num_workers_for_import
                 )
-                vendor_runner.stop_db_init(VENDOR_RUNNER_IMPORT)
             return True
         else:
             return False
