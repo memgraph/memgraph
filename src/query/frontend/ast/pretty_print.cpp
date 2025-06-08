@@ -119,7 +119,7 @@ template <typename K, typename V>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map);
 
 template <typename K, typename V, typename C, typename A>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map);
 
 void PrintObject(std::ostream *out, EnumValueAccess op);
 
@@ -296,7 +296,7 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> 
 }
 
 template <typename K, typename V, typename C, typename A>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
     PrintObject(&stream, dba, item.first);

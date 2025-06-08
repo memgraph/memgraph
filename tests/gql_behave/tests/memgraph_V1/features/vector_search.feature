@@ -11,6 +11,20 @@ Feature: Vector search related features
             | index type | label | property | count |
             | 'vector'   | 'L1'  | 'prop1'  | 0     |
 
+    Scenario: Create vector index with all config options
+        Given an empty graph
+        And having executed
+            """-
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10, "metric": "cos", "resize_coefficient": 2, "scalar_kind": "i8"}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'cos' | 0     | 'i8'        |
+
     Scenario: Add node to vector index
         Given an empty graph
         And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
@@ -70,8 +84,8 @@ Feature: Vector search related features
             CALL vector_search.show_index_info() YIELD * RETURN *;
             """
         Then the result should be:
-            | capacity | dimension | index_name   | label | property | metric | size |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    |
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       |
 
     Scenario: Get vector index info with cypher
         Given an empty graph
@@ -81,8 +95,8 @@ Feature: Vector search related features
             SHOW VECTOR INDEX INFO;
             """
         Then the result should be:
-            | capacity | dimension | index_name   | label | property | metric | size |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    |
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       |
 
     Scenario: Search vector index
         Given an empty graph

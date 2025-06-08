@@ -171,10 +171,13 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id,
-                        std::span<memgraph::storage::PropertyId const> property_id) {
+                        std::span<memgraph::storage::PropertyPath const> property_paths) {
     auto label = dba_->LabelToName(label_id);
     auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
-    auto property_names = memgraph::utils::Join(property_id | ranges::views::transform(to_name), ", ");
+    auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
+      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+    };
+    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
     auto key = std::make_pair(label, property_names);
     if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
       label_properties_vertex_count_[key] =
@@ -218,11 +221,15 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label_id, std::span<memgraph::storage::PropertyId const> properties,
+  int64_t VerticesCount(memgraph::storage::LabelId label_id,
+                        std::span<memgraph::storage::PropertyPath const> property_paths,
                         std::span<memgraph::storage::PropertyValueRange const> prop_val_ranges) {
     auto label = dba_->LabelToName(label_id);
     auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
-    auto property_names = memgraph::utils::Join(properties | ranges::views::transform(to_name), ", ");
+    auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
+      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+    };
+    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
 
     auto to_range_str = [&](memgraph::storage::PropertyValueRange rng) -> std::string {
       switch (rng.type_) {
@@ -330,9 +337,9 @@ class InteractiveDbAccessor {
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
-                                          std::span<memgraph::storage::PropertyId const> properties) const
+                                          std::span<memgraph::storage::PropertyPath const> property_paths) const
       -> std::vector<memgraph::storage::LabelPropertiesIndicesInfo> {
-    return dba_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+    return dba_->RelevantLabelPropertiesIndicesInfo(labels, property_paths);
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
@@ -370,11 +377,11 @@ class InteractiveDbAccessor {
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
-    return dba_->GetIndexStats(label, std::array{property});
+    return dba_->GetIndexStats(label, std::array{memgraph::storage::PropertyPath{property}});
   }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
-      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyId const> properties) const {
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return dba_->GetIndexStats(label, properties);
   }
 

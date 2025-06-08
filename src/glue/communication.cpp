@@ -325,7 +325,7 @@ storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Valu
       if (mg_type) return *mg_type;
 
       auto map = storage::ExternalPropertyValue::map_t{};
-      map.reserve(valueMap.size());
+      do_reserve(map, valueMap.size());
       for (const auto &[k, v] : valueMap) {
         map.try_emplace(k, ToExternalPropertyValue(v, storage));
       }

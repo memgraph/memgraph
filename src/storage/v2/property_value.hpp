@@ -29,6 +29,21 @@
 
 namespace memgraph::storage {
 
+template <typename T>
+concept Reservable = requires(T &t, std::size_t n) {
+  { t.reserve(n) } -> std::same_as<void>;
+};
+
+// While we are temporarily using std::map, we need to disable the reserve
+// This code is here to do nothing right now, but to ensure we put back in
+// reserves when we go back to flat_map
+template <typename T>
+void do_reserve(T &v, std::size_t n) {
+  if constexpr (Reservable<T>) {
+    v.reserve(n);
+  }
+}
+
 /// An exception raised by the PropertyValue. Typically when trying to perform
 /// operations (such as addition) on PropertyValues of incompatible Types.
 class PropertyValueException : public utils::BasicException {
@@ -73,9 +88,9 @@ class PropertyValueImpl {
   using Type = PropertyValueType;
 
   using string_t = std::basic_string<char, std::char_traits<char>, typename alloc_trait::template rebind_alloc<char>>;
-  using map_t = boost::container::flat_map<
-      KeyType, PropertyValueImpl, std::less<>,
-      typename alloc_trait::template rebind_alloc<std::pair<KeyType const, PropertyValueImpl>>>;
+  // TODO: go back to boost::container::flat_map when it works for "IndexTest, DeltaDoesNotLeak"
+  using map_t = std::map<KeyType, PropertyValueImpl, std::less<>,
+                         typename alloc_trait::template rebind_alloc<std::pair<KeyType const, PropertyValueImpl>>>;
 
   using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
 
@@ -937,8 +952,37 @@ struct ExtendedPropertyType {
   }
 };
 
-static_assert(sizeof(PropertyValue) == 40);
-static_assert(sizeof(pmr::PropertyValue) == 56);
+// TODO: go back down in size ASAP
+//       v3.3.0 we used std::map to fix bug
+//       ASAP go back to boost::container::flat_map
+static_assert(sizeof(PropertyValue) == 56 /*40*/);
+static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
+
+/**
+ * Helper to read a nested value from within a PropertyValue map. If the path
+ * is valid, returns a positional pointer to the `PropertyValue` within the
+ * top-most value. Otherwise, return `nullptr`.
+ */
+inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<PropertyId const> path_to_property)
+    -> PropertyValue const * {
+  auto const *current = &value;
+  // Follow the path down into the nested maps
+  for (auto &&property_id : path_to_property) {
+    if (!current->IsMap()) [[unlikely]] {
+      return nullptr;
+    }
+
+    auto const &as_map = current->ValueMap();
+    auto const it = as_map.find(property_id);
+    if (it != as_map.cend()) {
+      current = &it->second;
+    } else {
+      return nullptr;
+    }
+  }
+
+  return current;
+}
 
 }  // namespace memgraph::storage
 namespace std {

@@ -154,6 +154,8 @@ nlohmann::json ToJson(storage::LabelId label, const DbAccessor &dba);
 
 nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
 
+nlohmann::json ToJson(storage::PropertyPath path, const DbAccessor &dba);
+
 nlohmann::json ToJson(NamedExpression *nexpr, const DbAccessor &dba);
 
 nlohmann::json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,

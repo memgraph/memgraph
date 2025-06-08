@@ -314,7 +314,7 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
   auto get_params_pv =
       [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::ExternalPropertyValue::map_t {
     auto params_pv = memgraph::storage::ExternalPropertyValue::map_t{};
-    params_pv.reserve(params.size());
+    do_reserve(params_pv, params.size());
     for (const auto &[key, bolt_param] : params) {
       params_pv.try_emplace(key, ToExternalPropertyValue(bolt_param, storage));
     }

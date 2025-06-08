@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <string_view>
 #include <thread>
+#include <usearch/index_plugins.hpp>
 
 #include "query/exceptions.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -30,6 +31,7 @@ static constexpr std::string_view test_label = "test_label";
 static constexpr std::string_view test_property = "test_property";
 static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
 static constexpr std::size_t resize_coefficient = 2;
+static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
 
 template <typename StorageType>
 class VectorSearchTest : public testing::Test {
@@ -47,8 +49,8 @@ class VectorSearchTest : public testing::Test {
     const auto property = unique_acc->NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec =
-        VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+    const auto spec = VectorIndexSpec{test_index.data(),  label,    property,   metric, dimension,
+                                      resize_coefficient, capacity, scalar_kind};
 
     EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
