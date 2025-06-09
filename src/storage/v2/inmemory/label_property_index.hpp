@@ -80,6 +80,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
+
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
@@ -212,8 +214,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties);
 
   utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
-
-  //  ReverseIndexContainer indices_by_property_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

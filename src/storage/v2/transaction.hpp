@@ -43,6 +43,19 @@
 
 namespace memgraph::storage {
 
+struct CommitCallbacks {
+  using func_t = std::function<void(uint64_t)>;
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+  void RunAll(uint64_t commit_timestamp) {
+    for (auto &callback : callbacks_) {
+      callback(commit_timestamp);
+    }
+    callbacks_.clear();
+  }
+
+  std::vector<std::function<void(uint64_t)>> callbacks_;
+};
+
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
@@ -164,6 +177,7 @@ struct Transaction {
   /// Concurrent safe indices that existed at the beginning of the transaction
   /// Used to insert new entries, and during planning to speed up scans
   ActiveIndices active_indices_;
+  CommitCallbacks commit_callbacks_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

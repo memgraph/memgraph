@@ -224,8 +224,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
                                                                       bool unique_access_needed = true) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyPath> properties) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                      PropertiesPaths properties) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
