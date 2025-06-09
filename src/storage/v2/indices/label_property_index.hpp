@@ -127,6 +127,13 @@ struct PropertiesPermutationHelper {
    */
   auto Extract(PropertyStore const &properties) const -> std::vector<PropertyValue>;
 
+  /**
+   * Inplace update the `extracted_values` with the current value if relevant
+   * - if outer_prop_id is relevant
+   * - updates all positions in `values` with the correctly extracted nested values from `extracted_values`
+   */
+  void Update(PropertyId outer_prop_id, PropertyValue const &value, std::vector<PropertyValue> &extracted_values) const;
+
   /** Compares the property with id `property_id` and value `value` against the
    * same property values in the `values` array. For every id in the index,
    * (which may occur multiple times for composite nested indices, such as `a.b`
@@ -135,7 +142,7 @@ struct PropertiesPermutationHelper {
    * property matches.
    */
   auto MatchesValue(PropertyId outer_prop_id, PropertyValue const &value,
-                    IndexOrderedPropertyValues const &values) const -> std::vector<std::pair<std::ptrdiff_t, bool>>;
+                    IndexOrderedPropertyValues const &cmp_values) const -> std::vector<std::pair<std::ptrdiff_t, bool>>;
 
   /** Efficiently compares multiple values in the property store with the given
    * values. This returns a vector of boolean flags indicating per-element
@@ -157,6 +164,7 @@ struct PropertiesPermutationHelper {
   std::vector<PropertyPath> sorted_properties_;
   std::vector<std::size_t> position_lookup_;
   permutation_cycles cycles_;
+  std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
 };
 
 class LabelPropertyIndex {
