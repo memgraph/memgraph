@@ -59,10 +59,25 @@ PropertiesPermutationHelper::PropertiesPermutationHelper(std::span<PropertyPath 
           [](auto const &value) -> decltype(auto) { return std::get<1>(value); });
   position_lookup_ = std::move(inverse_permutation);
   cycles_ = build_permutation_cycles(position_lookup_);
+  for (auto const &[pos, path] : ranges::views::enumerate(sorted_properties_)) {
+    auto const outer_prop_id = path[0];
+    grouped_by_outer_prop_id_[outer_prop_id].emplace_back(pos);
+  }
 }
 
 auto PropertiesPermutationHelper::Extract(PropertyStore const &properties) const -> std::vector<PropertyValue> {
   return properties.ExtractPropertyValuesMissingAsNull(sorted_properties_);
+}
+
+void PropertiesPermutationHelper::Update(PropertyId outer_prop_id, PropertyValue const &value,
+                                         std::vector<PropertyValue> &extracted_values) const {
+  auto it = grouped_by_outer_prop_id_.find(outer_prop_id);
+  if (it == grouped_by_outer_prop_id_.cend()) return;  // outer_prop_id is irrelevant to this index
+  auto const &sorted_positions = it->second;
+  for (auto const &pos : sorted_positions) {
+    auto const *nested_value = ReadNestedPropertyValue(value, sorted_properties_[pos] | rv::drop(1));
+    extracted_values[pos] = *nested_value;
+  }
 }
 
 auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> values) const
@@ -79,7 +94,7 @@ auto PropertiesPermutationHelper::ApplyPermutation(std::vector<PropertyValue> va
 }
 
 auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, PropertyValue const &value,
-                                               IndexOrderedPropertyValues const &values) const
+                                               IndexOrderedPropertyValues const &cmp_values) const
     -> std::vector<std::pair<std::ptrdiff_t, bool>> {
   auto enum_properties = rv::enumerate(sorted_properties_);
   auto relevant_paths =
@@ -87,7 +102,7 @@ auto PropertiesPermutationHelper::MatchesValue(PropertyId outer_prop_id, Propert
 
   auto is_match = [&](auto &&el) -> std::pair<std::ptrdiff_t, bool> {
     auto &&[index, path] = el;
-    auto const &cmp_value = values.values_[position_lookup_[index]];
+    auto const &cmp_value = cmp_values.values_[position_lookup_[index]];
     // Outer property was already read to get `value`, strip that off of the path
     DMG_ASSERT(!path.empty(), "PropertyPath should be at least 1");
     auto const *nested_value = ReadNestedPropertyValue(value, path | rv::drop(1));

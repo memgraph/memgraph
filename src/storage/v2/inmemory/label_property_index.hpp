@@ -25,10 +25,6 @@
 
 namespace memgraph::storage {
 
-enum class Status : uint8_t {
-  POPULATING = 0,
-};
-
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   struct Entry {
@@ -78,7 +74,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     Transaction const *tx = nullptr);
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
 
