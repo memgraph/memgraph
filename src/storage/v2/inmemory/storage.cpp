@@ -828,7 +828,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       /// If we are here, it means we are the main executing the commit
       if (repl_prepare_phase_status) {
         FinalizeCommitPhase(durability_commit_timestamp);
-        spdlog::info("Finalize commit on main. Sending commit rpc to replicas");
+        spdlog::info("Finalized commit on main. Sending commit rpc to replicas");
         // TODO: (andi) One optimization says that we can return OK to clients as soon as we received OK votes to
         // prepare message from all replicas
         if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), db_acc, durability_commit_timestamp)) {
