@@ -1388,25 +1388,27 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, PropertiesPaths properties) {
+auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties)
+    -> utils::BasicResult<StorageIndexDefinitionError, void> {
   MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   if (!mem_label_property_index->RegisterIndex(label, properties)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return StorageIndexDefinitionError{IndexDefinitionAlreadyExistsError{}};
   }
-  if (!mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
+  if (!mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
+                                               std::nullopt, &transaction_)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // TODO: need to wrap in plan invalidator
-  transaction_.commit_callbacks_.Add(
-      [=](uint64_t commit_timestamp) { mem_label_property_index->PublishIndex(label, properties, commit_timestamp); });
+  transaction_.commit_callbacks_.Add([=](uint64_t commit_timestamp) {
+    mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
 }
 
