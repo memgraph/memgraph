@@ -411,8 +411,8 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
                                                                               bool unique_access_needed = true) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyPath> properties) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                              PropertiesPaths properties) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
