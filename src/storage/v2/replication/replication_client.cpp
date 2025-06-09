@@ -359,8 +359,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   try {
     auto stream{client_.rpc_client_.Stream<replication::FinalizeCommitRpc>(decision, main_uuid_, storage_uuid,
                                                                            durability_commit_timestamp)};
-    stream.SendAndWait();
-    return true;
+    return stream.SendAndWait().success;
   } catch (const rpc::RpcFailedException &) {
     // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
     return false;
@@ -411,7 +410,6 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
       // NOLINTNEXTLINE
       return replica_state_.WithLock([this, response, db_acc = std::move(db_acc), &replica_stream_obj,
                                       durability_commit_timestamp](auto &state) mutable {
-        replica_stream_obj.reset();
         // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
         // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
         // MAYBE_BEHIND state if we missed next txn.

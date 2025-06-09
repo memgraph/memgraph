@@ -360,8 +360,9 @@ class InMemoryStorage final : public Storage {
 
     /// Represents the 2nd phase of the 2PC protocol
     /// Returns void because it must not fail
+    /// Needs to be called while holding the engine lock
     /// TODO: (andi) Think if all methods inside can be noexcept
-    void FinalizeCommitPhase(std::unique_lock<utils::SpinLock> engine_guard, uint64_t durability_commit_timestamp);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
     /// @throw std::bad_alloc
     void Abort() override;
