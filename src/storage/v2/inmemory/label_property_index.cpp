@@ -209,46 +209,83 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
 }
 
-bool InMemoryLabelPropertyIndex::CreateIndex(
+bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  spdlog::trace("Vertices size when creating index: {}", vertices.size());
+  auto res = RegisterIndex(label, properties);
+  if (!res) return false;
+  auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, snapshot_info);
+  if (!res2) return false;
+  auto index = GetIndividualIndex(label, properties);
+  if (!index) return false;
+  index->status.commit(0);  // TODO: this should recover with correct timestamp? or is 0 fine?
+  return true;
+}
 
-  //  auto root_properties = properties | rv::transform([](auto &&path) { return path[0]; }) | r::to_vector;
-
+bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths const &properties) {
   return index_.WithLock([&](IndexContainer &index) {
     auto [it1, _] = index.try_emplace(label);
     auto &properties_map = it1->second;
-    auto find_it = properties_map.find(properties);
-    if (find_it != properties_map.end()) {
+    auto it2 = properties_map.find(properties);
+    if (it2 != properties_map.end()) {
       // Index already exists.
       return false;
     }
     auto helper = PropertiesPermutationHelper{properties};
-    auto [it2, _] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
-
-    // Populate
-
-    try {
-      auto &new_index = it2->second;
-      auto &props_permutation_helper = new_index->permutations_helper;
-      auto &index_skip_list = new_index->skiplist;
-      auto accessor_factory = [&] { return index_skip_list.access(); };
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        TryInsertLabelPropertiesIndex(vertex, label, props_permutation_helper, index_accessor);
-      };
-      PopulateIndex(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
-    } catch (const utils::OutOfMemoryException &) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_exception_blocker;
-      properties_map.erase(it2);
-      if (properties_map.empty()) {
-        index.erase(it1);
-      }
-      throw;
-    }
-
+    properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
     return true;
+  });
+}
+
+bool InMemoryLabelPropertyIndex::PopulateIndex(
+    LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto index = GetIndividualIndex(label, properties);
+  if (!index) return false;  // already dropped?
+
+  spdlog::trace("Vertices size when creating index: {}", vertices.size());
+
+  try {
+    auto &[helper, skip_list, status] = *index;
+    auto accessor_factory = [&] { return skip_list.access(); };
+    auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+      TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor);
+    };
+    PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+  } catch (const utils::OutOfMemoryException &) {
+    RemoveIndividualIndex(label, properties);
+    throw;
+  }
+
+  return true;
+}
+
+auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
+    -> std::shared_ptr<IndividualIndex> {
+  return index_.WithReadLock([&](IndexContainer const &index) -> std::shared_ptr<IndividualIndex> {
+    auto it1 = index.find(label);
+    if (it1 == index.cend()) [[unlikely]]
+      return {};
+    auto &properties_map = it1->second;
+    auto it2 = properties_map.find(properties);
+    if (it2 == properties_map.cend()) [[unlikely]]
+      return {};
+    return it2->second;
+  });
+}
+
+void InMemoryLabelPropertyIndex::RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties) {
+  index_.WithLock([&](IndexContainer &index) {
+    auto it = index.find(label);
+    if (it == index.cend()) [[unlikely]]
+      return;
+    auto &properties_map = it->second;
+    properties_map.erase(properties);
+    if (properties_map.empty()) {
+      index.erase(it);
+    }
   });
 }
 
