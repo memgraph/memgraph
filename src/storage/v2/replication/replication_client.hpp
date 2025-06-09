@@ -45,6 +45,11 @@ class ReplicationStorageClient;
 class ReplicaStream {
  public:
   explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream);
+  ReplicaStream(ReplicaStream const &) = delete;
+  ReplicaStream &operator=(ReplicaStream const &) = delete;
+  ReplicaStream(ReplicaStream &&) = default;
+  ReplicaStream &operator=(ReplicaStream &&) = default;
+  ~ReplicaStream();
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -175,7 +180,7 @@ class ReplicationStorageClient {
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &&replica_stream,
+                                                    std::optional<ReplicaStream> &replica_stream,
                                                     uint64_t durability_commit_timestamp) const;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
