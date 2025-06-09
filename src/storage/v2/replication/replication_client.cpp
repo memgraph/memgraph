@@ -338,6 +338,8 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
           return std::nullopt;
         }
 
+        spdlog::info("Acquired RPC stream for {}", client_.name_);
+
         *locked_state = REPLICATING;
         return ReplicaStream(storage, std::move(*maybe_stream_handler));
       } catch (const rpc::RpcFailedException &) {
@@ -367,7 +369,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                              std::optional<ReplicaStream> &&replica_stream,
+                                                              std::optional<ReplicaStream> &replica_stream,
                                                               uint64_t durability_commit_timestamp) const {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -408,24 +410,24 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
     try {
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
-      return replica_state_.WithLock([this, response, db_acc = std::move(db_acc), &replica_stream_obj,
-                                      durability_commit_timestamp](auto &state) mutable {
-        // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-        // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-        // MAYBE_BEHIND state if we missed next txn.
-        if (state != ReplicaState::REPLICATING) {
-          return false;
-        }
+      return replica_state_.WithLock(
+          [this, response, db_acc = std::move(db_acc), durability_commit_timestamp](auto &state) mutable {
+            // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+            // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+            // MAYBE_BEHIND state if we missed next txn.
+            if (state != ReplicaState::REPLICATING) {
+              return false;
+            }
 
-        if (!response.success) {
-          state = ReplicaState::MAYBE_BEHIND;
-          return false;
-        }
+            if (!response.success) {
+              state = ReplicaState::MAYBE_BEHIND;
+              return false;
+            }
 
-        last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
-        state = ReplicaState::READY;
-        return true;
-      });
+            last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
+            state = ReplicaState::READY;
+            return true;
+          });
     } catch (const rpc::RpcFailedException &) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
@@ -640,6 +642,8 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
+
+ReplicaStream::~ReplicaStream() { spdlog::info("Replica stream destroyed for {}", storage_->name()); }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
