@@ -25,7 +25,6 @@
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/resource_lock.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "io/network/fmt.hpp"  // necessary include
@@ -76,7 +75,7 @@ class Client {
    private:
     friend class Client;
 
-    StreamHandler(Client *self, std::unique_lock<utils::ResourceLock> &&guard,
+    StreamHandler(Client *self, std::unique_lock<std::recursive_timed_mutex> &&guard,
                   std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
                   std::optional<int> timeout_ms)
         : self_(self),
@@ -293,7 +292,7 @@ class Client {
     Client *self_;
     std::optional<int> timeout_ms_;
     bool defunct_ = false;
-    std::unique_lock<utils::ResourceLock> guard_;
+    std::unique_lock<std::recursive_timed_mutex> guard_;
     slk::Builder req_builder_;
     std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
   };
@@ -434,7 +433,7 @@ class Client {
   std::optional<communication::Client> client_;
   std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 
-  mutable utils::ResourceLock mutex_;
+  mutable std::recursive_timed_mutex mutex_;
 };
 
 }  // namespace memgraph::rpc
