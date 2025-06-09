@@ -404,11 +404,10 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
     return false;
   }
 
-  auto task = [this, db_acc = std::move(db_acc), replica_stream_obj = std::move(replica_stream),
-               durability_commit_timestamp]() mutable -> bool {
-    MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
+  auto task = [this, db_acc = std::move(db_acc), &replica_stream, durability_commit_timestamp]() mutable -> bool {
+    MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
-      auto response = replica_stream_obj->Finalize();
+      auto response = replica_stream->Finalize();
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
           [this, response, db_acc = std::move(db_acc), durability_commit_timestamp](auto &state) mutable {
@@ -429,8 +428,8 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
             return true;
           });
     } catch (const rpc::RpcFailedException &) {
-      replica_state_.WithLock([&replica_stream_obj](auto &state) {
-        replica_stream_obj.reset();
+      replica_state_.WithLock([&replica_stream](auto &state) {
+        replica_stream.reset();
         state = ReplicaState::MAYBE_BEHIND;
       });
       LogRpcFailure();
