@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/rw_lock.hpp"
@@ -48,7 +49,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         : permutations_helper(std::move(permutations_helper)) {}
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipList<Entry> skiplist{};
-    std::atomic<Status> status = Status::POPULATING;
+    IndexStatus status{};
   };
   struct Compare {
     template <std::ranges::forward_range T, std::ranges::forward_range U>
