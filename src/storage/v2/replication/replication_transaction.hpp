@@ -65,6 +65,7 @@ class TransactionReplication {
     }
   }
 
+  // RPC stream still won't be destroyed
   bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
     bool sync_replicas_succ{true};
     MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
@@ -75,7 +76,7 @@ class TransactionReplication {
                                      replica_stream);
 
       const auto finalized =
-          client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
+          client->FinalizeTransactionReplication(db_acc, replica_stream, durability_commit_timestamp);
 
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         sync_replicas_succ = finalized && sync_replicas_succ;
@@ -88,7 +89,7 @@ class TransactionReplication {
   bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
                              uint64_t const durability_commit_timestamp) noexcept {
     bool sync_replicas_succ{true};
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    for (auto &client : *locked_clients) {
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         sync_replicas_succ &=
             client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp);
