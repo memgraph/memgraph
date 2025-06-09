@@ -101,24 +101,25 @@ def generate_config_file(sections, flags):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("memgraph_binary", help="path to Memgraph binary")
-    parser.add_argument("output_file", help="path where to store the generated Memgraph " "configuration file")
-    parser.add_argument("--config-file", default=CONFIG_FILE, help="path to generator configuration file")
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("memgraph_binary", help="path to Memgraph binary")
+    # parser.add_argument("output_file", help="path where to store the generated Memgraph " "configuration file")
+    # parser.add_argument("--config-file", default=CONFIG_FILE, help="path to generator configuration file")
 
-    args = parser.parse_args()
-    flags = extract_flags(args.memgraph_binary)
+    # args = parser.parse_args()
+    # flags = extract_flags(args.memgraph_binary)
 
-    with open(args.config_file) as f:
-        config = yaml.safe_load(f)
+    # with open(args.config_file) as f:
+    #     config = yaml.safe_load(f)
 
-    flags = apply_config_to_flags(config, flags)
-    sections = extract_sections(flags)
-    data = generate_config_file(sections, flags)
+    # flags = apply_config_to_flags(config, flags)
+    # sections = extract_sections(flags)
+    # data = generate_config_file(sections, flags)
 
-    dirname = os.path.dirname(args.output_file)
-    if dirname and not os.path.exists(dirname):
-        os.makedirs(dirname)
+    # dirname = os.path.dirname(args.output_file)
+    # if dirname and not os.path.exists(dirname):
+    #     os.makedirs(dirname)
 
-    with open(args.output_file, "w") as f:
-        f.write(data)
+    # with open(args.output_file, "w") as f:
+    #     f.write(data)
+    pass

@@ -178,7 +178,7 @@ void SetHooks() {
 
   sz = sizeof(unsigned);
   unsigned n_arenas{0};
-  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
 
   if (err) {
     return;
@@ -193,7 +193,7 @@ void SetHooks() {
 
     size_t hooks_len = sizeof(old_hooks);
 
-    int err = mallctl(func_name.c_str(), &old_hooks, &hooks_len, nullptr, 0);
+    int err = je_mallctl(func_name.c_str(), &old_hooks, &hooks_len, nullptr, 0);
 
     if (err) {
       LOG_FATAL("Error getting hooks for jemalloc arena {}", i);
@@ -202,7 +202,7 @@ void SetHooks() {
     // Due to the way jemalloc works, we need first to set their hooks
     // which will trigger creating arena, then we can set our custom hook wrappers
 
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
 
     MG_ASSERT(old_hooks);
     MG_ASSERT(old_hooks->alloc);
@@ -223,7 +223,7 @@ void SetHooks() {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &new_hooks, sizeof(new_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &new_hooks, sizeof(new_hooks));
 
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
@@ -241,7 +241,7 @@ void UnsetHooks() {
 
   sz = sizeof(unsigned);
   unsigned n_arenas{0};
-  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
 
   if (err) {
     LOG_FATAL("Error setting default hooks for jemalloc arenas");
@@ -261,7 +261,7 @@ void UnsetHooks() {
     MG_ASSERT(old_hooks->split);
     MG_ASSERT(old_hooks->merge);
 
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
 
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
@@ -273,7 +273,7 @@ void UnsetHooks() {
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
-  mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+  je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
 #else
   malloc_trim(0);
 #endif

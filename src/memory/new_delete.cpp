@@ -20,6 +20,9 @@
 
 #include "utils/memory_tracker.hpp"
 
+extern void dallocx(void *ptr, int flags);
+extern void sdallocx(void *ptr, size_t size, int flags);
+
 namespace {
 void *newImpl(const std::size_t size) {
   auto *ptr = malloc(size);

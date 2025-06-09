@@ -24,7 +24,7 @@
 #include "mg_procedure.h"
 #include "utils/on_scope_exit.hpp"
 
-enum mgp_error Alloc_256(mgp_memory *memory, void *ptr) {
+enum mgp_error Alloc_256(mgp_memory *memory, void *&ptr) {
   const size_t mib_size_256 = 1 << 28;
 
   return mgp_alloc(memory, mib_size_256, (void **)(&ptr));
@@ -53,7 +53,7 @@ void Alloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
   }
 }
 
-enum mgp_error Alloc_32(mgp_memory *memory, void *ptr) {
+enum mgp_error Alloc_32(mgp_memory *memory, void *&ptr) {
   const size_t mib_size_32 = 1 << 25;
 
   return mgp_alloc(memory, mib_size_32, (void **)(&ptr));

@@ -50,6 +50,7 @@ struct ThreadTrackingBlocker {
 }  // namespace
 
 bool TrackAllocOnCurrentThread(size_t size) {
+  printf("tracking alloc of %u\n", size);
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
   if (!tracker) return true;
@@ -61,6 +62,7 @@ bool TrackAllocOnCurrentThread(size_t size) {
 }
 
 void TrackFreeOnCurrentThread(size_t size) {
+  printf("tracking free of %u\n", size);
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
   if (!tracker) return;
