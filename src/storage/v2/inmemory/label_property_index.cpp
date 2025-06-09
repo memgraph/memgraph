@@ -217,10 +217,7 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   if (!res) return false;
   auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, snapshot_info);
   if (!res2) return false;
-  auto index = GetIndividualIndex(label, properties);
-  if (!index) return false;
-  index->status.commit(0);  // TODO: this should recover with correct timestamp? or is 0 fine?
-  return true;
+  return PublishIndex(label, properties, 0);  // TODO: this should recover with correct timestamp? or is 0 fine?
 }
 
 bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths const &properties) {
@@ -249,7 +246,7 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
 
   try {
     auto &[helper, skip_list, status] = *index;
-    auto accessor_factory = [&] { return skip_list.access(); };
+    auto const accessor_factory = [&] { return skip_list.access(); };
     auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
       TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor);
     };
@@ -259,6 +256,14 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
     throw;
   }
 
+  return true;
+}
+
+bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,
+                                              uint64_t commit_timestamp) {
+  auto index = GetIndividualIndex(label, properties);
+  if (!index) return false;
+  index->status.commit(commit_timestamp);
   return true;
 }
 
@@ -353,31 +358,8 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
       return false;
     }
 
-    // cleanup the auxiliary indexes
-    // MUST be done before removal of primary index entries
-    //  for (auto prop : properties) {
-    //    auto it3 = indices_by_property_.find(prop[0]);
-    //    if (it3 == indices_by_property_.end()) continue;
-    //
-    //    auto &label_map = it3->second;
-    //    auto [b, e] = label_map.equal_range(label);
-    //    // TODO(composite_index): replace linear search with logn
-    //    while (b != e) {
-    //      auto const &[props_key_ptr, _] = b->second;
-    //      if (props_key_ptr == &it2->first) {
-    //        b = label_map.erase(b);
-    //      } else {
-    //        ++b;
-    //      }
-    //    }
-    //    if (label_map.empty()) {
-    //      indices_by_property_.erase(it3);
-    //    }
-    //  }
-
     auto const make_props_subspan = [&](std::size_t length) {
       return std::span{properties.cbegin(), properties.cbegin() + length + 1};
-      ;
     };
 
     // For each prefix of properties, compute the number of indices which have the

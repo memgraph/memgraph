@@ -812,6 +812,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // Install the new point index, if needed
         mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
                                                                 transaction_.point_index_ctx_);
+        // Call other callbacks that publish/install upon commit
+        transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);
@@ -1387,18 +1389,20 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyPath> properties) {
+    LabelId label, PropertiesPaths properties) {
   MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   if (!mem_label_property_index->RegisterIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   if (!mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: Publish?
+  // TODO: need to wrap in plan invalidator
+  transaction_.commit_callbacks_.Add(
+      [=](uint64_t commit_timestamp) { mem_label_property_index->PublishIndex(label, properties, commit_timestamp); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
