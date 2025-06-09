@@ -24,7 +24,7 @@
 #include "mg_procedure.h"
 #include "utils/on_scope_exit.hpp"
 
-enum mgp_error Alloc(void *ptr) {
+enum mgp_error Alloc(void *&ptr) {
   const size_t mb_size_268 = 1 << 28;
 
   return mgp_global_alloc(mb_size_268, (void **)(&ptr));
