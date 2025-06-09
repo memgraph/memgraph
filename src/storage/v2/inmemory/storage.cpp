@@ -800,11 +800,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       auto const durability_commit_timestamp =
           repl_args.desired_commit_timestamp.has_value() ? *repl_args.desired_commit_timestamp : *commit_timestamp_;
 
-      // No need, durability mode is not periodic snapshot with WALs
+      // Don't write things to WAL and replicate only if needed
       if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
+        FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
         return {};
       }
 
+      // Handle durability and replication
       // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
       // couldn't be retrieved. As long as this object is alive, RPC streams are held
       auto replicating_txn = mem_storage->repl_storage_state_.StartPrepareCommitPhase(
@@ -814,6 +816,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // If we are replica, we will make durable our deltas and return
       bool const repl_prepare_phase_status =
           HandleDurabilityAndReplicate(durability_commit_timestamp, db_acc, replicating_txn);
+
+      // Finalize WAL at the end of the prepare phase
+      mem_storage->FinalizeWalFile();
 
       // If I am replica with write txn return because the 2nd phase will be executed once we receive FinalizeCommitRpc
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
@@ -869,8 +874,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<uti
 
   mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
                                                                  std::memory_order_release);
-
-  mem_storage->FinalizeWalFile();
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
