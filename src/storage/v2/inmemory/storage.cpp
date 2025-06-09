@@ -1392,9 +1392,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
+  if (!mem_label_property_index->RegisterIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  if (!mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  // TODO: Publish?
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
