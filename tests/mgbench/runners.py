@@ -102,7 +102,7 @@ class BaseClient(ABC):
         pass
 
     def get_check_db_query(self) -> str:
-        match self._vendor:
+        match self.vendor:
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 return "RETURN 0;"
             case GraphVendors.POSTGRESQL:
