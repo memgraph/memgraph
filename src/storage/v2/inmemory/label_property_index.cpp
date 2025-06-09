@@ -32,13 +32,19 @@ namespace memgraph::storage {
 namespace {
 
 auto PropertyValueMatch_ActionMethod(std::vector<bool> &match, PropertiesPermutationHelper const &helper,
-                                     IndexOrderedPropertyValues const &values) {
+                                     IndexOrderedPropertyValues const &cmp_values) {
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
-    for (auto &&[pos, matches] : helper.MatchesValue(delta.property.key, *delta.property.value, values)) {
+    for (auto &&[pos, matches] : helper.MatchesValue(delta.property.key, *delta.property.value, cmp_values)) {
       match[pos] = matches;
     }
   });
+}
+
+auto PropertyValuesUpdate_ActionMethod(PropertiesPermutationHelper const &helper, std::vector<PropertyValue> &values) {
+  using enum Delta::Action;
+  return ActionMethod<SET_PROPERTY>(
+      [&](Delta const &delta) { helper.Update(delta.property.key, *delta.property.value, values); });
 }
 
 /** Converts a span of `PropertyPaths` into a comma-separated string.
@@ -209,6 +215,45 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
 }
 
+inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
+                                          auto &&index_accessor, Transaction const &tx) {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  bool has_label = false;
+  std::vector<PropertyValue> properties;
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    deleted = vertex.deleted;
+    delta = vertex.delta;
+    has_label = utils::Contains(vertex.labels, label);
+    properties = props.Extract(vertex.properties);
+  }
+  // Create and drop index will always use snapshot isolation
+  if (delta) {
+    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Exists_ActionMethod(exists),
+        Deleted_ActionMethod(deleted),
+        HasLabel_ActionMethod(has_label, label),
+        PropertyValuesUpdate_ActionMethod(props, properties)
+      });
+      // clang-format on
+    });
+  }
+  if (!exists || deleted || !has_label) {
+    return;
+  }
+
+  // If extracted values are all null, then no index entry required
+  if (r::all_of(properties, [](auto const &each) { return each.IsNull(); })) {
+    return;
+  }
+
+  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
+}
+
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
@@ -235,10 +280,12 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   });
 }
 
+// struct PopulateCancel : std::exception {};
+
 bool InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx) {
   auto index = GetIndividualIndex(label, properties);
   if (!index) return false;  // already dropped?
 
@@ -247,10 +294,23 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
   try {
     auto &[helper, skip_list, status] = *index;
     auto const accessor_factory = [&] { return skip_list.access(); };
-    auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-      TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor);
-    };
-    PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+
+    if (tx) {
+      // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
+      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+        TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor, *tx);
+      };
+      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+    } else {
+      // If we are not in a transaction, we need to read the object as it is. (post recovery)
+      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+        TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor);
+      };
+      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+    }
+    //  } catch (const PopulateCancel &) {
+    //    RemoveIndividualIndex(label, properties);
+    //    return IndexPopulateError::Cancellation;
   } catch (const utils::OutOfMemoryException &) {
     RemoveIndividualIndex(label, properties);
     throw;
