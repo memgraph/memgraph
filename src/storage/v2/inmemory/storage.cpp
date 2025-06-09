@@ -802,7 +802,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // Don't write things to WAL and replicate only if needed
       if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
-        FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
+        FinalizeCommitPhase(durability_commit_timestamp);
         return {};
       }
 
@@ -827,7 +827,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       /// If we are here, it means we are the main executing the commit
       if (repl_prepare_phase_status) {
-        FinalizeCommitPhase(std::move(engine_guard), durability_commit_timestamp);
+        FinalizeCommitPhase(durability_commit_timestamp);
+        spdlog::info("Finalize commit on main. Sending commit rpc to replicas");
         // TODO: (andi) One optimization says that we can return OK to clients as soon as we received OK votes to
         // prepare message from all replicas
         if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), db_acc, durability_commit_timestamp)) {
@@ -854,8 +855,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
-void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<utils::SpinLock> engine_guard,
-                                                            uint64_t const durability_commit_timestamp) {
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   if (config_.enable_schema_info) {
@@ -882,9 +882,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(std::unique_lock<uti
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
-
-  // Committing text index doesn't need to be done under the engine lock
-  engine_guard.unlock();
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     mem_storage->indices_.text_index_.Commit();
