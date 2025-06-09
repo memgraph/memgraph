@@ -68,10 +68,17 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   InMemoryLabelPropertyIndex() = default;
 
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<durability::ParallelizedSchemaCreationInfo> &it,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  // Convience function that does Register + Populate + direct Publish
+  // TODO: direct Publish...should it be for a particular timestamp?
+  bool CreateIndexOnePass(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+                          const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
+  bool RegisterIndex(LabelId label, PropertiesPaths const &properties);
+
+  bool PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+                     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   class Iterable {
    public:
@@ -171,6 +178,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                   memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
                   Storage *storage, Transaction *transaction) -> Iterable;
 
+   private:
     IndexContainer index_container_;
     // This is keyed on the top-level property of a nested property. So for
     // nested property `a.b.c`, only a key for the top-most `a` exists.
@@ -199,6 +207,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
+  auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
+      -> std::shared_ptr<IndividualIndex>;
+  void RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties);
+
   utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
 
   //  ReverseIndexContainer indices_by_property_;
