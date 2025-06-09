@@ -102,7 +102,7 @@ class BaseClient(ABC):
         pass
 
     def get_check_db_query(self) -> str:
-        match self.vendor:
+        match self._vendor:
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
                 return "RETURN 0;"
             case GraphVendors.POSTGRESQL:
@@ -110,13 +110,10 @@ class BaseClient(ABC):
             case _:
                 raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
 
-    @property
-    def vendor(self):
-        return self._vendor
-
 
 class BoltClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
@@ -221,6 +218,7 @@ class BoltClient(BaseClient):
 
 class BoltClientDocker(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
