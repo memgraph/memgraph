@@ -323,8 +323,19 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
                                               uint64_t commit_timestamp) {
   auto index = GetIndividualIndex(label, properties);
   if (!index) return false;
-  index->status.commit(commit_timestamp);
+  index->Publish(commit_timestamp);
   return true;
+}
+
+void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+  status.commit(commit_timestamp);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+}
+
+InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
+  if (status.is_ready()) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  }
 }
 
 auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const

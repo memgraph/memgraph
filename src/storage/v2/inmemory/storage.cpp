@@ -1390,26 +1390,32 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties)
     -> utils::BasicResult<StorageIndexDefinitionError, void> {
-  MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating label-property index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   if (!mem_label_property_index->RegisterIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionAlreadyExistsError{}};
   }
+  DowngradeToReadIfValid();
   if (!mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
                                                std::nullopt, &transaction_)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // TODO: need to wrap in plan invalidator
-  transaction_.commit_callbacks_.Add([=](uint64_t commit_timestamp) {
-    mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-  });
+  transaction_.commit_callbacks_.Add(
+      [=](uint64_t commit_timestamp) { mem_label_property_index->PublishIndex(label, properties, commit_timestamp); });
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   return {};
+}
+
+void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
+  if (storage_guard_.owns_lock() && storage_guard_.type() == utils::SharedResourceLockGuard::Type::READ_ONLY) {
+    storage_guard_.downgrade_to_read();
+  }
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
@@ -1478,7 +1484,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyPath> &&properties) {
-  MG_ASSERT(type() == UNIQUE, "Dropping label-property index requires a unique access to the storage!");
+  // Because of replication we still use UNIQUE ATM
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping label-property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -1488,7 +1496,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+
   return {};
 }
 

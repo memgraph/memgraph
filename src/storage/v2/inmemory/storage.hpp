@@ -499,6 +499,8 @@ class InMemoryStorage final : public Storage {
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
+    void DowngradeToReadIfValid();
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
