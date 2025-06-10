@@ -43,6 +43,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   struct IndividualIndex {
     IndividualIndex(PropertiesPermutationHelper permutations_helper)
         : permutations_helper(std::move(permutations_helper)) {}
+    ~IndividualIndex();
+    void Publish(uint64_t commit_timestamp);
+
     PropertiesPermutationHelper const permutations_helper;
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};

@@ -6170,7 +6170,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
-  void Visit(EdgeIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(EdgeIndexQuery &) override {
+    // TODO: concurrent creation
+    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+  }
   void Visit(PointIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(TextIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(VectorIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
@@ -6212,7 +6215,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
         accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
       } else {
         // label + properties
-        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
+        if (index_query.action_ == IndexQuery::Action::CREATE) {
+          // Need writers to leave so we can make populate a consistent index
+          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
+        } else {
+          accessor_type_ = storage::Storage::Accessor::Type::READ;  // TODO: READ
+        }
       }
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
