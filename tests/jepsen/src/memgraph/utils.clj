@@ -102,7 +102,7 @@
   "Txn timeout has occurred."
   [e]
   (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."
- )
+ ))
 
 (defn server-no-longer-available
   "Accepts exception e as argument."
