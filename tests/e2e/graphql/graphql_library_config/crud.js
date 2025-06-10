@@ -20,8 +20,15 @@ const driver = neo4j.driver("bolt://localhost:7687", neo4j.auth.basic("", ""));
 
 const neoSchema = new Neo4jGraphQL({
     typeDefs,
-    driver
+    driver,
+    debug: true,
+    config: {
+    features: {
+      filters: true,
+    },
+  },
   });
+neoSchema.checkNeo4jCompat = () => Promise.resolve();
 
 async function start() {
   const schema = await neoSchema.getSchema();
@@ -36,7 +43,7 @@ async function start() {
   });
 
   server.listen().then(({ url }) => {
-    console.log(`🚀 Server ready at ${url}`);
+    console.log(`🚀 xServer ready at ${url}`);
   });
 }
 

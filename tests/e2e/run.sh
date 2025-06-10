@@ -38,7 +38,7 @@ elif [ $num_args -ge 1 ]; then
   # workloads.yaml file. E.g. `streams/workloads.yaml` has a list of
   # `workloads:` and each workload has it's `-name`.
   # Python script will parse remaining args
-  python3 runner.py --workloads-root-directory "$SCRIPT_DIR/../../build/tests/e2e" --workload-name "$1" "${@:2}"
+  python3 runner.py --workloads-root-directory "graphql"
 else
   print_help
 fi
