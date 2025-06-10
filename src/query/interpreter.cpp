@@ -313,7 +313,7 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
-inline auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
+constexpr auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
     case CoordinatorQuery::SyncMode::ASYNC: {
@@ -322,12 +322,15 @@ inline auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::Sync
     case CoordinatorQuery::SyncMode::SYNC: {
       return replication_coordination_glue::ReplicationMode::SYNC;
     }
+    case CoordinatorQuery::SyncMode::STRICT_SYNC: {
+      return replication_coordination_glue::ReplicationMode::STRICT_SYNC;
+    }
   }
   // TODO: C++23 std::unreachable()
   return replication_coordination_glue::ReplicationMode::ASYNC;
 }
 
-inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode)
+constexpr auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
     case ReplicationQuery::SyncMode::ASYNC: {
@@ -335,6 +338,9 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
     }
     case ReplicationQuery::SyncMode::SYNC: {
       return replication_coordination_glue::ReplicationMode::SYNC;
+    }
+    case ReplicationQuery::SyncMode::STRICT_SYNC: {
+      return replication_coordination_glue::ReplicationMode::STRICT_SYNC;
     }
   }
   // TODO: C++23 std::unreachable()
@@ -1394,18 +1400,20 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(),
                      full_info] {
-        auto const sync_mode_to_tv = [](memgraph::replication_coordination_glue::ReplicationMode sync_mode) {
+        auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
           using namespace std::string_view_literals;
           switch (sync_mode) {
-            using enum memgraph::replication_coordination_glue::ReplicationMode;
+            using enum replication_coordination_glue::ReplicationMode;
             case SYNC:
               return TypedValue{"sync"sv};
             case ASYNC:
               return TypedValue{"async"sv};
+            case STRICT_SYNC:
+              return TypedValue{"strict_sync"sv};
           }
         };
 
-        auto const replica_sys_state_to_tv = [](memgraph::replication::ReplicationClient::State state) {
+        auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
           using namespace std::string_view_literals;
           switch (state) {
             using enum memgraph::replication::ReplicationClient::State;
