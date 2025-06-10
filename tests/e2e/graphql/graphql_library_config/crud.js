@@ -43,7 +43,7 @@ async function start() {
   });
 
   server.listen().then(({ url }) => {
-    console.log(`🚀 xServer ready at ${url}`);
+    console.log(`🚀 Server ready at ${url}`);
   });
 }
 

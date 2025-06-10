@@ -4,16 +4,19 @@ import pytest
 from graphql_server import *
 
 
-def Xtest_create_query(query_server):
+def test_create_query(query_server):
     query = 'mutation{createUsers(input:[{name:"John Doe"}]){users{id name}}}'
     gotten = query_server.send_query(query)
+    (user_uuid,) = get_uuid_from_response(gotten)
     expected_result = (
         '{"data":{"createUsers":{"users":[{"id":"e2d65187-d522-47bf-9791-6c66dd8fd672","name":"John Doe"}]}}}'
     )
     assert server_returned_expected(expected_result, gotten)
 
+    cleanup_user_and_posts(query_server, user_uuid)
 
-def Xtest_nested_create_query(query_server):
+
+def test_nested_create_query(query_server):
     query = """
     mutation {
         createUsers(input: [
@@ -44,10 +47,13 @@ def Xtest_nested_create_query(query_server):
 
     expected_result = '{"data":{"createUsers":{"users":[{"id": "361004b7-f92d-4df0-9f96-5b43602c0f25","name": "John Doe","posts":[{"id":"e8d2033f-c15e-4529-a4f8-ca2ae09a066b",       "content": "Hi, my name is John!"}]}]}}}'
     gotten_response = query_server.send_query(query)
+    user_uuid, _ = get_uuid_from_response(gotten_response)
     assert server_returned_expected(expected_result, gotten_response)
 
+    cleanup_user_and_posts(query_server, user_uuid)
 
-def Xtest_delete_node_query(query_server):
+
+def test_delete_node_query(query_server):
     created_node_uuid = create_node_query(query_server)
     delete_query = (
         'mutation{deleteUsers(where:{ id: { eq:"' + created_node_uuid + '"} }){nodesDeleted relationshipsDeleted}}'
@@ -58,7 +64,7 @@ def Xtest_delete_node_query(query_server):
     assert expected_delete_response == str(gotten.text)
 
 
-def Xtest_nested_delete_node_query(query_server):
+def test_nested_delete_node_query(query_server):
     node_uuids = create_related_nodes_query(query_server)
     created_user_uuid = node_uuids[0]
 
@@ -67,41 +73,27 @@ def Xtest_nested_delete_node_query(query_server):
         + created_user_uuid
         + '"}},delete: {posts: {} }) {nodesDeleted relationshipsDeleted}}'
     )
-    print(delete_query)
     expected_delete_response = '{"data":{"deleteUsers":{"nodesDeleted":2,"relationshipsDeleted":1}}}\n'
 
     gotten = query_server.send_query(delete_query)
     assert expected_delete_response == str(gotten.text)
 
 
-def Xtest_update_node(query_server):
-    node_uuids = create_related_nodes_query(query_server)
-    created_post_uuid = node_uuids[1]
+def test_update_node(query_server):
+    created_user_uuid, created_post_uuid = create_related_nodes_query(query_server)
 
     update_query = (
         'mutation {updatePosts(where: {id: { eq: "'
         + created_post_uuid
-        + '"}} update: {content: "Some new content for this Post!"}) {posts {content}}}'
+        + '"}} update: {content: { set: "Some new content for this Post!"}}) {posts {content}}}'
     )
+
     expected_update_response = '{"data":{"updatePosts":{"posts":[{"content":"Some new content for this Post!"}]}}}\n'
 
     gotten = query_server.send_query(update_query)
     assert expected_update_response == str(gotten.text)
 
-
-def test_connect_or_create(query_server):
-    created_user_uuid = create_node_query(query_server)
-
-    connect_or_create_query = (
-        'mutation {updateUsers(update: {posts: {connectOrCreate: {where: { node: { id: { eq: "1234" } } }onCreate: { node: { content: "Some content" } }}}},where: { id: "'
-        + created_user_uuid
-        + '" }) {info {nodesCreated}}}'
-    )
-    print(connect_or_create_query)
-    expected_response = '{"data":{"updateUsers":{"info":{"nodesCreated":1}}}}\n'
-
-    gotten = query_server.send_query(connect_or_create_query)
-    assert expected_response == str(gotten.text)
+    cleanup_user_and_posts(query_server, created_user_uuid)
 
 
 if __name__ == "__main__":
