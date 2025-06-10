@@ -278,6 +278,9 @@
                                  (catch Exception e
                                    (dbclient/disconnect bolt-routing-conn)
                                    (cond
+                                     (utils/txn-timeout? e)
+                                     (assoc op :type :info :value {:str "Txn timeout occurred."})
+
                                      (utils/server-no-longer-available e)
                                      (assoc op :type :info :value {:str "Server no longer available."})
 
