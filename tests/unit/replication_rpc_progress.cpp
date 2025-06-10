@@ -105,7 +105,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
 
   auto stream_handler = client.Stream<PrepareCommitRpc>(
       UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1, true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_NO_THROW(stream.Finalize());
@@ -143,7 +143,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
 
   auto stream_handler = client.Stream<PrepareCommitRpc>(
       UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1, true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
@@ -184,7 +184,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
 
   auto stream_handler = client.Stream<PrepareCommitRpc>(
       UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1, true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
