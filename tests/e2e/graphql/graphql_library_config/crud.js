@@ -28,7 +28,6 @@ const neoSchema = new Neo4jGraphQL({
     },
   },
   });
-neoSchema.checkNeo4jCompat = () => Promise.resolve();
 
 async function start() {
   const schema = await neoSchema.getSchema();
