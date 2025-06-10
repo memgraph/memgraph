@@ -47,7 +47,7 @@ case "$DISTRO" in
 esac
 CMAKE_VERSION=3.31.5
 CPPCHECK_VERSION=2.16.0
-LLVM_VERSION=19.1.7 
+LLVM_VERSION=19.1.7
 SWIG_VERSION=4.3.0 # used only for LLVM compilation
 
 # define the name used to make the toolchain archive
@@ -620,7 +620,18 @@ fi
 # create activation script
 if [ ! -f $PREFIX/activate ]; then
     cat >$PREFIX/activate <<EOF
-SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+current_shell=\$(ps -p \$\$ -o comm= | xargs)
+
+if [[ "\$current_shell" == "bash" ]]; then
+    SCRIPT_SOURCE="\${BASH_SOURCE[0]}"
+elif [[ "\$current_shell" == "zsh" ]]; then
+    SCRIPT_SOURCE="\${(%):-%N}"
+else
+    echo "Unsupported shell. Only bash and zsh are supported." >&2
+    return 1
+fi
+
+SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
 PREFIX=\$SCRIPT_DIR
 
 # This file must be used with "source /path/to/toolchain/activate" *from bash*
