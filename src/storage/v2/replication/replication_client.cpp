@@ -78,29 +78,29 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
         utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
 
-        // If SYNC replica, block while waiting for RPC lock
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-          auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-              main_uuid_, main_storage->uuid(),
-              replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
-              std::string{replStorageState.epoch_.id()});
-          return hb_stream.SendAndWait();
-        }
         // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
         // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
         // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
         // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
         // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
-        auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-            std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
-            replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
-            std::string{replStorageState.epoch_.id()});
+        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+          auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
+              std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
+              replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
+              std::string{replStorageState.epoch_.id()});
 
-        std::optional<replication::HeartbeatRes> res;
-        if (hb_stream.has_value()) {
-          res.emplace(hb_stream->SendAndWait());
+          std::optional<replication::HeartbeatRes> res;
+          if (hb_stream.has_value()) {
+            res.emplace(hb_stream->SendAndWait());
+          }
+          return res;
         }
-        return res;
+
+        // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
+        auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
+            std::string{replStorageState.epoch_.id()});
+        return hb_stream.SendAndWait();
       });
 
   if (!maybe_heartbeat_res.has_value()) {
@@ -284,7 +284,8 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 // If replica is READY, set it to replicating and create optional stream
 //    If creating stream fails, set the state to MAYBE_BEHIND. RPC lock is taken.
 auto ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage,
-                                                           DatabaseAccessProtector db_acc)
+                                                           DatabaseAccessProtector db_acc,
+                                                           bool const commit_immediately)
     -> std::optional<ReplicaStream> {
   utils::MetricsTimer const timer{metrics::StartTxnReplication_us};
   auto locked_state = replica_state_.Lock();
@@ -320,16 +321,17 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
         utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
         std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
+        // Try to obtain RPC stream for ASYNC replica
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
               std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-              current_wal_seq_num);
-        } else {
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), current_wal_seq_num,
+              commit_immediately);
+        } else {  // Block for SYNC and STRICT_SYNC replica
           maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-              current_wal_seq_num));
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), current_wal_seq_num,
+              commit_immediately));
         }
 
         if (!maybe_stream_handler.has_value()) {

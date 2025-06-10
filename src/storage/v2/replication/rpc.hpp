@@ -67,17 +67,19 @@ struct PrepareCommitReq {
   static void Save(const PrepareCommitReq &self, slk::Builder *builder);
   PrepareCommitReq() = default;
   PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
-                   uint64_t const previous_commit_timestamp_arg, uint64_t const seq_num_arg)
+                   uint64_t const previous_commit_timestamp_arg, uint64_t const seq_num_arg,
+                   bool const commit_immediately_arg)
       : main_uuid{main_uuid_arg},
         storage_uuid{storage_uuid_arg},
         previous_commit_timestamp(previous_commit_timestamp_arg),
-        seq_num(seq_num_arg) {}
+        seq_num(seq_num_arg),
+        commit_immediately(commit_immediately_arg) {}
 
   utils::UUID main_uuid;
   utils::UUID storage_uuid;
   uint64_t previous_commit_timestamp;
   uint64_t seq_num;
-  ;
+  bool commit_immediately;
 };
 
 struct PrepareCommitRes {

@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_storage_state.hpp"
+
 #include "replication/replication_server.hpp"
-#include "storage/v2/replication/replication_transaction.hpp"
 
 namespace memgraph::storage {
 

@@ -808,7 +808,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // Handle durability and replication
       // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
-      // couldn't be retrieved. As long as this object is alive, RPC streams are held
+      // couldn't be retrieved. As long as this object is alive, RPC streams are held. We use recursive mutex because
+      // this thread will lock the RPC lock twice: once for PrepareCommitRpc and 2nd time for FinalizeCommitRpc
       auto replicating_txn = mem_storage->repl_storage_state_.StartPrepareCommitPhase(
           mem_storage->wal_file_->SequenceNumber(), mem_storage, db_acc);
 
@@ -817,15 +818,27 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       bool const repl_prepare_phase_status =
           HandleDurabilityAndReplicate(durability_commit_timestamp, db_acc, replicating_txn);
 
-      // Finalize WAL at the end of the prepare phase
-      mem_storage->FinalizeWalFile();
-
       // If I am replica with write txn return because the 2nd phase will be executed once we receive FinalizeCommitRpc
+      // if it is STRICT_SYNC replica or it will commit after receiving PrepareCommitRpc if none of replicas are in
+      // STRICT_SYNC mode
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
         return {};
       }
 
-      /// If we are here, it means we are the main executing the commit
+      // There are no STRICT_SYNC replicas currently in the commit
+      if (!replicating_txn.ShouldRunTwoPC()) {
+        spdlog::info("No STRICT_SYNC replicas currently in the commit, committing on MAIN with durable ts {}.",
+                     durability_commit_timestamp);
+        FinalizeCommitPhase(durability_commit_timestamp);
+        // Throw exception if we couldn't commit on one of SYNC replicas
+        if (!repl_prepare_phase_status) {
+          return StorageManipulationError{ReplicationError{}};
+        }
+        return {};
+      }
+
+      // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
+      // cluster.
       if (repl_prepare_phase_status) {
         FinalizeCommitPhase(durability_commit_timestamp);
         spdlog::info("Finalized commit on main. Sending commit rpc to replicas");
@@ -2292,7 +2305,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                                                      TransactionReplication &replicating_txn) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // A single transaction will always be contained in a single WAL file.
+  // A single transaction will always be fully-contained in a single WAL file.
   auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
 
   // Safe to abort here because deltas weren't made durable yet
@@ -2615,6 +2628,9 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Add a delta that indicates that the transaction is fully written to the WAL
   mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+
+  // Finalize WAL at the end of the prepare phase
+  mem_storage->FinalizeWalFile();
 
   // Ships deltas to instances and waits for the reply
   spdlog::info("Sending prepare for commit RPC to instances");

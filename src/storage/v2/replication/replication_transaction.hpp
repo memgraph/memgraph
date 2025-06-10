@@ -30,10 +30,17 @@ class TransactionReplication {
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      // TODO: (andi) Think about this when handling ASYNC replication
-      // For SYNC replicas we should be able to always acquire the stream because we will block until that happens
-      // For ASYNC replicas we only try to acquire stream and hence may fail. However, we still add nullopt to streams
-      if (auto stream = client->StartTransactionReplication(seq_num, storage, db_acc);
+      // TODO: (andi) Think about this when handling ASYNC replication, is it really necessary to add std::nullopt for
+      // ASYNC replicas
+      // TODO: (andi) This is super-important when thinking about mixed cluster with multiple sync/strict_sync/async
+      // replicas For SYNC and STRICT_SYNC replicas we should be able to always acquire the stream because we will block
+      // until that happens For ASYNC replicas we only try to acquire stream and this could fail. However, we still add
+      // nullopt to streams for back-compatibility
+
+      // If replica should commit immediately upon finalizing txn replication
+      bool const should_commit_immediately = !ShouldRunTwoPC();
+
+      if (auto stream = client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately);
           stream.has_value() || client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
         streams.push_back(std::move(stream));
       } else {
@@ -43,7 +50,6 @@ class TransactionReplication {
       }
     }
   }
-
   template <typename... Args>
   void AppendDelta(Args &&...args) {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
@@ -65,41 +71,17 @@ class TransactionReplication {
     }
   }
 
-  // RPC stream still won't be destroyed
-  bool FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
-    bool sync_replicas_succ{true};
-    MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
-              "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
-              "handle ASYNC tasks");
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
-                                     replica_stream);
-
-      const auto finalized =
-          client->FinalizeTransactionReplication(db_acc, replica_stream, durability_commit_timestamp);
-
-      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        sync_replicas_succ = finalized && sync_replicas_succ;
-      }
-    }
-    return sync_replicas_succ;
-  }
+  // RPC stream won't be destroyed at the end of this function
+  auto FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool;
 
   // TODO: (andi) Do you need db_acc protector here?
-  bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
-                             uint64_t const durability_commit_timestamp) noexcept {
-    bool sync_replicas_succ{true};
-    for (auto &client : *locked_clients) {
-      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        sync_replicas_succ &=
-            client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp);
-      }
-    }
-    return sync_replicas_succ;
-  }
+  auto SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
+                             uint64_t durability_commit_timestamp) const noexcept -> bool;
 
   // If we don't check locked_clients, this check would fail for replicas since replicas have empty locked_clients
-  auto ReplicationStartSuccessful() const -> bool { return locked_clients->empty() || !streams.empty(); }
+  auto ReplicationStartSuccessful() const -> bool;
+
+  auto ShouldRunTwoPC() const -> bool;
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;

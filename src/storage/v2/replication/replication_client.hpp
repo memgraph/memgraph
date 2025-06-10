@@ -133,9 +133,11 @@ class ReplicationStorageClient {
    * @param current_wal_seq_num
    * @param storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param commit_immediately If set to true, replicas will commit immediately upon finalizing txn replication instead
+   * of waiting for MAIN's 2nd phase in 2PC protocol.
    */
-  auto StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-      -> std::optional<ReplicaStream>;
+  auto StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc,
+                                   bool commit_immediately) -> std::optional<ReplicaStream>;
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever

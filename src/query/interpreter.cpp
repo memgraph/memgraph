@@ -313,6 +313,7 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
+#ifdef MG_ENTERPRISE
 constexpr auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
@@ -329,6 +330,7 @@ constexpr auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::S
   // TODO: C++23 std::unreachable()
   return replication_coordination_glue::ReplicationMode::ASYNC;
 }
+#endif
 
 constexpr auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
