@@ -144,6 +144,16 @@ def create_related_nodes_query(server: GraphQLServer):
     return get_uuid_from_response(gotten_response)
 
 
+def cleanup_user_and_posts(server: GraphQLServer, user_uuid):
+    cleanup_query = (
+        'mutation {deleteUsers(where: { id: { eq: "'
+        + user_uuid
+        + '" } } delete: { posts: {} }) {nodesDeleted relationshipsDeleted}}'
+    )
+    gotten_response = server.send_query(cleanup_query)
+    print(gotten_response)
+
+
 @pytest.fixture
 def query_server() -> GraphQLServer:
     path = os.path.join("graphql/graphql_library_config/crud.js")
