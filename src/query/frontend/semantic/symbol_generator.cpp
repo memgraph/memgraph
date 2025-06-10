@@ -97,9 +97,9 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
       }
       user_symbols.emplace_back(sym_pair.second);
     }
-    if (user_symbols.empty()) {
-      throw SemanticException("There are no variables in scope to use for '*'.");
-    }
+    // if (user_symbols.empty()) {
+    //   throw SemanticException("There are no variables in scope to use for '*'.");
+    // }
   }
   // WITH/RETURN clause removes declarations of all the previous variables and
   // declares only those established through named expressions. New declarations
