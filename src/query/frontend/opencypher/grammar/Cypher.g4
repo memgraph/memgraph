@@ -262,7 +262,7 @@ atom : listComprehension
      | ( ANY '(' filterExpression ')' )
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
-     | ( EXISTS '(' existsExpression ')' )
+     | ( EXISTS existsExpression )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -304,7 +304,10 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
-existsExpression : forcePatternPart | .* ;
+existsExpression : '(' forcePatternPart ')'
+                 | '{' forcePatternPart '}'
+                 | '{' cypherQuery '}'
+                 ;
 
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern

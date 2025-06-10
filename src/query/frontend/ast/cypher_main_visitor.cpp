@@ -3137,13 +3137,45 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
   auto *exists = storage_->Create<Exists>();
+  // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
     exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    exists->subquery_ = nullptr;
     if (exists->pattern_->identifier_) {
-      throw SyntaxException("Identifiers are not supported in exists(...).");
+      throw SyntaxException("Identifiers are not supported in exists(...).\n");
+    }
+  } else if (ctx->cypherQuery()) {
+    // Curly-brace subquery form: { cypherQuery }
+    auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    exists->pattern_ = nullptr;
+    exists->subquery_ = cypher_query;
+
+    // 1. There must be at least one clause
+    auto *single_query = cypher_query->single_query_;
+    if (!single_query || single_query->clauses_.empty()) {
+      throw SyntaxException("EXISTS subquery must contain at least one clause.");
+    }
+
+    // 2. Only MATCH, WHERE, WITH, RETURN allowed
+    for (const auto *clause : single_query->clauses_) {
+      const auto &type = clause->GetTypeInfo();
+      if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
+            utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
+        throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+      }
+    }
+
+    // 3. No query memory limit
+    if (cypher_query->memory_limit_ != nullptr) {
+      throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
     }
   } else {
-    throw SyntaxException("EXISTS supports only a single relation as its input.");
+    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+  }
+
+  // Ensure only one of pattern_ or subquery_ is set
+  if ((exists->pattern_ != nullptr) == (exists->subquery_ != nullptr)) {
+    throw SyntaxException("EXISTS must have exactly one of pattern or subquery set.");
   }
 
   return static_cast<Expression *>(exists);

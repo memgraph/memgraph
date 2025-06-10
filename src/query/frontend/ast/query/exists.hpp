@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -34,15 +35,20 @@ class Exists : public memgraph::query::Expression {
   }
 
   memgraph::query::Pattern *pattern_{nullptr};
+  memgraph::query::CypherQuery *subquery_{nullptr};  // Only one of pattern_ or subquery_ should be set.
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
 
   Exists *Clone(AstStorage *storage) const override {
     Exists *object = storage->Create<Exists>();
     object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
+    object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
     object->symbol_pos_ = symbol_pos_;
     return object;
   }
+
+  bool HasPattern() const { return pattern_ != nullptr; }
+  bool HasSubquery() const { return subquery_ != nullptr; }
 
  protected:
   Exists(Pattern *pattern) : pattern_(pattern) {}
