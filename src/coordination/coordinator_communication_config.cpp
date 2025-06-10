@@ -59,7 +59,7 @@ void from_json(nlohmann::json const &j, DataInstanceConfig &config) {
   config.instance_name = j.at(kInstanceName).get<std::string>();
   config.mgt_server = j.at(kMgtServer).get<io::network::Endpoint>();
   config.bolt_server = j.at(kBoltServer).get<io::network::Endpoint>();
-  config.replication_client_info = j.at(kReplicationMode).get<ReplicationClientInfo>();
+  config.replication_client_info = j.at(kReplicationClientInfo).get<ReplicationClientInfo>();
 }
 
 void from_json(nlohmann::json const &j, InstanceUUIDUpdate &instance_uuid_update) {
