@@ -1093,14 +1093,20 @@ PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
 PatternVisitor::~PatternVisitor() = default;
 
 void PatternVisitor::Visit(Exists &op) {
-  std::vector<Pattern *> patterns;
-  patterns.push_back(op.pattern_);
-
   FilterMatching filter_matching;
-  AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
-
-  filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+
+  if (op.HasPattern()) {
+    std::vector<Pattern *> patterns;
+    patterns.push_back(op.pattern_);
+    AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
+    filter_matching.type = PatternFilterType::EXISTS_PATTERN;
+  } else if (op.HasSubquery()) {
+    // For subqueries, collect the full QueryParts and store in filter_matching
+    filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
+    filter_matching.subquery_parts =
+        std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.subquery_, true));
+  }
 
   filter_matchings_.push_back(std::move(filter_matching));
 }

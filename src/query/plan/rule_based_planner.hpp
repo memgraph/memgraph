@@ -1072,9 +1072,12 @@ class RuleBasedPlanner {
         }
 
         switch (matching.type) {
-          case PatternFilterType::EXISTS: {
+          case PatternFilterType::EXISTS_PATTERN: {
             operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
             break;
+          }
+          case PatternFilterType::EXISTS_SUBQUERY: {
+            throw utils::NotYetImplemented("Exists subquery!");
           }
         }
       }
