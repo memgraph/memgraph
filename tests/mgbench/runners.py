@@ -23,7 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from constants import BenchmarkInstallationType
+from constants import BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -91,18 +91,80 @@ def _get_docker_container_ip(container_name):
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
 
 
+def run_command(command):
+    ret = subprocess.run(command, capture_output=True, check=True, text=True)
+    time.sleep(0.2)
+    return ret
+
+
+def get_docker_cpu_usage(container_name):
+    command = ["docker", "stats", container_name, "--no-stream", "--format", "{{.CPUPerc}}"]
+    ret = run_command(command)
+    if not ret:
+        return 0
+
+    cpu_perc = float(ret[0].strip("%")) / 100
+    return cpu_perc
+
+
+def get_docker_memory_usage(container_name):
+    command = [
+        "docker",
+        "stats",
+        "--no-stream",
+        "--format",
+        "{{.MemUsage}}",
+        container_name,
+    ]
+    ret = run_command(command)
+
+    # Example of ret.stdout = "79.52MiB / 58.56GiB"
+    memory_usage = ret.stdout.split(" / ")
+
+    if len(memory_usage) == 2:
+        used_memory = memory_usage[0].strip()  # e.g., "79.52MiB"
+        used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
+
+        # Convert memory to bytes for consistency
+        if used_memory_unit == "B":
+            return int(float(used_memory_value))  # Bytes
+        elif used_memory_unit == "KiB":
+            return int(float(used_memory_value) * 1024)  # KiB to Bytes
+        elif used_memory_unit == "MiB":
+            return int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
+        elif used_memory_unit == "GiB":
+            return int(float(used_memory_value) * 1024 * 1024 * 1024)  # GiB to Bytes
+        elif used_memory_unit == "TiB":
+            return int(float(used_memory_value) * 1024 * 1024 * 1024 * 1024)  # TiB to Bytes
+        else:
+            raise Exception(f"Unrecognized used memory: {used_memory}")
+    else:
+        raise Exception(f"Unrecognized memory usage: {memory_usage}")
+
+
 class BaseClient(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._vendor = benchmark_context.vendor_name
 
     @abstractmethod
     def execute(self):
         pass
 
+    def get_check_db_query(self) -> str:
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return "RETURN 0;"
+            case GraphVendors.POSTGRESQL:
+                return "SELECT 1 AS result;"
+            case _:
+                raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
+
 
 class BoltClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
@@ -131,7 +193,7 @@ class BoltClient(BaseClient):
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -207,6 +269,7 @@ class BoltClient(BaseClient):
 
 class BoltClientDocker(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
@@ -218,7 +281,7 @@ class BoltClientDocker(BaseClient):
 
     def _remove_container(self):
         command = ["docker", "rm", "-f", self._container_name]
-        self._run_command(command)
+        run_command(command)
 
     def _create_container(self, *args):
         command = [
@@ -231,7 +294,7 @@ class BoltClientDocker(BaseClient):
             "memgraph/mgbench-client",
             *args,
         ]
-        self._run_command(command)
+        run_command(command)
 
     def _get_logs(self):
         command = [
@@ -239,7 +302,7 @@ class BoltClientDocker(BaseClient):
             "logs",
             self._container_name,
         ]
-        ret = self._run_command(command)
+        ret = run_command(command)
         return ret
 
     def _get_args(self, **kwargs):
@@ -278,7 +341,7 @@ class BoltClientDocker(BaseClient):
 
         check_file = Path(self._directory.name) / "check.json"
         with open(check_file, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -288,7 +351,7 @@ class BoltClientDocker(BaseClient):
             check_file.resolve().as_posix(),
             self._container_name + ":/bin/" + check_file.name,
         ]
-        self._run_command(command)
+        run_command(command)
 
         command = [
             "docker",
@@ -302,7 +365,7 @@ class BoltClientDocker(BaseClient):
 
         while True:
             try:
-                self._run_command(command)
+                run_command(command)
                 break
             except subprocess.CalledProcessError as e:
                 log.log("Checking if database is up and running failed!")
@@ -350,7 +413,7 @@ class BoltClientDocker(BaseClient):
             file.resolve().as_posix(),
             self._container_name + ":/bin/" + file.name,
         ]
-        self._run_command(command)
+        run_command(command)
         log.log("Starting query execution...")
         try:
             command = [
@@ -359,7 +422,7 @@ class BoltClientDocker(BaseClient):
                 "-i",
                 self._container_name,
             ]
-            self._run_command(command)
+            run_command(command)
         except subprocess.CalledProcessError as e:
             log.warning("Reported errors from client:")
             log.warning("Error: {}".format(e.stderr))
@@ -373,16 +436,10 @@ class BoltClientDocker(BaseClient):
         data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))
 
-    def _run_command(self, command):
-        ret = subprocess.run(command, capture_output=True, check=True, text=True)
-        time.sleep(0.2)
-        return ret
-
 
 class PythonClient(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext, database_port: int):
         super().__init__(benchmark_context=benchmark_context)
-        self._vendor = benchmark_context.vendor_name
         self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
@@ -407,7 +464,7 @@ class PythonClient(BaseClient):
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -953,7 +1010,7 @@ class MemgraphDocker(BaseRunner):
                 "--storage_snapshot_interval_sec=0",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            self._run_command(command)
+            run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start Memgraph docker container.")
             log.error(
@@ -967,7 +1024,7 @@ class MemgraphDocker(BaseRunner):
             self._container_name + ":/etc/memgraph/memgraph.conf",
             self._directory.name + "/memgraph.conf",
         ]
-        self._run_command(command)
+        run_command(command)
         self._config_file = Path(self._directory.name + "/memgraph.conf")
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
@@ -978,7 +1035,7 @@ class MemgraphDocker(BaseRunner):
 
         # Stop to save the snapshot
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
 
         # Change config back to default
         argument = "--storage-snapshot-on-exit=false"
@@ -989,14 +1046,14 @@ class MemgraphDocker(BaseRunner):
             self._config_file.resolve(),
             self._container_name + ":/etc/memgraph/memgraph.conf",
         ]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
     def start_db(self, message):
         log.init("Starting database for benchmark...")
         command = ["docker", "start", self._container_name]
-        self._run_command(command)
+        run_command(command)
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
 
@@ -1004,7 +1061,7 @@ class MemgraphDocker(BaseRunner):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
@@ -1013,7 +1070,7 @@ class MemgraphDocker(BaseRunner):
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
-        self._run_command(command)
+        run_command(command)
 
     def _replace_config_args(self, argument):
         config_lines = []
@@ -1045,7 +1102,7 @@ class MemgraphDocker(BaseRunner):
             "grep ^VmPeak /proc/1/status",
         ]
         usage = {"cpu": 0, "memory": 0}
-        ret = self._run_command(command)
+        ret = run_command(command)
         memory = ret.stdout.split()
         usage["memory"] = int(memory[1]) * 1024
 
@@ -1058,7 +1115,7 @@ class MemgraphDocker(BaseRunner):
             "-c",
             "cat /proc/1/stat",
         ]
-        stat = self._run_command(command).stdout.strip("\n")
+        stat = run_command(command).stdout.strip("\n")
 
         command = [
             "docker",
@@ -1069,14 +1126,14 @@ class MemgraphDocker(BaseRunner):
             "-c",
             "getconf CLK_TCK",
         ]
-        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+        CLK_TCK = int(run_command(command).stdout.strip("\n"))
 
         cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         usage["cpu"] = cpu_time
 
         return usage
 
-    def _run_command(self, command):
+    def run_command(self, command):
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
 
         time.sleep(0.2)
@@ -1118,7 +1175,7 @@ class Neo4jDocker(BaseRunner):
                 "neo4j:5.26-enterprise",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            ret = self._run_command(command)
+            ret = run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("There was an error starting the Neo4j container!")
             log.error(
@@ -1133,7 +1190,7 @@ class Neo4jDocker(BaseRunner):
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
 
         return usage
@@ -1141,7 +1198,7 @@ class Neo4jDocker(BaseRunner):
     def start_db(self, message):
         log.init("Starting database...")
         command = ["docker", "start", self._container_name]
-        self._run_command(command)
+        run_command(command)
         _wait_for_server_socket(self._bolt_port, delay=5)
         log.log("Database started.")
 
@@ -1150,7 +1207,7 @@ class Neo4jDocker(BaseRunner):
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
@@ -1159,7 +1216,7 @@ class Neo4jDocker(BaseRunner):
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
-        self._run_command(command)
+        run_command(command)
 
     def _get_cpu_memory_usage(self):
         command = [
@@ -1171,7 +1228,7 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "cat /var/lib/neo4j/run/neo4j.pid",
         ]
-        ret = self._run_command(command)
+        ret = run_command(command)
         pid = ret.stdout.split()[0]
 
         command = [
@@ -1184,7 +1241,7 @@ class Neo4jDocker(BaseRunner):
             "grep ^VmPeak /proc/{}/status".format(pid),
         ]
         usage = {"cpu": 0, "memory": 0}
-        ret = self._run_command(command)
+        ret = run_command(command)
         memory = ret.stdout.split()
         usage["memory"] = int(memory[1]) * 1024
 
@@ -1197,7 +1254,7 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "cat /proc/{}/stat".format(pid),
         ]
-        stat = self._run_command(command).stdout.strip("\n")
+        stat = run_command(command).stdout.strip("\n")
 
         command = [
             "docker",
@@ -1208,14 +1265,14 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "getconf CLK_TCK",
         ]
-        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+        CLK_TCK = int(run_command(command).stdout.strip("\n"))
 
         cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         usage["cpu"] = cpu_time
 
         return usage
 
-    def _run_command(self, command):
+    def run_command(self, command):
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
         time.sleep(0.2)
         return ret
@@ -1254,7 +1311,7 @@ class FalkorDBDocker(BaseRunner):
                 f"{self._image_name}:{self._image_version}",
             ]
             command.extend(self._get_args(**self._vendor_args))
-            self._run_command(command)
+            run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start FalkorDB docker container.")
             log.error(
@@ -1268,27 +1325,27 @@ class FalkorDBDocker(BaseRunner):
     def start_db(self, message):
         log.init("Starting FalkorDB for benchmark...")
         command = ["docker", "start", self._container_name]
-        self._run_command(command)
+        run_command(command)
         _wait_for_server_socket(self._falkordb_port, delay=0.5)
         log.log("Database started.")
 
     def stop_db_init(self, message):
         log.init("Stopping database (init)...")
         usage = self._get_cpu_memory_usage()
-        self._run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+        run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
 
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
     def stop_db(self, message):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
-        self._run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+        run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
 
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
@@ -1297,7 +1354,7 @@ class FalkorDBDocker(BaseRunner):
 
     def remove_container(self, container_name):
         command = ["docker", "rm", "-f", container_name]
-        self._run_command(command)
+        run_command(command)
 
     def get_database_port(self):
         return self._falkordb_port
@@ -1305,81 +1362,115 @@ class FalkorDBDocker(BaseRunner):
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
 
-    def _get_memory_usage(self):
-        command = [
-            "docker",
-            "stats",
-            "--no-stream",
-            "--format",
-            "{{.MemUsage}}",
-            self._container_name,
-        ]
-        ret = self._run_command(command)
-
-        # Example of ret.stdout = "79.52MiB / 58.56GiB"
-        memory_usage = ret.stdout.split(" / ")
-
-        if len(memory_usage) == 2:
-            used_memory = memory_usage[0].strip()  # e.g., "79.52MiB"
-            used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
-
-            # Convert memory to bytes for consistency
-            if used_memory_unit == "KiB":
-                return int(float(used_memory_value) * 1024)  # KiB to Bytes
-            elif used_memory_unit == "MiB":
-                return int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
-            elif used_memory_unit == "GiB":
-                return int(float(used_memory_value) * 1024 * 1024 * 1024)  # GiB to Bytes
-            elif used_memory_unit == "TiB":
-                return int(float(used_memory_value) * 1024 * 1024 * 1024 * 1024)  # TiB to Bytes
-            else:
-                raise Exception(f"Unrecognized used memory: {used_memory}")
-        else:
-            raise Exception(f"Unrecognized memory usage: {memory_usage}")
-
-    def _get_cpu_usage(self):
-        # Get the contents of /proc/1/stat from inside the container.
-        command = [
-            "docker",
-            "exec",
-            "-it",
-            self._container_name,
-            "bash",
-            "-c",
-            "cat /proc/1/stat",
-        ]
-        stat = self._run_command(command).stdout.strip("\n")
-
-        # Get the number of clock ticks per second (used to convert CPU time units to seconds).
-        command = [
-            "docker",
-            "exec",
-            "-it",
-            self._container_name,
-            "bash",
-            "-c",
-            "getconf CLK_TCK",
-        ]
-        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
-
-        # /proc/[pid]/stat contains a lot of fields; after the process name (inside parentheses),
-        # the following fields are of interest for CPU time:
-        # - field 14 (index 11): utime  = time in user mode
-        # - field 15 (index 12): stime  = time in kernel mode
-        # - field 16 (index 13): cutime = user mode time of children
-        # - field 17 (index 14): cstime = kernel mode time of children
-        #
-        # These are all expressed in clock ticks. To convert to seconds,
-        # we sum them up and divide by CLK_TCK.
-        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
-        return cpu_time
-
     def _get_cpu_memory_usage(self):
-        usage = {"cpu": self._get_cpu_usage(), "memory": self._get_memory_usage()}
+        return {
+            "cpu": get_docker_cpu_usage(self._container_name),
+            "memory": get_docker_memory_usage(self._container_name),
+        }
 
-        return usage
-
-    def _run_command(self, command):
+    def run_command(self, command):
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         time.sleep(3)
         return ret
+
+
+class PostgreSQLDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context)
+        self._container_name = f"{benchmark_context.vendor_name}_benchmark"
+        self._port = benchmark_context.vendor_args.get("port", 5432)
+        self._user = benchmark_context.vendor_args.get("user", "postgres")
+        self._password = benchmark_context.vendor_args.get("password", "postgres")
+        self._database = benchmark_context.vendor_args.get("database", "postgres")
+        self._image = "postgres:15"
+        _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
+
+    def start_db_init(self, message):
+        command = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "-e",
+            f"POSTGRES_USER={self._user}",
+            "-e",
+            f"POSTGRES_PASSWORD={self._password}",
+            "-e",
+            f"POSTGRES_DB={self._database}",
+            "-p",
+            f"{self._port}:{self._port}/tcp",
+            self._image,
+        ]
+        run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+    def start_db(self, message):
+        log.init("Starting database for benchmark...")
+        command = ["docker", "start", self._container_name]
+        run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database (init)...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def get_database_port(self):
+        return self._port
+
+    def remove_container(self, container_name):
+        command = ["docker", "rm", "-f", container_name]
+        run_command(command)
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def _get_cpu_memory_usage(self):
+        return {
+            "cpu": get_docker_cpu_usage(self._container_name),
+            "memory": get_docker_memory_usage(self._container_name),
+        }
+
+    def run_command(self, command):
+        ret = subprocess.run(command, capture_output=True, text=True)
+        if ret.returncode != 0:
+            return None
+        return ret.stdout.strip().split("\n")
+
+    def _wait_for_postgres_ready(self, host, port, user, password, database, timeout=30):
+        import psycopg2
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+                conn.close()
+                return
+            except psycopg2.OperationalError as e:
+                if "authentication failed" in str(e):
+                    raise e  # Credentials are actually wrong
+                time.sleep(0.5)
+        raise TimeoutError("PostgreSQL did not become ready in time.")

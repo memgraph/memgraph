@@ -10,14 +10,31 @@
 # licenses/APL.txt.
 
 
+class DatabaseLanguage:
+    CYPHER = "cypher"
+    SQL = "sql"
+
+    @classmethod
+    def get_all_database_languages(cls):
+        return [cls.CYPHER, cls.SQL]
+
+
 class GraphVendors:
     MEMGRAPH = "memgraph"
     NEO4J = "neo4j"
     FALKORDB = "falkordb"
+    POSTGRESQL = "postgresql"
 
     @classmethod
     def get_all_vendors(cls):
-        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB]
+        return [cls.MEMGRAPH, cls.NEO4J, cls.FALKORDB, cls.POSTGRESQL]
+
+    @classmethod
+    def get_database_language(cls, vendor):
+        if vendor in [GraphVendors.MEMGRAPH, GraphVendors.NEO4J, GraphVendors.FALKORDB]:
+            return DatabaseLanguage.CYPHER
+        if vendor in [GraphVendors.POSTGRESQL]:
+            return DatabaseLanguage.SQL
 
 
 class BenchmarkInstallationType:

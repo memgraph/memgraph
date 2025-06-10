@@ -53,5 +53,19 @@ class ImporterPokec(BaseImporter):
                     file_path=self._dataset_file, num_workers=self._benchmark_context.num_workers_for_import
                 )
             return True
+        elif self._benchmark_context.vendor_name == GraphVendors.POSTGRESQL:
+            vendor_runner = BaseRunner.create(
+                benchmark_context=self._benchmark_context,
+            )
+            vendor_runner.clean_db()
+            vendor_runner.start_db_init("import")
+            print("Executing database index setup...")
+            self._client.execute(file_path=self._index_file, num_workers=1)
+            print("Importing dataset...")
+            self._client.execute(
+                file_path=self._dataset_file, num_workers=self._benchmark_context.num_workers_for_import
+            )
+            vendor_runner.stop_db_init("import")
+            return True
         else:
             return False

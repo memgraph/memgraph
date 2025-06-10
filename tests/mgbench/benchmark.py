@@ -31,12 +31,6 @@ from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
 
-WARMUP_TO_HOT_QUERIES = [
-    ("CREATE ();", {}),
-    ("CREATE ()-[:TempEdge]->();", {}),
-    ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
-]
-
 SETUP_AUTH_QUERIES = [
     ("CREATE USER user IDENTIFIED BY 'test';", {}),
     ("GRANT ALL PRIVILEGES TO user;", {}),
@@ -57,6 +51,20 @@ SETUP_DISK_STORAGE = [
 SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
     ("STORAGE MODE IN_MEMORY_ANALYTICAL;", {}),
 ]
+
+
+def get_warmup_to_hot_queries(client):
+    match client.vendor:
+        case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+            return [
+                ("CREATE ();", {}),
+                ("CREATE ()-[:TempEdge]->();", {}),
+                ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
+            ]
+        case GraphVendors.POSTGRESQL:
+            return []
+        case _:
+            raise Exception(f"Unknown vendor name {client.vendor} for warmup queries!")
 
 
 def parse_args():
@@ -453,10 +461,12 @@ def mixed_workload(
 def warmup(condition: str, client, queries: list = None):
     if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
-        client.execute(
-            queries=WARMUP_TO_HOT_QUERIES,
-            num_workers=1,
-        )
+        warmup_to_hot_queries = get_warmup_to_hot_queries(client)
+        if len(queries) > 0:
+            client.execute(
+                queries=warmup_to_hot_queries,
+                num_workers=1,
+            )
     elif condition == DATABASE_CONDITION_VULCANIC:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(queries=queries)
@@ -707,7 +717,7 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     return usage[MEMORY]
 
 
-def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_emtpy_db):
+def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_empty_db):
     rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
     vendor_runner.start_db(rss_db)
     usage = vendor_runner.stop_db(rss_db)
@@ -715,14 +725,14 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
         usage = {"memory": 0, "cpu": 0}
     # Save total memory usage with imported data to be able to calculate only execution memory usage later
     total_usage_with_imported_data = usage[MEMORY]
-    usage[MEMORY] -= memory_usage_of_emtpy_db
+    usage[MEMORY] -= memory_usage_of_empty_db
     key = [workload.NAME, workload.get_variant(), IMPORTED_DATA]
     results.set_value(*key, value={DATABASE: usage})
     return total_usage_with_imported_data
 
 
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
-    memory_usage_of_emtpy_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
+    memory_usage_of_empty_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
     if not generated_queries:
         log.warning("Generated import dataset is empty, probably dataset_generator under workload function is wrong.")
@@ -731,7 +741,7 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
     )
     save_import_results(workload, results, import_results, rss_usage)
     memory_usage_with_imported_data = save_memory_usage_of_imported_data(
-        vendor_runner, workload, results, memory_usage_of_emtpy_db
+        vendor_runner, workload, results, memory_usage_of_empty_db
     )
 
     for group in sorted(bench_queries.keys()):
