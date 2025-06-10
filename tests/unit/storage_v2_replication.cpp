@@ -798,7 +798,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  ASSERT_TRUE(std::all_of(created_vertices.begin(), created_vertices.end(), [&](const auto vertex_gid) {
+  ASSERT_TRUE(std::ranges::all_of(created_vertices, [&](const auto vertex_gid) {
     auto acc = replica_async.db.Access();
     auto v = acc->FindVertex(vertex_gid, View::OLD);
     const bool exists = v.has_value();
