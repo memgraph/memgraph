@@ -43,6 +43,9 @@ class TransactionReplication {
       streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately));
     }
   }
+
+  void AppendTransactionStart(uint64_t durability_commit_timestamp);
+
   template <typename... Args>
   void AppendDelta(Args &&...args) {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {

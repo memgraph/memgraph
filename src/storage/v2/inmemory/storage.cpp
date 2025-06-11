@@ -2332,6 +2332,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     replicating_txn.EncodeToReplicas(full_encode_operation);
   };
 
+  // replicating_txn.AppendTransactionStart(durability_commit_timestamp);
+
   // Handle metadata deltas
   for (const auto &md_delta : transaction_.md_deltas) {
     auto const op = ActionToStorageOperation(md_delta.action);

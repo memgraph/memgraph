@@ -13,6 +13,13 @@
 
 namespace memgraph::storage {
 
+void TransactionReplication::AppendTransactionStart(uint64_t const durability_commit_timestamp) {
+  for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionStart(durability_commit_timestamp); },
+                                   replica_stream);
+  }
+}
+
 auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp,
                                                         DatabaseAccessProtector db_acc) -> bool {
   bool strict_sync_replicas_succ{true};
@@ -28,7 +35,8 @@ auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_comm
     // TODO: (andi) Think about this when handling mixed cluster of sync,strict_sync and async replicas
     // The current idea is to run 2PC only on strict sync replicas and then if they are all ok, send prepare-commit
     // with the immediate commit to sync and async replicas
-    if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC || client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC ||
+        client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
       strict_sync_replicas_succ = finalized && strict_sync_replicas_succ;
     }
   }
