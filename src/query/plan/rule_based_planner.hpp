@@ -68,6 +68,7 @@ struct PlanningContext {
   /// written information.
   std::unordered_set<Symbol> bound_symbols{};
   bool is_write_query{false};
+  bool in_exists_subquery{false};
 };
 
 template <class TDbAccessor>
@@ -289,7 +290,7 @@ class RuleBasedPlanner {
       }
 
       // Is this the only situation that should be covered
-      if (input_op->OutputSymbols(*context.symbol_table).empty()) {
+      if (input_op->OutputSymbols(*context.symbol_table).empty() && !context.in_exists_subquery) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
@@ -995,6 +996,10 @@ class RuleBasedPlanner {
     context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
                                    std::make_move_iterator(outer_scope_bound_symbols.end()));
 
+    if (context_->in_exists_subquery) {
+      return subquery_op;
+    }
+
     auto subquery_has_return = true;
     if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
       subquery_has_return = false;
@@ -1083,8 +1088,11 @@ class RuleBasedPlanner {
             // Make a copy of the symbol table for subquery handling
             SymbolTable subquery_symbol_table = symbol_table;
             PatternComprehensionDataMap empty_pc_ops;
+
+            context_->in_exists_subquery = true;
             last_op = HandleSubquery(std::move(last_op), matching.subquery, subquery_symbol_table, storage,
                                      empty_pc_ops, nullptr);
+            context_->in_exists_subquery = false;
 
             // Add a Limit operator to ensure we only need one result
             last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
