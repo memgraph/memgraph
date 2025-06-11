@@ -28,7 +28,7 @@ auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_comm
     // TODO: (andi) Think about this when handling mixed cluster of sync,strict_sync and async replicas
     // The current idea is to run 2PC only on strict sync replicas and then if they are all ok, send prepare-commit
     // with the immediate commit to sync and async replicas
-    if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC || client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
       strict_sync_replicas_succ = finalized && strict_sync_replicas_succ;
     }
   }
