@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "query/hops_limit.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
@@ -37,6 +38,7 @@ struct FunctionContext {
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
+  const HopsLimit *hops_limit;
 };
 
 using func_impl =
@@ -52,5 +54,8 @@ using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 ///
 /// Error, will return std::monostate if function can not be found
 auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
+
+// Returns the current hops limit if set, otherwise null.
+TypedValue GetHopsLimit(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
 
 }  // namespace memgraph::query

@@ -1765,6 +1765,14 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
              : std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
 }
 
+// Returns the current hops limit if set, otherwise null.
+TypedValue GetHopsLimit(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  if (ctx.hops_limit && ctx.hops_limit->IsUsed()) {
+    return TypedValue(static_cast<int64_t>(ctx.hops_limit->GetHopsCounter()), ctx.memory);
+  }
+  return TypedValue(ctx.memory);  // null
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     // Predicate functions
     {"ISEMPTY", IsEmpty},
@@ -1862,6 +1870,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"POINT", Point},
     {"POINT.DISTANCE", Distance},
     {"POINT.WITHINBBOX", WithinBBox},
+    {"GETHOPSLIMIT", GetHopsLimit},
 };
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
