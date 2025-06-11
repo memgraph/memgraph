@@ -174,6 +174,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_EDGE_DELETE:
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
+    case DELTA_TRANSACTION_START:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
@@ -255,6 +256,16 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
 }
 
 // ========== concrete type decoders start here ==========
+template <bool is_read>
+auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, bool, void> {
+  const auto flag = decoder->ReadBool();
+  if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return *flag;
+  }
+}
+
 template <bool is_read>
 auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, Gid, void> {
@@ -480,6 +491,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(EDGE_SET_PROPERTY, WalEdgeSetProperty);
     read_skip(EDGE_CREATE, WalEdgeCreate);
     read_skip(EDGE_DELETE, WalEdgeDelete);
+    read_skip(TRANSACTION_START, WalTransactionStart);
     read_skip(TRANSACTION_END, WalTransactionEnd);
     read_skip(LABEL_INDEX_CREATE, WalLabelIndexCreate);
     read_skip(LABEL_INDEX_DROP, WalLabelIndexDrop);
@@ -765,6 +777,13 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   }
 }
 
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
+  encoder->WriteBool(commit);
+}
+
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
@@ -959,6 +978,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
       },
+      [&](WalTransactionStart const &data) { spdlog::info("Commit flag: {}", data.commit); },
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1283,6 +1303,11 @@ void WalFile::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t tim
 
 void WalFile::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp) {
   EncodeDelta(&wal_, name_id_mapper_, delta, edge, timestamp);
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit) {
+  EncodeTransactionStart(&wal_, timestamp, commit);
   UpdateStats(timestamp);
 }
 
