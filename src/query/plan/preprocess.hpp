@@ -663,7 +663,7 @@ struct FilterMatching : Matching {
   /// Symbol for the filter expression
   std::optional<Symbol> symbol;
   /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
-  std::shared_ptr<QueryParts> subquery_parts;
+  std::shared_ptr<QueryParts> subquery;
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }

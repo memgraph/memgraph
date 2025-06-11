@@ -1104,7 +1104,7 @@ void PatternVisitor::Visit(Exists &op) {
   } else if (op.HasSubquery()) {
     // For subqueries, collect the full QueryParts and store in filter_matching
     filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
-    filter_matching.subquery_parts =
+    filter_matching.subquery =
         std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.subquery_, true));
   }
 
