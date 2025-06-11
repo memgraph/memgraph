@@ -996,10 +996,6 @@ class RuleBasedPlanner {
     context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
                                    std::make_move_iterator(outer_scope_bound_symbols.end()));
 
-    if (context_->in_exists_subquery) {
-      return subquery_op;
-    }
-
     auto subquery_has_return = true;
     if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
       subquery_has_return = false;
@@ -1072,27 +1068,29 @@ class RuleBasedPlanner {
 
     for (const auto &filter : filters) {
       for (const auto &matching : filter.matchings) {
+        if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+          continue;
+        }
+
         switch (matching.type) {
           case PatternFilterType::EXISTS_PATTERN: {
-            if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
-              continue;
-            }
             operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
             break;
           }
           case PatternFilterType::EXISTS_SUBQUERY: {
-            // Create a Once operator to start the subquery
-            std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
-            std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
-
-            // Make a copy of the symbol table for subquery handling
-            SymbolTable subquery_symbol_table = symbol_table;
-            PatternComprehensionDataMap empty_pc_ops;
-
             context_->in_exists_subquery = true;
-            last_op = HandleSubquery(std::move(last_op), matching.subquery, subquery_symbol_table, storage,
-                                     empty_pc_ops, nullptr);
+            std::unordered_set<Symbol> outer_scope_bound_symbols;
+            outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
+                                             std::make_move_iterator(context_->bound_symbols.end()));
+
+            context_->bound_symbols = bound_symbols;
+
+            std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
             context_->in_exists_subquery = false;
+
+            context_->bound_symbols.clear();
+            context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
+                                           std::make_move_iterator(outer_scope_bound_symbols.end()));
 
             // Add a Limit operator to ensure we only need one result
             last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));

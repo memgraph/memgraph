@@ -618,7 +618,9 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
         [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
   }
 
-  return true;
+  return std::ranges::any_of(
+      filter.used_symbols.begin(), filter.used_symbols.end(),
+      [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
 }
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
