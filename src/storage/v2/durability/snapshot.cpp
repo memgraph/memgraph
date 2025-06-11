@@ -5759,7 +5759,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       return LoadSnapshotVersion25(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                    edge_count, config, enum_store, schema_info, snapshot_info);
     }
-    case 26U: {
+    case 26U:
+    case 27U: {  // Only added to WAL changes
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                         edge_count, config, enum_store, schema_info, snapshot_info);
     }
