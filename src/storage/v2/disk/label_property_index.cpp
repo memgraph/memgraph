@@ -175,7 +175,7 @@ bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span
   return utils::Contains(index_, LabelProperty{label, properties[0][0]});
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ListIndices() const
+auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
     -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
   auto const convert = [](auto &&index) -> std::pair<LabelId, std::vector<PropertyPath>> {
     auto [label, property] = index;
