@@ -6421,7 +6421,9 @@ class CallValidateProcedureCursor : public Cursor {
                                   storage::View::NEW);
 
     const auto args = self_->arguments_;
-    MG_ASSERT(args.size() == 3U);
+    if (args.size() != 3U) {
+      throw QueryRuntimeException("'mgps.validate' requires exactly 3 arguments.");
+    }
 
     const auto predicate = args[0]->Accept(evaluator);
     const bool predicate_val = predicate.ValueBool();
