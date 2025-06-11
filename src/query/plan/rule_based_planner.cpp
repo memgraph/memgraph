@@ -611,9 +611,14 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 namespace impl {
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  return std::ranges::all_of(
-      filter.used_symbols.begin(), filter.used_symbols.end(),
-      [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
+  const bool is_exists_subquery = filter.type == FilterInfo::Type::Pattern && filter.matchings[0].subquery != nullptr;
+  if (!is_exists_subquery) {
+    return std::ranges::all_of(
+        filter.used_symbols.begin(), filter.used_symbols.end(),
+        [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
+  }
+
+  return true;
 }
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
