@@ -2037,7 +2037,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed) {
+    LabelId label, bool unique_access_needed, PublishIndexWrapper wrapper) {
   if (unique_access_needed) {
     MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
   }
@@ -2046,6 +2046,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto publisher = wrapper([](uint64_t) {});
+  publisher(0 /*timestamp is ignored*/);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -2053,7 +2058,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, PropertiesPaths properties) {
+    LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2070,6 +2075,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
           label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto publisher = wrapper([](uint64_t) {});
+  publisher(0 /*timestamp is ignored*/);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);

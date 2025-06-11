@@ -221,11 +221,11 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, bool unique_access_needed = true,
+                                                                      PublishIndexWrapper wrapper = no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                      PropertiesPaths properties) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertiesPaths,
+                                                                      PublishIndexWrapper wrapper = no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
