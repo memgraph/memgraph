@@ -374,7 +374,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
-  if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
+  if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
@@ -581,23 +581,28 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
   }
 
-  if (exists.pattern_) {
-    scope.in_exists_pattern = true;
-  }
-  if (exists.subquery_) {
-    scope.in_exists_subquery = true;
-  }
+  scope.in_exists = true;
 
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
 
+  if (exists.subquery_) {
+    scopes_.emplace_back(Scope{.in_exists = true});
+  }
+
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
-  auto &scope = scopes_.back();
-  scope.in_exists_pattern = false;
-  scope.in_exists_subquery = false;
+bool SymbolGenerator::PostVisit(Exists &exists) {
+  if (exists.pattern_) {
+    auto &scope = scopes_.back();
+    scope.in_exists = false;
+  } else if (exists.subquery_) {
+    auto subquery_scope = scopes_.back();
+    scopes_.pop_back();
+    auto &main_query_scope = scopes_.back();
+    main_query_scope.in_exists = false;
+  }
 
   return true;
 }

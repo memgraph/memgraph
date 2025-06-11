@@ -137,8 +137,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_where{false};
     bool in_match{false};
     bool in_foreach{false};
-    bool in_exists_pattern{false};
-    bool in_exists_subquery{false};
+    bool in_exists{false};
     bool in_reduce{false};
     bool in_set_property{false};
     bool in_call_subquery{false};
