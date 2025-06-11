@@ -22,6 +22,7 @@ struct IndexStatus {
 
   bool is_populating() const { return commit_timestamp.load(std::memory_order_acquire) == kTransactionInitialId; }
   bool is_ready() const { return !is_populating(); }
+  bool is_visible(uint64_t timestamp) const { return commit_timestamp.load(std::memory_order_acquire) <= timestamp; }
 
   void commit(uint64_t timestamp) { commit_timestamp.store(timestamp, std::memory_order_release); }
 

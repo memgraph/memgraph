@@ -3060,7 +3060,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
 
   // TODO: add status populating/ready?
   return {mem_label_index->ListIndices(),
-          transaction_.active_indices_.label_properties_->ListIndices(),
+          transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           mem_edge_type_index->ListIndices(),
           mem_edge_type_property_index->ListIndices(),
           mem_edge_property_index->ListIndices(),

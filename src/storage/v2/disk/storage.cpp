@@ -2359,7 +2359,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(),
-          transaction_.active_indices_.label_properties_->ListIndices(),
+          transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

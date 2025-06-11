@@ -561,7 +561,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
   return res;
 }
 
-auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices() const
+auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const
     -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
 
@@ -570,8 +570,10 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices() const
 
   ret.reserve(num_indexes);
   for (auto const &[label, indices] : index_container_) {
-    for (auto const &props : indices | std::views::keys) {
-      ret.emplace_back(label, props);
+    for (auto const &[props, index] : indices) {
+      if (index->status.is_visible(start_timestamp)) {
+        ret.emplace_back(label, props);
+      }
     }
   }
   return ret;
