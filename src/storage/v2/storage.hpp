@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -408,11 +409,11 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                              PropertiesPaths properties) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper = no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;

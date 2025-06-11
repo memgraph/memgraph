@@ -3219,6 +3219,31 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
                        RWType::NONE};
 }
 
+template <typename F>
+concept InvocableWithUInt64 = std::invocable<F, std::uint64_t>;
+
+struct DoNothing {
+  template <typename... Args>
+  void operator()(Args &&...) { /* do nothing*/
+  }
+};
+
+// Creating an index influences computed plan costs.
+// We need to atomically invcalidate the plan when publishing new index
+auto make_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
+  // capture DatabaseAccess in builder
+  return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {
+    // build plan invalidator wrapper
+    return [db_acc = std::move(db_acc),
+            publish_func = std::forward<Func>(publish_func)](uint64_t commit_timestamp) mutable {
+      db_acc->plan_cache()->WithLock([&](auto &cache) {
+        cache.reset();
+        publish_func(commit_timestamp);
+      });
+    };
+  };
+}
+
 // TODO: take StoppingContext
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::vector<Notification> *notifications, CurrentDB &current_db) {
@@ -3237,10 +3262,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   auto *dba = &*current_db.execution_db_accessor_;
 
   // Creating an index influences computed plan costs.
-  // TODO: allow index publishing to happen while plan cache is locked
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
-  };
+  auto plan_invalidator_builder = make_plan_invalidator_builder(db_acc);
 
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
@@ -3270,10 +3292,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
+                 plan_invalidator_builder =
+                     std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, std::move(properties));
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+            properties.empty() ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
+                               : dba->CreateIndex(label, std::move(properties), std::move(plan_invalidator_builder));
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
@@ -3291,7 +3314,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
+                 invalidate_plan_cache =
+                     std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
         auto maybe_index_error =
             properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
         utils::OnScopeExit invalidator(invalidate_plan_cache);

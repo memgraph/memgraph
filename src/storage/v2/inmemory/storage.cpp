@@ -1373,7 +1373,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed) {
+    LabelId label, bool unique_access_needed, PublishIndexWrapper wrapper) {
   if (unique_access_needed) {
     MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
   }
@@ -1382,13 +1382,18 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // TODO: concurrent index creation need to publish
+  auto publisher = wrapper([](uint64_t) {});
+  publisher(0);  // ensures plan cache is cleared
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
   return {};
 }
 
-auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties)
+auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
+                                                    PublishIndexWrapper wrapper)
     -> utils::BasicResult<StorageIndexDefinitionError, void> {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label-property index requires a unique or read only access to the storage!");
@@ -1403,9 +1408,10 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
                                                std::nullopt, &transaction_)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: need to wrap in plan invalidator
-  transaction_.commit_callbacks_.Add(
+  // Wrapper will make sure plan cache is cleared
+  auto publisher = wrapper(
       [=](uint64_t commit_timestamp) { mem_label_property_index->PublishIndex(label, properties, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
@@ -3047,8 +3053,6 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());

@@ -18,6 +18,7 @@
 #include "query/hops_limit.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -629,13 +630,15 @@ class DbAccessor final {
 
   const std::string &id() const { return accessor_->id(); }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label) {
-    return accessor_->CreateIndex(label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
+      storage::LabelId label, storage::PublishIndexWrapper wraper = storage::no_wrap) {
+    return accessor_->CreateIndex(label, true, std::move(wraper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
-    return accessor_->CreateIndex(label, std::move(properties));
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      storage::PublishIndexWrapper wraper = storage::no_wrap) {
+    return accessor_->CreateIndex(label, std::move(properties), std::move(wraper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {

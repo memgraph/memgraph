@@ -785,6 +785,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -801,6 +802,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -814,6 +816,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
   }
 }
 
@@ -827,6 +830,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -842,6 +846,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
