@@ -40,14 +40,7 @@ class TransactionReplication {
       // If replica should commit immediately upon finalizing txn replication
       bool const should_commit_immediately = !ShouldRunTwoPC();
 
-      if (auto stream = client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately);
-          stream.has_value() || client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-        streams.push_back(std::move(stream));
-      } else {
-        // For 2PC, we need valid replication streams for all instances. Clear streams, release RPC locks and return.
-        streams.clear();
-        return;
-      }
+      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately));
     }
   }
   template <typename... Args>
