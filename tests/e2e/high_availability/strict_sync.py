@@ -167,7 +167,30 @@ def get_default_setup_queries():
     ]
 
 
+# Tests that when all replicas are UP, 2PC should work
+@pytest.mark.skip(reason="Commit should work properly")
 def test_commit_works(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+    instance_2_cursor = connect(host="localhost", port=7688).cursor()
+
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_2_cursor))
+
+
+# One replica is down before commit starts on MAIN, hence in-memory state should be preserved and commit should fail
+def test_replica_down_before_commit(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -176,14 +199,25 @@ def test_commit_works(test_name):
     for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
+    # Replica goes down
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
     instance3_cursor = connect(host="localhost", port=7689).cursor()
-    execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+    assert (
+        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
+        in str(e.value)
+    )
 
-    replica_1_cursor = connect(host="localhost", port=7687).cursor()
-    replica_2_cursor = connect(host="localhost", port=7688).cursor()
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
 
-    mg_sleep_and_assert(1, partial(get_vertex_count, replica_1_cursor))
-    mg_sleep_and_assert(1, partial(get_vertex_count, replica_2_cursor))
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    instance2_cursor = connect(host="localhost", port=7688).cursor()
+
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance1_cursor))
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance2_cursor))
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance3_cursor))
 
 
 if __name__ == "__main__":

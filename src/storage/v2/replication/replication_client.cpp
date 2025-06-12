@@ -340,8 +340,6 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
           return std::nullopt;
         }
 
-        spdlog::info("Acquired RPC stream for {}", client_.name_);
-
         *locked_state = REPLICATING;
         return ReplicaStream(storage, std::move(*maybe_stream_handler));
       } catch (const rpc::RpcFailedException &) {
@@ -643,8 +641,6 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replic
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
-
-ReplicaStream::~ReplicaStream() { spdlog::info("Replica stream destroyed for {}", storage_->name()); }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());

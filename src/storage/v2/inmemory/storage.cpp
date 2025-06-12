@@ -731,8 +731,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  utils::OnScopeExit cleanup{[&] { is_transaction_active_ = false; }};
-
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
@@ -830,9 +828,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         spdlog::info("No STRICT_SYNC replicas currently in the commit, committing on MAIN with durable ts {}.",
                      durability_commit_timestamp);
         FinalizeCommitPhase(durability_commit_timestamp);
-        // Throw exception if we couldn't commit on one of SYNC replicas
+        // Throw exception if we couldn't commit on one of SYNC replica
         if (!repl_prepare_phase_status) {
-          return StorageManipulationError{ReplicationError{}};
+          return StorageManipulationError{SyncReplicationError{}};
         }
         return {};
       }
@@ -852,15 +850,23 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // They need to be blocked until they commit, they cannot commit some order txn, that would be out of order
         }
       } else {
-        // Send Abort RPC. How to abort our deltas which were already made durable?
-        spdlog::info("One of replicas didn't vote for committing, sending abort to replicas and aborting locally");
+        spdlog::info("One of replicas didn't vote for committing, aborting locally and sending abort to replicas.");
+        // Release engine lock because we don't have to hold it anymore
+        engine_guard.unlock();
+        Abort();
+        // We have aborted, need to release/cleanup commit_timestamp_ here
+        DMG_ASSERT(commit_timestamp_.has_value());
+        mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+        commit_timestamp_.reset();
+        // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
+        // because their in-memory state shouldn't show that there is some data and also durability should be
+        // automatically handled
         replicating_txn.SendFinalizeCommitRpc(false, mem_storage->uuid(), db_acc, durability_commit_timestamp);
-        // TODO: (andi) How can we abort here since we made deltas already durable? BIG PROBLEM
-        // TODO: (andi) What do we do with the replicas response true/false.
+        return StorageManipulationError{StrictSyncReplicationError{}};
       }
 
       if (!repl_prepare_phase_status) {
-        return StorageManipulationError{ReplicationError{}};
+        return StorageManipulationError{SyncReplicationError{}};
       }
     }
   }
@@ -899,6 +905,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     mem_storage->indices_.text_index_.Commit();
   }
+
+  is_transaction_active_ = false;
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -907,13 +915,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   auto result = PrepareForCommitPhase(reparg, db_acc);
 
   const auto fatal_error =
-      result.HasError() && std::visit(
-                               [](const auto &e) {
-                                 // All errors are handled at a higher level.
-                                 // Replication errros are not fatal and should procede with finialize transaction
-                                 return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::ReplicationError>;
-                               },
-                               result.GetError());
+      result.HasError() &&
+      std::visit(
+          [](const auto &e) {
+            // All errors are handled at a higher level.
+            // Replication errros are not fatal and should procede with finialize transaction
+            return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::SyncReplicationError>;
+          },
+          result.GetError());
   if (fatal_error) {
     return result;
   }

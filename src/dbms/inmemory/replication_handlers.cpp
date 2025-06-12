@@ -392,12 +392,23 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     return;
   }
 
-  spdlog::info("Finalizing commit for db {}", db_acc->get()->name());
+  spdlog::info("Finalizing commit for db {} with decision {}", db_acc->get()->name(), req.decision);
 
   MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
 
-  cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
-  cached_commit_accessor_.reset();
+  if (req.decision) {
+    cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    cached_commit_accessor_.reset();
+  } else {
+    cached_commit_accessor_->Abort();
+    // We have aborted, need to release/cleanup commit_timestamp_ here
+    auto &commit_ts = cached_commit_accessor_->GetCommitTimestamp();
+    DMG_ASSERT(commit_ts.has_value());
+    auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+    storage->commit_log_->MarkFinished(*commit_ts);
+    commit_ts.reset();
+  }
+
   storage::replication::FinalizeCommitRes const res(true);
   rpc::SendFinalResponse(res, res_builder);
 }

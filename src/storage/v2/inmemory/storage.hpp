@@ -563,6 +563,10 @@ class InMemoryStorage final : public Storage {
       return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
     }
 
+    auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }
+
+    void ResetCommitTimestamp() { commit_timestamp_.reset(); }
+
     const Transaction &GetTransaction() const { return transaction_; }
     Transaction &GetTransaction() { return transaction_; }
   };

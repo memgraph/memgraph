@@ -49,7 +49,7 @@ class ReplicaStream {
   ReplicaStream &operator=(ReplicaStream const &) = delete;
   ReplicaStream(ReplicaStream &&) = default;
   ReplicaStream &operator=(ReplicaStream &&) = default;
-  ~ReplicaStream();
+  ~ReplicaStream() = default;
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
