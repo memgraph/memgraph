@@ -4,6 +4,11 @@ import pytest
 from graphql_server import *
 
 
+@pytest.fixture
+def query_server() -> GraphQLServer:
+    return GraphQLServer("./crud.js")
+
+
 def test_create_query(query_server):
     query = 'mutation{createUsers(input:[{name:"John Doe"}]){users{id name}}}'
     gotten = query_server.send_query(query)
