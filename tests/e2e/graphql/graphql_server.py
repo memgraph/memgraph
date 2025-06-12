@@ -7,8 +7,6 @@ import subprocess
 import time
 from uuid import UUID
 
-import pytest
-
 import requests
 
 
@@ -16,7 +14,11 @@ class GraphQLServer:
     def __init__(self, config_file_path: str):
         self.url = "http://127.0.0.1:4000"
 
-        self.graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.graphql_lib = subprocess.Popen(
+            ["node", os.path.join("graphql/graphql_library_config/server.js"), config_file_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
         self.__wait_process_to_init(7687)
         self.__wait_process_to_init(4000)
@@ -152,9 +154,3 @@ def cleanup_user_and_posts(server: GraphQLServer, user_uuid):
     )
     gotten_response = server.send_query(cleanup_query)
     print(gotten_response)
-
-
-@pytest.fixture
-def query_server() -> GraphQLServer:
-    path = os.path.join("graphql/graphql_library_config/crud.js")
-    return GraphQLServer(path)
