@@ -1913,6 +1913,8 @@ class ExpandVariableCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
+  // initialize to arbitrary values, they should only be used
+  // after a successful pull from the input
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
 
