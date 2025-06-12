@@ -825,6 +825,9 @@ std::optional<RecoveryInfo> LoadWal(
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
 
+  // In 2PC, we can have deltas stored on disk which shouldn't be applied when recovering
+  bool should_commit{true};
+
   auto delta_apply = utils::Overloaded{
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
@@ -980,7 +983,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
       },
-      [&](WalTransactionStart const &data) { spdlog::info("Commit flag: {}", data.commit); },
+      [&](WalTransactionStart const &data) { should_commit = data.commit; },
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1194,9 +1197,8 @@ std::optional<RecoveryInfo> LoadWal(
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
-    auto timestamp = ReadWalDeltaHeader(&wal);
-
-    if (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp) {
+    if (auto timestamp = ReadWalDeltaHeader(&wal);
+        (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp) && should_commit) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
       std::visit(delta_apply, delta.data_);
@@ -1208,8 +1210,10 @@ std::optional<RecoveryInfo> LoadWal(
     }
   }
 
-  spdlog::info("Applied {} deltas from WAL. Skipped {} deltas, because they were too old.", deltas_applied,
-               info.num_deltas - deltas_applied);
+  spdlog::info(
+      "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
+      "abort txn but deltas were already made durable.",
+      deltas_applied, info.num_deltas - deltas_applied);
 
   return ret;
 }

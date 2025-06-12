@@ -240,7 +240,7 @@ def test_replica_down_before_commit(test_name):
 # One of replicas was down during the commit hence the txn will get aborted
 # Test that the other replica which was alive all the time and which receive PrepareRpc
 # won't contain any data after the restart.
-@pytest.mark.skip(reason="Durable abort still doesn't work")
+# @pytest.mark.skip(reason="Durable abort still doesn't work")
 def test_replica_after_restart_no_committed_data(test_name):
     inner_instances_description = setup_default_cluster(test_name)
 
