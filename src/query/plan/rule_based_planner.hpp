@@ -168,7 +168,8 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency);
+                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
+                                         bool in_exists_subquery = false);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -238,7 +239,8 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr,
+                                     context.in_exists_subquery);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -1078,6 +1080,7 @@ class RuleBasedPlanner {
             break;
           }
           case PatternFilterType::EXISTS_SUBQUERY: {
+            const bool old_context_exists_subquery = context_->in_exists_subquery;
             context_->in_exists_subquery = true;
             std::unordered_set<Symbol> outer_scope_bound_symbols;
             outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
@@ -1086,7 +1089,7 @@ class RuleBasedPlanner {
             context_->bound_symbols = bound_symbols;
 
             std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
-            context_->in_exists_subquery = false;
+            context_->in_exists_subquery = old_context_exists_subquery;
 
             context_->bound_symbols.clear();
             context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),

@@ -589,11 +589,6 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   }
 
   if (exists.subquery_) {
-    if (scope.in_exists_subquery) {
-      throw utils::NotYetImplemented("Nested EXISTS subqueries!");
-    }
-
-    scope.in_exists_subquery = true;
     scopes_.emplace_back(Scope{.in_exists_subquery = true});
   }
 
@@ -605,10 +600,7 @@ bool SymbolGenerator::PostVisit(Exists &exists) {
     auto &scope = scopes_.back();
     scope.in_exists_pattern = false;
   } else if (exists.subquery_) {
-    auto subquery_scope = scopes_.back();
     scopes_.pop_back();
-    auto &main_query_scope = scopes_.back();
-    main_query_scope.in_exists_subquery = false;
   }
 
   return true;

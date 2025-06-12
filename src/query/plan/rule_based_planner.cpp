@@ -128,7 +128,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     auto elements_it = literal.elements_.begin();
     std::advance(it, -literal.elements_.size());
     if (literal.GetTypeInfo() == MapProjectionLiteral::kType) {
-      // Erase the map variable. Grammar-wise, it’s a variable and thus never has aggregations.
+      // Erase the map variable. Grammar-wise, it's a variable and thus never has aggregations.
       std::advance(it, -1);
       it = has_aggregation_.erase(it);
     }
@@ -706,7 +706,8 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency) {
+                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
+                                         bool in_exists_subquery) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
@@ -717,10 +718,27 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   bool advance_command = is_write;
   ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, pc_ops, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
-  // Reset bound symbols, so that only those in WITH are exposed.
-  bound_symbols.clear();
-  for (const auto &symbol : body.output_symbols()) {
-    bound_symbols.insert(symbol);
+
+  // In EXISTS subqueries, we need to preserve outer scope variables
+  if (in_exists_subquery) {
+    // Keep only the output symbols from WITH and the outer scope variables
+    std::unordered_set<Symbol> new_bound_symbols;
+    for (const auto &symbol : body.output_symbols()) {
+      new_bound_symbols.insert(symbol);
+    }
+    // Preserve outer scope variables that were bound before this WITH
+    for (const auto &symbol : bound_symbols) {
+      if (symbol.type_ == Symbol::Type::VERTEX || symbol.type_ == Symbol::Type::EDGE) {
+        new_bound_symbols.insert(symbol);
+      }
+    }
+    bound_symbols = std::move(new_bound_symbols);
+  } else {
+    // For regular queries, reset bound symbols to only those in WITH
+    bound_symbols.clear();
+    for (const auto &symbol : body.output_symbols()) {
+      bound_symbols.insert(symbol);
+    }
   }
   return last_op;
 }
