@@ -291,7 +291,7 @@ def test_leadership_change(test_name):
     for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
-    interactive_mg_runner.kilkilll(inner_instances_description, "coordinator_3")
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()

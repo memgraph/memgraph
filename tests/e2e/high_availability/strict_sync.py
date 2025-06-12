@@ -155,6 +155,7 @@ def get_instances_description_no_setup(test_name: str):
     }
 
 
+# Uses STRICT_SYNC replicas
 def get_default_setup_queries():
     return [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
@@ -167,41 +168,86 @@ def get_default_setup_queries():
     ]
 
 
-# Tests that when all replicas are UP, 2PC should work
-@pytest.mark.skip(reason="Commit should work properly")
-def test_commit_works(test_name):
+# Executes setup queries and returns cluster info
+# Should be used together with get_default_setup_queries
+def setup_default_cluster(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
-
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
-
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    instance3_cursor = connect(host="localhost", port=7689).cursor()
 
     for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
+    return inner_instances_description
 
+
+# Tests that when all replicas are UP, 2PC should work
+# After instances restart, they should still see the same data as upon committing
+# @pytest.mark.skip(reason="Commit works properly")
+def test_commit_works(test_name):
+    inner_instances_description = setup_default_cluster(test_name)
+    # Create data on MAIN
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
 
+    # Check if replicated on 1st replica
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
-    instance_2_cursor = connect(host="localhost", port=7688).cursor()
-
     mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+
+    # Check if replicated on 2nd replica
+    instance_2_cursor = connect(host="localhost", port=7688).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance_2_cursor))
+
+    def check_if_data_preserved_after_restart(instance_name, bolt_port):
+        interactive_mg_runner.kill(inner_instances_description, instance_name)
+        interactive_mg_runner.start(inner_instances_description, instance_name)
+        instance_cursor = connect(host="localhost", port=bolt_port).cursor()
+        mg_sleep_and_assert(1, partial(get_vertex_count, instance_cursor))
+
+    check_if_data_preserved_after_restart("instance_1", 7687)
+    check_if_data_preserved_after_restart("instance_2", 7688)
+    check_if_data_preserved_after_restart("instance_3", 7689)
 
 
 # One replica is down before commit starts on MAIN, hence in-memory state should be preserved and commit should fail
+# @pytest.mark.skip(reason="In-memory Abort works properly")
 def test_replica_down_before_commit(test_name):
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
-
-    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
-
-    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in get_default_setup_queries():
-        execute_and_fetch_all(coord_cursor_3, query)
+    inner_instances_description = setup_default_cluster(test_name)
 
     # Replica goes down
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
 
+    # Try to commit transaction on the current main
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+    assert (
+        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
+        in str(e.value)
+    )
+    # Commit shouldn't be visible on the current main
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance3_cursor))
+
+    # Restart replica 1
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance1_cursor))
+
+    # Check data on replica 2
+    instance2_cursor = connect(host="localhost", port=7688).cursor()
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance2_cursor))
+
+
+# One of replicas was down during the commit hence the txn will get aborted
+# Test that the other replica which was alive all the time and which receive PrepareRpc
+# won't contain any data after the restart.
+@pytest.mark.skip(reason="Durable abort still doesn't work")
+def test_replica_after_restart_no_committed_data(test_name):
+    inner_instances_description = setup_default_cluster(test_name)
+
+    # Instance 1 dies
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    # Try to commit transaction on the current main
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
@@ -210,14 +256,13 @@ def test_replica_down_before_commit(test_name):
         in str(e.value)
     )
 
-    interactive_mg_runner.start(inner_instances_description, "instance_1")
-
-    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    # Data restart shouldn't change the fact that txn got aborted
     instance2_cursor = connect(host="localhost", port=7688).cursor()
-
-    mg_sleep_and_assert(0, partial(get_vertex_count, instance1_cursor))
     mg_sleep_and_assert(0, partial(get_vertex_count, instance2_cursor))
-    mg_sleep_and_assert(0, partial(get_vertex_count, instance3_cursor))
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
+    instance2_cursor = connect(host="localhost", port=7688).cursor()
+    mg_sleep_and_assert(0, partial(get_vertex_count, instance2_cursor))
 
 
 if __name__ == "__main__":

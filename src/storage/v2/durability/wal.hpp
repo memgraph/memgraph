@@ -388,7 +388,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
                  uint64_t timestamp);
 
 // Function used to encode the transaction start
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit);
+// Returns the position in the WAL where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
@@ -450,8 +451,13 @@ class WalFile {
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
 
   // True means storage should use deltas associated with this txn, false means skip until
-  // you find the next txn
-  void AppendTransactionStart(uint64_t timestamp, bool commit);
+  // you find the next txn.
+  // Returns the position in the WAL where the flag 'commit' is about to be written
+  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit);
+
+  // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
+  // recovery
+  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
 
   void AppendTransactionEnd(uint64_t timestamp);
 

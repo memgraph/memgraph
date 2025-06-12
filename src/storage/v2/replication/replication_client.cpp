@@ -653,13 +653,6 @@ auto ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t c
   EncodeDelta(&encoder, storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
-void ReplicaStream::AppendTransactionStart(uint64_t const final_commit_timestamp) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  // Initially set the flag to false = abort
-  // TODO: (andi) This means you can remove arg and directly set false inside the EncodeTransactionStart
-  EncodeTransactionStart(&encoder, final_commit_timestamp, false);
-}
-
 void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);

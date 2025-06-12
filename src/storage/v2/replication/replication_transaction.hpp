@@ -44,8 +44,6 @@ class TransactionReplication {
     }
   }
 
-  void AppendTransactionStart(uint64_t durability_commit_timestamp);
-
   template <typename... Args>
   void AppendDelta(Args &&...args) {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {

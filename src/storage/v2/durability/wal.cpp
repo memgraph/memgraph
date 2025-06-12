@@ -777,11 +777,13 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   }
 }
 
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit) {
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t const timestamp, bool const commit) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
+  auto const flag_pos = encoder->GetPosition();
   encoder->WriteBool(commit);
+  return flag_pos;
 }
 
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
@@ -1230,12 +1232,11 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.Initialize(path_, kWalMagic, kVersion);
 
   // Write placeholder offsets.
-  uint64_t offset_offsets = 0;
-  uint64_t offset_metadata = 0;
-  uint64_t offset_deltas = 0;
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
-  offset_offsets = wal_.GetPosition();
+  uint64_t const offset_offsets = wal_.GetPosition();
+  uint64_t offset_metadata{0};
   wal_.WriteUint(offset_metadata);
+  uint64_t offset_deltas{0};
   wal_.WriteUint(offset_deltas);
 
   // Write metadata.
@@ -1306,9 +1307,17 @@ void WalFile::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timesta
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit) {
-  EncodeTransactionStart(&wal_, timestamp, commit);
+uint64_t WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit) {
+  auto const flag_pos = EncodeTransactionStart(&wal_, timestamp, commit);
   UpdateStats(timestamp);
+  return flag_pos;
+}
+
+void WalFile::UpdateCommitStatus(uint64_t const flag_pos, bool const new_decision) {
+  auto const curr_pos = wal_.GetPosition();
+  wal_.SetPosition(flag_pos);
+  wal_.WriteBool(new_decision);
+  wal_.SetPosition(curr_pos);
 }
 
 void WalFile::AppendTransactionEnd(uint64_t timestamp) {

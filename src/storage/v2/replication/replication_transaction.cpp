@@ -13,13 +13,6 @@
 
 namespace memgraph::storage {
 
-void TransactionReplication::AppendTransactionStart(uint64_t const durability_commit_timestamp) {
-  for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-    client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionStart(durability_commit_timestamp); },
-                                   replica_stream);
-  }
-}
-
 auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp,
                                                         DatabaseAccessProtector db_acc) -> bool {
   bool strict_sync_replicas_succ{true};

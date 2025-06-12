@@ -407,6 +407,9 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
     storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.reset();
+    if (storage->wal_file_) {
+      storage->FinalizeWalFile();
+    }
   }
 
   storage::replication::FinalizeCommitRes const res(true);

@@ -543,6 +543,8 @@ class InMemoryStorage final : public Storage {
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
                              IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
+
+    uint64_t commit_flag_wal_position_{0};
   };
 
   class ReplicationAccessor final : public InMemoryAccessor {
