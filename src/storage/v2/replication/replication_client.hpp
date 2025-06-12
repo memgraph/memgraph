@@ -58,9 +58,6 @@ class ReplicaStream {
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  void AppendTransactionStart(uint64_t final_commit_timestamp);
-
-  /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException

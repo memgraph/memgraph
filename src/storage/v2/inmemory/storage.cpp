@@ -883,6 +883,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
                                                  mem_storage->config_.salient.items.properties_on_edges);
   }
 
+  if (commit_flag_wal_position_ != 0) {
+    constexpr bool commit{true};
+    mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
+  }
+
+  if (mem_storage->wal_file_) {
+    mem_storage->FinalizeWalFile();
+  }
+
   MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
@@ -2326,6 +2335,11 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     return false;
   }
 
+  // If there are no strict sync replicas in the cluster, write immediately to WAL: flag 'commit' = true
+  bool const commit_flag = !replicating_txn.ShouldRunTwoPC();
+  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
+  spdlog::info("Commit flag is on position {} in the WAL file.", commit_flag_wal_position_);
+
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
   //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
@@ -2340,8 +2354,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
     replicating_txn.EncodeToReplicas(full_encode_operation);
   };
-
-  // replicating_txn.AppendTransactionStart(durability_commit_timestamp);
 
   // Handle metadata deltas
   for (const auto &md_delta : transaction_.md_deltas) {
@@ -2640,11 +2652,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // Add a delta that indicates that the transaction is fully written to the WAL
   mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
 
-  // Finalize WAL at the end of the prepare phase
-  mem_storage->FinalizeWalFile();
-
   // Ships deltas to instances and waits for the reply
-  spdlog::info("Sending prepare for commit RPC to instances");
   // Returns only the status of SYNC replicas.
   return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
 }
