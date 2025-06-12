@@ -72,7 +72,7 @@ void Encoder<FileType>::WriteMarker(Marker marker) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::WriteBool(bool value) {
+void Encoder<FileType>::WriteBool(bool const value) {
   WriteMarker(Marker::TYPE_BOOL);
   if (value) {
     WriteMarker(Marker::VALUE_TRUE);
