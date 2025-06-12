@@ -30,13 +30,11 @@ struct AppendDeltasReq {
   static void Load(AppendDeltasReq *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder);
   AppendDeltasReq() = default;
-  AppendDeltasReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t previous_commit_timestamp,
-                  uint64_t seq_num)
-      : main_uuid{main_uuid}, uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
+  AppendDeltasReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t const seq_num)
+      : main_uuid{main_uuid}, uuid{uuid}, seq_num(seq_num) {}
 
   utils::UUID main_uuid;
   utils::UUID uuid;
-  uint64_t previous_commit_timestamp;
   uint64_t seq_num;
 };
 
