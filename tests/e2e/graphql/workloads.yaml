@@ -28,6 +28,13 @@ workloads:
     proc: "tests/e2e/graphql/temporary_procedures/"
     args: ["graphql/graphql_crud.py"]
     <<: *in_memory_cluster
+
+  - name: "GraphQL queries and aggregations"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_queries_and_aggregations.py"]
+    <<: *in_memory_cluster
+
   - name: "Disk GraphQL crud"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
