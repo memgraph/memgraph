@@ -813,8 +813,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // This will block until we receive OK votes from all replicas if we are main
       // If we are replica, we will make durable our deltas and return
-      bool const repl_prepare_phase_status =
-          HandleDurabilityAndReplicate(durability_commit_timestamp, db_acc, replicating_txn);
+      bool const repl_prepare_phase_status = HandleDurabilityAndReplicate(
+          durability_commit_timestamp, db_acc, replicating_txn, repl_args.commit_immediately);
 
       // If I am replica with write txn return because the 2nd phase will be executed once we receive FinalizeCommitRpc
       // if it is STRICT_SYNC replica or it will commit after receiving PrepareCommitRpc if none of replicas are in
@@ -2320,7 +2320,8 @@ void InMemoryStorage::FinalizeWalFile() {
 
 bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                                      DatabaseAccessProtector db_acc,
-                                                                     TransactionReplication &replicating_txn) {
+                                                                     TransactionReplication &replicating_txn,
+                                                                     std::optional<bool> const &commit_immediately) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // A single transaction will always be fully-contained in a single WAL file.
@@ -2336,9 +2337,16 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   }
 
   // If there are no strict sync replicas in the cluster, write immediately to WAL: flag 'commit' = true
-  bool const commit_flag = !replicating_txn.ShouldRunTwoPC();
+  bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
+    // Replica
+    if (commit_immediately.has_value()) {
+      return *commit_immediately;
+    }
+    // MAIN
+    return !replicating_txn.ShouldRunTwoPC();
+  });
   commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
-  spdlog::info("Commit flag is on position {} in the WAL file.", commit_flag_wal_position_);
+  spdlog::info("Commit flag {} is on position {} in the WAL file.", commit_flag, commit_flag_wal_position_);
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.

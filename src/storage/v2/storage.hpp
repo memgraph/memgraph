@@ -153,6 +153,8 @@ struct CommitReplicationArgs {
   // REPLICA on receipt of Deltas will have a desired commit timestamp
   std::optional<uint64_t> desired_commit_timestamp{std::nullopt};
   bool is_main{true};
+  // nullopt if main, true for SYNC/ASYNC replica, false for STRICT_SYNC replica
+  std::optional<bool> commit_immediately{std::nullopt};
 };
 
 class Storage {

@@ -1113,8 +1113,9 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
-          auto const ret =
-              commit_accessor->PrepareForCommitPhase({.desired_commit_timestamp = commit_timestamp, .is_main = false});
+          auto const ret = commit_accessor->PrepareForCommitPhase({.desired_commit_timestamp = commit_timestamp,
+                                                                   .is_main = false,
+                                                                   .commit_immediately = commit_txn_immediately});
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
