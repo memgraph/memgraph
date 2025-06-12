@@ -773,3 +773,46 @@ Feature: WHERE exists
           RETURN person.name AS name;
           """
       Then an error should be raised
+
+  Scenario: Test invalid EXISTS with UNION in RETURN
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_CAT]->(:Cat {name: 'Whiskers'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          RETURN
+              person.name AS name,
+              EXISTS {
+                  MATCH (person)-[:HAS_DOG]->(:Dog)
+                  UNION
+                  MATCH (person)-[:HAS_CAT]->(:Cat)
+              } AS hasPet;
+          """
+      Then an error should be raised
+
+  Scenario: Test valid EXISTS with UNION in WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_CAT]->(:Cat {name: 'Whiskers'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+              MATCH (person)-[:HAS_DOG]->(:Dog)
+              UNION
+              MATCH (person)-[:HAS_CAT]->(:Cat)
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name    |
+          | 'John'  |
+          | 'Alice' |
