@@ -424,7 +424,81 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
 Result<PropertyValue> VertexAccessor::SetProperty(const std::vector<PropertyId> &properties,
                                                   const PropertyValue &new_value) const {
-  return Error::PROPERTIES_DISABLED;
+  if (transaction_->edge_import_mode_active) {
+    throw query::WriteVertexOperationInEdgeImportModeException();
+  }
+
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+  auto guard = std::unique_lock{vertex_->lock};
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  PropertyValue old_value;
+  PropertyId property = properties[0];
+  const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
+  auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
+                                  skip_duplicate_write, &schema_acc]() {
+    old_value = vertex->properties.GetProperty(property);
+    if (!old_value.IsMap()) {
+      // TODO: Make something out of this
+    }
+
+    PropertyValue new_value_map = old_value;
+    // TODO: Add nested property to the map
+
+    // We could skip setting the value if the previous one is the same to the new
+    // one. This would save some memory as a delta would not be created as well as
+    // avoid copying the value. The reason we are not doing that is because the
+    // current code always follows the logical pattern of "create a delta" and
+    // "modify in-place". Additionally, the created delta will make other
+    // transactions get a SERIALIZATION_ERROR.
+    if (skip_duplicate_write && old_value == new_value_map) {
+      return true;
+    }
+
+    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+    vertex->properties.SetProperty(property, new_value_map);
+    if (schema_acc) {
+      std::visit(
+          utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
+                             old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                              acc.SetProperty(vertex, property, new_type, old_type);
+                            },
+                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+          *schema_acc);
+    }
+
+    if (storage_->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
+        HandleTypeConstraintViolation(storage_, *maybe_violation);
+      }
+    }
+
+    return false;
+  };
+
+  auto early_exit = utils::AtomicMemoryBlock(set_property_impl);
+  if (early_exit) {
+    return std::move(old_value);
+  }
+
+  if (transaction_->constraint_verification_info) {
+    if (!new_value.IsNull()) {
+      transaction_->constraint_verification_info->AddedProperty(vertex_);
+    } else {
+      transaction_->constraint_verification_info->RemovedProperty(vertex_);
+    }
+  }
+
+  PropertyValue new_value_map = vertex_->properties.GetProperty(property);
+  storage_->indices_.UpdateOnSetProperty(property, new_value_map, vertex_, *transaction_);
+  transaction_->UpdateOnSetProperty(property, old_value, new_value_map, vertex_);
+
+  return std::move(old_value);
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
