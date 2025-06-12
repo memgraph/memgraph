@@ -3697,7 +3697,7 @@ TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
