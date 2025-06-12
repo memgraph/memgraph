@@ -53,6 +53,14 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 file = "strict_sync"
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    # Run the test
+    yield
+    # Stop + delete directories after running the test
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
 @pytest.fixture
 def test_name(request):
     return request.node.name
