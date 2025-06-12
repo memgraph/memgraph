@@ -165,7 +165,8 @@ class InMemoryStorage final : public Storage {
 
     [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     DatabaseAccessProtector db_acc,
-                                                    TransactionReplication &replicating_txn);
+                                                    TransactionReplication &replicating_txn,
+                                                    std::optional<bool> const &commit_immediately);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
