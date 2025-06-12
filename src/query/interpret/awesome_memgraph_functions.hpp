@@ -55,7 +55,7 @@ using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 /// Error, will return std::monostate if function can not be found
 auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
 
-// Returns the current hops limit if set, otherwise null.
-TypedValue GetHopsLimit(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
+// Returns the current hops counter if set, otherwise null.
+TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
 
 }  // namespace memgraph::query
