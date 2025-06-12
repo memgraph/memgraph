@@ -975,6 +975,18 @@ class PropertyLookup : public memgraph::query::Expression {
 
   PropertyLookup() = default;
 
+  // New constructor for property path
+  PropertyLookup(Expression *expression, std::vector<PropertyIx> property_path)
+      : expression_(expression), property_path_(std::move(property_path)) {
+    if (property_path_.size() == 1) {
+      property_ = property_path_[0];
+    }
+  }
+
+  // Existing constructor for single property (fills property_path_)
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(std::move(property)), property_path_{property} {}
+
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<void>);
@@ -986,20 +998,24 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  memgraph::query::PropertyIx property_;
+  memgraph::query::PropertyIx property_;  // Deprecated: use property_path_ instead
+  std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->property_path_.resize(property_path_.size());
+    for (size_t i = 0; i < property_path_.size(); ++i) {
+      object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
+    }
     object->evaluation_mode_ = evaluation_mode_;
     return object;
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property)
-      : expression_(expression), property_(std::move(property)) {}
+  // Constructors moved above
 
  private:
   friend class AstStorage;

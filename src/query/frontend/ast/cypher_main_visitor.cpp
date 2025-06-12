@@ -3347,13 +3347,13 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(MemgraphCypher::RemoveItemConte
 
 antlrcpp::Any CypherMainVisitor::visitPropertyExpression(MemgraphCypher::PropertyExpressionContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
+  std::vector<PropertyIx> path;
   for (auto *lookup : ctx->propertyLookup()) {
     auto key = std::any_cast<PropertyIx>(lookup->accept(this));
-    auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
-    expression = property_lookup;
+    path.push_back(key);
   }
-  // It is guaranteed by grammar that there is at least one propertyLookup.
-  return static_cast<PropertyLookup *>(expression);
+  // Use the new property path constructor
+  return static_cast<PropertyLookup *>(storage_->Create<PropertyLookup>(expression, path));
 }
 
 antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpressionContext *ctx) {
