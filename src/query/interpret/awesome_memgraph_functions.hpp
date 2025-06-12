@@ -15,7 +15,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "query/hops_limit.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
@@ -38,7 +37,7 @@ struct FunctionContext {
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
-  const HopsLimit *hops_limit;
+  int64_t hops_counter{0};
 };
 
 using func_impl =

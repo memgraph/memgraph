@@ -209,7 +209,7 @@ Feature: Hops Limit
             | counter |
             | 50      |
 
-    Scenario: Test retrieving hops limit counter without limit set
+    Scenario: Test retrieving hops limit counter without limit set is also active
         Given an empty graph
         And having executed:
             """
@@ -221,4 +221,18 @@ Feature: Hops Limit
             """
         Then the result should be:
             | counter |
-            | null    |
+            | 50      |
+
+    Scenario: Test retrieving hops limit without traversing
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) as x CREATE ()-[:NEXT]->()
+            """
+        When executing query:
+            """
+            RETURN getHopsCounter() as counter;
+            """
+        Then the result should be:
+            | counter |
+            | 0       |

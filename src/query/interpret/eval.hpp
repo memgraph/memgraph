@@ -189,14 +189,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
                       storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
-                      const HopsLimit *hops_limit = nullptr)
+                      const int64_t *hops_counter = nullptr)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
         dba_(dba),
         view_(view),
         frame_change_collector_(frame_change_collector),
-        hops_limit_(hops_limit) {}
+        hops_counter_(hops_counter) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -205,6 +205,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
 
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
+
+  int64_t GetHopsCounter() { return hops_counter_ != nullptr ? *hops_counter_ : 0; }
 
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
@@ -655,7 +657,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, hops_limit_};
+    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -968,8 +970,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(*maybe_enum, ctx_->memory);
   }
 
-  const HopsLimit *GetHopsLimit() const { return hops_limit_; }
-
  private:
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
@@ -1063,7 +1063,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameChangeCollector *frame_change_collector_;
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
-  const HopsLimit *hops_limit_;
+  const int64_t *hops_counter_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
