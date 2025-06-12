@@ -1293,8 +1293,17 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
   SetProperty() = default;
 
-  SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs,
-              Expression *rhs);
+  // New constructor for property path
+  SetProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+              PropertyLookup *lhs, Expression *rhs);
+
+  // Deprecated: use property_path_ instead
+  std::shared_ptr<LogicalOperator> input_;
+  storage::PropertyId property_;
+  std::vector<storage::PropertyId> property_path_;
+  PropertyLookup *lhs_;
+  Expression *rhs_;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1302,11 +1311,6 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  storage::PropertyId property_;
-  PropertyLookup *lhs_;
-  Expression *rhs_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1423,7 +1427,15 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
 
   RemoveProperty() = default;
 
-  RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs);
+  RemoveProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+                 PropertyLookup *lhs);
+
+  // Deprecated: use property_path_ instead
+  std::shared_ptr<LogicalOperator> input_;
+  storage::PropertyId property_;
+  std::vector<storage::PropertyId> property_path_;
+  PropertyLookup *lhs_;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1431,10 +1443,6 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  storage::PropertyId property_;
-  PropertyLookup *lhs_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 

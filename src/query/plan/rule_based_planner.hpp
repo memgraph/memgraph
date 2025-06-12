@@ -317,6 +317,14 @@ class RuleBasedPlanner {
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
+  std::vector<storage::PropertyId> GetProperties(const std::vector<PropertyIx> &props) {
+    std::vector<storage::PropertyId> property_ids;
+    property_ids.reserve(props.size());
+    for (const auto &prop : props) {
+      property_ids.push_back(context_->db->NameToProperty(prop.name));
+    }
+    return property_ids;
+  }
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
@@ -501,7 +509,8 @@ class RuleBasedPlanner {
     } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
-      return std::make_unique<plan::SetProperty>(std::move(input_op), GetProperty(set->property_lookup_->property_),
+      return std::make_unique<plan::SetProperty>(std::move(input_op),
+                                                 GetProperties(set->property_lookup_->property_path_),
                                                  set->property_lookup_, set->expression_);
     } else if (auto *set = utils::Downcast<query::SetProperties>(clause)) {
       auto op = set->update_ ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
@@ -511,8 +520,8 @@ class RuleBasedPlanner {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, GetLabelIds(set->labels_));
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
-      return std::make_unique<plan::RemoveProperty>(std::move(input_op), GetProperty(rem->property_lookup_->property_),
-                                                    rem->property_lookup_);
+      return std::make_unique<plan::RemoveProperty>(
+          std::move(input_op), GetProperties(rem->property_lookup_->property_path_), rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
       return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, GetLabelIds(rem->labels_));

@@ -1913,8 +1913,6 @@ class ExpandVariableCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
-  // initialize to arbitrary values, they should only be used
-  // after a successful pull from the input
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
 
@@ -3894,9 +3892,13 @@ void Delete::DeleteCursor::Reset() {
   pulled_ = 0;
 }
 
-SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
+SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
                          PropertyLookup *lhs, Expression *rhs)
-    : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
+    : input_(input), property_path_(std::move(property_path)), lhs_(lhs), rhs_(rhs) {
+  if (property_path_.size() == 1) {
+    property_ = property_path_[0];  // Deprecated: use property_path_ instead
+  }
+}
 
 ACCEPT_WITH_INPUT(SetProperty)
 
@@ -3913,7 +3915,7 @@ std::vector<Symbol> SetProperty::ModifiedSymbols(const SymbolTable &table) const
 std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
   auto object = std::make_unique<SetProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->property_ = property_;
+  object->property_path_ = property_path_;
   object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
   object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
   return object;
@@ -3945,13 +3947,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
       }
 #endif
-      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_path_, rhs,
                                        context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
-            lhs.ValueVertex(), self_.property_,
+            lhs.ValueVertex(), self_.property_path_[0],
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
@@ -3967,14 +3969,14 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
 #endif
-      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs,
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_path_, rhs,
                                        context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid
         // during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
-            lhs.ValueEdge(), self_.property_,
+            lhs.ValueEdge(), self_.property_path_[0],
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
@@ -4309,9 +4311,9 @@ void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
-RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
-                               PropertyLookup *lhs)
-    : input_(input), property_(property), lhs_(lhs) {}
+RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
+                               std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
+    : input_(input), property_path_(std::move(property_path)), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
@@ -4328,7 +4330,7 @@ std::vector<Symbol> RemoveProperty::ModifiedSymbols(const SymbolTable &table) co
 std::unique_ptr<LogicalOperator> RemoveProperty::Clone(AstStorage *storage) const {
   auto object = std::make_unique<RemoveProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->property_ = property_;
+  object->property_path_ = property_path_;
   object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
   return object;
 }
@@ -4349,8 +4351,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
-  auto remove_prop = [property = self_.property_, &context](auto *record) {
-    auto maybe_old_value = record->RemoveProperty(property);
+  auto remove_prop = [property_path = self_.property_path_, &context](auto *record) {
+    auto maybe_old_value = record->RemoveProperty(property_path);
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
@@ -4369,7 +4371,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterRemovedObjectProperty(
-          *record, property,
+          *record, property_path[0],
           TypedValue(std::move(*maybe_old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   };
@@ -6960,7 +6962,7 @@ class HashJoinCursor : public Cursor {
     };
 
     if (!common_value_found_) {
-      // Pull from the right_op until there’s a mergeable frame
+      // Pull from the right_op until there's a mergeable frame
       while (true) {
         auto pulled = right_op_cursor_->Pull(frame, context);
         if (!pulled) return false;

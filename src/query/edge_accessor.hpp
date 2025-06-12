@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,11 @@ class EdgeAccessor final {
     return impl_.SetProperty(key, value);
   }
 
+  storage::Result<storage::PropertyValue> SetProperty(const std::vector<storage::PropertyId> &key,
+                                                      const storage::PropertyValue &value) {
+    return impl_.SetProperty(key, value);
+  }
+
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.InitProperties(properties);
   }
@@ -53,6 +58,10 @@ class EdgeAccessor final {
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
+    return SetProperty(key, storage::PropertyValue());
+  }
+
+  storage::Result<storage::PropertyValue> RemoveProperty(const std::vector<storage::PropertyId> &key) {
     return SetProperty(key, storage::PropertyValue());
   }
 
