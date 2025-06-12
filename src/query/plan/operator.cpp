@@ -1570,6 +1570,13 @@ std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
 Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
+Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int64_t existing_node_degree,
+                                   utils::MemoryResource *mem)
+    : self_(self),
+      input_cursor_(self.input_->MakeCursor(mem)),
+      prev_input_degree_(input_degree),
+      prev_existing_degree_(existing_node_degree) {}
+
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
