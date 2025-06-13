@@ -194,11 +194,6 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   return std::move(*current_value);
 }
 
-Result<storage::PropertyValue> EdgeAccessor::SetProperty(const std::vector<PropertyId> &properties,
-                                                         const PropertyValue &new_value) {
-  return Error::PROPERTIES_DISABLED;
-}
-
 Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;

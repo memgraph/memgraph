@@ -998,7 +998,7 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  memgraph::query::PropertyIx property_;  // Deprecated: use property_path_ instead
+  memgraph::query::PropertyIx property_;
   std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
 

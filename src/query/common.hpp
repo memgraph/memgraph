@@ -192,22 +192,14 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const std::vector<storage::PropertyId> &key, const TypedValue &value,
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
                                        storage::NameIdMapper *name_id_mapper) {
   try {
-    if (key.size() == 1) {
-      auto maybe_old_value = record->SetProperty(key[0], value.ToPropertyValue(name_id_mapper));
-      if (maybe_old_value.HasError()) {
-        ProcessError(maybe_old_value.GetError());
-      }
-      return std::move(*maybe_old_value);
-    } else {
-      auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
-      if (maybe_old_value.HasError()) {
-        ProcessError(maybe_old_value.GetError());
-      }
-      return std::move(*maybe_old_value);
+    auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
+    if (maybe_old_value.HasError()) {
+      ProcessError(maybe_old_value.GetError());
     }
+    return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }

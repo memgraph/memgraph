@@ -80,6 +80,7 @@ enum class TypeId : uint64_t {
   ROLLUP_APPLY,
   PERIODIC_COMMIT,
   PERIODIC_SUBQUERY,
+  SET_NESTED_PROPERTY,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)

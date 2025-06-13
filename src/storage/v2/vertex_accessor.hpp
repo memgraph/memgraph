@@ -74,7 +74,6 @@ class VertexAccessor final {
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &new_value) const;
-  Result<PropertyValue> SetProperty(const std::vector<PropertyId> &properties, const PropertyValue &new_value) const;
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.

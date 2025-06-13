@@ -509,9 +509,14 @@ class RuleBasedPlanner {
     } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
-      return std::make_unique<plan::SetProperty>(std::move(input_op),
-                                                 GetProperties(set->property_lookup_->property_path_),
-                                                 set->property_lookup_, set->expression_);
+      if (set->property_lookup_->property_path_.size() == 1) {
+        return std::make_unique<plan::SetProperty>(std::move(input_op), GetProperty(set->property_lookup_->property_),
+                                                   set->property_lookup_, set->expression_);
+      } else {
+        return std::make_unique<plan::SetNestedProperty>(std::move(input_op),
+                                                         GetProperties(set->property_lookup_->property_path_),
+                                                         set->property_lookup_, set->expression_);
+      }
     } else if (auto *set = utils::Downcast<query::SetProperties>(clause)) {
       auto op = set->update_ ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
       const auto &input_symbol = symbol_table.at(*set->identifier_);
@@ -520,8 +525,8 @@ class RuleBasedPlanner {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, GetLabelIds(set->labels_));
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
-      return std::make_unique<plan::RemoveProperty>(
-          std::move(input_op), GetProperties(rem->property_lookup_->property_path_), rem->property_lookup_);
+      return std::make_unique<plan::RemoveProperty>(std::move(input_op), GetProperty(rem->property_lookup_->property_),
+                                                    rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
       return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, GetLabelIds(rem->labels_));

@@ -151,6 +151,7 @@ extern const Event HashJoinOperator;
 extern const Event RollUpApplyOperator;
 extern const Event PeriodicCommitOperator;
 extern const Event PeriodicSubqueryOperator;
+extern const Event SetNestedPropertyOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -3892,13 +3893,9 @@ void Delete::DeleteCursor::Reset() {
   pulled_ = 0;
 }
 
-SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
                          PropertyLookup *lhs, Expression *rhs)
-    : input_(input), property_path_(std::move(property_path)), lhs_(lhs), rhs_(rhs) {
-  if (property_path_.size() == 1) {
-    property_ = property_path_[0];  // Deprecated: use property_path_ instead
-  }
-}
+    : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetProperty)
 
@@ -3915,7 +3912,7 @@ std::vector<Symbol> SetProperty::ModifiedSymbols(const SymbolTable &table) const
 std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
   auto object = std::make_unique<SetProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->property_path_ = property_path_;
+  object->property_ = property_;
   object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
   object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
   return object;
@@ -3947,13 +3944,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
       }
 #endif
-      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_path_, rhs,
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
                                        context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
-            lhs.ValueVertex(), self_.property_path_[0],
+            lhs.ValueVertex(), self_.property_,
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
@@ -3969,14 +3966,14 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
 #endif
-      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_path_, rhs,
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs,
                                        context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid
         // during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
-            lhs.ValueEdge(), self_.property_path_[0],
+            lhs.ValueEdge(), self_.property_,
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
@@ -4000,6 +3997,51 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 void SetProperty::SetPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
+
+SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
+                                     std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,
+                                     Expression *rhs)
+    : input_(input), property_path_(property_path), lhs_(lhs), rhs_(rhs) {}
+
+ACCEPT_WITH_INPUT(SetNestedProperty)
+
+UniqueCursorPtr SetNestedProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetNestedPropertyOperator);
+
+  return MakeUniqueCursorPtr<SetNestedPropertyCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> SetNestedProperty::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> SetNestedProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<SetNestedProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->property_path_ = property_path_;
+  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+  return object;
+}
+
+SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNestedProperty &self,
+                                                                    utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+
+bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("SetNestedProperty");
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  return true;
+}
+
+void SetNestedProperty::SetNestedPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void SetNestedProperty::SetNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op)
     : input_(input), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
@@ -4311,9 +4353,9 @@ void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
-RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
-                               std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
-    : input_(input), property_path_(std::move(property_path)), lhs_(lhs) {}
+RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
+                               PropertyLookup *lhs)
+    : input_(input), property_(property), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
@@ -4330,7 +4372,7 @@ std::vector<Symbol> RemoveProperty::ModifiedSymbols(const SymbolTable &table) co
 std::unique_ptr<LogicalOperator> RemoveProperty::Clone(AstStorage *storage) const {
   auto object = std::make_unique<RemoveProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->property_path_ = property_path_;
+  object->property_ = property_;
   object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
   return object;
 }
@@ -4351,8 +4393,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
-  auto remove_prop = [property_path = self_.property_path_, &context](auto *record) {
-    auto maybe_old_value = record->RemoveProperty(property_path);
+  auto remove_prop = [property = self_.property_, &context](auto *record) {
+    auto maybe_old_value = record->RemoveProperty(property);
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
@@ -4371,7 +4413,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterRemovedObjectProperty(
-          *record, property_path[0],
+          *record, property,
           TypedValue(std::move(*maybe_old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
     }
   };

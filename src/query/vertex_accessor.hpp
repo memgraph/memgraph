@@ -57,11 +57,6 @@ class VertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<storage::PropertyValue> SetProperty(const std::vector<storage::PropertyId> &key,
-                                                      const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
-  }
-
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.InitProperties(properties);
   }
@@ -72,10 +67,6 @@ class VertexAccessor final {
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
-    return SetProperty(key, storage::PropertyValue());
-  }
-
-  storage::Result<storage::PropertyValue> RemoveProperty(const std::vector<storage::PropertyId> &key) {
     return SetProperty(key, storage::PropertyValue());
   }
 
