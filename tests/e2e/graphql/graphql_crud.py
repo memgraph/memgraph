@@ -101,5 +101,55 @@ def test_update_node(query_server):
     cleanup_user_and_posts(query_server, created_user_uuid)
 
 
+def create_node_query(server: GraphQLServer):
+    query = 'mutation{createUsers(input:[{name:"John Doe"}]){users{id name}}}'
+    gotten = server.send_query(query)
+    uuids = get_uuid_from_response(gotten)
+    return uuids[0]
+
+
+def create_related_nodes_query(server: GraphQLServer):
+    query = """
+        mutation {
+            createUsers(input: [
+                {
+                    name: "John Doe"
+                    posts: {
+                        create: [
+                            {
+                                node: {
+                                    content: "Hi, my name is John!"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]) {
+                users {
+                    id
+                    name
+                    posts {
+                        id
+                        content
+                    }
+                }
+            }
+        }
+    """
+
+    gotten_response = server.send_query(query)
+    return get_uuid_from_response(gotten_response)
+
+
+def cleanup_user_and_posts(server: GraphQLServer, user_uuid):
+    cleanup_query = (
+        'mutation {deleteUsers(where: { id: { eq: "'
+        + user_uuid
+        + '" } } delete: { posts: {} }) {nodesDeleted relationshipsDeleted}}'
+    )
+    gotten_response = server.send_query(cleanup_query)
+    print(gotten_response)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
