@@ -42,10 +42,8 @@ class DateFormatUtil:
         return DateFormatUtil.ISO_DATE_FORMATS[format_lower]
 
 
-@mgp.read_proc
-def convert_format(
-    context: mgp.ProcCtx, temporal: str, current_format: str, convert_to: str
-) -> mgp.Record(output=mgp.Nullable[str]):
+@mgp.function
+def convert_format(temporal: str, current_format: str, convert_to: str) -> mgp.Nullable[str]:
     """
     Converts between specified ISO date formats using Python strftime and strptime.
     Supports zoned to offset conversion by removing zone part in '[]'.
@@ -61,7 +59,7 @@ def convert_format(
         output: The converted datetime string or None if input is None or empty
     """
     if temporal is None or temporal.strip() == "":
-        return mgp.Record(output=None)
+        return None
 
     try:
         current_formatter = DateFormatUtil.get_format(current_format)
@@ -131,7 +129,7 @@ def convert_format(
             if convert_to_formatter.endswith("%z") and len(converted) > FormatLength.DATE:
                 converted = f"{converted[:-2]}:{converted[-2:]}"
 
-        return mgp.Record(output=converted)
+        return converted
 
     except Exception as e:
         raise Exception(f"Error converting '{temporal}' from '{current_format}' to '{convert_to}': {e}")
