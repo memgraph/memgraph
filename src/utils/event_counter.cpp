@@ -79,6 +79,7 @@
   M(RollUpApplyOperator, Operator, "Number of times RollUpApply operator was used.")                                   \
   M(PeriodicCommitOperator, Operator, "Number of times PeriodicCommit operator was used.")                             \
   M(PeriodicSubqueryOperator, Operator, "Number of times PeriodicSubquery operator was used.")                         \
+  M(SetNestedPropertyOperator, Operator, "Number of times SetNestedProperty operator was used.")                       \
                                                                                                                        \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                        \
   M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                       \

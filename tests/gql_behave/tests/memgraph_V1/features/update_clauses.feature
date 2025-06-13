@@ -290,3 +290,99 @@ Feature: Update clauses
         Then the result should be:
             | n                    |
             | (:A{b: 's', c: 1.0}) |
+
+    Scenario: Set nested property in a map on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {mappy: {age: 20, city: 'Zagreb'}})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            SET n.mappy.age = 21
+            RETURN n
+            """
+        Then the result should be:
+            | n                                      |
+            | (:Person{mappy: {age: 21, city: 'Zagreb'}}) |
+
+    Scenario: Set nested property in a map on a relationship
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a)-[r:KNOWS {mappy: {score: 5, since: 2020}}]->(b)
+            """
+        When executing query:
+            """
+            MATCH ()-[r:KNOWS]->()
+            SET r.mappy.score = 10
+            RETURN r
+            """
+        Then the result should be:
+            | r                                 |
+            | [:KNOWS{mappy: {score: 10, since: 2020}}] |
+
+    Scenario: Set deeply nested property in a map on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {mappy: {info: {age: 20, city: 'Zagreb'}}})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            SET n.mappy.info.age = 22
+            RETURN n
+            """
+        Then the result should be:
+            | n                                             |
+            | (:Person{mappy: {info: {age: 22, city: 'Zagreb'}}}) |
+
+    Scenario: Remove nested property in a map on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {mappy: {age: 20, city: 'Zagreb'}})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            REMOVE n.mappy.age
+            RETURN n
+            """
+        Then the result should be:
+            | n                                 |
+            | (:Person{mappy: {city: 'Zagreb'}}) |
+
+    Scenario: Remove deeply nested property in a map on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {mappy: {info: {age: 20, city: 'Zagreb'}}})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            REMOVE n.mappy.info.age
+            RETURN n
+            """
+        Then the result should be:
+            | n                                      |
+            | (:Person{mappy: {info: {city: 'Zagreb'}}}) |
+
+    Scenario: Overwrite nested map with a new map
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {mappy: {age: 20, city: 'Zagreb'}})
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            SET n.mappy = {age: 30, city: 'Split'}
+            RETURN n
+            """
+        Then the result should be:
+            | n                                 |
+            | (:Person{mappy: {age: 30, city: 'Split'}}) |
