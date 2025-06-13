@@ -1124,11 +1124,12 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
-        [&](WalTransactionStart const &data) {
+        [&should_commit](WalTransactionStart const &data) {
           spdlog::info("This txn should be committed?: {}", data.commit);
           should_commit = data.commit;
         },
-        [&](WalTransactionEnd const &) {
+        [&commit_accessor, &commit_timestamp, current_delta_idx, delta_timestamp,
+         commit_txn_immediately](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
