@@ -344,8 +344,8 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, bool unique_access_needed = true,
-                                                                      PublishIndexWrapper wrapper = no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -353,8 +353,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertiesPaths properties,
-                                                                      PublishIndexWrapper wrapper = no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -387,15 +387,17 @@ class InMemoryStorage final : public Storage {
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    std::vector<storage::PropertyPath> &&properties,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

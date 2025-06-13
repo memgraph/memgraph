@@ -132,8 +132,8 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
-using PlanCacheLRU =
-    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::PlanWrapper>>, utils::RWSpinLock>;
+using PlanCacheLRU = utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::PlanWrapper>>,
+                                         utils::RWSpinLock>;  // TODO: check RW
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
