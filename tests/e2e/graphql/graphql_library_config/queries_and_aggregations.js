@@ -29,10 +29,11 @@ type Mutation {
     statement: """
       CREATE
        (a:User { name: "Alice", id: "51f65ea1-b612-47e6-8cc1-c13735168130", age: 23 }),
-       (:User { name: "Bob", id: "02bae290-1943-49e6-8be8-f15c1a0c5923", age: 42 }),
+       (b:User { name: "Bob", id: "02bae290-1943-49e6-8be8-f15c1a0c5923", age: 42 }),
        (a)-[:HAS_POST]->(:Post {id: "5cd0d311-16d8-4e88-9cde-e815c7623a6c", content: "First post"}),
        (a)-[:HAS_POST]->(:Post {id: "fb2a6146-6511-45ae-8956-bc8977f586cc", content: "Second post"}),
-       (a)-[:HAS_POST]->(:Post {id: "0dc886aa-8c65-48f1-8e46-fd628d695831", content: "Third post"})
+       (a)-[:HAS_POST]->(:Post {id: "0dc886aa-8c65-48f1-8e46-fd628d695831", content: "Third one"}),
+       (b)-[:HAS_POST]->(:Post {id: "94f5a303-8776-4272-ba82-01c1755a43ad", content: "Fourth one"})
       RETURN true AS success
     """
     columnName: "success"

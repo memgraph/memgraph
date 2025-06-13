@@ -67,7 +67,7 @@ def _ordered(obj: any) -> any:
 def _flatten(x: any) -> list:
     result = []
     for el in x:
-        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str | int):
             result.extend(_flatten(el))
         else:
             result.append(el)
