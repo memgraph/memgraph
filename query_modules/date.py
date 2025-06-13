@@ -135,3 +135,14 @@ def convert_format(
 
     except Exception as e:
         raise Exception(f"Error converting '{temporal}' from '{current_format}' to '{convert_to}': {e}")
+
+
+@mgp.read_proc
+def get_date_formats(context: mgp.ProcCtx) -> mgp.Record(formats=mgp.List[str]):
+    """
+    Returns a list of supported date formats.
+
+    Returns:
+        formats: List of supported date formats
+    """
+    return mgp.Record(formats=list(DateFormatUtil.ISO_DATE_FORMATS.keys()))
