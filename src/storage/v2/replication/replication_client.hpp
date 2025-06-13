@@ -76,6 +76,8 @@ class ReplicaStream {
 
   auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
+  auto GetStreamHandler() -> rpc::Client::StreamHandler<replication::PrepareCommitRpc> && { return std::move(stream_); }
+
  private:
   Storage *storage_;
   rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream_;
@@ -181,13 +183,17 @@ class ReplicationStorageClient {
    * @return true
    * @return false
    */
+  [[nodiscard]] bool FinalizePrepareCommitPhase(DatabaseAccessProtector db_acc,
+                                                std::optional<ReplicaStream> &replica_stream,
+                                                uint64_t durability_commit_timestamp) const;
+
   [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &replica_stream,
+                                                    std::optional<ReplicaStream> &&replica_stream,
                                                     uint64_t durability_commit_timestamp) const;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
-                                           DatabaseAccessProtector db_acc,
-                                           uint64_t durability_commit_timestamp) noexcept;
+                                           DatabaseAccessProtector db_acc, uint64_t durability_commit_timestamp,
+                                           std::optional<ReplicaStream> &&replica_stream) noexcept;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
