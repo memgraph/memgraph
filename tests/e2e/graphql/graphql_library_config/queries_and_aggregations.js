@@ -1,8 +1,5 @@
 const { gql } = require("apollo-server");
 
-// @TODO - add `createdAt` content to posts and ensure we are reading them,
-// once we have the `apoc.date.convertFormat` function implemented.
-
 module.exports.typeDefs = gql`
 type Post @node {
     id: ID! @id
