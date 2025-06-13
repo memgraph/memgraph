@@ -983,7 +983,10 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
       },
-      [&](WalTransactionStart const &data) { should_commit = data.commit; },
+      [&](WalTransactionStart const &data) {
+        spdlog::info("Should commit txn: {}", should_commit);
+        should_commit = data.commit;
+      },
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1480,8 +1483,7 @@ auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr> {
   return v | ranges::views::transform(wrap_singular_path) | ranges::to_vector;
 };
 
-auto CompositePropertyPaths::convert(memgraph::storage::NameIdMapper *mapper) const
-    -> std::vector<memgraph::storage::PropertyPath> {
+auto CompositePropertyPaths::convert(NameIdMapper *mapper) const -> std::vector<PropertyPath> {
   auto to_propertyid = [&](std::string_view prop_name) -> PropertyId {
     return PropertyId::FromUint(mapper->NameToId(prop_name));
   };
