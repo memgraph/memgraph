@@ -265,5 +265,8 @@ def test_replica_after_restart_no_committed_data(test_name):
     mg_sleep_and_assert(0, partial(get_vertex_count, instance2_cursor))
 
 
+# TODO: (andi) ADD MT tests
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

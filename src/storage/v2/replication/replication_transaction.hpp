@@ -26,23 +26,20 @@ class TransactionReplication {
  public:
   // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
   // proceed with the Commit.
-  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector const &db_acc, auto &clients)
+  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      // TODO: (andi) Think about this when handling ASYNC replication, is it really necessary to add std::nullopt for
-      // ASYNC replicas
-      // TODO: (andi) This is super-important when thinking about mixed cluster with multiple sync/strict_sync/async
-      // replicas For SYNC and STRICT_SYNC replicas we should be able to always acquire the stream because we will block
+      // For SYNC and STRICT_SYNC replicas we should be able to always acquire the stream because we will block
       // until that happens For ASYNC replicas we only try to acquire stream and this could fail. However, we still add
       // nullopt to streams for back-compatibility
-
       // If replica should commit immediately upon finalizing txn replication
       bool const should_commit_immediately = !ShouldRunTwoPC();
-
       streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately));
     }
   }
+
+  ~TransactionReplication() = default;
 
   template <typename... Args>
   void AppendDelta(Args &&...args) {
@@ -70,7 +67,7 @@ class TransactionReplication {
 
   // TODO: (andi) Do you need db_acc protector here?
   auto SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
-                             uint64_t durability_commit_timestamp) const noexcept -> bool;
+                             uint64_t durability_commit_timestamp) -> bool;
 
   // If we don't check locked_clients, this check would fail for replicas since replicas have empty locked_clients
   auto ReplicationStartSuccessful() const -> bool;

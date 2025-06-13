@@ -1124,10 +1124,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
-        [&should_commit](WalTransactionStart const &data) {
-          spdlog::info("This txn should be committed?: {}", data.commit);
-          should_commit = data.commit;
-        },
+        [&should_commit](WalTransactionStart const &data) { should_commit = data.commit; },
         [&commit_accessor, &commit_timestamp, current_delta_idx, delta_timestamp,
          commit_txn_immediately](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
@@ -1143,7 +1140,6 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             commit_accessor->FinalizeCommitPhase(commit_timestamp);
             commit_accessor.reset();
           }
-          spdlog::info("Handled WalTransactionEnd delta");
         },
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);

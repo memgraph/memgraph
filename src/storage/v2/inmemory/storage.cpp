@@ -825,9 +825,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // There are no STRICT_SYNC replicas currently in the commit
       if (!replicating_txn.ShouldRunTwoPC()) {
-        spdlog::info("No STRICT_SYNC replicas currently in the commit, committing on MAIN with durable ts {}.",
-                     durability_commit_timestamp);
         FinalizeCommitPhase(durability_commit_timestamp);
+        spdlog::info("No STRICT_SYNC replicas currently in the commit, committed on MAIN with durable ts {}.",
+                     durability_commit_timestamp);
         // Throw exception if we couldn't commit on one of SYNC replica
         if (!repl_prepare_phase_status) {
           return StorageManipulationError{SyncReplicationError{}};
@@ -840,14 +840,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       if (repl_prepare_phase_status) {
         FinalizeCommitPhase(durability_commit_timestamp);
         spdlog::info("Finalized commit on main. Sending commit rpc to replicas");
-        // TODO: (andi) One optimization says that we can return OK to clients as soon as we received OK votes to
-        // prepare message from all replicas
-        if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), db_acc, durability_commit_timestamp)) {
+
+        if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), std::move(db_acc),
+                                                  durability_commit_timestamp)) {
           spdlog::info("Received OK from all replicas to FinalizeCommitRpc");
         } else {
           spdlog::info("One of replicas couldn't commit when FinalizeCommitRpc was received");
-          // TODO: (andi) What if we are here, replicas should guarantee that they commit once they replied with yes
-          // They need to be blocked until they commit, they cannot commit some order txn, that would be out of order
         }
       } else {
         spdlog::info("One of replicas didn't vote for committing, aborting locally and sending abort to replicas.");
@@ -865,7 +863,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
         // automatically handled
-        replicating_txn.SendFinalizeCommitRpc(false, mem_storage->uuid(), db_acc, durability_commit_timestamp);
+        replicating_txn.SendFinalizeCommitRpc(false, mem_storage->uuid(), std::move(db_acc),
+                                              durability_commit_timestamp);
         return StorageManipulationError{StrictSyncReplicationError{}};
       }
 
@@ -2340,17 +2339,16 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     return false;
   }
 
-  // If there are no strict sync replicas in the cluster, write immediately to WAL: flag 'commit' = true
   bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
     // Replica
     if (commit_immediately.has_value()) {
       return *commit_immediately;
     }
     // MAIN
+    // If there are no strict sync replicas in the cluster, write immediately to WAL: flag 'commit' = true
     return !replicating_txn.ShouldRunTwoPC();
   });
   commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
-  spdlog::info("Commit flag {} is on position {} in the WAL file.", commit_flag, commit_flag_wal_position_);
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
@@ -2666,7 +2664,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Ships deltas to instances and waits for the reply
   // Returns only the status of SYNC replicas.
-  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, db_acc);
+  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

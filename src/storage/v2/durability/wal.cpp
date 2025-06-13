@@ -983,10 +983,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
       },
-      [&](WalTransactionStart const &data) {
-        spdlog::info("Should commit txn: {}", should_commit);
-        should_commit = data.commit;
-      },
+      [&](WalTransactionStart const &data) { should_commit = data.commit; },
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));

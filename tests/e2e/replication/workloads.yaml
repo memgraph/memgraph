@@ -105,9 +105,9 @@ workloads:
     args: ["replication/show_while_creating_invalid_state.py"]
 
   # Test uses ASYNC replication
-  #- name: "Replicate Enum"
-  #  binary: "tests/e2e/pytest_runner.sh"
-  #  args: ["replication/replicate_enum.py"]
+  - name: "Replicate Enum"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/replicate_enum.py"]
 
   # Test uses ASYNC replication
   #- name: "Replicate periodic commit"
@@ -116,9 +116,9 @@ workloads:
   #  <<: *template_simple_cluster
 
   # Test uses ASYNC replication
-  #- name: "Replicate spatial feature"
-  #  binary: "tests/e2e/pytest_runner.sh"
-  #  args: [ "replication/replicate_spatial_feature.py" ]
+  - name: "Replicate spatial feature"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_spatial_feature.py" ]
 
   # Test uses ASYNC replication
   #- name: "Replicate vector search"
