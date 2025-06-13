@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,7 +70,7 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       }
     }
 
-    ASSERT_FALSE(creator->Commit().HasError());
+    ASSERT_FALSE(creator->PrepareForCommitPhase().HasError());
     {
       SCOPED_TRACE(fmt::format(
           "Visibility after the creator transaction is committed "
@@ -86,13 +86,13 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       check_vertices_count(override_isolation_level_reader, override_isolation_level);
     }
 
-    ASSERT_FALSE(default_isolation_level_reader->Commit().HasError());
-    ASSERT_FALSE(override_isolation_level_reader->Commit().HasError());
+    ASSERT_FALSE(default_isolation_level_reader->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(override_isolation_level_reader->PrepareForCommitPhase().HasError());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
     auto verifier = storage->Access();
     ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
-    ASSERT_FALSE(verifier->Commit().HasError());
+    ASSERT_FALSE(verifier->PrepareForCommitPhase().HasError());
   }
 };
 

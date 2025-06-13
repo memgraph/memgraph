@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
         auto acc = storage->Access();
         vertices[0] = acc->CreateVertex().Gid();
         pid = acc->NameToProperty("NEW_PROP");
-        MG_ASSERT(!acc->Commit().HasError());
+        MG_ASSERT(!acc->PrepareForCommitPhase().HasError());
       }
 
       for (int iter = 0; iter != FLAGS_num_iterations; ++iter) {
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
         for (auto i = 0; i != FLAGS_num_poperties; ++i) {
           MG_ASSERT(!vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).HasError());
         }
-        MG_ASSERT(!acc->Commit().HasError());
+        MG_ASSERT(!acc->PrepareForCommitPhase().HasError());
       }
 
       end_bench = timer.Elapsed();

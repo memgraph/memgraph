@@ -143,6 +143,17 @@ class DeltaGenerator final {
       }
     }
 
+    void StartTx() {
+      auto timestamp = gen_->timestamp_;
+      constexpr bool commit{true};
+      gen_->wal_file_.AppendTransactionStart(timestamp, commit);
+      if (gen_->valid_) {
+        gen_->UpdateStats(timestamp, 1);
+        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{true}};
+        gen_->data_.emplace_back(timestamp, data);
+      }
+    }
+
     void FinalizeOperationTx() {
       auto timestamp = gen_->timestamp_;
       gen_->wal_file_.AppendTransactionEnd(timestamp);
@@ -511,6 +522,7 @@ class DeltaGenerator final {
 #define OPERATION_TX(op, ...)          \
   {                                    \
     auto tx = gen.CreateTransaction(); \
+    tx.StartTx();                      \
     OPERATION(op, __VA_ARGS__);        \
     tx.FinalizeOperationTx();          \
   }

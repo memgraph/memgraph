@@ -11,9 +11,9 @@ on:
         type: boolean
         description: "Run MT test"
         required: true
-      sync:
-        type: boolean
-        description: "Run synchronous cluster"
+      mode:
+        type: string
+        description: "Cluster mode (sync, async, strict_sync)"
         required: true
 
 
@@ -45,11 +45,21 @@ jobs:
 
       - name: Set Cluster File
         run: |
-          if [[ "${{ inputs.sync }}" == "true" ]]; then
-            echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
-          else
-            echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
-          fi
+            case "${{ inputs.mode }}" in
+              sync)
+                echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              async)
+                echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync)
+                echo "CLUSTER=strict_sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              *)
+                echo "Unsupported mode: ${{ inputs.mode }}"
+                exit 1
+                ;;
+            esac
 
       - name: Refresh Jepsen Cluster
         run: |

@@ -42,6 +42,7 @@ target_sources(mg-storage-v2
         inmemory/unique_constraints.cpp
         point_functions.cpp
         property_store.cpp
+        replication/replication_transaction.cpp
         replication/replication_client.cpp
         replication/replication_storage_state.cpp
         replication/rpc.cpp
@@ -92,6 +93,7 @@ target_sources(mg-storage-v2
         inmemory/storage.hpp
         disk/storage.hpp
         config.hpp
+        replication/replication_transaction.hpp
 )
 
 find_package(gflags REQUIRED)

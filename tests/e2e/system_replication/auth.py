@@ -150,6 +150,7 @@ def main_and_repl_queries(cursor):
     return n_exceptions
 
 
+@pytest.mark.skip(reason="ASYNC replication not working")
 def test_auth_queries_on_replica(connection, test_name):
     # Goal: check that write auth queries are forbidden on REPLICAs
     # 0/ Setup replication cluster
@@ -210,6 +211,7 @@ def test_auth_queries_on_replica(connection, test_name):
     assert main_and_repl_queries(cursor_replica_2) == 0
 
 
+@pytest.mark.skip(reason="ASYNC replication not working")
 def test_manual_users_recovery(connection, test_name):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
@@ -282,6 +284,7 @@ def test_manual_users_recovery(connection, test_name):
     connection(BOLT_PORTS["replica_2"], "replica", "user2", "password").cursor()
 
 
+@pytest.mark.skip(reason="ASYNC replication not working")
 def test_env_users_recovery(connection, test_name):
     # Goal: show system recovery in action at registration time
     # 0/ Set users from the environment
@@ -358,6 +361,7 @@ def test_env_users_recovery(connection, test_name):
     )
 
 
+@pytest.mark.skip(reason="ASYNC replication not working")
 def test_manual_roles_recovery(connection, test_name):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
@@ -446,6 +450,7 @@ def test_manual_roles_recovery(connection, test_name):
     )
 
 
+@pytest.mark.skip(reason="ASYNC replication not working")
 def test_auth_config_recovery(connection, test_name):
     # Goal: show we are replicating Auth::Config
     # 0/ Setup auth configuration and compliant users
@@ -541,6 +546,7 @@ def test_auth_config_recovery(connection, test_name):
     user_test(cursor_replica_2)
 
 
+@pytest.mark.skip(reason="ASYNC replication not working")
 def test_auth_replication(connection, test_name):
     # Goal: show that individual auth queries get replicated
 

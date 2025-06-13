@@ -61,7 +61,8 @@ class Client {
       {"FrequentHeartbeatReq"sv, 5000},       // coord to data instances
       {"HeartbeatReq"sv, 10000},              // main to replica
       {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
-      {"AppendDeltasReq"sv, 30000},    // Waiting 30'' on a progress/final response
+      {"PrepareCommitReq"sv, 30000},   // Waiting 30'' on a progress/final response
+      {"FinalizeCommitReq"sv, 10000},  // Waiting 10'' on a final response
       {"CurrentWalReq"sv, 30000},      // Waiting 30'' on a progress/final response
       {"WalFilesReq"sv, 30000},        // Waiting 30'' on a progress/final response
       {"SnapshotReq"sv, 60000}         // Waiting 60'' on a progress/final response
@@ -319,7 +320,7 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        /*try_lock_timeout*/ std::nullopt, std::forward<Args>(args)...);
+        /*try_lock_timeout*/ std::nullopt, /*guard*/ std::nullopt, std::forward<Args>(args)...);
   }
 
   /**
@@ -340,28 +341,48 @@ class Client {
             TRequestResponse::Response::Load(&response, reader);
             return response;
           },
-          /*try_lock_timeout*/ try_lock_timeout, std::forward<Args>(args)...);
+          /*try_lock_timeout*/ try_lock_timeout, /*guard*/ std::nullopt, std::forward<Args>(args)...);
     } catch (FailedToGetRpcStreamException const &) {
       return std::nullopt;
     }
+  }
+
+  template <class TRequestResponseNew, class TRequestResponseOld, class... Args>
+  StreamHandler<TRequestResponseNew> UpgradeStream(StreamHandler<TRequestResponseOld> &&old_stream_handler,
+                                                   Args &&...args) {
+    return StreamWithLoad<TRequestResponseNew>(
+        [](auto *reader) {
+          typename TRequestResponseNew::Response response;
+          TRequestResponseNew::Response::Load(&response, reader);
+          return response;
+        },
+        /*try_lock_timeout*/ std::nullopt, /*guard*/ std::move(old_stream_handler.guard_), std::forward<Args>(args)...);
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
       std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
-      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout,
+      std::optional<std::unique_lock<utils::ResourceLock>> guard_arg, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
+    auto req_type_name = std::string_view{req_type.name};
 
-    auto guard = std::unique_lock{mutex_, std::defer_lock};
-    if (try_lock_timeout.has_value()) {
-      if (!guard.try_lock_for(*try_lock_timeout)) {
+    auto guard = std::invoke([&]() -> std::unique_lock<utils::ResourceLock> {
+      // Upgrade stream with existing lock
+      if (guard_arg.has_value()) {
+        return std::move(*guard_arg);
+      }
+      // New stream, new lock, maybe use try_lock_timeout
+      auto local_guard = std::unique_lock{mutex_, std::defer_lock};
+      if (!try_lock_timeout.has_value()) {
+        local_guard.lock();
+      } else if (!local_guard.try_lock_for(*try_lock_timeout)) {
         throw FailedToGetRpcStreamException();
       }
-    } else {
-      guard.lock();
-    }
+      return local_guard;  // RVO
+    });
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
@@ -381,7 +402,6 @@ class Client {
 
     std::optional<int> timeout_ms{std::nullopt};
 
-    auto req_type_name = std::string_view{req_type.name};
     auto const maybe_timeout = std::ranges::find_if(
         rpc_timeouts_ms_, [req_type_name](auto const &entry) { return entry.first == req_type_name; });
     if (maybe_timeout != rpc_timeouts_ms_.end()) {

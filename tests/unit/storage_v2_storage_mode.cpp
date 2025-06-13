@@ -61,7 +61,7 @@ TEST_P(StorageModeTest, Mode) {
     }
   }
 
-  ASSERT_FALSE(creator->Commit().HasError());
+  ASSERT_FALSE(creator->PrepareForCommitPhase().HasError());
 }
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),

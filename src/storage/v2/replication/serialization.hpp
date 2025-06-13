@@ -16,7 +16,6 @@
 #include "slk/streams.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/replication/slk.hpp"
-#include "utils/cast.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::storage::replication {

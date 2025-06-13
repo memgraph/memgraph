@@ -41,8 +41,8 @@
 
 namespace memgraph::storage {
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
+constexpr uint64_t kTimestampInitialId = 0;
+constexpr uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
