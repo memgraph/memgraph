@@ -973,14 +973,14 @@ class PropertyLookup : public memgraph::query::Expression {
 
   enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
 
+  enum class LookupMode { REPLACE, APPEND };
+
   PropertyLookup() = default;
 
   // New constructor for property path
   PropertyLookup(Expression *expression, std::vector<PropertyIx> property_path)
       : expression_(expression), property_path_(std::move(property_path)) {
-    if (property_path_.size() == 1) {
-      property_ = property_path_[0];
-    }
+    property_ = property_path_[0];
   }
 
   // Existing constructor for single property (fills property_path_)
@@ -1001,6 +1001,7 @@ class PropertyLookup : public memgraph::query::Expression {
   memgraph::query::PropertyIx property_;
   std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
+  memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
@@ -1011,6 +1012,7 @@ class PropertyLookup : public memgraph::query::Expression {
       object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
     }
     object->evaluation_mode_ = evaluation_mode_;
+    object->lookup_mode_ = lookup_mode_;
     return object;
   }
 

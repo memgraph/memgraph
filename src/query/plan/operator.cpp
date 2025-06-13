@@ -4035,7 +4035,159 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
   AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
+  // Set, just like Create needs to see the latest changes.
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+  TypedValue rhs = self_.rhs_->Accept(evaluator);
 
+  switch (lhs.type()) {
+    case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
+                                     memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
+      }
+#endif
+
+      TypedValue old_value = TypedValue(evaluator.GetProperty(lhs.ValueVertex(), self_.lhs_->property_),
+                                        evaluator.GetNameIdMapper(), context.evaluation_context.memory);
+
+      if (!old_value.IsMap()) {
+        throw QueryRuntimeException("Nested property must be of type Map!");
+      }
+
+      TypedValue::TMap &old_value_map = old_value.ValueMap();
+
+      // Traverse the property path, creating sub-maps as needed
+      TypedValue::TMap *current_map = &old_value_map;
+      auto *name_id_mapper = evaluator.GetNameIdMapper();
+      for (size_t i = 1; i + 1 < self_.property_path_.size(); ++i) {
+        // Convert PropertyId to pmr string key
+        TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[i]),
+                                context.evaluation_context.memory};
+        auto it = current_map->find(key);
+        if (it == current_map->end() || !it->second.IsMap()) {
+          // Create a new map if not present or not a map
+          it = current_map->emplace(key, TypedValue(TypedValue::TMap{}, context.evaluation_context.memory)).first;
+        }
+        current_map = &it->second.ValueMap();
+      }
+      // Set the final property
+      TypedValue::TString final_key{
+          context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
+          context.evaluation_context.memory};
+      if (self_.lhs_->lookup_mode_ == PropertyLookup::LookupMode::REPLACE) {
+        (*current_map)[final_key] = rhs;
+      } else if (self_.lhs_->lookup_mode_ == PropertyLookup::LookupMode::APPEND) {
+        if (!rhs.IsMap()) {
+          throw QueryRuntimeException("APPEND mode requires the right-hand side to be a map!");
+        }
+        if ((*current_map)[final_key].type() == TypedValue::Type::Map) {
+          auto &target = (*current_map)[final_key];
+          for (const auto &[k, v] : rhs.ValueMap()) {
+            target.ValueMap()[k] = v;
+          }
+        } else {
+          (*current_map)[final_key] = rhs;
+        }
+      } else {
+        (*current_map)[final_key] = rhs;
+      }
+
+      // Write back to the vertex property
+      auto new_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
+      auto old_stored_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_path_[0], new_property_value,
+                                              context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+      if (context.trigger_context_collector) {
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueVertex(), self_.property_path_[0], TypedValue{std::move(old_stored_value), name_id_mapper},
+            new_property_value);
+      }
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
+      break;
+    }
+    case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Edge property not set due to not having enough permission!");
+      }
+#endif
+
+      TypedValue old_value = TypedValue(evaluator.GetProperty(lhs.ValueEdge(), self_.lhs_->property_),
+                                        evaluator.GetNameIdMapper(), context.evaluation_context.memory);
+
+      if (!old_value.IsMap()) {
+        throw QueryRuntimeException("Nested property must be of type Map!");
+      }
+
+      TypedValue::TMap &old_value_map = old_value.ValueMap();
+
+      // Traverse the property path, creating sub-maps as needed
+      TypedValue::TMap *current_map = &old_value_map;
+      auto *name_id_mapper = evaluator.GetNameIdMapper();
+      for (size_t i = 1; i + 1 < self_.property_path_.size(); ++i) {
+        // Convert PropertyId to pmr string key
+        TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[i]),
+                                context.evaluation_context.memory};
+        auto it = current_map->find(key);
+        if (it == current_map->end() || !it->second.IsMap()) {
+          // Create a new map if not present or not a map
+          it = current_map->emplace(key, TypedValue(TypedValue::TMap{}, context.evaluation_context.memory)).first;
+        }
+        current_map = &it->second.ValueMap();
+      }
+      // Set the final property (edge case)
+      TypedValue::TString final_key_edge{
+          context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
+          context.evaluation_context.memory};
+      if (self_.lhs_->lookup_mode_ == PropertyLookup::LookupMode::REPLACE) {
+        (*current_map)[final_key_edge] = rhs;
+      } else if (self_.lhs_->lookup_mode_ == PropertyLookup::LookupMode::APPEND) {
+        if (!rhs.IsMap()) {
+          throw QueryRuntimeException("APPEND mode requires the right-hand side to be a map!");
+        }
+        if ((*current_map)[final_key_edge].type() == TypedValue::Type::Map) {
+          auto &target = (*current_map)[final_key_edge];
+          for (const auto &[k, v] : rhs.ValueMap()) {
+            target.ValueMap()[k] = v;
+          }
+        } else {
+          (*current_map)[final_key_edge] = rhs;
+        }
+      } else {
+        (*current_map)[final_key_edge] = rhs;
+      }
+
+      // Write back to the edge property
+      auto new_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
+      auto old_stored_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_path_[0], new_property_value,
+                                              context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+      context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+      if (context.trigger_context_collector) {
+        context.trigger_context_collector->RegisterSetObjectProperty(
+            lhs.ValueEdge(), self_.property_path_[0], TypedValue{std::move(old_stored_value), name_id_mapper},
+            new_property_value);
+      }
+      break;
+    }
+    case TypedValue::Type::Null:
+      // Skip setting properties on Null (can occur in optional match).
+      break;
+    case TypedValue::Type::Map:
+    // Semantically modifying a map makes sense, but it's not supported due
+    // to all the copying we do (when PropertyValue -> TypedValue and in
+    // ExpressionEvaluator). So even though we set a map property here, that
+    // is never visible to the user and it's not stored.
+    // TODO: fix above described bug
+    default:
+      throw QueryRuntimeException("Properties can only be set on edges and vertices.");
+  }
   return true;
 }
 
