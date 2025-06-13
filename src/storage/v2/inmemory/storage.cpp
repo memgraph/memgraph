@@ -851,6 +851,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         }
       } else {
         spdlog::info("One of replicas didn't vote for committing, aborting locally and sending abort to replicas.");
+        if (mem_storage->wal_file_) {
+          mem_storage->FinalizeWalFile();
+        }
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
         Abort();
@@ -858,6 +861,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         DMG_ASSERT(commit_timestamp_.has_value());
         mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
         commit_timestamp_.reset();
+
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
         // automatically handled

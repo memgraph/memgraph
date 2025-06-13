@@ -370,6 +370,14 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   const storage::replication::PrepareCommitRes res{true};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
+  // static std::random_device rd;
+  // static std::mt19937 gen(rd());
+  // std::uniform_int_distribution<> dist(0, 1); // uniform distribution between 0 and 1
+
+  // int random_bit = dist(gen);
+  // if (random_bit == 1) {
+  //   LOG_FATAL("Simulating crash after voting for yes");
+  // }
 }
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
@@ -400,15 +408,19 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
     cached_commit_accessor_.reset();
   } else {
+    // TODO: (andi) Probably should be abstracted into some method
+    auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+    if (mem_storage->wal_file_) {
+      mem_storage->FinalizeWalFile();
+    }
     cached_commit_accessor_->Abort();
     // We have aborted, need to release/cleanup commit_timestamp_ here
     auto &commit_ts = cached_commit_accessor_->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value());
-    auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-    storage->commit_log_->MarkFinished(*commit_ts);
+    mem_storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.reset();
-    if (storage->wal_file_) {
-      storage->FinalizeWalFile();
+    if (mem_storage->wal_file_) {
+      mem_storage->FinalizeWalFile();
     }
   }
 
@@ -1108,7 +1120,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
-        [&](WalTransactionStart const &) { spdlog::info("Read WalTransactionStart delta, ignoring it"); },
+        [&](WalTransactionStart const &data) { spdlog::info("This txn should be committed?: {}", data.commit); },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp)
