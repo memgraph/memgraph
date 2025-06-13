@@ -39,8 +39,10 @@ void FinalizeCommitReq::Save(const FinalizeCommitReq &self, memgraph::slk::Build
 }
 void FinalizeCommitReq::Load(FinalizeCommitReq *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
 
-void FinalizeCommitRes::Save(const FinalizeCommitRes &self, memgraph::slk::Builder *builder) {}
-void FinalizeCommitRes::Load(FinalizeCommitRes *self, memgraph::slk::Reader *reader) {}
+void FinalizeCommitRes::Save(const FinalizeCommitRes &self, memgraph::slk::Builder *builder) {
+  slk::Save(self, builder);
+}
+void FinalizeCommitRes::Load(FinalizeCommitRes *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
 
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -240,9 +242,9 @@ void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk:
 
 // Serialize code for FinalizeCommitRes
 
-void Save(const storage::replication::FinalizeCommitRes &self, Builder *builder) {}
+void Save(const storage::replication::FinalizeCommitRes &self, Builder *builder) { slk::Save(self.success, builder); }
 
-void Load(storage::replication::FinalizeCommitRes *self, Reader *reader) {}
+void Load(storage::replication::FinalizeCommitRes *self, Reader *reader) { slk::Load(&self->success, reader); }
 
 // Serialize code for FinalizeCommitReq
 
