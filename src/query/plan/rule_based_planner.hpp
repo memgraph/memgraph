@@ -280,7 +280,7 @@ class RuleBasedPlanner {
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(std::move(input_op),
-                                                      input_op->ModifiedSymbols(*context.symbol_table), true);
+                                                      input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
             }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);

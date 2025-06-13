@@ -268,9 +268,18 @@ def _test_static(test_dir: Path, db: Memgraph):
     ]
     _execute_cyphers(input_cyphers, db)
 
-    test_dict = _load_yaml(test_dir.joinpath(TestConstants.TEST_FILE))
-    test_dict[TestConstants.QUERY] = _replace_filename(test_dict[TestConstants.QUERY], test_dir)
-    _run_test(test_dict, db)
+    tests_list_or_dict = _load_yaml(test_dir.joinpath(TestConstants.TEST_FILE))
+    if isinstance(tests_list_or_dict, dict):
+        # If the test file is a dict, meaning only one test is present -> just run it
+        tests_list_or_dict[TestConstants.QUERY] = _replace_filename(tests_list_or_dict[TestConstants.QUERY], test_dir)
+        _run_test(tests_list_or_dict, db)
+    else:
+        for test_dict in tests_list_or_dict:
+            if TestConstants.QUERY not in test_dict:
+                pytest.fail(f"Test file {test_dir} has no valid format.")
+            # Replace filename placeholder in query
+            test_dict[TestConstants.QUERY] = _replace_filename(test_dict[TestConstants.QUERY], test_dir)
+            _run_test(test_dict, db)
 
 
 def _test_online(test_dir: Path, db: Memgraph):

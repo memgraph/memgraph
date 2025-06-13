@@ -7,8 +7,6 @@ import subprocess
 import time
 from uuid import UUID
 
-import pytest
-
 import requests
 
 
@@ -16,7 +14,11 @@ class GraphQLServer:
     def __init__(self, config_file_path: str):
         self.url = "http://127.0.0.1:4000"
 
-        self.graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.graphql_lib = subprocess.Popen(
+            ["node", os.path.join("graphql/graphql_library_config/server.js"), config_file_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
         self.__wait_process_to_init(7687)
         self.__wait_process_to_init(4000)
@@ -65,7 +67,7 @@ def _ordered(obj: any) -> any:
 def _flatten(x: any) -> list:
     result = []
     for el in x:
-        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str | int):
             result.extend(_flatten(el))
         else:
             result.append(el)
@@ -102,49 +104,3 @@ def get_uuid_from_response(response: requests.Response) -> list:
         if _valid_uuid(item):
             uuids.append(str(item))
     return uuids
-
-
-def create_node_query(server: GraphQLServer):
-    query = 'mutation{createUsers(input:[{name:"John Doe"}]){users{id name}}}'
-    gotten = server.send_query(query)
-    uuids = get_uuid_from_response(gotten)
-    return uuids[0]
-
-
-def create_related_nodes_query(server: GraphQLServer):
-    query = """
-        mutation {
-            createUsers(input: [
-                {
-                    name: "John Doe"
-                    posts: {
-                        create: [
-                            {
-                                node: {
-                                    content: "Hi, my name is John!"
-                                }
-                            }
-                        ]
-                    }
-                }
-            ]) {
-                users {
-                    id
-                    name
-                    posts {
-                        id
-                        content
-                    }
-                }
-            }
-        }
-    """
-
-    gotten_response = server.send_query(query)
-    return get_uuid_from_response(gotten_response)
-
-
-@pytest.fixture
-def query_server() -> GraphQLServer:
-    path = os.path.join("graphql/graphql_library_config/crud.js")
-    return GraphQLServer(path)
