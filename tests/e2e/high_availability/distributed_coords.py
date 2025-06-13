@@ -3034,29 +3034,28 @@ def test_yield_leadership(test_name):
     execute_and_fetch_all(coord_cursor_3, "YIELD LEADERSHIP")
 
 
-# Disabled because ASYNC replication currently doesn't work
-# def test_distributed_automatic_failover_mixed_cluster(test_name):
-#     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
-#
-#     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
-#
-#     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-#     for query in get_mixed_cluster_setup_queries():
-#         execute_and_fetch_all(coord_cursor_3, query)
-#
-#     interactive_mg_runner.kill(inner_instances_description, "instance_3")
-#
-#     expected_data_on_coord = [
-#         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-#         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-#         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-#         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-#         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-#         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-#     ]
-#
-#     # Instance 2 needs to become main because instance 1 is async replica
-#     mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor_3))
+def test_distributed_automatic_failover_mixed_cluster(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_mixed_cluster_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+
+    expected_data_on_coord = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+    ]
+
+    # Instance 2 needs to become main because instance 1 is async replica
+    mg_sleep_and_assert(expected_data_on_coord, partial(show_instances, coord_cursor_3))
 
 
 def test_coord_settings(test_name):
