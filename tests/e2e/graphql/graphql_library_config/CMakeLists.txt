@@ -1,1 +1,4 @@
+copy_graphql_e2e_python_files(server.js)
 copy_graphql_e2e_python_files(crud.js)
+copy_graphql_e2e_python_files(queries_and_aggregations.js)
+copy_graphql_e2e_python_files(sorting.js)
