@@ -49,6 +49,7 @@ auto PropertyValuesUpdate_ActionMethod(PropertiesPermutationHelper const &helper
 
 /** Converts a span of `PropertyPaths` into a comma-separated string.
  */
+[[maybe_unused]] // Currently only used in DMG_ASSERT, maybe_unused to get rid of warning
 auto JoinPropertiesAsString(std::span<PropertyPath const> properties) -> std::string {
   auto const make_nested = [](std::span<PropertyId const> path) {
     return utils::Join(path | ranges::views::transform(&PropertyId::AsUint) |
@@ -262,6 +263,7 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   if (!res) return false;
   auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, snapshot_info);
   if (!res2) return false;
+  // Invalidate plans?
   return PublishIndex(label, properties, 0);  // TODO: this should recover with correct timestamp? or is 0 fine?
 }
 
@@ -287,7 +289,10 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
     std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx) {
   auto index = GetIndividualIndex(label, properties);
-  if (!index) return false;  // already dropped?
+  if (!index) {
+    DMG_ASSERT(false, "It should not be possible to remove the index before populating it.");
+    return false;
+  }
 
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
 
@@ -429,6 +434,12 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
       return false;
     }
 
+    // Can't drop an index while it is being populated
+    // The reason: We can't have the meta delta of DROP INDEX be serialised before CREATE INDEX
+    if (it2->second->status.is_populating()) {
+      return false;
+    }
+
     auto const make_props_subspan = [&](std::size_t length) {
       return std::span{properties.cbegin(), properties.cbegin() + length + 1};
     };
@@ -488,6 +499,7 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
       index.erase(it1);
     }
 
+    // TODO: invalidate plan cache?
     return true;
   });
 }
