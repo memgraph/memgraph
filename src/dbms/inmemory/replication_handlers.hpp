@@ -50,11 +50,9 @@ class InMemoryReplicationHandlers {
   static std::pair<bool, uint32_t> LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
                                            slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
-  static storage::SingleTxnDeltasProcessingResult ReadAndApplyDeltasSingleTxn(storage::InMemoryStorage *storage,
-                                                                              storage::durability::BaseDecoder *decoder,
-                                                                              uint64_t version, slk::Builder *,
-                                                                              bool commit_txn_immediately,
-                                                                              uint32_t start_batch_counter = 0);
+  static storage::SingleTxnDeltasProcessingResult ReadAndApplyDeltasSingleTxn(
+      storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
+      bool commit_txn_immediately, bool loading_wal, uint32_t start_batch_counter = 0);
 
   static std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> cached_commit_accessor_;
 };

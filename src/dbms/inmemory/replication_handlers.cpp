@@ -355,8 +355,9 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   spdlog::info("Commit immediately: {}", req.commit_immediately);
 
   try {
-    auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
-                                                  req.commit_immediately);
+    auto deltas_res =
+        ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
+                                    /*commit_txn_immediately*/ req.commit_immediately, /*loading_wal*/ false);
     cached_commit_accessor_ = std::move(deltas_res.commit_acc);
   } catch (const utils::BasicException &e) {
     spdlog::error(
@@ -373,7 +374,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   // static std::random_device rd;
   // static std::mt19937 gen(rd());
   // std::uniform_int_distribution<> dist(0, 1); // uniform distribution between 0 and 1
-
   // int random_bit = dist(gen);
   // if (random_bit == 1) {
   //   LOG_FATAL("Simulating crash after voting for yes");
@@ -818,7 +818,8 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
       // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
       auto const deltas_res =
-          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, true, local_batch_counter);
+          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*commit_txn_immediately*/ true,
+                                      /*loading_wal*/ true, local_batch_counter);
       local_delta_idx += deltas_res.current_delta_idx;
       local_batch_counter = deltas_res.current_batch_counter;
     }
@@ -837,7 +838,8 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
 // The number of applied deltas also includes skipped deltas.
 storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, bool const commit_txn_immediately, uint32_t const start_batch_counter) {
+    slk::Builder *res_builder, bool const commit_txn_immediately, bool const loading_wal,
+    uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -846,6 +848,8 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
 
   uint64_t commit_timestamp{0};
   std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> commit_accessor;
+
+  bool should_commit{true};
 
   auto const get_replication_accessor = [storage, &commit_timestamp, &commit_accessor](
                                             uint64_t const local_commit_timestamp,
@@ -1120,7 +1124,10 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
-        [&](WalTransactionStart const &data) { spdlog::info("This txn should be committed?: {}", data.commit); },
+        [&](WalTransactionStart const &data) {
+          spdlog::info("This txn should be committed?: {}", data.commit);
+          should_commit = data.commit;
+        },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp)
@@ -1413,6 +1420,10 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           }
         },
     };
+
+    // If I received PrepareCommit, deltas should be applied (loading_wal will be false)
+    // If loading WAL file, WalTransactionStart is decision-maker
+    if (loading_wal && !should_commit) continue;
 
     std::visit(delta_apply, delta.data_);
     applied_deltas++;
