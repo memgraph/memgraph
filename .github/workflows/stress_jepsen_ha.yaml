@@ -6,10 +6,14 @@ concurrency:
 on:
   workflow_dispatch:
     inputs:
-      sync:
-        description: "Run sync tests (untick for async)"
-        type: boolean
-        default: true
+      mode:
+        description: "Jepsen mode"
+        type: choice
+        options:
+          - async
+          - sync
+          - strict_sync
+        default: async
       run-mt:
         description: "Run MT tests"
         type: boolean
@@ -28,22 +32,21 @@ jobs:
     name: "Determine Sync Mode"
     runs-on: ubuntu-latest
     outputs:
-      sync: ${{ steps.set_sync.outputs.sync }}
-      name_start: ${{ steps.set_sync.outputs.name_start }}
+      mode: ${{ steps.set_sync.outputs.mode }}
     steps:
       - name: Determine if test should run in sync mode based on day
         id: set_sync
         run: |
           # Get the current day of the month (leading zeros are stripped)
           DAY=$(date +%d)
-          MOD=$((10#$DAY % 2))
-          # If the day is odd, set sync to true, otherwise false.
-          if [ $MOD -eq 1 ]; then
-            echo "sync=true" >> $GITHUB_OUTPUT
-            echo "name_start=sync" >> $GITHUB_OUTPUT
+          MOD=$((10#$DAY % 3))
+
+          if [ $MOD -eq 0 ]; then
+            echo "mode=sync" >> $GITHUB_OUTPUT
+          elif [ $MOD -eq 1 ]; then
+            echo "mode=async" >> $GITHUB_OUTPUT
           else
-            echo "sync=false" >> $GITHUB_OUTPUT
-            echo "name_start=mixed" >> $GITHUB_OUTPUT
+            echo "mode=strict_sync" >> $GITHUB_OUTPUT
           fi
 
   run-jepsen-tests:
@@ -54,25 +57,25 @@ jobs:
         mt: [true, false]
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
     with:
-      name: "${{ needs.determine-sync.outputs.name_start }}${{ matrix.mt && '-mt' || '' }}"
+      name: "${{ needs.determine-sync.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
-      sync: ${{ needs.determine-sync.outputs.sync == 'true' }}
+      mode: ${{ needs.determine-sync.outputs.mode == 'true' }}
     secrets: inherit
 
   run-manual-jepsen-tests:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-non-mt }}
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
     with:
-      name: "${{ inputs.sync == true && 'sync' || 'mixed' }}"
+      name: "${{ inputs.mode }}"
       mt: false
-      sync: ${{ inputs.sync == true }}
+      mode: ${{ inputs.mode }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-mt }}
     uses: ./.github/workflows/reusable_stress_jepsen.yaml
     with:
-      name: "${{ inputs.sync == true && 'sync' || 'mixed' }}-mt"
+      name: "${{ inputs.mode }}-mt"
       mt: true
-      sync: ${{ inputs.sync == true }}
+      mode: ${{ inputs.mode }}
     secrets: inherit
