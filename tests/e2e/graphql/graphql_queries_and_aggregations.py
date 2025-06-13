@@ -156,7 +156,6 @@ def test_aggregation_with_filter(query_server):
     ).strip()
 
     gotten = query_server.send_query(query)
-    print(str(gotten.text))
     expected_result = dedent(
         """\
         {
@@ -198,7 +197,6 @@ def test_aggregation_over_related_nodes(query_server):
     ).strip()
 
     gotten = query_server.send_query(query)
-    print(str(gotten.text))
     expected_result = dedent(
         """\
         {
@@ -257,7 +255,6 @@ def test_aggregation_longest_post_per_user(query_server):
     ).strip()
 
     gotten = query_server.send_query(query)
-    print(str(gotten.text))
     expected_result = dedent(
         """\
         {
@@ -282,6 +279,68 @@ def test_aggregation_longest_post_per_user(query_server):
                                 "node": {
                                     "content": {
                                         "longest": "Fourth one"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        """
+    ).strip()
+    assert server_returned_expected(expected_result, gotten)
+
+    query_server.send_query("mutation { teardown }")
+
+
+def test_edge_date_aggregation(query_server):
+    query_server.send_query("mutation { setup }")
+
+    query = dedent(
+        """\
+        query {
+            users {
+                name
+                postsConnection {
+                    aggregate {
+                        edge {
+                            date {
+                                max
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+    ).strip()
+
+    gotten = query_server.send_query(query)
+    expected_result = dedent(
+        """\
+        {
+            "data": {
+                "users": [
+                    {
+                        "name": "Alice",
+                        "postsConnection": {
+                            "aggregate": {
+                                "edge": {
+                                    "date": {
+                                        "max": "2011-12-05T09:15:30.000Z"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "name": "Bob",
+                        "postsConnection": {
+                            "aggregate": {
+                                "edge": {
+                                    "date": {
+                                        "max": "2011-12-06T09:15:30.000Z"
                                     }
                                 }
                             }

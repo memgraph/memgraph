@@ -1,4 +1,5 @@
 {
     "dbms.components": "mgps.components",
-    "apoc.util.validate": "mgps.validate"
+    "apoc.util.validate": "mgps.validate",
+    "apoc.date.convertFormat": "date.convert_format"
 }
