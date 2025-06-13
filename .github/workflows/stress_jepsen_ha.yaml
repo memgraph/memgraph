@@ -77,5 +77,5 @@ jobs:
     with:
       name: "${{ inputs.mode }}-mt"
       mt: true
-      sync: ${{ inputs.mode }}
+      mode: ${{ inputs.mode }}
     secrets: inherit
