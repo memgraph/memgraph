@@ -3224,21 +3224,37 @@ concept InvocableWithUInt64 = std::invocable<F, std::uint64_t>;
 
 struct DoNothing {
   template <typename... Args>
-  void operator()(Args &&...) { /* do nothing*/
+  bool operator()(Args &&...) {
+    return true;
   }
 };
 
 // Creating an index influences computed plan costs.
 // We need to atomically invcalidate the plan when publishing new index
-auto make_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
+auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
   // capture DatabaseAccess in builder
   return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {
     // build plan invalidator wrapper
     return [db_acc = std::move(db_acc),
             publish_func = std::forward<Func>(publish_func)](uint64_t commit_timestamp) mutable {
-      db_acc->plan_cache()->WithLock([&](auto &cache) {
-        cache.reset();
-        publish_func(commit_timestamp);
+      return db_acc->plan_cache()->WithLock([&](auto &cache) {
+        auto do_reset = publish_func(commit_timestamp);
+        if (do_reset) cache.reset();
+        return do_reset;
+      });
+    };
+  };
+}
+
+auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
+  // capture DatabaseAccess in builder
+  return [db_acc = std::move(db_acc)]<std::invocable Func = DoNothing>(Func && publish_func = Func{}) {
+    // build plan invalidator wrapper
+    return [db_acc = std::move(db_acc), publish_func = std::forward<Func>(publish_func)]() mutable {
+      return db_acc->plan_cache()->WithLock([&](auto &cache) {
+        auto do_reset = publish_func();
+        if (do_reset) cache.reset();
+        return do_reset;
       });
     };
   };
@@ -3261,9 +3277,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Creating an index influences computed plan costs.
-  auto plan_invalidator_builder = make_plan_invalidator_builder(db_acc);
-
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
 
@@ -3285,6 +3298,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
+      // Creating an index influences computed plan costs.
+      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title =
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
@@ -3308,18 +3323,19 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       break;
     }
     case IndexQuery::Action::DROP: {
+      // Creating an index influences computed plan costs.
+      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache =
+                 plan_invalidator_builder =
                      std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
-
+            properties.empty() ? dba->DropIndex(label, std::move(plan_invalidator_builder))
+                               : dba->DropIndex(label, std::move(properties), std::move(plan_invalidator_builder));
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =

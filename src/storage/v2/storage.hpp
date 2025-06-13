@@ -410,10 +410,10 @@ class Storage {
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = no_wrap) = 0;
+        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper = no_wrap) = 0;
+        LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
@@ -423,10 +423,11 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 

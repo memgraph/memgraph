@@ -2046,10 +2046,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
-  auto publisher = wrapper([](uint64_t) {});
-  publisher(0 /*timestamp is ignored*/);
+  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
+  publish_index_callback(0 /*timestamp is ignored*/);
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -2075,10 +2076,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
           label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
-  auto publisher = wrapper([](uint64_t) {});
-  publisher(0 /*timestamp is ignored*/);
+  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
+  publish_index_callback(0 /*timestamp is ignored*/);
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
@@ -2104,13 +2106,20 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
+                                                                                           DropIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
+  drop_index_callback();
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -2118,7 +2127,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2134,6 +2143,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
+  drop_index_callback();
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through

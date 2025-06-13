@@ -221,11 +221,11 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, bool unique_access_needed = true,
-                                                                      PublishIndexWrapper wrapper = no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertiesPaths,
-                                                                      PublishIndexWrapper wrapper = no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, PropertiesPaths, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
@@ -235,10 +235,12 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    std::vector<storage::PropertyPath> &&properties,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 

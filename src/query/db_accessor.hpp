@@ -631,14 +631,14 @@ class DbAccessor final {
   const std::string &id() const { return accessor_->id(); }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, storage::PublishIndexWrapper wraper = storage::no_wrap) {
-    return accessor_->CreateIndex(label, true, std::move(wraper));
+      storage::LabelId label, storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
+    return accessor_->CreateIndex(label, true, std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
       storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
-      storage::PublishIndexWrapper wraper = storage::no_wrap) {
-    return accessor_->CreateIndex(label, std::move(properties), std::move(wraper));
+      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
+    return accessor_->CreateIndex(label, std::move(properties), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {
@@ -654,13 +654,15 @@ class DbAccessor final {
     return accessor_->CreateGlobalEdgeIndex(property);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
-    return accessor_->DropIndex(label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
+      storage::LabelId label, storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
+    return accessor_->DropIndex(label, std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
-    return accessor_->DropIndex(label, std::move(properties));
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
+      storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
+    return accessor_->DropIndex(label, std::move(properties), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {

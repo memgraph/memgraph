@@ -1383,8 +1383,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // TODO: concurrent index creation need to publish
-  auto publisher = wrapper([](uint64_t) {});
-  publisher(0);  // ensures plan cache is cleared
+  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
+  publish_index_callback(0);  // ensures plan cache is cleared
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -1409,8 +1409,9 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper(
-      [=](uint64_t commit_timestamp) { mem_label_property_index->PublishIndex(label, properties, commit_timestamp); });
+  auto publisher = wrapper([=](uint64_t commit_timestamp) {
+    return mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
+  });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
@@ -1475,13 +1476,18 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+    LabelId label, DropIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // TODO: concurrent index drop
+  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
+  drop_index_callback();
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -1489,14 +1495,17 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->DropIndex(label, properties)) {
+
+  // Done inside the wrapper to ensure plan cache invalidation is safe
+  auto drop_index_callback = wrapper([&]() { return mem_label_property_index->DropIndex(label, properties); });
+  if (!drop_index_callback()) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
