@@ -27,3 +27,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_optional.py"]
     <<: *queries_cluster
+
+  - name: "Query planning reset plan cache"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_reset_plan_cache.py"]
+    <<: *queries_cluster
