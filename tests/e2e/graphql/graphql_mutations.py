@@ -109,5 +109,141 @@ def test_nested_create(query_server):
     query_server.send_query("mutation { teardown }")
 
 
+def test_single_delete(query_server):
+    setup = dedent(
+        """\
+        mutation {
+            createUsers(input: [
+                {
+                    name: "John Doe"
+                    posts: {
+                        create: [
+                            {
+                                node: {
+                                    content: "Hi, my name is John!"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]) {
+                users {
+                    id
+                    name
+                    posts {
+                        id
+                        content
+                    }
+                }
+            }
+        }
+        """
+    ).strip()
+
+    setup_result = query_server.send_query(setup)
+    (user_id, post_id) = get_uuid_from_response(setup_result)
+
+    query = dedent(
+        """
+        mutation {
+            deletePosts(where: {
+                id: { eq: \""""
+        + post_id
+        + """\" }
+            }) {
+                nodesDeleted
+                relationshipsDeleted
+            }
+        }
+        """
+    ).strip()
+
+    gotten = query_server.send_query(query)
+    expected_result = dedent(
+        """\
+        {
+            "data": {
+                "deletePosts": {
+                    "nodesDeleted": 1,
+                    "relationshipsDeleted": 1
+                }
+            }
+        }
+        """
+    ).strip()
+
+    assert server_returned_expected(expected_result, gotten)
+
+    query_server.send_query("mutation { teardown }")
+
+
+def test_nested_delete(query_server):
+    setup = dedent(
+        """\
+        mutation {
+            createUsers(input: [
+                {
+                    name: "John Doe"
+                    posts: {
+                        create: [
+                            {
+                                node: {
+                                    content: "Hi, my name is John!"
+                                }
+                            },
+                            {
+                                node: {
+                                    content: "This is my second post!"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]) {
+                users {
+                    id
+                    name
+                    posts {
+                        id
+                        content
+                    }
+                }
+            }
+        }
+        """
+    ).strip()
+
+    setup_result = query_server.send_query(setup)
+    (user_id, _, _) = get_uuid_from_response(setup_result)
+
+    query = dedent(
+        """
+        mutation {
+            deleteUsers(where: { name: { eq: "John Doe" } }, delete: { posts: {} }) {
+                nodesDeleted
+                relationshipsDeleted
+            }
+        }
+        """
+    ).strip()
+    gotten = query_server.send_query(query)
+
+    expected_result = dedent(
+        """\
+        {
+            "data": {
+                "deleteUsers": {
+                "nodesDeleted": 3,
+                "relationshipsDeleted": 2
+                }
+            }
+        }
+        """
+    ).strip()
+    assert server_returned_expected(expected_result, gotten)
+
+    query_server.send_query("mutation { teardown }")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

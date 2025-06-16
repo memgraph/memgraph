@@ -13,6 +13,11 @@ type User @node {
     posts: [Post!]! @relationship(type: "HAS_POST", direction: OUT)
 }
 
+type Movie @node {
+    title: String
+    tags: [String!]
+}
+
 type Mutation {
   setup: Boolean
     @cypher(
