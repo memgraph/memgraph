@@ -8,6 +8,7 @@ copy_graphql_e2e_python_files(graphql_queries_and_aggregations.py)
 copy_graphql_e2e_python_files(graphql_sorting.py)
 copy_graphql_e2e_python_files(graphql_pagination.py)
 copy_graphql_e2e_python_files(graphql_mutations.py)
+copy_graphql_e2e_python_files(graphql_arrays.py)
 copy_graphql_e2e_python_files(callable_alias_mapping.json)
 
 add_subdirectory(graphql_library_config)
