@@ -266,6 +266,10 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
+  bool CheckActiveIndices(storage::IndicesCollection const &required_indices) {
+    return accessor_->CheckActiveIndices(required_indices);
+  }
+
   auto type() const { return accessor_->type(); }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
