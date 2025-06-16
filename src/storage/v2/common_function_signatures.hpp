@@ -16,6 +16,9 @@
 
 namespace memgraph::storage {
 
+using CheckCancelFunction = std::function<bool()>;
+constexpr auto neverCancel = []() { return false; };
+
 using PublishIndexFunction = std::function<bool(uint64_t)>;
 using DropIndexFunction = std::function<bool()>;
 
