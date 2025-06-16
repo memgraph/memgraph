@@ -204,7 +204,7 @@ void MigrateVersions(kvstore::KVStore &store) {
           if (!password_hash.is_string()) {
             throw AuthException("Couldn't load user data!");
           }
-          // upgrade the password_hash to include the hash algortihm
+          // upgrade the password_hash to include the hash algorithm
           if (password_hash.empty()) {
             user_data[kPasswordHashV0V1] = nullptr;
           } else {

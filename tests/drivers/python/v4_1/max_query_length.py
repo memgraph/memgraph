@@ -45,6 +45,6 @@ assert property_size == max_len, "max_len probably has to be increased!"
 print("\nThe max length of a query from Python driver is: %s\n" %
       (template_size + property_size))
 
-# sessions are not closed bacause all sessions that are
+# sessions are not closed because all sessions that are
 # executed with wrong query size might be broken
 driver.close()

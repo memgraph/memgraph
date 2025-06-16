@@ -31,7 +31,7 @@ MAX_LABELS = 5  # maximum number of labels in a vertex
 MAX_PROPS = 4   # maximum number of properties in a vertex/edge
 MAX_PROP_VALUE = 1000
 
-# some consts used in mutiple files
+# some consts used in multiple files
 LABEL_INDEX = "LabelIndex"
 LABEL_PREFIX = "Label"
 PROP_PREFIX = "Prop"

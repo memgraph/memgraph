@@ -99,7 +99,7 @@ def execute_validation_task(
     worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
-    # For this reason, in this function we will not use the following argumetns:
+    # For this reason, in this function we will not use the following arguments:
     # - Time limit: Validation queries are performed which are independent from timed execution
     # - Position and lock: There is no synchronization needed as validation query is the sole query needed
     #   to be executed.
@@ -129,7 +129,7 @@ def execute_queries_task(
     worker_id, vendor, host, port, queries, position, lock, results, durations, max_retries, time_limit
 ):
     # The method uses same set of arguments so it can be called with multiple workers with the same pattern
-    # For this reason, in this function we will not use the following argumetns:
+    # For this reason, in this function we will not use the following arguments:
     # - Time limit: This task is independent from timed execution as every query will be executed only once
     client = get_python_client(vendor)(host, port)
 

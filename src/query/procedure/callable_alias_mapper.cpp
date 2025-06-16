@@ -40,7 +40,7 @@ void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
         json mapping_data = json::parse(mapping_file);
         mapping_ = mapping_data.get<std::map<std::string, std::string, std::less<>>>();
       } catch (...) {
-        MG_ASSERT(false, "Parsing callable mapping was unsuccesful. Make sure it is in correct json format.");
+        MG_ASSERT(false, "Parsing callable mapping was unsuccessful. Make sure it is in correct json format.");
       }
     } else {
       MG_ASSERT(false, "Path to callable mappings is not a regular file or does not have .json extension.");

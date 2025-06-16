@@ -637,7 +637,7 @@ test_memgraph() {
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
 
-  # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
+  # NOTE: If you need a fresh copy of memgraph files, call copy_project_files function on the line below.
   echo "Running $1 test on $build_container..."
   case "$1" in
     unit)

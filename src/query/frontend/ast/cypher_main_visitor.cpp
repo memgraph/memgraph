@@ -2813,7 +2813,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression9(MemgraphCypher::Expression9Con
 }
 
 // Comparisons.
-// Expresion 1 < 2 < 3 is converted to 1 < 2 && 2 < 3 and then binary operator
+// Expression 1 < 2 < 3 is converted to 1 < 2 && 2 < 3 and then binary operator
 // ast node is constructed for each operator.
 antlrcpp::Any CypherMainVisitor::visitExpression8(MemgraphCypher::Expression8Context *ctx) {
   if (!ctx->partialComparisonExpression().size()) {
@@ -2853,7 +2853,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression8(MemgraphCypher::Expression8Con
     auto *expr = children[i + 1];
     // TODO: first_operand should only do lookup if it is only calculated and
     // not recalculated whole subexpression once again. SymbolGenerator should
-    // generate symbol for every expresion and then lookup would be possible.
+    // generate symbol for every expression and then lookup would be possible.
     comparisons.push_back(CreateBinaryOperatorByToken(operators[i], first_operand, expr));
     first_operand = expr;
   }

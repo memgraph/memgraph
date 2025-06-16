@@ -251,7 +251,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     }
   }
 
-  // When module is reloaded, we shold reset the data structures
+  // When module is reloaded, we should reset the data structures
   pagerank_online_alg::Reset();
 
   return 0;

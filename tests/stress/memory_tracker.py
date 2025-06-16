@@ -134,7 +134,7 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
     session = SessionCache.argument_session(args)
 
     def create() -> bool:
-        exception_occured = False
+        exception_occurred = False
 
         memory_tracked_before, _ = get_storage_data(session)
         count_before = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
@@ -144,14 +144,14 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
                 f"FOREACH (i in range(1,10000) | CREATE (:Node {{prop:'big string or something like that'}}))",
             )
         except Exception as ex:
-            log.info(f"Exception occured during create: {ex}")
-            exception_occured = True
+            log.info(f"Exception occurred during create: {ex}")
+            exception_occurred = True
 
         memory_tracked_after, _ = get_storage_data(session)
         count_after = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
-        if exception_occured:
+        if exception_occurred:
             log.info(
-                f"Exception occured, stopping exection of run {Constants.CREATE_FUNCTION} worker."
+                f"Exception occurred, stopping execution of run {Constants.CREATE_FUNCTION} worker."
                 f"Memory stats: before query: {memory_tracked_before}, after query: {memory_tracked_after}."
                 f"Node stats: before query {count_before}, after query {count_after}"
             )

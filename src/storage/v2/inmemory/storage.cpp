@@ -940,7 +940,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   //      we are the only transaction, no one is reading those unlinked deltas
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
 
-  // 1.b.0) old committed_transactions_ need mininal unlinking + remove + clear
+  // 1.b.0) old committed_transactions_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas>{};
   mem_storage->committed_transactions_.WithLock(
@@ -953,7 +953,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   // 1.b.2) clear the list of deltas deques
   linked_undo_buffers.clear();
 
-  // STEP 2) this transactions deltas also mininal unlinking + remove + clear
+  // STEP 2) this transactions deltas also minimal unlinking + remove + clear
   unlink_remove_clear(transaction_.deltas);
 }
 

@@ -835,7 +835,7 @@ Feature: Match
             | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})> |
             | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
 
-    Scenario: Using path indentifier from CREATE in MERGE
+    Scenario: Using path identifier from CREATE in MERGE
         Given an empty graph
         And having executed:
             """

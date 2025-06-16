@@ -296,7 +296,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // label index create
   // label property index create
   // existence constraint create
-  // unique constriant create
+  // unique constraint create
   const auto *label = "label";
   const auto *property = "property";
   const auto *property_extra = "property_extra";
@@ -454,7 +454,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // label index drop
   // label property index drop
   // existence constraint drop
-  // unique constriant drop
+  // unique constraint drop
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelIndexStats(main.db.storage()->NameToLabel(label));

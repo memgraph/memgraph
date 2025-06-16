@@ -133,7 +133,7 @@ TEST_F(SettingsTest, AllSettings) {
   ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
 }
 
-TEST_F(SettingsTest, Persistance) {
+TEST_F(SettingsTest, Persistence) {
   auto generated_settings = GenerateSettings(100);
 
   memgraph::utils::Settings settings;

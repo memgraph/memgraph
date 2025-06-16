@@ -45,7 +45,7 @@ inline constexpr std::array kSupportedLogLevels{"debug", "trace", "info", "warni
 
 struct Credentials {
   std::string_view username;
-  std::string_view passsword;
+  std::string_view password;
 };
 
 inline void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }

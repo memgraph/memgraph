@@ -116,7 +116,7 @@
   M(SuccessfulFailovers, HighAvailability, "Number of successful failovers performed on the coordinator.")             \
   M(RaftFailedFailovers, HighAvailability, "Number of failed failovers because of Raft on the coordinator.")           \
   M(NoAliveInstanceFailedFailovers, HighAvailability, "Number of failed failovers, no data instance was alive.")       \
-  M(BecomeLeaderSuccess, HighAvailability, "Number of times the coordinator successfuly became the leader.")           \
+  M(BecomeLeaderSuccess, HighAvailability, "Number of times the coordinator successfully became the leader.")           \
   M(FailedToBecomeLeader, HighAvailability, "Number of times the coordinator failed to become the leader.")            \
   M(ShowInstance, HighAvailability, "Number of times the user called \"SHOW INSTANCE\" query.")                        \
   M(ShowInstances, HighAvailability, "Number of times the user called \"SHOW INSTANCES\" query.")                      \

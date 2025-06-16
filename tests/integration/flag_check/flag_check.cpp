@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
 
   } catch (const memgraph::communication::bolt::ClientQueryException &e) {
     LOG_FATAL(
-        "The query shoudn't have failed but it failed with an "
+        "The query shouldn't have failed but it failed with an "
         "error message '{}', {}",
         e.what(), argv[0]);
   }

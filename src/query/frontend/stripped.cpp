@@ -69,7 +69,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     if (token == Token::UNMATCHED) {
       if (i < original_.size()) {
         throw LexingException(
-            "Invalid query. There is a wrong token at postion {} starting with {}. Remove that part of the query and "
+            "Invalid query. There is a wrong token at position {} starting with {}. Remove that part of the query and "
             "try to rerun it.",
             i, original_[i]);
       }
@@ -205,22 +205,22 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       bool has_as = false;
       auto last_non_space = it;
       auto jt = it;
-      // We should track number of opened braces and parantheses so that we can
+      // We should track number of opened braces and parentheses so that we can
       // recognize if comma is a named expression separator or part of the
       // list literal / function call.
       int num_open_braces = 0;
-      int num_open_parantheses = 0;
+      int num_open_parentheses = 0;
       int num_open_brackets = 0;
       for (;
-           jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
+           jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parentheses || num_open_brackets) &&
            !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
            !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") &&
            !utils::IEquals(jt->second, "query") && jt->second != ";";
            ++jt) {
         if (jt->second == "(") {
-          ++num_open_parantheses;
+          ++num_open_parentheses;
         } else if (jt->second == ")") {
-          --num_open_parantheses;
+          --num_open_parentheses;
         } else if (jt->second == "[") {
           ++num_open_braces;
         } else if (jt->second == "]") {
