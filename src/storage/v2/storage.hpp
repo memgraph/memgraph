@@ -541,6 +541,10 @@ class Storage {
 
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
+    bool CheckActiveIndices(IndicesCollection const &required_indices) {
+      return transaction_.active_indices_.CheckActiveIndices(required_indices);
+    }
+
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
