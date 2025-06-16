@@ -76,6 +76,14 @@ class PlanWrapper {
   std::unique_ptr<LogicalPlan> plan_;
 };
 
+struct CachedPlanWrapper : PlanWrapper {
+  explicit CachedPlanWrapper(std::unique_ptr<LogicalPlan> plan, std::string stripped_query);
+  auto stripped_query() const -> std::string_view { return stripped_query_; }
+
+ private:
+  std::string stripped_query_;  // used so we can identify hash collision
+};
+
 struct CachedQuery {
   AstStorage ast_storage;
   Query *query;
@@ -132,7 +140,7 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
-using PlanCacheLRU = utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::PlanWrapper>>,
+using PlanCacheLRU = utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>>,
                                          utils::RWSpinLock>;  // TODO: check RW
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
@@ -147,9 +155,9 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  * If an identifier is contained there, we inject it at that place and remove it,
  * because a predefined identifier can be used only in one scope.
  */
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query
