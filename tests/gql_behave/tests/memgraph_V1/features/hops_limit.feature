@@ -236,3 +236,17 @@ Feature: Hops Limit
         Then the result should be:
             | counter |
             | 0       |
+
+    Scenario: Test retrieving hops limit without traversing 2
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) as x CREATE ()-[:NEXT]->()
+            """
+        When executing query:
+            """
+            MATCH (n) with count(n) as cnt RETURN getHopsCounter() as counter;
+            """
+        Then the result should be:
+            | counter |
+            | 0       |

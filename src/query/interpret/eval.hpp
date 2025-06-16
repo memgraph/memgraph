@@ -1063,6 +1063,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameChangeCollector *frame_change_collector_;
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+  // use the getter function GetHopsCounter() to handle possible error for segfault
   const int64_t *hops_counter_;
 };  // namespace memgraph::query
 

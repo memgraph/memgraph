@@ -1767,7 +1767,7 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
 
 // Returns the current hops limit if set, otherwise null.
 TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
-  return TypedValue(static_cast<int64_t>(ctx.hops_counter), ctx.memory);
+  return TypedValue(ctx.hops_counter, ctx.memory);
 }
 
 auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{

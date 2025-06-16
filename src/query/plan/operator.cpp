@@ -1881,8 +1881,6 @@ class ExpandVariableCursor : public Cursor {
 
     AbortCheck(context);
 
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD, nullptr, &context.number_of_hops);
     while (true) {
       if (Expand(frame, context)) return true;
 
