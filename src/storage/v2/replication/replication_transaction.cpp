@@ -25,6 +25,7 @@ auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_comm
     // NOLINTNEXTLINE
     auto const finalized = std::invoke([&]() {
       if (ShouldRunTwoPC()) {
+        // NOLINTNEXTLINE
         return client->FinalizePrepareCommitPhase(db_acc, replica_stream, durability_commit_timestamp);
       }
       return client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
