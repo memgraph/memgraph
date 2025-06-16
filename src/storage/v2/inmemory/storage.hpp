@@ -354,7 +354,8 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
