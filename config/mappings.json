@@ -1,6 +1,7 @@
 {
     "dbms.components": "mgps.components",
     "apoc.util.validate": "mgps.validate",
+    "apoc.util.validatePredicate": "mgps.validate_predicate",
     "db.schema.nodeTypeProperties": "schema.NodeTypeOroperties",
     "db.schema.relTypeProperties": "schema.RelTypeProperties",
     "apoc.coll.contains": "collections.contains",

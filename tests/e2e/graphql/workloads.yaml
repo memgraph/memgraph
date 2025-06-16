@@ -59,6 +59,12 @@ workloads:
     args: ["graphql/graphql_arrays.py"]
     <<: *in_memory_cluster
 
+  - name: "graphql mathematical operators"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_mathematical_operators.py"]
+    <<: *in_memory_cluster
+
   - name: "Disk GraphQL crud"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
@@ -93,4 +99,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
     args: ["graphql/graphql_arrays.py"]
+    <<: *disk_cluster
+
+  - name: "Disk GraphQL mathematical operators"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_mathematical_operators.py"]
     <<: *disk_cluster
