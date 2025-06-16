@@ -189,7 +189,13 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
-    enum Type { NO_ACCESS, UNIQUE, WRITE, READ, READ_ONLY };
+    enum Type {
+      NO_ACCESS,  // Modifies nothing in the storage
+      UNIQUE,     // An operation that requires mutral exclusive access to the storage
+      WRITE,      // Writes to the data of storage
+      READ,       // Either reads the data of storage, or a metadata operation that doesn't require unique access
+      READ_ONLY,  // Ensures writers have gone
+    };
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
@@ -413,7 +419,8 @@ class Storage {
         LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
