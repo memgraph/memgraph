@@ -459,11 +459,7 @@ def mixed_workload(
 
 
 def warmup(condition: str, client, queries: list = None):
-    if condition == DATABASE_CONDITION_HOT and client._vendor in [
-        GraphVendors.MEMGRAPH,
-        GraphVendors.NEO4J,
-        GraphVendors.FALKORDB,
-    ]:
+    if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
         warmup_to_hot_queries = get_warmup_to_hot_queries(client)
         if len(queries) > 0:
