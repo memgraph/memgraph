@@ -97,6 +97,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
+#include "utils/compile_time.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
@@ -3260,9 +3261,9 @@ auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_
   };
 }
 
-// TODO: take StoppingContext
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::vector<Notification> *notifications, CurrentDB &current_db) {
+                                std::vector<Notification> *notifications, CurrentDB &current_db,
+                                StoppingContext stopping_context) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -3298,6 +3299,19 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
+      constexpr auto kCancelPeriodCreateIndex = 10'000;  // TODO: control via flag?
+      auto cancel_callback = [stopping_context = std::move(stopping_context),
+                              counter = utils::ResettableCounter{kCancelPeriodCreateIndex}]() {
+        if (!counter()) {
+          return false;
+        }
+        // For now only handle TERMINATED + SHUTDOWN
+        // No timeout becasue we expect it would confuse users
+        // ie. we don't want to run for 20min and then discard because of timeout
+        auto reason = stopping_context.MustAbort();
+        return reason == AbortReason::TERMINATED || reason == AbortReason::SHUTDOWN;
+      };
+
       // Creating an index influences computed plan costs.
       auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::CREATE_INDEX;
@@ -3307,17 +3321,29 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 plan_invalidator_builder =
-                     std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
-        auto maybe_index_error =
-            properties.empty() ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
-                               : dba->CreateIndex(label, std::move(properties), std::move(plan_invalidator_builder));
-
+                 plan_invalidator_builder = std::move(plan_invalidator_builder),
+                 cancel_callback = std::move(cancel_callback)](Notification &index_notification) mutable {
+        auto maybe_index_error = properties.empty()
+                                     ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
+                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
+                                                        std::move(plan_invalidator_builder));
         if (maybe_index_error.HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          // ABORT?
+          auto const error_visitor = [&]<typename T>(T const &) {
+            if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
+                          std::is_same_v<T, storage::IndexDefinitionConfigError> ||
+                          std::is_same_v<T, storage::IndexDefinitionAlreadyExistsError>) {
+              index_notification.code = NotificationCode::EXISTENT_INDEX;
+              index_notification.title =
+                  fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
+            } else if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
+              // TODO: could also be SHUTDOWN...but this is good enough for now
+              throw HintedAbortError(AbortReason::TERMINATED);
+            } else {
+              static_assert(utils::always_false<T>, "Unhandled error type in error_visitor");
+            }
+          };
+
+          std::visit(error_visitor, maybe_index_error.GetError());
         }
       };
       break;
@@ -6259,7 +6285,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
           // Need writers to leave so we can make populate a consistent index
           accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
         } else {
-          accessor_type_ = storage::Storage::Accessor::Type::READ;  // TODO: READ
+          accessor_type_ = storage::Storage::Accessor::Type::READ;
         }
       }
     } else {
@@ -6425,7 +6451,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                         &query_execution->notifications, current_db_);
+                                         &query_execution->notifications, current_db_, make_stopping_context());
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);

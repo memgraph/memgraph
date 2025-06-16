@@ -2059,7 +2059,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, PropertiesPaths properties, PublishIndexWrapper wrapper) {
+    LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {

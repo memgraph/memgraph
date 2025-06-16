@@ -13,6 +13,7 @@
 
 #include <span>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -24,6 +25,10 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
+
+enum class IndexPopulateError {
+  Cancellation,
+};
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
@@ -75,10 +80,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   bool RegisterIndex(LabelId label, PropertiesPaths const &properties);
 
-  bool PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
+  auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr);
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
 

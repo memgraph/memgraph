@@ -262,9 +262,11 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   auto res = RegisterIndex(label, properties);
   if (!res) return false;
   auto res2 = PopulateIndex(label, properties, std::move(vertices), parallel_exec_info, snapshot_info);
-  if (!res2) return false;
+  if (res2.HasError()) {
+    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+  }
   // Invalidate plans?
-  return PublishIndex(label, properties, 0);  // TODO: this should recover with correct timestamp? or is 0 fine?
+  return PublishIndex(label, properties, 0);
 }
 
 bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths const &properties) {
@@ -282,16 +284,16 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   });
 }
 
-// struct PopulateCancel : std::exception {};
+struct PopulateCancel : std::exception {};
 
-bool InMemoryLabelPropertyIndex::PopulateIndex(
+auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx) {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
-    DMG_ASSERT(false, "It should not be possible to remove the index before populating it.");
-    return false;
+    MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
   }
 
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
@@ -303,25 +305,31 @@ bool InMemoryLabelPropertyIndex::PopulateIndex(
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
+        }
         TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
+        }
         TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor);
       };
       PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     }
-    //  } catch (const PopulateCancel &) {
-    //    RemoveIndividualIndex(label, properties);
-    //    return IndexPopulateError::Cancellation;
+  } catch (const PopulateCancel &) {
+    RemoveIndividualIndex(label, properties);
+    return IndexPopulateError::Cancellation;
   } catch (const utils::OutOfMemoryException &) {
     RemoveIndividualIndex(label, properties);
     throw;
   }
 
-  return true;
+  return {};
 }
 
 bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths const &properties,

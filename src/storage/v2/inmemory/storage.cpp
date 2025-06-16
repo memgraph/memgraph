@@ -1393,7 +1393,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
-                                                    PublishIndexWrapper wrapper)
+                                                    CheckCancelFunction cancel_check, PublishIndexWrapper wrapper)
     -> utils::BasicResult<StorageIndexDefinitionError, void> {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label-property index requires a unique or read only access to the storage!");
@@ -1404,9 +1404,11 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
     return StorageIndexDefinitionError{IndexDefinitionAlreadyExistsError{}};
   }
   DowngradeToReadIfValid();
-  if (!mem_label_property_index->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt,
-                                               std::nullopt, &transaction_)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  if (mem_label_property_index
+          ->PopulateIndex(label, properties, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
+                          std::move(cancel_check))
+          .HasError()) {
+    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
   auto publisher = wrapper([=](uint64_t commit_timestamp) {

@@ -225,7 +225,8 @@ class DiskStorage final : public Storage {
         LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
