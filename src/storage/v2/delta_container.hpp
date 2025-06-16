@@ -38,8 +38,8 @@ static_assert(alignof(void *) <= alignof(delta_slab), "assumption that above cal
 static_assert(292 == delta_slab::capacity(),
               "We had an expectation of how many deltas will be held, if decreased there should be a good reason");
 
-// Flattern iterators used here becasue we can't use
-// `std::views::join` becasue stack-use-after-scope
+// Flattern iterators used here because we can't use
+// `std::views::join` because stack-use-after-scope
 template <typename OuterContainer, typename InnerContainer>
 struct FlattenIterator {
  private:

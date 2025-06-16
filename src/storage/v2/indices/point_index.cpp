@@ -168,7 +168,7 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
   if (noOtherIndexUpdate) {
     // TODO: make a special case for inplace modification
     //    if (!context.UsingLocalIndex() && context.orig_indexes_.use_count() == 3) { /* ??? */}
-    //    3 becasue indexes_ + orig_indexes_ + current_indexes_ should be the only references
+    //    3 because indexes_ + orig_indexes_ + current_indexes_ should be the only references
     context.update_current(collector);
     indexes_ = context.current_indexes_;
   } else {

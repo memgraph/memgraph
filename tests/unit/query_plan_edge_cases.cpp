@@ -150,7 +150,7 @@ TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
 
 TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
   // Validating that an edge uniqueness check can't fail when the edge is Null
-  // due to optonal match. Since edge-uniqueness only happens in one OPTIONAL
+  // due to optional match. Since edge-uniqueness only happens in one OPTIONAL
   // MATCH, we only need to check that scenario.
   this->Execute("CREATE (), ()-[:Type]->()");
   ASSERT_EQ(this->Execute("MATCH (n) RETURN n").size(), 3);

@@ -365,7 +365,7 @@ class GraphSession {
       }
 
       // if we are near vertex balance, we can also do updates
-      // instad of update / deletes
+      // instead of update / deletes
       if (std::fabs(1.0 - ratio_v) < 0.5 && Bernoulli(0.5)) {
         AddLabel();
         continue;

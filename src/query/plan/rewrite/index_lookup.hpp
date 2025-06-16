@@ -1174,7 +1174,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       };
 
       if (!found) {
-        // this sets LabelPropertyIndex which communitcates which fiters are to be replaced by a LabelPropertyIndex
+        // this sets LabelPropertyIndex which communicates which fiters are to be replaced by a LabelPropertyIndex
         found = make_label_property_index();
         continue;
       }

@@ -11,7 +11,7 @@ WGET_OR_CLONE_TIMEOUT=60
 function print_help () {
     echo "Usage: $0 [OPTION]"
     echo -e "Setup libs for the project.\n"
-    echo "Optonal environment variables:"
+    echo "Optional environment variables:"
     echo -e "  MGDEPS_CACHE_HOST_PORT\thost and port for mgdeps cache service, set host to 'false' to not use mgdeps-cache (default: mgdeps-cache:8000) "
 }
 

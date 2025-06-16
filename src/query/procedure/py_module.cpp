@@ -1622,7 +1622,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
 
 static PyMethodDef PyPropertiesIteratorMethods[] = {
     {"get", reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet), METH_NOARGS,
-     "Get the current proprety pointed to by the iterator or return None."},
+     "Get the current property pointed to by the iterator or return None."},
     {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext), METH_NOARGS,
      "Advance the iterator to the next property and return it."},
     {nullptr, {}, {}, {}},
@@ -2166,7 +2166,7 @@ static PyMethodDef PyVertexMethods[] = {
      "Return True if the vertex is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS, "Return vertex id."},
     {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount), METH_NOARGS,
-     "Return number of lables of a vertex."},
+     "Return number of labels of a vertex."},
     {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
      "Return label of a vertex on a given index."},
     {"add_label", reinterpret_cast<PyCFunction>(PyVertexAddLabel), METH_VARARGS, "Add the label to the vertex."},

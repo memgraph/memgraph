@@ -216,7 +216,7 @@ auto ExpressionRange::Evaluate(ExpressionEvaluator &evaluator) const -> storage:
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limited to the same type as the other bound
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -286,7 +286,7 @@ auto ExpressionRange::ResolveAtPlantime(Parameters const &params, storage::NameI
       }
 
       // InMemoryLabelPropertyIndex::Iterable is responsible to make sure an unset lower/upper
-      // bound will be limitted to the same type as the other bound
+      // bound will be limited to the same type as the other bound
       return storage::PropertyValueRange::Bounded(lower_bound, upper_bound);
     }
 
@@ -319,7 +319,7 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
         } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-          throw QueryException("PeriodicCommit failed: Unable to commit due to persistance error.");
+          throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
@@ -4924,7 +4924,7 @@ class AggregateCursor : public Cursor {
     reused_group_by_.clear();
     evaluator->ResetPropertyLookupCache();
 
-    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
+    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (because we are doing *)
     //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));

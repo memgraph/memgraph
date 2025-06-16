@@ -248,7 +248,7 @@ void InputFile::Close() noexcept {
   }
 
   if (ret != 0) {
-    spdlog::error("While trying to close {} an error occured: {} ({})", path_, strerror(errno), errno);
+    spdlog::error("While trying to close {} an error occurred: {} ({})", path_, strerror(errno), errno);
   }
 
   fd_ = -1;
@@ -341,7 +341,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -395,7 +395,7 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno),
+    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occurred: {} ({})", path_, strerror(errno),
               errno);
     return pos;
   }
@@ -597,7 +597,7 @@ void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }
@@ -651,7 +651,7 @@ size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t 
     if (pos == -1 && errno == EINTR) {
       continue;
     }
-    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occured: {} ({})", path_, strerror(errno),
+    MG_ASSERT(pos >= 0, "While trying to set the position in {} an error occurred: {} ({})", path_, strerror(errno),
               errno);
     return pos;
   }

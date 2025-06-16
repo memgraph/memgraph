@@ -65,7 +65,7 @@
                       nodes-config))
 
 (defn full-nemesis
-  "Can kill, restart all processess and initiate network partitions."
+  "Can kill, restart all processes and initiate network partitions."
   [nodes-config]
   (nemesis/compose
    {{:kill-node    :start

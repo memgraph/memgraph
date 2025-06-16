@@ -139,7 +139,7 @@ void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size
     if (size) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
-      // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
+      // Inaccurate because malloc_usable_size() result is greater or equal to allocated size.
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
@@ -153,7 +153,7 @@ void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std
     if (size) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
-      // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
+      // Inaccurate because malloc_usable_size() result is greater or equal to allocated size.
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif

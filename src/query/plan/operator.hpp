@@ -1022,13 +1022,13 @@ struct ExpansionLambda {
 /// This class does not handle node/edge filtering based on
 /// properties, labels and edge types. However, it does handle
 /// filtering on existing node / edge. Additionally it handles's
-/// edge-uniquess (cyphermorphism) because it's not feasable to do
+/// edge-uniquess (cyphermorphism) because it's not feasible to do
 /// later.
 ///
 /// Filtering on existing means that for a pattern that references
 /// an already declared node or edge (for example in
 /// MATCH (a) MATCH (a)--(b)),
-/// only expansions that match defined equalities are succesfully
+/// only expansions that match defined equalities are successfully
 /// pulled.
 class ExpandVariable : public memgraph::query::plan::LogicalOperator {
  public:
@@ -1860,9 +1860,9 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
 
-/// Merge operator. For every sucessful Pull from the
+/// Merge operator. For every successful Pull from the
 /// input operator a Pull from the merge_match is attempted. All
-/// successfull Pulls from the merge_match are passed on as output.
+/// successful Pulls from the merge_match are passed on as output.
 /// If merge_match Pull does not yield any elements, a single Pull
 /// from the merge_create op is performed.
 ///
