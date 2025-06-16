@@ -76,7 +76,6 @@ def get_instances_description(test_name: str):
     }
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_show_replicas(connection, test_name):
     # Goal of this test is to check the SHOW REPLICAS command.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -216,7 +215,6 @@ def test_show_replicas(connection, test_name):
     assert all([x in actual_data for x in expected_data])
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_drop_replicas(connection, test_name):
     # Goal of this test is to check the DROP REPLICAS command.
     # 0/ Manually start main and all replicas
@@ -523,7 +521,6 @@ def test_drop_replicas(connection, test_name):
         "false",
     ],
 )
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_basic_recovery(recover_data_on_startup, connection, test_name):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -1231,7 +1228,6 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(test_name):
     assert all([x in actual_data for x in expected_data])
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_async_replication_when_main_is_killed(test_name):
     # Goal of the test is to check that when main is randomly killed:
     # -the ASYNC replica always contains a valid subset of data of main.
@@ -1357,7 +1353,6 @@ def test_sync_replication_when_main_is_killed(test_name):
         assert last_result_from_main == res_from_sync_replica, main_killed
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     # Goal of this test is to check that main can write new data if an async replica is down.
     # 0/ Start main and async replicas.
@@ -1449,7 +1444,6 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, test_name):
     # Goal of this test is to check that main cannot write new data if a sync replica is down.
     # 0/ Start main and sync replicas.
@@ -1596,7 +1590,6 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, tes
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection, test_name):
     # Goal of this test is to check that main can create new indexes/constraints if an async replica is down.
     # 0/ Start main and async replicas.
@@ -2476,7 +2469,6 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, 
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_replication_not_messed_up_by_CreateSnapshot(connection, test_name):
     # Goal of this test is to check the replica can not run CreateSnapshot
     # 1/ CREATE SNAPSHOT should raise a DatabaseError
@@ -2507,7 +2499,6 @@ def test_replication_not_messed_up_by_CreateSnapshot(connection, test_name):
         execute_and_fetch_all(replica1_cursor, "CREATE SNAPSHOT;")
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_replication_not_messed_up_by_ShowIndexInfo(connection):
     # Goal of this test is to check the replicas timestamp and hence ability to recieve MAINs writes
     # is uneffected by SHOW INDEX INFO
