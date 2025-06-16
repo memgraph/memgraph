@@ -10,28 +10,19 @@
 # licenses/APL.txt.
 
 
-import concurrent.futures
 import os
-import subprocess
 import sys
-import time
 from functools import partial
+from multiprocessing import Pool
 
 import interactive_mg_runner
 import pytest
 from common import (
   connect,
   execute_and_fetch_all,
-  find_instance_and_assert_instances,
   get_data_path,
   get_logs_path,
   get_vertex_count,
-  has_leader,
-  has_main,
-  show_instances,
-  show_replicas,
-  update_tuple_value,
-  wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
   mg_assert_until,
@@ -182,7 +173,6 @@ def setup_default_cluster(test_name):
 
 # Tests that when all replicas are UP, 2PC should work
 # After instances restart, they should still see the same data as upon committing
-# @pytest.mark.skip(reason="Commit works properly")
 def test_commit_works(test_name):
     inner_instances_description = setup_default_cluster(test_name)
     # Create data on MAIN
@@ -209,7 +199,6 @@ def test_commit_works(test_name):
 
 
 # One replica is down before commit starts on MAIN, hence in-memory state should be preserved and commit should fail
-# @pytest.mark.skip(reason="In-memory Abort works properly")
 def test_replica_down_before_commit(test_name):
     inner_instances_description = setup_default_cluster(test_name)
 
@@ -240,7 +229,6 @@ def test_replica_down_before_commit(test_name):
 # One of replicas was down during the commit hence the txn will get aborted
 # Test that the other replica which was alive all the time and which receive PrepareRpc
 # won't contain any data after the restart.
-# @pytest.mark.skip(reason="Durable abort still doesn't work")
 def test_replica_after_restart_no_committed_data(test_name):
     inner_instances_description = setup_default_cluster(test_name)
 
@@ -265,7 +253,46 @@ def test_replica_after_restart_no_committed_data(test_name):
     mg_sleep_and_assert(0, partial(get_vertex_count, instance2_cursor))
 
 
-# TODO: (andi) ADD MT tests
+# Used in the function below which tests that MT works with STRICT_SYNC replicas
+def task(db):
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    execute_and_fetch_all(main_cursor, f"USE DATABASE {db};")
+    get_query = lambda id_: "CREATE (n:Node {id:" + str(id_) + "});"
+
+    for i in range(100):
+        execute_and_fetch_all(main_cursor, get_query(i))
+
+
+def test_mt_strict_sync_commit(test_name):
+    setup_default_cluster(test_name)
+
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE C;")
+
+    with Pool(processes=4) as pool:
+        res_a = pool.apply_async(task, ("A",))
+        res_b = pool.apply_async(task, ("B",))
+        res_c = pool.apply_async(task, ("C",))
+        res_mg = pool.apply_async(task, ("memgraph",))
+        res_a.get(timeout=5)
+        res_b.get(timeout=5)
+        res_c.get(timeout=5)
+        res_mg.get(timeout=5)
+
+    # A
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    assert get_vertex_count(main_cursor) == 100
+    # B
+    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
+    assert get_vertex_count(main_cursor) == 100
+    # C
+    execute_and_fetch_all(main_cursor, "USE DATABASE C;")
+    assert get_vertex_count(main_cursor) == 100
+    # memgraph
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    assert get_vertex_count(main_cursor) == 100
 
 
 if __name__ == "__main__":
