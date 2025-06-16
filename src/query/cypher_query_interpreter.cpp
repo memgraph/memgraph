@@ -19,6 +19,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rule_based_planner.hpp"
+#include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
@@ -163,9 +164,28 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
                                                PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(stripped_query.hash()); });
+    auto existing_plan =
+        plan_cache->WithLock([&](utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>> &cache) {
+          return cache.get(stripped_query.hash());
+        });
     if (existing_plan.has_value() && existing_plan.value()->stripped_query() == stripped_query.query()) {
-      return existing_plan.value();
+      // validate the index usage
+      auto &ptr = existing_plan.value();
+      auto &plan = ptr->plan();
+
+      auto checker = plan::UsedIndexChecker{};
+      // TODO: this const_cast is BAD
+      const_cast<plan::LogicalOperator &>(plan).Accept(checker);
+
+      // TODO: when we are not eagerly collecting all indexes at CreateTransaction we want to Gather rather than Check
+      auto all_satisfied = db_accessor->CheckActiveIndices(checker.required_indices_);
+      if (all_satisfied) {
+        return ptr;
+      } else {
+        plan_cache->WithLock([&](utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>> &cache) {
+          cache.invalidate(stripped_query.hash());
+        });
+      }
     }
   }
 
