@@ -34,6 +34,7 @@ struct VectorIndexConfigMap {
   std::uint16_t dimension;
   std::size_t capacity;
   std::uint16_t resize_coefficient;
+  unum::usearch::scalar_kind_t scalar_kind;
 };
 
 /// @struct VectorIndexInfo
@@ -49,6 +50,7 @@ struct VectorIndexInfo {
   std::uint16_t dimension;
   std::size_t capacity;
   std::size_t size;
+  std::string scalar_kind;
 };
 
 /// @struct VectorIndexSpec
@@ -57,7 +59,6 @@ struct VectorIndexInfo {
 /// This structure includes the index name, the label and property on which the index is created,
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
-  // TODO(@DavIvek): Add scalar kind configuration options. This will be useful for memory usage.
   std::string index_name;
   LabelId label;
   PropertyId property;
@@ -65,6 +66,7 @@ struct VectorIndexSpec {
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
+  unum::usearch::scalar_kind_t scalar_kind;
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
@@ -103,6 +105,18 @@ class VectorIndex {
   /// @return The metric kind corresponding to the name.
   /// @throw query::VectorSearchException
   static unum::usearch::metric_kind_t MetricFromName(std::string_view name);
+
+  /// @brief Converts a scalar kind to a string.
+  /// @param scalar The scalar kind to be converted.
+  /// @return The string representation of the scalar kind.
+  /// @throw query::VectorSearchException
+  static const char *NameFromScalar(unum::usearch::scalar_kind_t scalar);
+
+  /// @brief Converts a scalar name to a scalar kind.
+  /// @param name The name of the scalar to be converted.
+  /// @return The scalar kind corresponding to the name.
+  /// @throw query::VectorSearchException
+  static unum::usearch::scalar_kind_t ScalarFromName(std::string_view name);
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.

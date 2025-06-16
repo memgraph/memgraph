@@ -352,14 +352,16 @@ propertyKeyName : symbolicName ;
 
 propertyKeyValuePair : propertyKeyName ':' expression ;
 
+nestedPropertyKeyNames : propertyKeyName ( '.' propertyKeyName )* ;
+
 integerLiteral : DecimalLiteral
                | OctalLiteral
                | HexadecimalLiteral
                ;
 
-createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )? ;
+createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
 
-dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )? ;
+dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
 
 doubleLiteral : FloatingLiteral ;
 

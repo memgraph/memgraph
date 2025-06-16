@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "range/v3/all.hpp"
@@ -197,8 +199,8 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   IndexHint object;
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-  auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
-  object.property_ixs_ = property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
+  auto clone_path = [&](PropertyIxPath const &path) { return path.Clone(storage); };
+  object.property_ixs_ = property_ixs_ | rv::transform(clone_path) | r::to_vector;
   return object;
 }
 
@@ -451,6 +453,14 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
              "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
 }
 
+auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {
+  auto paths_copy = std::vector<memgraph::query::PropertyIx>{};
+  paths_copy.reserve(path.size());
+  for (auto const &prop_ix : path) {
+    paths_copy.emplace_back(storage->GetPropertyIx(prop_ix.name));
+  }
+  return PropertyIxPath{std::move(paths_copy)};
+}
 }  // namespace query
 
 }  // namespace memgraph

@@ -30,6 +30,7 @@
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
@@ -299,6 +300,9 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *label = "label";
   const auto *property = "property";
   const auto *property_extra = "property_extra";
+  const auto *nested_property1 = "nested_property1";
+  const auto *nested_property2 = "nested_property2";
+  const auto *nested_property3 = "nested_property3";
   const memgraph::storage::LabelIndexStats l_stats{12, 34};
   const memgraph::storage::LabelPropertyIndexStats lp_stats{98, 76, 5.4, 3.2, 1.0};
 
@@ -331,15 +335,35 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label),
-                              std::array{main.db.storage()->NameToProperty(property)}, lp_stats);
+                              std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property)}},
+                              lp_stats);
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(
         main.db.storage()->NameToLabel(label),
-        std::array{main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)},
+        std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property)},
+                   memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(property_extra)}},
         lp_stats);
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
+    // Create nested index
+    auto unique_acc = main.db.UniqueAccess();
+    memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
+                                                  main.db.storage()->NameToProperty(nested_property2),
+                                                  main.db.storage()->NameToProperty(nested_property3)};
+    ASSERT_FALSE(unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {property_path}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
+    // Create nested index stats
+    auto unique_acc = main.db.UniqueAccess();
+    memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
+                                                  main.db.storage()->NameToProperty(nested_property2),
+                                                  main.db.storage()->NameToProperty(nested_property3)};
+    unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), std::array{property_path}, lp_stats);
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
@@ -365,17 +389,26 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_THAT(indices.label, UnorderedElementsAre(replica.db.storage()->NameToLabel(label)));
     ASSERT_THAT(
         indices.label_properties,
-        UnorderedElementsAre(std::make_pair(replica.db.storage()->NameToLabel(label),
-                                            std::vector{replica.db.storage()->NameToProperty(property)}),
-                             std::make_pair(replica.db.storage()->NameToLabel(label),
-                                            std::vector{replica.db.storage()->NameToProperty(property),
-                                                        replica.db.storage()->NameToProperty(property_extra)})));
+        UnorderedElementsAre(
+            std::make_pair(
+                replica.db.storage()->NameToLabel(label),
+                std::vector{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}}),
+            std::make_pair(
+                replica.db.storage()->NameToLabel(label),
+                std::vector{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)},
+                            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property_extra)}}),
+            std::make_pair(
+                replica.db.storage()->NameToLabel(label),
+                std::vector{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(nested_property1),
+                                                            main.db.storage()->NameToProperty(nested_property2),
+                                                            main.db.storage()->NameToProperty(nested_property3)}})));
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_TRUE(l_stats_rep);
     ASSERT_EQ(l_stats_rep->count, l_stats.count);
     ASSERT_EQ(l_stats_rep->avg_degree, l_stats.avg_degree);
     const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label), std::array{replica.db.storage()->NameToProperty(property)});
+        replica.db.storage()->NameToLabel(label),
+        std::array{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}});
     ASSERT_TRUE(lp_stats_rep);
     ASSERT_EQ(lp_stats_rep->count, lp_stats.count);
     ASSERT_EQ(lp_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
@@ -384,16 +417,29 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_EQ(lp_stats_rep->avg_degree, lp_stats.avg_degree);
 
     const auto &lps_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label), std::array{
-                                                      replica.db.storage()->NameToProperty(property),
-                                                      replica.db.storage()->NameToProperty(property_extra),
-                                                  });
+        replica.db.storage()->NameToLabel(label),
+        std::array{
+            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)},
+            memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property_extra)},
+        });
     ASSERT_TRUE(lps_stats_rep);
     ASSERT_EQ(lps_stats_rep->count, lp_stats.count);
     ASSERT_EQ(lps_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
     ASSERT_EQ(lps_stats_rep->statistic, lp_stats.statistic);
     ASSERT_EQ(lps_stats_rep->avg_group_size, lp_stats.avg_group_size);
     ASSERT_EQ(lps_stats_rep->avg_degree, lp_stats.avg_degree);
+
+    const auto &nested_lps_stats_rep = replica.db.Access()->GetIndexStats(
+        replica.db.storage()->NameToLabel(label),
+        std::array{memgraph::storage::PropertyPath{main.db.storage()->NameToProperty(nested_property1),
+                                                   main.db.storage()->NameToProperty(nested_property2),
+                                                   main.db.storage()->NameToProperty(nested_property3)}});
+    ASSERT_TRUE(nested_lps_stats_rep);
+    ASSERT_EQ(nested_lps_stats_rep->count, lp_stats.count);
+    ASSERT_EQ(nested_lps_stats_rep->distinct_values_count, lp_stats.distinct_values_count);
+    ASSERT_EQ(nested_lps_stats_rep->statistic, lp_stats.statistic);
+    ASSERT_EQ(nested_lps_stats_rep->avg_group_size, lp_stats.avg_group_size);
+    ASSERT_EQ(nested_lps_stats_rep->avg_degree, lp_stats.avg_degree);
 
     const auto constraints = replica.db.Access()->ListAllConstraints();
     ASSERT_THAT(constraints.existence,
@@ -432,6 +478,21 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
+    // Drop nested index
+    auto unique_acc = main.db.UniqueAccess();
+    memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
+                                                  main.db.storage()->NameToProperty(nested_property2),
+                                                  main.db.storage()->NameToProperty(nested_property3)};
+    ASSERT_FALSE(unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {property_path}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
+    // Drop nested index stats
+    auto unique_acc = main.db.UniqueAccess();
+    unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
+  }
+  {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
         unique_acc
@@ -465,7 +526,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     const auto &l_stats_rep = replica.db.Access()->GetIndexStats(replica.db.storage()->NameToLabel(label));
     ASSERT_FALSE(l_stats_rep);
     const auto &lp_stats_rep = replica.db.Access()->GetIndexStats(
-        replica.db.storage()->NameToLabel(label), std::array{replica.db.storage()->NameToProperty(property)});
+        replica.db.storage()->NameToLabel(label),
+        std::array{memgraph::storage::PropertyPath{replica.db.storage()->NameToProperty(property)}});
     ASSERT_FALSE(lp_stats_rep);
 
     const auto constraints = replica.db.Access()->ListAllConstraints();

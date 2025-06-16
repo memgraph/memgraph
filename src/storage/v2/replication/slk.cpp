@@ -242,7 +242,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       size_t size;
       slk::Load(&size, reader);
       auto map = storage::ExternalPropertyValue::map_t{};
-      map.reserve(size);
+      do_reserve(map, size);
       for (size_t i = 0; i < size; ++i) {
         std::pair<std::string, storage::ExternalPropertyValue> kv;
         slk::Load(&kv, reader);

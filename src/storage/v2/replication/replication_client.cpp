@@ -81,7 +81,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         // If SYNC replica, block while waiting for RPC lock
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
           auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-              main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_,
+              main_uuid_, main_storage->uuid(),
+              replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
               std::string{replStorageState.epoch_.id()});
           return hb_stream.SendAndWait();
         }
@@ -92,7 +93,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
         auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
             std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
-            replStorageState.last_durable_timestamp_, std::string{replStorageState.epoch_.id()});
+            replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
+            std::string{replStorageState.epoch_.id()});
 
         std::optional<replication::HeartbeatRes> res;
         if (hb_stream.has_value()) {
@@ -131,7 +133,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     spdlog::trace(
         "DB: {} Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
         main_db_name, client_.name_, std::string(heartbeat_res.epoch_id), heartbeat_res.current_commit_timestamp,
-        std::string(replStorageState.epoch_.id()), replStorageState.last_durable_timestamp_);
+        std::string(replStorageState.epoch_.id()),
+        replStorageState.last_durable_timestamp_.load(std::memory_order_acquire));
 
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
@@ -242,6 +245,18 @@ void ReplicationStorageClient::LogRpcFailure() const {
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, DatabaseAccessProtector db_acc) {
   client_.thread_pool_.AddTask([main_storage, db_acc = std::move(db_acc), this]() mutable {
     this->TryCheckReplicaStateSync(main_storage, std::move(db_acc));
+  });
+}
+
+void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseAccessProtector db_acc) const {
+  spdlog::debug("Force recoverying replica {} for db {}", client_.name_,
+                static_cast<InMemoryStorage *>(main_storage)->name());
+  replica_state_.WithLock([&](auto &state) {
+    state = ReplicaState::RECOVERY;
+    client_.thread_pool_.AddTask([main_storage, gk = std::move(db_acc), this] {
+      this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage,
+                           true);  // needs force reset so we need to recover from 0.
+    });
   });
 }
 

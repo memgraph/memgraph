@@ -20,7 +20,7 @@ namespace memgraph::storage::durability {
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
-const uint64_t kVersion{24};
+const uint64_t kVersion{26};
 
 const uint64_t kOldestSupportedVersion{14};
 const uint64_t kUniqueConstraintVersion{13};
@@ -37,6 +37,8 @@ const uint64_t kVectorIndex{22};
 const uint64_t kDurableTS{23};
 const uint64_t kCompositeIndicesForLabelProperties{24};
 const uint64_t kEdgePropIndex{24};
+const uint64_t kNestedIndices{25};
+const uint64_t kVectorIndexWithScalarKind{26};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

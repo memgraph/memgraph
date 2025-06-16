@@ -115,7 +115,6 @@ class InMemoryStorage final : public Storage {
   };
   enum class RecoverSnapshotError : uint8_t {
     DisabledForReplica,
-    DisabledForMainWithReplicas,
     NonEmptyStorage,
     MissingFile,
     CopyFailure,
@@ -167,7 +166,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+    VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
@@ -204,14 +203,14 @@ class InMemoryStorage final : public Storage {
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties) const override {
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const override {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValue const> values) const override {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, values);
     }
@@ -219,7 +218,7 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and value for
     /// the given properties in the range defined by provided upper and lower
     /// bounds.
-    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyId const> properties,
+    uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                     std::span<PropertyValueRange const> bounds) const override {
       return storage_->indices_.label_property_index_->ApproximateVertexCount(label, properties, bounds);
     }
@@ -272,7 +271,7 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->GetIndexStats(label);
     }
 
-    auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties) const
+    auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
         -> std::optional<storage::LabelPropertyIndexStats> override {
       return static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
           ->GetIndexStats(std::pair(label, properties));
@@ -280,10 +279,10 @@ class InMemoryStorage final : public Storage {
 
     void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) override;
 
-    void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyId const> properties,
+    void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties,
                        const LabelPropertyIndexStats &stats) override;
 
-    std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyIndexStats(
+    std::vector<std::pair<LabelId, std::vector<PropertyPath>>> DeleteLabelPropertyIndexStats(
         const storage::LabelId &label) override;
 
     bool DeleteLabelIndexStats(const storage::LabelId &label) override;
@@ -299,7 +298,7 @@ class InMemoryStorage final : public Storage {
 
     bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
 
-    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyId const> properties) const override {
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
       return storage_->indices_.label_property_index_->IndexExists(label, properties);
     }
 
@@ -355,7 +354,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> properties) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -396,7 +395,7 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyId> &&properties) override;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

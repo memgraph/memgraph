@@ -334,7 +334,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )*  ')' )? ;
+indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 

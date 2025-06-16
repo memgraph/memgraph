@@ -49,6 +49,7 @@
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/atomic_max.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
@@ -196,7 +197,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
-        repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
+        repl_storage_state_.last_durable_timestamp_.store(*info->last_durable_timestamp, std::memory_order_release);
         spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", *info->last_durable_timestamp,
                       timestamp_);
       }
@@ -348,14 +349,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto current_vertex_id = mem_storage->vertex_id_.load(std::memory_order_acquire);
-  bool updated = false;
-  auto next_vertex_id = gid.AsUint() + 1;
-  // Only update if larger
-  while (!updated && current_vertex_id < next_vertex_id) {
-    updated =
-        mem_storage->vertex_id_.compare_exchange_weak(current_vertex_id, next_vertex_id, std::memory_order_acq_rel);
-  }
+  atomic_fetch_max_explicit(&mem_storage->vertex_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -602,12 +596,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const next_edge_id = gid.AsUint() + 1;
-  auto current_edge_id = mem_storage->edge_id_.load(std::memory_order_acquire);
-  bool updated = false;
-  while (!updated && current_edge_id < next_edge_id) {
-    updated = mem_storage->edge_id_.compare_exchange_weak(current_edge_id, next_edge_id, std::memory_order_acq_rel);
-  }
+  atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -1392,7 +1381,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> properties) {
   MG_ASSERT(type() == UNIQUE, "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1471,7 +1460,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
@@ -1479,6 +1468,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -1683,7 +1673,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View
 }
 
 VerticesIterable InMemoryStorage ::InMemoryAccessor::Vertices(
-    LabelId label, std::span<storage::PropertyId const> properties,
+    LabelId label, std::span<storage::PropertyPath const> properties,
     std::span<storage::PropertyValueRange const> property_ranges, View view) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
@@ -2572,9 +2562,9 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   // Handle MVCC deltas
   if (!transaction.deltas.empty()) {
-    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp) {
-      wal_file_->AppendDelta(delta, parent, durability_commit_timestamp);
-      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp);
+    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp_arg) {
+      wal_file_->AppendDelta(delta, parent, durability_commit_timestamp_arg);
+      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp_arg);
     });
   }
 
@@ -2659,10 +2649,6 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (replication_role == ReplicationRole::REPLICA) {
     return InMemoryStorage::RecoverSnapshotError::DisabledForReplica;
   }
-  if (!repl_storage_state_.replication_storage_clients_->empty()) {
-    // MAIN would need to reset its storage handler and force update the replicas to this snapshot. ATM not supported!
-    return InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas;
-  }
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
     return InMemoryStorage::RecoverSnapshotError::MissingFile;
   }
@@ -2670,7 +2656,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   // Copy to local snapshot dir
   std::error_code ec{};
   const auto local_path = recovery_.snapshot_directory_ / path.filename();
-  if (local_path != path) {
+  const bool file_in_local_dir = local_path == path;
+  if (!file_in_local_dir) {
     std::filesystem::copy_file(path, local_path, ec);
     if (ec) {
       spdlog::warn("Failed to copy snapshot into local snapshots directory.");
@@ -2680,7 +2667,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
 
   auto handler_error = [&]() {
     // If file was copied over, delete...
-    if (local_path != path) file_retainer_.DeleteFile(local_path);
+    if (!file_in_local_dir) file_retainer_.DeleteFile(local_path);
   };
 
   auto file_locker = file_retainer_.AddLocker();
@@ -2689,7 +2676,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+    if (repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) != kTimestampInitialId) {
       handler_error();
       return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
     }
@@ -2707,7 +2694,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
         local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
         &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot recovered successfully");
-    uuid().set(recovered_snapshot.snapshot_info.uuid);
+    // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
+    // This snapshot creates a new state and cannot have any WALs associated with it at this point
+    // If the storage's snapshot has been reused, the old version will be put in the .old directory
     spdlog::trace("Set epoch to {} for db {}", recovered_snapshot.snapshot_info.epoch_id, name());
     repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
@@ -2744,10 +2733,25 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     }
 
     auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
-    for (const auto &[snapshot_path, _1, _2] : snapshot_files) {
+    for (const auto &[snapshot_path, snapshot_uuid, _2] : snapshot_files) {
       if (local_path != snapshot_path) {
         spdlog::trace("Moving snapshot file {}", snapshot_path);
         file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
+      } else if (uuid() != snapshot_uuid) {
+        // This is the recovered snapshot, but it has a different UUID than the current storage UUID
+        if (file_in_local_dir) {
+          // Used a snapshot for the local storage, back it up before updating the UUID
+          std::filesystem::copy_file(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename(),
+                                     ec);
+          if (ec) {
+            spdlog::warn(
+                "Failed to copy snapshot file to backup directory; snapshots directory should be cleaned "
+                "manually.");
+            return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+          }
+        }
+        // Rewrite the UUID in the snapshot file
+        durability::OverwriteSnapshotUUID(local_path, uuid());
       }
     }
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
@@ -3003,7 +3007,7 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  repl_storage_state_.last_durable_timestamp_ = 0;
+  repl_storage_state_.last_durable_timestamp_.store(0, std::memory_order_release);
   repl_storage_state_.history.clear();
 
   last_snapshot_digest_ = std::nullopt;
@@ -3049,11 +3053,10 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
-                                                      std::span<storage::PropertyId const> properties,
+                                                      std::span<storage::PropertyPath const> properties,
                                                       const LabelPropertyIndexStats &stats) {
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
-
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label,
                                       std::vector(properties.begin(), properties.end()), stats);
 }
@@ -3065,7 +3068,7 @@ bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::Lab
   return res;
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>>
+std::vector<std::pair<LabelId, std::vector<PropertyPath>>>
 InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::LabelId &label) {
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
