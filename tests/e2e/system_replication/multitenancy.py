@@ -234,7 +234,6 @@ def get_number_of_edges_func(cursor, db_name):
     return func
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_manual_databases_create_multitenancy_replication(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which already
     # has the clean databases we need
@@ -340,7 +339,6 @@ def test_manual_databases_create_multitenancy_replication(connection, test_name)
     assert get_number_of_edges_func(cursor_replica2, "B")() == 1
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_manual_databases_create_multitenancy_replication_branching(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which already
     # has all the databases and the same data
@@ -428,7 +426,6 @@ def test_manual_databases_create_multitenancy_replication_branching(connection, 
     assert not failed
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_manual_databases_create_multitenancy_replication_dirty_replica(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which already
     # has all the databases we need, even when they branched
@@ -506,7 +503,6 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
     assert not failed
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_manual_databases_create_multitenancy_replication_main_behind(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which has
     # different branched databases
@@ -597,7 +593,6 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_automatic_databases_create_multitenancy_replication(connection, test_name):
     # Goal: to show that replication can be established against REPLICA where a new databases
     # needs replication
@@ -797,7 +792,6 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
     assert actual_data[0][0] == 0  # zero relationships
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
 def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name, test_name):
     # Goal: show that a replica can be recovered with the frequent checker
@@ -914,7 +908,6 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name,
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
 def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name, test_name):
     # Goal: show that a replica can be recovered without the frequent checker detecting it being down
@@ -978,7 +971,6 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
 def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica_name, test_name):
     # Goal: show that a replica recovers data on reconnect
@@ -1021,7 +1013,6 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica
     mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
 def test_multitenancy_replication_drop_replica(connection, replica_name, test_name):
     # Goal: show that the cluster can recover if a replica is dropped and registered again
@@ -1084,7 +1075,6 @@ def test_multitenancy_replication_drop_replica(connection, replica_name, test_na
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_multitenancy_replication_restart_main(connection, test_name):
     # Goal: show that the cluster can restore to a correct state if the MAIN restarts
     # 0/ Setup replication
@@ -1132,7 +1122,6 @@ def test_multitenancy_replication_restart_main(connection, test_name):
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_automatic_databases_drop_multitenancy_replication(connection, test_name):
     # Goal: show that drop database can be replicated
     # 0/ Setup replication
@@ -1200,7 +1189,6 @@ def test_automatic_databases_drop_multitenancy_replication(connection, test_name
     mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
 def test_drop_multitenancy_replication_restart_replica(connection, replica_name, test_name):
     # Goal: show that the drop database can be restored
@@ -1241,7 +1229,6 @@ def test_drop_multitenancy_replication_restart_replica(connection, replica_name,
     mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_multitenancy_drop_while_replica_using(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped (will persist until tx finishes)
     # 0/ Setup replication
@@ -1338,7 +1325,6 @@ def test_multitenancy_drop_while_replica_using(connection, test_name):
     assert failed
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
     # Original storage should persist in a nameless state until tx is over
@@ -1436,7 +1422,6 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_nam
     assert failed
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_multitenancy_snapshot_recovery(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
     # Original storage should persist in a nameless state until tx is over
