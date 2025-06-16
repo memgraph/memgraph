@@ -700,9 +700,20 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         upper_bound = std::nullopt;
       }
 
+      auto const are_comparable_ranges = [](auto const &lower_bound, auto const &upper_bound) {
+        if (AreComparableTypes(lower_bound.value().type(), upper_bound.value().type())) {
+          return true;
+        } else if (upper_bound.IsInclusive()) {
+          return false;
+        } else {
+          auto const upper_bound_for_lower_bound_type = storage::UpperBoundForType(lower_bound.value().type());
+          return upper_bound_for_lower_bound_type && upper_bound.value() == upper_bound_for_lower_bound_type->value();
+        };
+      };
+
       // If both bounds are set, but are incomparable types, then this is an
       // invalid range and will yield an empty result set.
-      if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      if (lower_bound && upper_bound && !are_comparable_ranges(*lower_bound, *upper_bound)) {
         return {std::nullopt, std::nullopt, false};
       }
 

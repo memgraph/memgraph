@@ -1338,8 +1338,6 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
 
-  storage->repl_storage_state_.last_durable_timestamp_.store(max_delta_timestamp, std::memory_order_release);
-
   spdlog::debug("Applied {} deltas", applied_deltas);
   return {current_delta_idx, current_batch_counter};
 }
