@@ -22,12 +22,11 @@ auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_comm
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                    replica_stream);
-
+    // NOLINTNEXTLINE
     auto const finalized = std::invoke([&]() {
       if (ShouldRunTwoPC()) {
         return client->FinalizePrepareCommitPhase(db_acc, replica_stream, durability_commit_timestamp);
       }
-      // NOLINTNEXTLINE
       return client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     });
 
