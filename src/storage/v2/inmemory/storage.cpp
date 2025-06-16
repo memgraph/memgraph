@@ -820,7 +820,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // FinalizeCommitRpc If SYNC replica, commit immediately
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
         // It is important to commit while holding the engine lock
-        if (repl_args.commit_immediately) {
+        if (repl_args.commit_immediately && *repl_args.commit_immediately) {
           FinalizeCommitPhase(*repl_args.desired_commit_timestamp);
         }
         return {};
