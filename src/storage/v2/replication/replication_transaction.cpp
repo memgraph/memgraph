@@ -27,6 +27,7 @@ auto TransactionReplication::FinalizePrepareCommitPhase(uint64_t durability_comm
       if (ShouldRunTwoPC()) {
         return client->FinalizePrepareCommitPhase(db_acc, replica_stream, durability_commit_timestamp);
       }
+      // NOLINTNEXTLINE
       return client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     });
 
