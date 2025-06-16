@@ -47,6 +47,12 @@ workloads:
     args: ["graphql/graphql_pagination.py"]
     <<: *in_memory_cluster
 
+  - name: "GraphQL mutations"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_mutations.py"]
+    <<: *in_memory_cluster
+
   - name: "Disk GraphQL crud"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
@@ -69,4 +75,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
     args: ["graphql/graphql_pagination.py"]
+    <<: *disk_cluster
+
+  - name: "Disk GraphQL mutations"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_mutations.py"]
     <<: *disk_cluster
