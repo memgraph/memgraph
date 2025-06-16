@@ -816,10 +816,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       bool const repl_prepare_phase_status = HandleDurabilityAndReplicate(
           durability_commit_timestamp, db_acc, replicating_txn, repl_args.commit_immediately);
 
-      // If I am replica with write txn return because the 2nd phase will be executed once we receive FinalizeCommitRpc
-      // if it is STRICT_SYNC replica or it will commit after receiving PrepareCommitRpc if none of replicas are in
-      // STRICT_SYNC mode
+      // If I am STRICT_SYNC replica with write txn return because the 2nd phase will be executed once we receive
+      // FinalizeCommitRpc If SYNC replica, commit immediately
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
+        // It is important to commit while holding the engine lock
+        if (repl_args.commit_immediately) {
+          FinalizeCommitPhase(*repl_args.desired_commit_timestamp);
+        }
         return {};
       }
 

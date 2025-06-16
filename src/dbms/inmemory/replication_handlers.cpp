@@ -1136,8 +1136,8 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
+          // If SYNC replica, reset the commit accessor immediately because the txn is considered committed
           if (commit_txn_immediately) {
-            commit_accessor->FinalizeCommitPhase(commit_timestamp);
             commit_accessor.reset();
           }
         },
