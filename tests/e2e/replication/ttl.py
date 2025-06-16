@@ -44,7 +44,6 @@ def test_name(request):
     return request.node.name
 
 
-@pytest.mark.skip(reason="ASYNC replication not working")
 def test_ttl_replication(connection, test_name):
     # Goal: Execute TTL on MAIN and check results on REPLICA
     # 0/ Setup replication
