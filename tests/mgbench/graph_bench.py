@@ -118,24 +118,24 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--skip-isolated-cold",
+        "--run-isolated-cold",
         action="store_true",
         default=False,
-        help="Skip isolated cold benchmarks",
+        help="Run isolated cold benchmarks",
     )
 
     parser.add_argument(
-        "--skip-isolated-hot",
+        "--run-isolated-hot",
         action="store_true",
         default=False,
-        help="Skip isolated hot benchmarks",
+        help="Run isolated hot benchmarks",
     )
 
     parser.add_argument(
-        "--skip-isolated-vulcanic",
+        "--run-isolated-vulcanic",
         action="store_true",
         default=False,
-        help="Skip isolated vulcanic benchmarks",
+        help="Run isolated vulcanic benchmarks",
     )
 
     args = parser.parse_args()
@@ -164,12 +164,12 @@ def run_full_benchmarks(
     workers,
     query_count_lower_bound,
     single_threaded_runtime_sec,
-    skip_isolated_cold,
-    skip_isolated_hot,
-    skip_isolated_vulcanic,
+    run_isolated_cold,
+    run_isolated_hot,
+    run_isolated_vulcanic,
 ):
     configurations = []
-    if not skip_isolated_cold:
+    if run_isolated_cold:
         # Basic isolated test cold
         configurations.append(
             [
@@ -177,7 +177,7 @@ def run_full_benchmarks(
                 f"{vendor}_{str(workers)}_{dataset}_{dataset_size}_cold_isolated.json",
             ]
         )
-    if not skip_isolated_hot:
+    if run_isolated_hot:
         # Basic isolated test hot
         configurations.append(
             [
@@ -187,7 +187,7 @@ def run_full_benchmarks(
                 "hot",
             ]
         )
-    if not skip_isolated_vulcanic:
+    if run_isolated_vulcanic:
         # Basic isolated test vulcanic
         configurations.append(
             [
@@ -358,9 +358,9 @@ if __name__ == "__main__":
             args.num_workers_for_benchmark,
             args.query_count_lower_bound,
             args.single_threaded_runtime_sec,
-            args.skip_isolated_cold,
-            args.skip_isolated_hot,
-            args.skip_isolated_vulcanic,
+            args.run_isolated_cold,
+            args.run_isolated_hot,
+            args.run_isolated_vulcanic,
         )
         collect_all_results(
             vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark
