@@ -66,7 +66,7 @@ class PlanWrapper {
  public:
   explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
 
-  const auto &plan() const { return plan_->GetRoot(); }
+  auto plan() const -> plan::LogicalOperator const & { return plan_->GetRoot(); }
   double cost() const { return plan_->GetCost(); }
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
