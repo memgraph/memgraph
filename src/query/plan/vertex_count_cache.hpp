@@ -137,8 +137,8 @@ class VertexCountCache {
 
   bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
-    return db_->LabelPropertyIndexExists(label, properties);
+  bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
+    return db_->LabelPropertyIndexReady(label, properties);
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,

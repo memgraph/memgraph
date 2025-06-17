@@ -205,7 +205,7 @@ class LabelPropertyIndex {
     virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                      const Transaction &tx) = 0;
 
-    virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+    virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                                     std::span<PropertyPath const> properties) const

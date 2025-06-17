@@ -23,7 +23,7 @@ struct IndicesCollection {
 };
 
 struct ActiveIndices {
-  bool CheckActiveIndices(IndicesCollection const &required_indices) {
+  bool CheckIndicesAreReady(IndicesCollection const &required_indices) {
     // label
     for ([[maybe_unused]] auto const &label : required_indices.label_) {
       // TODO: when we have concurrent index creation for labels
@@ -31,7 +31,7 @@ struct ActiveIndices {
 
     // label + properties
     for (auto const &[label, properties] : required_indices.label_properties_) {
-      if (!label_properties_->IndexExists(label, properties)) return false;
+      if (!label_properties_->IndexReady(label, properties)) return false;
     }
 
     return true;

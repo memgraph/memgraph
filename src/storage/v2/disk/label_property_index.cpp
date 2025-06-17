@@ -171,7 +171,7 @@ bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> 
   return index_.erase({label, properties[0][0]}) > 0U;
 }
 
-bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
+bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<PropertyPath const> properties) const {
   return utils::Contains(index_, LabelProperty{label, properties[0][0]});
 }
 
@@ -227,7 +227,7 @@ auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
   // NOTE: only looking for singular property index, as disk does not support composite indices
   for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {
     for (auto [p_pos, property] : ranges::views::enumerate(properties)) {
-      if (IndexExists(label, std::array{property})) {
+      if (IndexReady(label, std::array{property})) {
         // NOLINTNEXTLINE(google-runtime-int)
         res.emplace_back(l_pos, std::vector{static_cast<long>(p_pos)}, label, std::vector{property});
       }

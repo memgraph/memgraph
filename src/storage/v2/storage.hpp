@@ -331,7 +331,7 @@ class Storage {
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+    virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
@@ -541,8 +541,8 @@ class Storage {
 
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
-    bool CheckActiveIndices(IndicesCollection const &required_indices) {
-      return transaction_.active_indices_.CheckActiveIndices(required_indices);
+    bool CheckIndicesAreReady(IndicesCollection const &required_indices) {
+      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
     }
 
    protected:
