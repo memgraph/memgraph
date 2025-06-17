@@ -30,11 +30,9 @@ class TransactionReplication {
       : locked_clients{clients.ReadLock()} {
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      // For SYNC and STRICT_SYNC replicas we should be able to always acquire the stream because we will block
-      // until that happens For ASYNC replicas we only try to acquire stream and this could fail. However, we still add
-      // nullopt to streams for back-compatibility
-      // If replica should commit immediately upon finalizing txn replication
-      bool const should_commit_immediately = !ShouldRunTwoPC();
+      // SYNC and ASYNC replicas should commit immediately when receiving deltas
+      bool const should_commit_immediately =
+          client->Mode() != replication_coordination_glue::ReplicationMode::STRICT_SYNC;
       streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately));
     }
   }
@@ -63,11 +61,11 @@ class TransactionReplication {
   }
 
   // RPC stream won't be destroyed at the end of this function
-  auto FinalizePrepareCommitPhase(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool;
+  auto ShipDeltas(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool;
 
   // TODO: (andi) Do you need db_acc protector here?
-  auto SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
-                             uint64_t durability_commit_timestamp) -> bool;
+  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
+                           uint64_t durability_commit_timestamp) -> bool;
 
   // If we don't check locked_clients, this check would fail for replicas since replicas have empty locked_clients
   auto ReplicationStartSuccessful() const -> bool;

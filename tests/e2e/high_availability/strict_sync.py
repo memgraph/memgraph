@@ -146,7 +146,7 @@ def get_instances_description_no_setup(test_name: str):
     }
 
 
-# Uses STRICT_SYNC replicas
+# Uses only STRICT_SYNC replicas
 def get_default_setup_queries():
     return [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
@@ -159,22 +159,42 @@ def get_default_setup_queries():
     ]
 
 
+# Uses STRICT_SYNC and ASYNC replicas
+def get_mixed_setup_queries():
+    return [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 AS STRICT_SYNC WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+
+
 # Executes setup queries and returns cluster info
-# Should be used together with get_default_setup_queries
-def setup_default_cluster(test_name):
+def setup_default_cluster(test_name, setup_queries):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
-    for query in get_default_setup_queries():
+    for query in setup_queries:
         execute_and_fetch_all(coord_cursor_3, query)
     return inner_instances_description
 
 
+def check_if_data_preserved_after_restart(inner_instances_description, instance_name, bolt_port):
+    interactive_mg_runner.kill(inner_instances_description, instance_name)
+    interactive_mg_runner.start(inner_instances_description, instance_name)
+    instance_cursor = connect(host="localhost", port=bolt_port).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_cursor))
+
+
 # Tests that when all replicas are UP, 2PC should work
 # After instances restart, they should still see the same data as upon committing
+# @pytest.mark.skip(reason="Works")
 def test_commit_works(test_name):
-    inner_instances_description = setup_default_cluster(test_name)
+    inner_instances_description = setup_default_cluster(test_name, get_default_setup_queries())
     # Create data on MAIN
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
@@ -187,20 +207,34 @@ def test_commit_works(test_name):
     instance_2_cursor = connect(host="localhost", port=7688).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, instance_2_cursor))
 
-    def check_if_data_preserved_after_restart(instance_name, bolt_port):
-        interactive_mg_runner.kill(inner_instances_description, instance_name)
-        interactive_mg_runner.start(inner_instances_description, instance_name)
-        instance_cursor = connect(host="localhost", port=bolt_port).cursor()
-        mg_sleep_and_assert(1, partial(get_vertex_count, instance_cursor))
+    check_if_data_preserved_after_restart(inner_instances_description, "instance_1", 7687)
+    check_if_data_preserved_after_restart(inner_instances_description, "instance_2", 7688)
+    check_if_data_preserved_after_restart(inner_instances_description, "instance_3", 7689)
 
-    check_if_data_preserved_after_restart("instance_1", 7687)
-    check_if_data_preserved_after_restart("instance_2", 7688)
-    check_if_data_preserved_after_restart("instance_3", 7689)
+
+def test_async_commit_works(test_name):
+    inner_instances_description = setup_default_cluster(test_name, get_mixed_setup_queries())
+    # Create data on MAIN
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+
+    # Check if replicated on 1st replica
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_1_cursor))
+
+    # Check if replicated on 2nd replica
+    instance_2_cursor = connect(host="localhost", port=7688).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, instance_2_cursor))
+
+    check_if_data_preserved_after_restart(inner_instances_description, "instance_1", 7687)
+    check_if_data_preserved_after_restart(inner_instances_description, "instance_2", 7688)
+    check_if_data_preserved_after_restart(inner_instances_description, "instance_3", 7689)
 
 
 # One replica is down before commit starts on MAIN, hence in-memory state should be preserved and commit should fail
+# @pytest.mark.skip(reason="Works")
 def test_replica_down_before_commit(test_name):
-    inner_instances_description = setup_default_cluster(test_name)
+    inner_instances_description = setup_default_cluster(test_name, get_default_setup_queries())
 
     # Replica goes down
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
@@ -229,8 +263,9 @@ def test_replica_down_before_commit(test_name):
 # One of replicas was down during the commit hence the txn will get aborted
 # Test that the other replica which was alive all the time and which receive PrepareRpc
 # won't contain any data after the restart.
+# @pytest.mark.skip(reason="Works")
 def test_replica_after_restart_no_committed_data(test_name):
-    inner_instances_description = setup_default_cluster(test_name)
+    inner_instances_description = setup_default_cluster(test_name, get_default_setup_queries())
 
     # Instance 1 dies
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
@@ -263,8 +298,9 @@ def task(db):
         execute_and_fetch_all(main_cursor, get_query(i))
 
 
+# @pytest.mark.skip(reason="Works")
 def test_mt_strict_sync_commit(test_name):
-    setup_default_cluster(test_name)
+    setup_default_cluster(test_name, get_default_setup_queries())
 
     main_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")

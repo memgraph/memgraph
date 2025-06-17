@@ -844,8 +844,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         FinalizeCommitPhase(durability_commit_timestamp);
         spdlog::info("Finalized commit on main. Sending commit rpc to replicas");
 
-        if (replicating_txn.SendFinalizeCommitRpc(true, mem_storage->uuid(), std::move(db_acc),
-                                                  durability_commit_timestamp)) {
+        if (replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc),
+                                                durability_commit_timestamp)) {
           spdlog::info("Received OK from all replicas to FinalizeCommitRpc");
         } else {
           spdlog::info("One of replicas couldn't commit when FinalizeCommitRpc was received");
@@ -866,8 +866,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
         // automatically handled
-        replicating_txn.SendFinalizeCommitRpc(false, mem_storage->uuid(), std::move(db_acc),
-                                              durability_commit_timestamp);
+        replicating_txn.FinalizeTransaction(false, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
         return StorageManipulationError{StrictSyncReplicationError{}};
       }
 
@@ -2667,7 +2666,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Ships deltas to instances and waits for the reply
   // Returns only the status of SYNC replicas.
-  return replicating_txn.FinalizePrepareCommitPhase(durability_commit_timestamp, std::move(db_acc));
+  return replicating_txn.ShipDeltas(durability_commit_timestamp, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
