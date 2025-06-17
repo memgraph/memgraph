@@ -43,14 +43,13 @@ class DeltaGenerator final {
 
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
-          transaction_(
-              gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-              gen->storage_mode_, false, false, memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
-              memgraph::storage::ActiveIndices{
-                  // TODO: fake?
-                  .label_properties_ = std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>()}
-
-          ) {}
+          transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
+                       gen->storage_mode_, false, false,
+                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
+                       memgraph::storage::ActiveIndices{
+                           // TODO: fake?
+                           .label_properties_ =
+                               std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>()}) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
