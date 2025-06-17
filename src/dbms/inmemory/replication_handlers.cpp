@@ -977,6 +977,10 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
+          auto value = ToPropertyValue(data.value, mapper);
+          if (value.IsInt()) {
+            spdlog::info("Property value: {}", value.ValueInt());
+          }
           auto ret =
               vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (ret.HasError()) {
@@ -1124,9 +1128,12 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
-        [&should_commit](WalTransactionStart const &data) { should_commit = data.commit; },
-        [&commit_accessor, &commit_timestamp, current_delta_idx, delta_timestamp,
-         commit_txn_immediately](WalTransactionEnd const &) {
+        [&](WalTransactionStart const &data) {
+          spdlog::trace("   Delta {}. Transaction start", current_delta_idx);
+          should_commit = data.commit;
+          spdlog::trace("Should commit: {}", should_commit);
+        },
+        [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
