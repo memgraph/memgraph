@@ -5634,46 +5634,155 @@ TEST_P(CypherMainVisitorTest, UseHintWithNestedCompositeIndices) {
   EXPECT_EQ((hints[0].property_ixs_)[2].path[0].name, "country");
 }
 
-TEST_P(CypherMainVisitorTest, BasicExistsSubquery) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
-      "MATCH (person:Person) WHERE EXISTS { (person)-[:HAS_DOG]->(:Dog) } RETURN person.name AS name"));
-  ASSERT_THAT(query, NotNull());
-  ASSERT_EQ(query->single_query_->clauses_.size(), 2);
-}
+TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "MATCH (person:Person) WHERE EXISTS { (person)-[:HAS_DOG]->(:Dog) } RETURN person.name AS name"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
 
-TEST_P(CypherMainVisitorTest, BasicExistsSubqueryWithMatch) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(dog:Dog) WHERE "
-                               "person.name = dog.name } RETURN person.name AS name;"));
-  ASSERT_THAT(query, NotNull());
-  ASSERT_EQ(query->single_query_->clauses_.size(), 2);
-}
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
 
-TEST_P(CypherMainVisitorTest, BasicExistsSubqueryWithMatchAndWith) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
-      "WITH 'Peter' as name MATCH (person:Person {name: name}) WHERE EXISTS { WITH 'Ozzy' AS name MATCH "
-      "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name } RETURN person.name AS name;"));
-  ASSERT_THAT(query, NotNull());
-  ASSERT_EQ(query->single_query_->clauses_.size(), 3);
-}
+    const auto *pattern = exists->pattern_;
+    ASSERT_NE(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_EQ(subquery, nullptr);
 
-TEST_P(CypherMainVisitorTest, BasicExistsSubqueryWithMatchAndWith2) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
-                               "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
-  ASSERT_THAT(query, NotNull());
-  ASSERT_EQ(query->single_query_->clauses_.size(), 2);
-}
+    CheckRWType(query, kRead);
+  }
 
-TEST_P(CypherMainVisitorTest, BasicExistsSubqueryWithIgnoredReturn) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(:Dog) RETURN "
-                               "person.name } RETURN person.name AS name;"));
-  ASSERT_THAT(query, NotNull());
-  ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(dog:Dog) WHERE "
+                                 "person.name = dog.name } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->pattern_;
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "WITH 'Peter' as name MATCH (person:Person {name: name}) WHERE EXISTS { WITH 'Ozzy' AS name MATCH "
+        "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 3);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[1]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->pattern_;
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
+                                 "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->pattern_;
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
+                                 "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->pattern_;
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
+                                 "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->pattern_;
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(:Dog) RETURN "
+                                 "person.name } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->pattern_;
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->subquery_;
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+
+    CheckRWType(query, kRead);
+  }
 }
