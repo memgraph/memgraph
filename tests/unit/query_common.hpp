@@ -46,6 +46,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
+#include "query/frontend/ast/query/exists.hpp"
 #include "utils/string.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
@@ -569,6 +570,13 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   return storage.Create<query::Foreach>(named_expr, clauses);
 }
 
+auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *exists_subquery = storage.Create<query::Exists>();
+  exists_subquery->subquery_ = std::move(subquery);
+
+  return exists_subquery;
+}
+
 }  // namespace memgraph::query::test_common
 
 /// All the following macros implicitly pass `storage` variable to functions.
@@ -709,6 +717,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
+#define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
 #define AUTH_QUERY(action, user, role, user_or_role, if_not_exists, password, database, privileges, labels, edgeTypes, \
                    impersonation_target)                                                                               \
   storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), (if_not_exists), password,      \

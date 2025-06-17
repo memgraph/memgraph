@@ -52,6 +52,7 @@ class Exists : public memgraph::query::Expression {
 
  protected:
   Exists(Pattern *pattern) : pattern_(pattern) {}
+  Exists(CypherQuery *subquery) : subquery_(subquery) {}
 
  private:
   friend class AstStorage;
