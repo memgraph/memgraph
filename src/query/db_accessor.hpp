@@ -266,8 +266,8 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  bool CheckActiveIndices(storage::IndicesCollection const &required_indices) {
-    return accessor_->CheckActiveIndices(required_indices);
+  bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) {
+    return accessor_->CheckIndicesAreReady(required_indices);
   }
 
   auto type() const { return accessor_->type(); }
@@ -490,8 +490,8 @@ class DbAccessor final {
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
-    return accessor_->LabelPropertyIndexExists(label, properties);
+  bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
+    return accessor_->LabelPropertyIndexReady(label, properties);
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,

@@ -660,7 +660,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
   {
     auto acc = this->storage->Access();
@@ -670,7 +670,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -694,7 +694,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -712,7 +712,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -735,7 +735,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -762,7 +762,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(
         this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
   {
@@ -774,7 +774,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
@@ -804,7 +804,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
@@ -827,7 +827,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
@@ -856,7 +856,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 

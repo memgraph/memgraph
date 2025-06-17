@@ -155,7 +155,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                              const Transaction &tx) override;
 
-    bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
+    bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
@@ -165,6 +165,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
 
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
+    auto GetAbortProcessor() const -> AbortProcessor override;
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const -> uint64_t override;
 
@@ -177,8 +179,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                 std::span<PropertyValueRange const> bounds) const -> uint64_t override;
-
-    auto GetAbortProcessor() const -> AbortProcessor override;
 
     auto Vertices(LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
                   View view, Storage *storage, Transaction *transaction) -> Iterable;

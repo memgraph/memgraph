@@ -289,8 +289,8 @@ struct PopulateCancel : std::exception {};
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -511,19 +511,22 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
   });
 }
 
-bool InMemoryLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label,
-                                                            std::span<PropertyPath const> properties) const {
+bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
+                                                           std::span<PropertyPath const> properties) const {
   auto it = index_container_.find(label);
   if (it != index_container_.end()) {
-    return it->second.contains(properties);
+    auto it2 = it->second.find(properties);
+    if (it2 != it->second.end()) {
+      return it2->second->status.is_ready();
+    }
   }
 
   return false;
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
@@ -558,7 +561,10 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
     auto it = index_container_.find(label);
     if (it == index_container_.end()) continue;
 
-    for (const auto &nested_props : it->second | std::views::keys) {
+    for (const auto &[nested_props, index] : it->second) {
+      // Skip indexes which are not ready, they are never relevant for planning
+      if (!index->status.is_ready()) continue;
+
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
       for (auto const &prop_path : nested_props) {

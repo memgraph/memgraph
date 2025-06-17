@@ -174,11 +174,12 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       auto &plan = ptr->plan();
 
       auto checker = plan::UsedIndexChecker{};
-      // TODO: this const_cast is BAD
+      // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+      //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
       const_cast<plan::LogicalOperator &>(plan).Accept(checker);
 
       // TODO: when we are not eagerly collecting all indexes at CreateTransaction we want to Gather rather than Check
-      auto all_satisfied = db_accessor->CheckActiveIndices(checker.required_indices_);
+      auto all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
       if (all_satisfied) {
         return ptr;
       } else {
