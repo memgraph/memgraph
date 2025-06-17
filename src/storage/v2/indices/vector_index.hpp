@@ -23,6 +23,21 @@
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+struct VectorIndexOnEdgeTypeEntry {
+  EdgeTypePropKey edge_type_prop_key;
+  Edge *edge;
+};
+
+struct VectorIndexOnLabelEntry {
+  LabelPropKey label_prop_key;
+  Vertex *vertex;
+};
+
+struct VectorSearchResult {
+  std::variant<Vertex *, Edge *> vertex_or_edge;
+  double distance;
+  double similarity;
+};
 
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
@@ -44,7 +59,7 @@ struct VectorIndexConfigMap {
 /// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
-  LabelId label;
+  std::variant<LabelId, EdgeTypeId> label_or_edge_type;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
@@ -60,7 +75,7 @@ struct VectorIndexInfo {
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
   std::string index_name;
-  LabelId label;
+  std::variant<LabelId, EdgeTypeId> label_or_edge_type;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
@@ -84,7 +99,7 @@ class VectorIndex {
  public:
   struct IndexStats {
     std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<PropertyId, std::vector<LabelId>> p2l;  // TODO: fix later
   };
 
   explicit VectorIndex();
@@ -169,8 +184,8 @@ class VectorIndex {
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
-  std::vector<std::tuple<Vertex *, double, double>> Search(std::string_view index_name, uint64_t result_set_size,
-                                                           const std::vector<float> &query_vector) const;
+  std::vector<VectorSearchResult> Search(std::string_view index_name, uint64_t result_set_size,
+                                         const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries that were inserted in the specified transaction.
   /// @param label_prop The label of the vertices to be removed.
@@ -199,7 +214,8 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+  bool UpdateVectorIndex(std::variant<VectorIndexOnLabelEntry, VectorIndexOnEdgeTypeEntry> entry,
+                         const PropertyValue *value = nullptr);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

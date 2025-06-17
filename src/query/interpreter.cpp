@@ -3558,7 +3558,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         auto prop_id = storage->NameToProperty(prop_name);
         auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
             .index_name = index_name,
-            .label = label_id,
+            .label_or_edge_type = label_id,
             .property = prop_id,
             .metric_kind = vector_index_config.metric,
             .dimension = vector_index_config.dimension,
@@ -4849,10 +4849,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : info.vector_indices_spec) {
-          results.push_back({TypedValue(vector_label_property_index_mark), TypedValue(storage->LabelToName(spec.label)),
-                             TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int>(
-                                 storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)))});
+          // results.push_back({TypedValue(vector_label_property_index_mark),
+          // TypedValue(storage->LabelToName(spec.label)),
+          //                    TypedValue(storage->PropertyToName(spec.property)),
+          //                    TypedValue(static_cast<int>(
+          //                        storage_acc->ApproximateVerticesVectorCount(spec.label,
+          //                        spec.property).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5001,11 +5003,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         results.reserve(vector_indices.size());
 
         for (const auto &spec : vector_indices) {
-          results.push_back({TypedValue(spec.index_name), TypedValue(storage->LabelToName(spec.label)),
-                             TypedValue(storage->PropertyToName(spec.property)),
-                             TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
-                             TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size)),
-                             TypedValue(spec.scalar_kind)});
+          // results.push_back({TypedValue(spec.index_name), TypedValue(storage->LabelToName(spec.label)),
+          //                    TypedValue(storage->PropertyToName(spec.property)),
+          //                    TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
+          //                    TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size)),
+          //                    TypedValue(spec.scalar_kind)});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};
@@ -5924,11 +5926,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
-        node_indexes.push_back(nlohmann::json::object(
-            {{"labels", {storage->LabelToName(spec.label)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)},
-             {"type", "label+property_vector"}}));
+        // node_indexes.push_back(nlohmann::json::object(
+        //     {{"labels", {storage->LabelToName(spec.label)}},
+        //      {"properties", {storage->PropertyToName(spec.property)}},
+        //      {"count", storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)},
+        //      {"type", "label+property_vector"}}));
       }
 
       // Edge type indices

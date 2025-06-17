@@ -332,13 +332,13 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 }
 
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
-  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label))
-      << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
-      << "\"dimension\": " << spec.dimension << ", "
-      << R"("metric": ")" << storage::VectorIndex::NameFromMetric(spec.metric_kind) << "\", "
-      << "\"capacity\": " << spec.capacity << ", "
-      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
-      << R"("scalar_kind": ")" << storage::VectorIndex::NameFromScalar(spec.scalar_kind) << "\" };";
+  // *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label))
+  //     << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+  //     << "\"dimension\": " << spec.dimension << ", "
+  //     << R"("metric": ")" << storage::VectorIndex::NameFromMetric(spec.metric_kind) << "\", "
+  //     << "\"capacity\": " << spec.capacity << ", "
+  //     << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+  //     << R"("scalar_kind": ")" << storage::VectorIndex::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
