@@ -220,7 +220,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       -> std::shared_ptr<IndividualIndex>;
   void RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties);
 
-  utils::Synchronized<IndexContainer, utils::WritePrioritizedRWLock> index_;
+  utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
