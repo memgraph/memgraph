@@ -1310,7 +1310,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
-              .label = labelId,
+              .label_or_edge_type = labelId,
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,

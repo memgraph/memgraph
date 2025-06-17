@@ -33,11 +33,8 @@ struct VectorIndexOnLabelEntry {
   Vertex *vertex;
 };
 
-struct VectorSearchResult {
-  std::variant<Vertex *, Edge *> vertex_or_edge;
-  double distance;
-  double similarity;
-};
+using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
+using VectorSearchEdgeResults = std::vector<std::tuple<Edge *, double, double>>;
 
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
@@ -184,8 +181,11 @@ class VectorIndex {
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
-  std::vector<VectorSearchResult> Search(std::string_view index_name, uint64_t result_set_size,
-                                         const std::vector<float> &query_vector) const;
+  VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
+                                      const std::vector<float> &query_vector) const;
+
+  VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
+                                      const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries that were inserted in the specified transaction.
   /// @param label_prop The label of the vertices to be removed.

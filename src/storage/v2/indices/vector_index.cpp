@@ -21,6 +21,7 @@
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
@@ -29,6 +30,7 @@
 #include "usearch/index_dense.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/counter.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -249,42 +251,79 @@ VectorIndex::~VectorIndex() {}
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
-    // Create the index
+    if (pimpl->index_name_to_index_impl_.contains(spec.index_name)) {
+      throw query::VectorSearchException("Vector index with the given name already exists.");
+    }
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
-
-    // use the number of workers as the number of possible concurrent index operations
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
-    MG_ASSERT(std::holds_alternative<LabelId>(spec.label_or_edge_type),
-              "Wrong type for label_or_edge_type, expected LabelId");
-    const auto label_prop = LabelPropKey{std::get<LabelId>(spec.label_or_edge_type), spec.property};
-    if (pimpl->node_index_.contains(label_prop) || pimpl->index_name_to_index_impl_.contains(spec.index_name)) {
-      throw query::VectorSearchException("Given vector index already exists.");
-    }
-    auto mg_vector_index = mg_vector_index_t::make(metric);
-    if (!mg_vector_index) {
-      throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
-                                                     spec.index_name, mg_vector_index.error.what()));
-    }
-    pimpl->index_name_to_index_impl_.try_emplace(spec.index_name, label_prop);
-    if (mg_vector_index.index.try_reserve(limits)) {
-      spdlog::info("Created vector index {}", spec.index_name);
-    } else {
-      throw query::VectorSearchException(
-          fmt::format("Failed to create vector index {}", spec.index_name, ". Failed to reserve memory for the index"));
-    }
-    pimpl->node_index_.try_emplace(
-        label_prop, NodeIndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
-                                      std::move(mg_vector_index.index)),
-                                  spec});
+    if (std::holds_alternative<LabelId>(spec.label_or_edge_type)) {
+      const auto label_id = std::get<LabelId>(spec.label_or_edge_type);
+      const LabelPropKey key{label_id, spec.property};
 
-    // Update the index with the vertices
-    for (auto &vertex : vertices) {
-      if (!utils::Contains(vertex.labels, std::get<LabelId>(spec.label_or_edge_type))) {
-        continue;
+      if (pimpl->node_index_.contains(key)) {
+        throw query::VectorSearchException("Vector index with the given label and property already exists.");
       }
-      if (UpdateVectorIndex(VectorIndexOnLabelEntry{label_prop, &vertex}) && snapshot_info) {
-        snapshot_info->Update(UpdateType::VECTOR_IDX);
+
+      auto mg_node_index = mg_vector_index_t::make(metric);
+      if (!mg_node_index) {
+        throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
+                                                       spec.index_name, mg_node_index.error.what()));
+      }
+
+      if (!mg_node_index.index.try_reserve(limits)) {
+        throw query::VectorSearchException(
+            fmt::format("Failed to reserve memory for vector index {}", spec.index_name));
+      }
+
+      spdlog::info("Created vector index {}", spec.index_name);
+      pimpl->index_name_to_index_impl_.emplace(spec.index_name, key);
+      pimpl->node_index_.emplace(
+          key, NodeIndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
+                                 std::move(mg_node_index)),
+                             spec});
+
+      for (auto &vertex : vertices) {
+        if (!utils::Contains(vertex.labels, label_id)) continue;
+        if (UpdateVectorIndex(VectorIndexOnLabelEntry{key, &vertex}) && snapshot_info) {
+          snapshot_info->Update(UpdateType::VECTOR_IDX);
+        }
+      }
+
+    } else {
+      const auto edge_type = std::get<EdgeTypeId>(spec.label_or_edge_type);
+      const EdgeTypePropKey key{edge_type, spec.property};
+
+      if (pimpl->edge_index_.contains(key)) {
+        throw query::VectorSearchException("Vector index with the given edge type and property already exists.");
+      }
+
+      auto mg_edge_index = mg_edge_type_vector_index_t::make(metric);
+      if (!mg_edge_index) {
+        throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
+                                                       spec.index_name, mg_edge_index.error.what()));
+      }
+
+      if (!mg_edge_index.index.try_reserve(limits)) {
+        throw query::VectorSearchException(
+            fmt::format("Failed to reserve memory for vector index {}", spec.index_name));
+      }
+
+      spdlog::info("Created vector index {}", spec.index_name);
+      pimpl->index_name_to_index_impl_.emplace(spec.index_name, key);
+      pimpl->edge_index_.emplace(
+          key, EdgeTypeIndexItem{std::make_shared<utils::Synchronized<mg_edge_type_vector_index_t, std::shared_mutex>>(
+                                     std::move(mg_edge_index)),
+                                 spec});
+
+      for (auto &vertex : vertices) {
+        for (auto &edge_variant : vertex.out_edges) {
+          if (std::get<EdgeTypeId>(edge_variant) != edge_type) continue;
+          auto *edge = std::get<EdgeRef>(edge_variant).ptr;
+          if (UpdateVectorIndex(VectorIndexOnEdgeTypeEntry{key, edge}) && snapshot_info) {
+            snapshot_info->Update(UpdateType::VECTOR_IDX);
+          }
+        }
       }
     }
   } catch (const std::exception &e) {
@@ -456,49 +495,52 @@ std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, Prope
   return locked_index->size();
 }
 
-std::vector<VectorSearchResult> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
-                                                    const std::vector<float> &query_vector) const {
-  auto search_index = [&](auto &mg_index) -> std::vector<VectorSearchResult> {
-    std::vector<VectorSearchResult> result;
-    result.reserve(result_set_size);
+VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view index_name, uint64_t result_set_size,
+                                                 const std::vector<float> &query_vector) const {
+  const auto label_prop = std::get<LabelPropKey>(pimpl->index_name_to_index_impl_.at(index_name.data()));
+  const auto &mg_index = pimpl->node_index_.at(label_prop).mg_index;
 
-    auto locked_index = mg_index->ReadLock();
-    using IndexT = std::decay_t<decltype(*locked_index)>;
-    using IndexKeyT = typename IndexT::key_t;
+  VectorSearchNodeResults result;
+  result.reserve(result_set_size);
 
-    // Filter function
-    auto filter = [](IndexKeyT key) {
-      auto guard = std::shared_lock{key->lock};
-      return !key->deleted;
-    };
+  auto locked_index = mg_index->ReadLock();
+  const auto result_keys = locked_index->filtered_search(query_vector.data(), result_set_size, [](Vertex *vertex) {
+    auto guard = std::shared_lock{vertex->lock};
+    return !vertex->deleted;
+  });
 
-    const auto result_keys = locked_index->filtered_search(query_vector.data(), result_set_size, filter);
+  auto metric_kind = locked_index->metric().metric_kind();
+  auto similarity_fn = similarity_map.at(metric_kind);
 
-    auto metric_kind = locked_index->metric().metric_kind();
-    auto similarity_fn = similarity_map.at(metric_kind);
-
-    for (std::size_t i = 0; i < result_keys.size(); ++i) {
-      const auto &entry = result_keys[i];
-      auto *entry_ptr = static_cast<IndexKeyT>(entry.member.key);
-      result.emplace_back(
-          VectorSearchResult{entry_ptr, static_cast<double>(entry.distance), std::abs(similarity_fn(entry.distance))});
-    }
-
-    return result;
-  };
-
-  const auto label_or_edge_type_prop = pimpl->index_name_to_index_impl_.find(index_name.data());
-  if (label_or_edge_type_prop == pimpl->index_name_to_index_impl_.end()) {
-    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  for (std::size_t i = 0; i < result_keys.size(); ++i) {
+    auto *vertex = static_cast<Vertex *>(result_keys[i].member.key);
+    result.emplace_back(vertex, result_keys[i].distance, similarity_fn(result_keys[i].distance));
   }
+  return result;
+}
 
-  if (std::holds_alternative<EdgeTypePropKey>(label_or_edge_type_prop->second)) {
-    const auto &index = pimpl->edge_index_.at(std::get<EdgeTypePropKey>(label_or_edge_type_prop->second)).mg_index;
-    return search_index(index);
-  } else {
-    const auto &index = pimpl->node_index_.at(std::get<LabelPropKey>(label_or_edge_type_prop->second)).mg_index;
-    return search_index(index);
+VectorSearchEdgeResults VectorIndex::SearchEdges(std::string_view index_name, uint64_t result_set_size,
+                                                 const std::vector<float> &query_vector) const {
+  const auto edge_type_prop = std::get<EdgeTypePropKey>(pimpl->index_name_to_index_impl_.at(index_name.data()));
+  const auto &mg_index = pimpl->edge_index_.at(edge_type_prop).mg_index;
+
+  VectorSearchEdgeResults result;
+  result.reserve(result_set_size);
+
+  auto locked_index = mg_index->ReadLock();
+  const auto result_keys = locked_index->filtered_search(query_vector.data(), result_set_size, [](Edge *edge) {
+    auto guard = std::shared_lock{edge->lock};
+    return !edge->deleted;
+  });
+
+  auto metric_kind = locked_index->metric().metric_kind();
+  auto similarity_fn = similarity_map.at(metric_kind);
+
+  for (std::size_t i = 0; i < result_keys.size(); ++i) {
+    auto *edge = static_cast<Edge *>(result_keys[i].member.key);
+    result.emplace_back(edge, result_keys[i].distance, similarity_fn(result_keys[i].distance));
   }
+  return result;
 }
 
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) {

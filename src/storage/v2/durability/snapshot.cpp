@@ -6354,7 +6354,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       for (const auto &[index_name, label, property, metric, dimension, resize_coefficient, capacity, scalar_kind] :
            vector_indices) {
         snapshot.WriteString(index_name);
-        write_mapping(label);
+        write_mapping(std::get<LabelId>(label));
         write_mapping(property);
         snapshot.WriteString(VectorIndex::NameFromMetric(metric));
         snapshot.WriteUint(dimension);
