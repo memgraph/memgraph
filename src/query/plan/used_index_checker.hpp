@@ -12,6 +12,7 @@
 #pragma once
 
 #include "query/plan/operator.hpp"
+#include "storage/v2/indices/active_indices.hpp"
 
 namespace memgraph::query::plan {
 
