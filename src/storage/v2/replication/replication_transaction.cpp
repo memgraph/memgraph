@@ -26,6 +26,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Da
     // NOLINTNEXTLINE
     auto const finalized = std::invoke([&]() -> bool {
       // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream
+      // NOLINTNEXTLINE
       if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
         // NOLINTNEXTLINE
         return client->FinalizePrepareCommitPhase(db_acc, replica_stream, durability_commit_timestamp);
