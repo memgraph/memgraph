@@ -62,9 +62,9 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
       strict_sync_replicas_succ &= client->SendFinalizeCommitRpc(
-          decision, storage_uuid, std::move(db_acc), durability_commit_timestamp, std::move(replica_stream));
+          decision, storage_uuid, db_acc, durability_commit_timestamp, std::move(replica_stream));
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      client->FinalizeTransactionReplication(std::move(db_acc), std::move(replica_stream), durability_commit_timestamp);
+      client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     }
   }
   return strict_sync_replicas_succ;
