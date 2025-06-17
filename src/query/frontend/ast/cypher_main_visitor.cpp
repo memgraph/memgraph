@@ -2995,6 +2995,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
+  } else if (ctx->existsSubquery()) {
+    return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3142,7 +3144,28 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
     exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
     exists->subquery_ = nullptr;
     if (exists->pattern_->identifier_) {
-      throw SyntaxException("Identifiers are not supported in exists(...).\n");
+      throw SyntaxException("Identifiers are not supported in exists(...).");
+    }
+  } else {
+    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+  }
+
+  // Ensure only one of pattern_ or subquery_ is set
+  if ((exists->pattern_ != nullptr) == (exists->subquery_ != nullptr)) {
+    throw SyntaxException("EXISTS must have exactly one of pattern or subquery set.");
+  }
+
+  return static_cast<Expression *>(exists);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
+  auto *exists = storage_->Create<Exists>();
+  // Pattern form: ( ... ) or { ... } with forcePatternPart
+  if (ctx->forcePatternPart()) {
+    exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    exists->subquery_ = nullptr;
+    if (exists->pattern_->identifier_) {
+      throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else if (ctx->cypherQuery()) {
     // Curly-brace subquery form: { cypherQuery }

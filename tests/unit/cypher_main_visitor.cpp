@@ -4919,11 +4919,11 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "Identifiers are not supported in exists(...).");
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists() RETURN n;", ast_generator,
-                                               "EXISTS supports only a single relation as its input.");
+                                               "EXISTS supports only a single relation or a subquery as its input.");
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
-                                               "EXISTS supports only a single relation as its input.");
+                                               "EXISTS supports only a single relation or a subquery as its input.");
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]) RETURN n;", ast_generator,
-                                               "EXISTS supports only a single relation as its input.");
+                                               "EXISTS supports only a single relation or a subquery as its input.");
 }
 
 TEST_P(CypherMainVisitorTest, Exists) {
