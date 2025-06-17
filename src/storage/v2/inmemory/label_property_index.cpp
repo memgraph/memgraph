@@ -352,28 +352,42 @@ InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
 
 auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
     -> std::shared_ptr<IndividualIndex> {
-  return index_.WithReadLock([&](IndexContainer const &index) -> std::shared_ptr<IndividualIndex> {
-    auto it1 = index.find(label);
-    if (it1 == index.cend()) [[unlikely]]
-      return {};
-    auto &properties_map = it1->second;
-    auto it2 = properties_map.find(properties);
-    if (it2 == properties_map.cend()) [[unlikely]]
-      return {};
-    return it2->second;
-  });
+  return index_.WithReadLock(
+      [&](std::shared_ptr<IndexContainer const> const &index) -> std::shared_ptr<IndividualIndex> {
+        auto it1 = index->find(label);
+        if (it1 == index->cend()) [[unlikely]]
+          return {};
+        auto &properties_map = it1->second;
+        auto it2 = properties_map.find(properties);
+        if (it2 == properties_map.cend()) [[unlikely]]
+          return {};
+        return it2->second;
+      });
 }
 
 void InMemoryLabelPropertyIndex::RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties) {
-  index_.WithLock([&](IndexContainer &index) {
-    auto it = index.find(label);
-    if (it == index.cend()) [[unlikely]]
-      return;
-    auto &properties_map = it->second;
-    properties_map.erase(properties);
-    if (properties_map.empty()) {
-      index.erase(it);
+  index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+    {
+      auto it = index->find(label);
+      if (it == index->cend()) [[unlikely]]
+        return;
+      auto &properties_map = it->second;
+      auto it2 = properties_map.find(properties);
+      if (it2 == properties_map.cend()) [[unlikely]] {
+        return;
+      }
     }
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    auto it = new_index->find(label);
+    DMG_ASSERT(it != new_index->cend(), "Index should exist");
+    auto &properties_map = it->second;
+    auto it2 = properties_map.find(properties);
+    DMG_ASSERT(it2 != properties_map.cend(), "Index should exist");
+    properties_map.erase(it2);
+    if (properties_map.empty()) {
+      new_index->erase(it);
+    }
+    index = std::move(new_index);
   });
 }
 
