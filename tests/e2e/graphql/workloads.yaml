@@ -47,6 +47,12 @@ workloads:
     args: ["graphql/graphql_pagination.py"]
     <<: *in_memory_cluster
 
+  - name: "GraphQL cursor-based pagination"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_cursor_based_pagination.py"]
+    <<: *in_memory_cluster
+
   - name: "GraphQL mutations"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
@@ -88,6 +94,12 @@ workloads:
     proc: "tests/e2e/graphql/temporary_procedures/"
     args: ["graphql/graphql_pagination.py"]
     <<: *disk_cluster
+
+  - name: "Disk GraphQL cursor-based pagination"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/graphql/temporary_procedures/"
+    args: ["graphql/graphql_cursor_based_pagination.py"]
+    <<: *in_memory_cluster
 
   - name: "Disk GraphQL mutations"
     binary: "tests/e2e/pytest_runner.sh"

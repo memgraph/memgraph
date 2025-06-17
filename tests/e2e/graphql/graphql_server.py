@@ -25,9 +25,9 @@ class GraphQLServer:
         atexit.register(self.__shut_down)
         print(f"GraphQLServer started")
 
-    def send_query(self, query: str, timeout=5.0) -> requests.Response:
+    def send_query(self, query: str, variables: str = "{}", timeout=5.0) -> requests.Response:
         try:
-            response = requests.post(self.url, json={"query": query}, timeout=timeout)
+            response = requests.post(self.url, json={"query": query, "variables": variables}, timeout=timeout)
         except requests.exceptions.Timeout as err:
             print("Request to GraphQL server has timed out. Details:", err)
         else:
@@ -67,7 +67,7 @@ def _ordered(obj: any) -> any:
 def _flatten(x: any) -> list:
     result = []
     for el in x:
-        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str | int | float):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(el, None | str | int | float):
             result.extend(_flatten(el))
         else:
             result.append(el)

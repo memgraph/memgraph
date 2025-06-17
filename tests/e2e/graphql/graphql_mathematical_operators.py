@@ -77,7 +77,6 @@ def test_mutation_in_relationship_property(query_server):
     ).strip()
 
     gotten = query_server.send_query(query)
-    print(str(gotten.text))
     expected_result = dedent(
         """\
         {
