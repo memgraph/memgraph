@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,7 @@ struct FunctionContext {
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
+  int64_t hops_counter{0};
 };
 
 using func_impl =
@@ -52,5 +53,8 @@ using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 ///
 /// Error, will return std::monostate if function can not be found
 auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
+
+// Returns the current hops counter if set, otherwise null.
+TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
 
 }  // namespace memgraph::query
