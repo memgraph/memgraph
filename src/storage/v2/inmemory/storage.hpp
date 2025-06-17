@@ -363,7 +363,7 @@ class InMemoryStorage final : public Storage {
     /// Returns void because it must not fail
     /// Needs to be called while holding the engine lock
     /// TODO: (andi) Think if all methods inside can be noexcept
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestam);
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -546,6 +546,7 @@ class InMemoryStorage final : public Storage {
     SalientConfig::Items config_;
 
     uint64_t commit_flag_wal_position_{0};
+    bool needs_wal_update_{false};
   };
 
   class ReplicationAccessor final : public InMemoryAccessor {
