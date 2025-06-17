@@ -67,7 +67,7 @@ def _ordered(obj: any) -> any:
 def _flatten(x: any) -> list:
     result = []
     for el in x:
-        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str | int):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str | int | float):
             result.extend(_flatten(el))
         else:
             result.append(el)
@@ -77,7 +77,7 @@ def _flatten(x: any) -> list:
 def _valid_uuid(uuid_to_test: any, version: int = 4) -> any:
     try:
         uuid_obj = UUID(uuid_to_test, version=version)
-    except ValueError:
+    except (ValueError, AttributeError):
         return False
     return str(uuid_obj) == uuid_to_test
 
