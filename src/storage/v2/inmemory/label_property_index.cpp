@@ -270,8 +270,9 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
 }
 
 bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths const &properties) {
-  return index_.WithLock([&](IndexContainer &index) {
-    auto [it1, _] = index.try_emplace(label);
+  return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    auto [it1, _] = new_index->try_emplace(label);
     auto &properties_map = it1->second;
     auto it2 = properties_map.find(properties);
     if (it2 != properties_map.end()) {
@@ -280,6 +281,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
     }
     auto helper = PropertiesPermutationHelper{properties};
     properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
+    index = std::move(new_index);
     return true;
   });
 }
@@ -289,8 +291,8 @@ struct PopulateCancel : std::exception {};
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -393,8 +395,8 @@ void InMemoryLabelPropertyIndex::RemoveIndividualIndex(LabelId const &label, Pro
 
 void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                                  const Transaction &tx) {
-  auto const it = index_container_.find(added_label);
-  if (it == index_container_.end()) {
+  auto const it = index_container_->find(added_label);
+  if (it == index_container_->end()) {
     return;
   }
 
@@ -443,9 +445,9 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties) {
   // find the primary index
-  return index_.WithLock([&](IndexContainer &index) {
-    auto it1 = index.find(label);
-    if (it1 == index.end()) {
+  return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
+    auto it1 = index->find(label);
+    if (it1 == index->end()) {
       return false;
     }
 
@@ -514,20 +516,25 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPa
       }
     });
 
-    // Do the actual removal from the primary index
-    properties_map.erase(it2);
-    if (properties_map.empty()) {
-      index.erase(it1);
-    }
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    auto new_it1 = new_index->find(label);
+    auto &new_properties_map = new_it1->second;
 
+    auto new_it2 = new_properties_map.find(properties);
+
+    new_properties_map.erase(new_it2);
+    if (new_properties_map.empty()) {
+      new_index->erase(new_it1);
+    }
+    index = std::move(new_index);
     return true;
   });
 }
 
 bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
                                                            std::span<PropertyPath const> properties) const {
-  auto it = index_container_.find(label);
-  if (it != index_container_.end()) {
+  auto it = index_container_->find(label);
+  if (it != index_container_->end()) {
     auto it2 = it->second.find(properties);
     if (it2 != it->second.end()) {
       return it2->second->status.is_ready();
@@ -538,8 +545,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
-    -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels,
+    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
@@ -571,8 +578,8 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
           [](auto const &val) -> PropertyPath const & { return std::get<0>(val); });
 
   for (auto [l_pos, label] : ranges::views::enumerate(labels)) {
-    auto it = index_container_.find(label);
-    if (it == index_container_.end()) continue;
+    auto it = index_container_->find(label);
+    if (it == index_container_->end()) continue;
 
     for (const auto &[nested_props, index] : it->second) {
       // Skip indexes which are not ready, they are never relevant for planning
@@ -603,11 +610,11 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
     -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> {
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> ret;
 
-  auto const num_indexes = r::accumulate(index_container_, size_t{},
+  auto const num_indexes = r::accumulate(*index_container_, size_t{},
                                          [](auto sum, auto const &label_map) { return sum + label_map.second.size(); });
 
   ret.reserve(num_indexes);
-  for (auto const &[label, indices] : index_container_) {
+  for (auto const &[label, indices] : *index_container_) {
     for (auto const &[props, index] : indices) {
       if (index->status.is_visible(start_timestamp)) {
         ret.emplace_back(label, props);
@@ -622,7 +629,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 
   auto index_container = index_.WithReadLock(std::identity{});
 
-  for (auto &[label_id, by_properties] : index_container) {
+  for (auto &[label_id, by_properties] : *index_container) {
     for (auto &[property_paths, index] : by_properties) {
       // before starting index, check if stop_requested
       if (token.stop_requested()) return;
@@ -912,7 +919,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties) const {
-  auto it = index_container_.find(label);
+  auto it = index_container_->find(label);
   DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
@@ -923,7 +930,7 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValue const> values) const {
-  auto const it = index_container_.find(label);
+  auto const it = index_container_->find(label);
   DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
 
@@ -950,7 +957,7 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> bounds) const {
-  auto const it = index_container_.find(label);
+  auto const it = index_container_->find(label);
   DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
 
@@ -1035,7 +1042,7 @@ std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetI
 void InMemoryLabelPropertyIndex::RunGC() {
   // TODO: optimise...only copy the per_properties
   auto cpy = index_.WithReadLock(std::identity{});
-  for (auto &per_label : cpy | std::views::values) {
+  for (auto &per_label : *cpy | std::views::values) {
     for (auto &per_properties : per_label | std::views::values) {
       per_properties->skiplist.run_gc();
     }
@@ -1046,7 +1053,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> values, View view,
     Storage *storage, Transaction *transaction) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto it = index_container_.find(label);
+  auto it = index_container_->find(label);
   DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
@@ -1067,7 +1074,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> range,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction) {
-  auto it = index_container_.find(label);
+  auto it = index_container_->find(label);
   DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
@@ -1086,14 +1093,13 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
-  index_.WithLock([](auto &idx) { idx.clear(); });
-  //  indices_by_property_.clear();
+  index_.WithLock([](auto &idx) { idx = std::make_shared<IndexContainer>(); });
   stats_->clear();
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
   AbortProcessor res{};
-  for (const auto &[label, per_properties] : index_container_) {
+  for (const auto &[label, per_properties] : *index_container_) {
     for (auto const &[props, index] : per_properties) {
       // Root properties may be duplicated in nested indices, such
       // as having a.b, a.c, and a.d. In that case, we only need to build
@@ -1121,7 +1127,7 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<Lab
 
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
   for (auto const &[label, by_properties] : info) {
-    auto it = index_container_.find(label);
+    auto it = index_container_->find(label);
     DMG_ASSERT(it != index_container_.end());
     for (auto const &[prop, to_remove] : by_properties) {
       auto it2 = it->second.find(*prop);
