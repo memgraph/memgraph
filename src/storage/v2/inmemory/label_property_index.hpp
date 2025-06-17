@@ -70,7 +70,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   using ReverseIndexContainer = std::unordered_map<PropertyId, std::multimap<LabelId, EntryDetail>>;
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
-  InMemoryLabelPropertyIndex() = default;
+  InMemoryLabelPropertyIndex() : index_(std::make_shared<IndexContainer>()) {}
 
   // Convience function that does Register + Populate + direct Publish
   // TODO: direct Publish...should it be for a particular timestamp?
@@ -136,7 +136,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
   struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
-    ActiveIndices(std::shared_ptr<const IndexContainer> index_container = {})
+    ActiveIndices(std::shared_ptr<const IndexContainer> index_container = std::make_shared<IndexContainer>())
         : index_container_{std::move(index_container)} {
       // TODO: build this earlier instead of rebuilding each time
       for (auto const &[label, by_label] : *index_container_) {
