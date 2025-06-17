@@ -708,6 +708,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // when the last one commits.
             if (count == 0) {
               // TODO: (andi) Handle auto-creation issue
+              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
               CreateIndex(label, false);
               label_indices.erase(it);
             }
@@ -727,6 +728,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // when the last one commits.
             if (count == 0) {
               // TODO: (andi) Handle silent failure
+              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
               CreateIndex(edge_type, false);
               edge_type_indices.erase(it);
             }

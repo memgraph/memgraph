@@ -299,8 +299,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
 
   try {
-    auto &[helper, skip_list, status] = *index;
-    auto const accessor_factory = [&] { return skip_list.access(); };
+    auto const accessor_factory = [&] { return index->skiplist.access(); };
 
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
@@ -308,7 +307,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
         if (cancel_check()) {
           throw PopulateCancel{};
         }
-        TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor, *tx);
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, *tx);
       };
       PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     } else {
@@ -317,7 +316,7 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
         if (cancel_check()) {
           throw PopulateCancel{};
         }
-        TryInsertLabelPropertiesIndex(vertex, label, helper, index_accessor);
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor);
       };
       PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
     }
