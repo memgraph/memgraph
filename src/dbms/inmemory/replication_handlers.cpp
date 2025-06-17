@@ -404,12 +404,16 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
 
+  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
   if (req.decision) {
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
     cached_commit_accessor_.reset();
+    if (mem_storage->wal_file_) {
+      mem_storage->FinalizeWalFile();
+    }
   } else {
     // TODO: (andi) Probably should be abstracted into some method
-    auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
     if (mem_storage->wal_file_) {
       mem_storage->FinalizeWalFile();
     }
@@ -979,7 +983,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
           auto value = ToPropertyValue(data.value, mapper);
           if (value.IsInt()) {
-            spdlog::info("Property value: {}", value.ValueInt());
+            spdlog::info("Property key {}, value: {}", data.property, value.ValueInt());
           }
           auto ret =
               vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));

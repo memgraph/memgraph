@@ -800,6 +800,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // Don't write things to WAL and replicate only if needed
       if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
+        // No need to finalize WAL
         FinalizeCommitPhase(durability_commit_timestamp);
         return {};
       }
@@ -820,7 +821,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // FinalizeCommitRpc If SYNC replica, commit immediately
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
         // It is important to commit while holding the engine lock
-        if (repl_args.commit_immediately && *repl_args.commit_immediately) {
+        // This part executed by SYNC and ASYNC replicas
+        if (repl_args.commit_immediately.has_value() && *repl_args.commit_immediately) {
+          // WAL file already finalized
           FinalizeCommitPhase(*repl_args.desired_commit_timestamp);
         }
         return {};
@@ -828,6 +831,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       // There are no STRICT_SYNC replicas currently in the commit
       if (!replicating_txn.ShouldRunTwoPC()) {
+        // WAL file already finalized
         FinalizeCommitPhase(durability_commit_timestamp);
         spdlog::info("No STRICT_SYNC replicas currently in the commit, committed on MAIN with durable ts {}.",
                      durability_commit_timestamp);
@@ -842,6 +846,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // cluster.
       if (repl_prepare_phase_status) {
         FinalizeCommitPhase(durability_commit_timestamp);
+        // Important that WAL file gets finalize after the finalize commit phase finished because we are still modifying
+        // WAL file
+        if (mem_storage->wal_file_) {
+          mem_storage->FinalizeWalFile();
+        }
         spdlog::info("Finalized commit on main. Sending commit rpc to replicas");
 
         if (replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc),
@@ -888,13 +897,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
                                                  mem_storage->config_.salient.items.properties_on_edges);
   }
 
-  if (commit_flag_wal_position_ != 0) {
+  if (commit_flag_wal_position_ != 0 && needs_wal_update_) {
     constexpr bool commit{true};
     mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
-  }
-
-  if (mem_storage->wal_file_) {
-    mem_storage->FinalizeWalFile();
   }
 
   MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -2351,6 +2356,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     return !replicating_txn.ShouldRunTwoPC();
   });
   commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
+  needs_wal_update_ = !commit_flag;
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
@@ -2663,6 +2669,12 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Add a delta that indicates that the transaction is fully written to the WAL
   mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+
+  // SYNC/ASYNC replica part of cluster without STRICT SYNC replica
+  // MAIN without STRICT SYNC replicas
+  if (commit_flag) {
+    mem_storage->FinalizeWalFile();
+  }
 
   // Ships deltas to instances and waits for the reply
   // Returns only the status of SYNC replicas.
