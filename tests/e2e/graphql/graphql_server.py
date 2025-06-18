@@ -25,9 +25,14 @@ class GraphQLServer:
         atexit.register(self.__shut_down)
         print(f"GraphQLServer started")
 
-    def send_query(self, query: str, variables: str = "{}", timeout=5.0) -> requests.Response:
+    def send_query(self, query: str, variables=None, timeout=5.0) -> requests.Response:
+        headers = {
+            "Content-Type": "application/json",
+        }
+        json = {"query": query, "variables": variables or {}}
+
         try:
-            response = requests.post(self.url, json={"query": query, "variables": variables}, timeout=timeout)
+            response = requests.post(self.url, headers=headers, json=json, timeout=timeout)
         except requests.exceptions.Timeout as err:
             print("Request to GraphQL server has timed out. Details:", err)
         else:
