@@ -317,9 +317,9 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
                                  spec});
 
       for (auto &vertex : vertices) {
-        for (auto &edge_variant : vertex.out_edges) {
-          if (std::get<EdgeTypeId>(edge_variant) != edge_type) continue;
-          auto *edge = std::get<EdgeRef>(edge_variant).ptr;
+        for (auto &edge_tuple : vertex.out_edges) {
+          if (std::get<EdgeTypeId>(edge_tuple) != edge_type) continue;
+          auto *edge = std::get<EdgeRef>(edge_tuple).ptr;
           if (UpdateVectorIndex(VectorIndexOnEdgeTypeEntry{key, edge}) && snapshot_info) {
             snapshot_info->Update(UpdateType::VECTOR_IDX);
           }
@@ -450,6 +450,15 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   auto view = pimpl->node_index_ | std::views::keys | std::views::filter(has_property) | std::views::filter(has_label);
   for (const auto &label_prop : view) {
     UpdateVectorIndex(VectorIndexOnLabelEntry{label_prop, vertex}, &value);
+  }
+}
+
+void VectorIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                                      PropertyId property, const PropertyValue &value) {
+  auto has_property = [&](const auto &edge_type_prop) { return edge_type_prop.property() == property; };
+  if (std::ranges::any_of(pimpl->edge_index_ | std::views::keys | std::views::filter(has_property),
+                          [&](const auto &edge_type_prop) { return edge_type_prop.edge_type() == edge_type; })) {
+    UpdateVectorIndex(VectorIndexOnEdgeTypeEntry{EdgeTypePropKey{edge_type, property}, edge}, &value);
   }
 }
 
@@ -597,26 +606,20 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
 }
 
 VectorIndex::IndexStats VectorIndex::Analysis() const {
-  // IndexStats res{};
-  // for (const auto &[label_prop, _] : pimpl->index_) {
-  //   const auto label = label_prop.label();
-  //   const auto property = label_prop.property();
-  //   res.l2p[label].emplace_back(property);
-  //   res.p2l[property].emplace_back(label);
-  // }
-  // return res;
-  return IndexStats{};  // TODO: Implement the index analysis logic
-}
-
-void VectorIndex::TryInsertVertex(Vertex *vertex) {
-  auto guard = std::shared_lock{vertex->lock};
-  auto has_property = [&](const auto &label_prop) { return vertex->properties.HasProperty(label_prop.property()); };
-  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+  IndexStats res{};
   for (const auto &[label_prop, _] : pimpl->node_index_) {
-    if (has_property(label_prop) && has_label(label_prop)) {
-      UpdateVectorIndex(VectorIndexOnLabelEntry{label_prop, vertex});
-    }
+    const auto label = label_prop.label();
+    const auto property = label_prop.property();
+    res.l2p[label].emplace_back(property);
+    res.p2l[property].emplace_back(label);
   }
+  for (const auto &[edge_type_prop, _] : pimpl->edge_index_) {
+    const auto edge_type = edge_type_prop.edge_type();
+    const auto property = edge_type_prop.property();
+    res.et2p[edge_type].emplace_back(property);
+    res.p2et[property].emplace_back(edge_type);
+  }
+  return res;
 }
 
 }  // namespace memgraph::storage

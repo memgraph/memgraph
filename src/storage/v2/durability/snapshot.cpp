@@ -6351,8 +6351,8 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     {
       auto vector_indices = storage->indices_.vector_index_.ListIndices();
       snapshot.WriteUint(vector_indices.size());
-      for (const auto &[index_name, label, property, metric, dimension, resize_coefficient, capacity, scalar_kind] :
-           vector_indices) {
+      for (const auto &[index_name, label, property, metric, dimension, resize_coefficient, capacity, scalar_kind,
+                        type] : vector_indices) {
         snapshot.WriteString(index_name);
         write_mapping(std::get<LabelId>(label));
         write_mapping(property);
@@ -6361,6 +6361,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteUint(resize_coefficient);
         snapshot.WriteUint(capacity);
         snapshot.WriteUint(static_cast<uint64_t>(scalar_kind));
+        snapshot.WriteUint(static_cast<uint64_t>(type));
       }
       if (snapshot_aborted()) {
         return false;

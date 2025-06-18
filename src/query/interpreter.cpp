@@ -3565,6 +3565,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
             .resize_coefficient = vector_index_config.resize_coefficient,
             .capacity = vector_index_config.capacity,
             .scalar_kind = vector_index_config.scalar_kind,
+            .index_type = storage::VectorIndexType::LABEL,
         });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (maybe_error.HasError()) {
@@ -3649,6 +3650,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
         .resize_coefficient = vector_index_config.resize_coefficient,
         .capacity = vector_index_config.capacity,
         .scalar_kind = vector_index_config.scalar_kind,
+        .index_type = storage::VectorIndexType::EDGE_TYPE,
     });
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
     if (maybe_error.HasError()) {
@@ -5068,11 +5070,15 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         results.reserve(vector_indices.size());
 
         for (const auto &spec : vector_indices) {
-          // results.push_back({TypedValue(spec.index_name), TypedValue(storage->LabelToName(spec.label)),
-          //                    TypedValue(storage->PropertyToName(spec.property)),
-          //                    TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
-          //                    TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size)),
-          //                    TypedValue(spec.scalar_kind)});
+          auto label_or_edge_type_as_str =
+              std::holds_alternative<storage::LabelId>(spec.label_or_edge_type)
+                  ? storage->LabelToName(std::get<storage::LabelId>(spec.label_or_edge_type))
+                  : storage->EdgeTypeToName(std::get<storage::EdgeTypeId>(spec.label_or_edge_type));
+          results.push_back({TypedValue(spec.index_name), TypedValue(label_or_edge_type_as_str),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int64_t>(spec.capacity)), TypedValue(spec.dimension),
+                             TypedValue(spec.metric), TypedValue(static_cast<int64_t>(spec.size)),
+                             TypedValue(spec.scalar_kind)});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};

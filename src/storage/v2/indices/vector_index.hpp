@@ -23,6 +23,11 @@
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+enum class VectorIndexType {
+  LABEL,
+  EDGE_TYPE,
+};
 struct VectorIndexOnEdgeTypeEntry {
   EdgeTypePropKey edge_type_prop_key;
   Edge *edge;
@@ -79,6 +84,8 @@ struct VectorIndexSpec {
   std::uint16_t resize_coefficient;
   std::size_t capacity;
   unum::usearch::scalar_kind_t scalar_kind;
+  VectorIndexType
+      index_type;  // label and edge type are both uint32_t, so in order to distinguish them we need this field
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
@@ -96,7 +103,9 @@ class VectorIndex {
  public:
   struct IndexStats {
     std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;  // TODO: fix later
+    std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
+    std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
 
   explicit VectorIndex();
@@ -162,6 +171,9 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
+  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                           PropertyId property, const PropertyValue &value);
+
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
@@ -198,15 +210,13 @@ class VectorIndex {
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 
+  /// @brief Removes obsolete entries from the index.
+  /// @param token A stop token to allow for cancellation of the operation.
   void RemoveObsoleteEntries(std::stop_token token) const;
 
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
-
-  /// @brief Tries to insert a vertex into the index.
-  /// @param vertex The vertex to be inserted.
-  void TryInsertVertex(Vertex *vertex);
 
  private:
   /// @brief Adds a vertex to an existing index.

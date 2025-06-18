@@ -448,8 +448,6 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
-    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
-
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
 
