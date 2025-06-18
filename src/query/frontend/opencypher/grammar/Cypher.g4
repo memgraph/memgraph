@@ -234,19 +234,21 @@ expression5 : expression4 ( '^' expression4 )* ;
 
 expression4 : ( ( '+' | '-' ) )* expression3a ;
 
-expression3a : expression3b ( stringAndNullOperators )* ;
+expression3a : expression2a ( stringAndNullOperators )* ;
 
-stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression3b) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
+stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression2a) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
-expression3b : expression2a ( listIndexingOrSlicing )* ;
+expression2a : expression2b ( nodeLabels )? ;
+
+expression2b : atom ( memberAccess )* ;
+
+memberAccess : propertyLookup
+             | listIndexingOrSlicing
+             ;
 
 listIndexingOrSlicing : ( '[' expression ']' )
                       | ( '[' lower_bound=expression? '..' upper_bound=expression? ']' )
                       ;
-
-expression2a : expression2b ( nodeLabels )? ;
-
-expression2b : atom ( propertyLookup )* ;
 
 atom : listComprehension
      | literal

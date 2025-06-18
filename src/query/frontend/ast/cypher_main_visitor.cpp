@@ -2899,7 +2899,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Con
 
 // IS NULL, IS NOT NULL, STARTS WITH, ..
 antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aContext *ctx) {
-  auto *expression = std::any_cast<Expression *>(ctx->expression3b()->accept(this));
+  auto *expression = std::any_cast<Expression *>(ctx->expression2a()->accept(this));
 
   for (auto *op : ctx->stringAndNullOperators()) {
     if (op->IS() && op->NOT() && op->CYPHERNULL()) {
@@ -2909,11 +2909,11 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
       expression = static_cast<Expression *>(storage_->Create<IsNullOperator>(expression));
     } else if (op->IN()) {
       expression = static_cast<Expression *>(
-          storage_->Create<InListOperator>(expression, std::any_cast<Expression *>(op->expression3b()->accept(this))));
+          storage_->Create<InListOperator>(expression, std::any_cast<Expression *>(op->expression2a()->accept(this))));
     } else if (utils::StartsWith(op->getText(), "=~")) {
       auto *regex_match = storage_->Create<RegexMatch>();
       regex_match->string_expr_ = expression;
-      regex_match->regex_ = std::any_cast<Expression *>(op->expression3b()->accept(this));
+      regex_match->regex_ = std::any_cast<Expression *>(op->expression2a()->accept(this));
       expression = regex_match;
     } else {
       std::string function_name;
@@ -2926,7 +2926,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
       } else {
         throw utils::NotYetImplemented("function '{}'", op->getText());
       }
-      auto *expression2 = std::any_cast<Expression *>(op->expression3b()->accept(this));
+      auto *expression2 = std::any_cast<Expression *>(op->expression2a()->accept(this));
       std::vector<Expression *> args = {expression, expression2};
       expression = static_cast<Expression *>(storage_->Create<Function>(function_name, args));
     }
@@ -2936,26 +2936,6 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *) {
   DLOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
-}
-
-antlrcpp::Any CypherMainVisitor::visitExpression3b(MemgraphCypher::Expression3bContext *ctx) {
-  auto *expression = std::any_cast<Expression *>(ctx->expression2a()->accept(this));
-  for (auto *list_op : ctx->listIndexingOrSlicing()) {
-    if (list_op->getTokens(MemgraphCypher::DOTS).size() == 0U) {
-      // If there is no '..' then we need to create list indexing operator.
-      expression = storage_->Create<SubscriptOperator>(
-          expression, std::any_cast<Expression *>(list_op->expression()[0]->accept(this)));
-    } else if (!list_op->lower_bound && !list_op->upper_bound) {
-      throw SemanticException("List slicing operator requires at least one bound.");
-    } else {
-      Expression *lower_bound_ast =
-          list_op->lower_bound ? std::any_cast<Expression *>(list_op->lower_bound->accept(this)) : nullptr;
-      Expression *upper_bound_ast =
-          list_op->upper_bound ? std::any_cast<Expression *>(list_op->upper_bound->accept(this)) : nullptr;
-      expression = storage_->Create<ListSlicingOperator>(expression, lower_bound_ast, upper_bound_ast);
-    }
-  }
-  return expression;
 }
 
 antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::ListIndexingOrSlicingContext *) {
@@ -2974,11 +2954,28 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aC
 
 antlrcpp::Any CypherMainVisitor::visitExpression2b(MemgraphCypher::Expression2bContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
-  for (auto *lookup : ctx->propertyLookup()) {
-    auto key = std::any_cast<PropertyIx>(lookup->accept(this));
-    auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
-    expression = property_lookup;
+  for (auto *member_access : ctx->memberAccess()) {
+    if (auto *list_op = member_access->listIndexingOrSlicing()) {
+      if (list_op->getTokens(MemgraphCypher::DOTS).size() == 0U) {
+        // If there is no '..' then we need to create list indexing operator.
+        expression = storage_->Create<SubscriptOperator>(
+            expression, std::any_cast<Expression *>(list_op->expression()[0]->accept(this)));
+      } else if (!list_op->lower_bound && !list_op->upper_bound) {
+        throw SemanticException("List slicing operator requires at least one bound.");
+      } else {
+        Expression *lower_bound_ast =
+            list_op->lower_bound ? std::any_cast<Expression *>(list_op->lower_bound->accept(this)) : nullptr;
+        Expression *upper_bound_ast =
+            list_op->upper_bound ? std::any_cast<Expression *>(list_op->upper_bound->accept(this)) : nullptr;
+        expression = storage_->Create<ListSlicingOperator>(expression, lower_bound_ast, upper_bound_ast);
+      }
+    } else if (auto *lookup = member_access->propertyLookup()) {
+      auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+      auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
+      expression = property_lookup;
+    }
   }
+
   return expression;
 }
 
