@@ -789,6 +789,24 @@ TEST_P(CypherMainVisitorTest, ListSlicingOperator) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, MemberOfListElement) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [{x: 42}][0].x"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *property_lookup_op = dynamic_cast<PropertyLookup *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(property_lookup_op);
+  EXPECT_EQ(property_lookup_op->property_, ast_generator.Prop("x"));
+  auto *list_index_op = dynamic_cast<SubscriptOperator *>(property_lookup_op->expression_);
+  ASSERT_TRUE(list_index_op);
+  auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
+  ASSERT_TRUE(list);
+  ast_generator.CheckLiteral(list_index_op->expression2_, 0);
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, InListOperator) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 5 IN [1,2]"));
