@@ -20,6 +20,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/observer.hpp"
 
@@ -203,7 +204,7 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 }  // namespace
 
-std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> InMemoryReplicationHandlers::cached_commit_accessor_;
+std::unique_ptr<storage::ReplicationAccessor> InMemoryReplicationHandlers::cached_commit_accessor_;
 
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
@@ -828,14 +829,14 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
   constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
 
   uint64_t commit_timestamp{0};
-  std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> commit_accessor;
+  std::unique_ptr<storage::ReplicationAccessor> commit_accessor;
 
   bool should_commit{true};
 
   auto const get_replication_accessor = [storage, &commit_timestamp, &commit_accessor](
                                             uint64_t const local_commit_timestamp,
                                             storage::Storage::Accessor::Type acc_type =
-                                                kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
+                                                kSharedAccess) -> storage::ReplicationAccessor * {
     if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       switch (acc_type) {
@@ -855,7 +856,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
       }
 
       commit_timestamp = local_commit_timestamp;
-      commit_accessor.reset(static_cast<storage::InMemoryStorage::ReplicationAccessor *>(acc.release()));
+      commit_accessor.reset(static_cast<storage::ReplicationAccessor *>(acc.release()));
 
     } else if (commit_timestamp != local_commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");

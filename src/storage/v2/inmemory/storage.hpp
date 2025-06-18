@@ -549,34 +549,6 @@ class InMemoryStorage final : public Storage {
     bool needs_wal_update_{false};
   };
 
-  class ReplicationAccessor final : public InMemoryAccessor {
-   public:
-    ReplicationAccessor(ReplicationAccessor &&other) = default;
-    ReplicationAccessor &operator=(ReplicationAccessor &&other) = delete;
-
-    ReplicationAccessor(ReplicationAccessor const &) = delete;
-    ReplicationAccessor &operator=(ReplicationAccessor const &) = delete;
-    ~ReplicationAccessor() override = default;
-
-    /// @throw std::bad_alloc
-    std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
-
-    /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                      storage::Gid gid) {
-      return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
-    }
-
-    auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }
-
-    void ResetCommitTimestamp() { commit_timestamp_.reset(); }
-
-    const Transaction &GetTransaction() const { return transaction_; }
-    Transaction &GetTransaction() { return transaction_; }
-  };
-
-  static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication accessor isn't move constructible");
-
   using Storage::Access;
   std::unique_ptr<Accessor> Access(Accessor::Type rw_type, std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
@@ -733,8 +705,35 @@ class InMemoryStorage final : public Storage {
   void Clear();
 };
 
+class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
+ public:
+  ReplicationAccessor(ReplicationAccessor &&other) = default;
+  ReplicationAccessor &operator=(ReplicationAccessor &&other) = delete;
+
+  ReplicationAccessor(ReplicationAccessor const &) = delete;
+  ReplicationAccessor &operator=(ReplicationAccessor const &) = delete;
+  ~ReplicationAccessor() override = default;
+
+  /// @throw std::bad_alloc
+  std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
+
+  /// @throw std::bad_alloc
+  Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid) {
+    return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
+  }
+
+  auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }
+
+  void ResetCommitTimestamp() { commit_timestamp_.reset(); }
+
+  const Transaction &GetTransaction() const { return transaction_; }
+  Transaction &GetTransaction() { return transaction_; }
+};
+
+static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication accessor isn't move constructible");
+
 struct SingleTxnDeltasProcessingResult {
-  std::unique_ptr<InMemoryStorage::ReplicationAccessor> commit_acc;
+  std::unique_ptr<ReplicationAccessor> commit_acc;
   uint64_t current_delta_idx;
   uint64_t durability_commit_timestamp;
   uint32_t current_batch_counter;

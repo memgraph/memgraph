@@ -11,13 +11,12 @@
 
 #pragma once
 
-#include "replication/state.hpp"
-#include "storage/v2/inmemory/storage.hpp"
+#include "dbms/dbms_handler_fwd.hpp"
+#include "replication/statefwd.hpp"
+#include "storage/v2/inmemory/storagefwd.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
 namespace memgraph::dbms {
-
-class DbmsHandler;
 
 class InMemoryReplicationHandlers {
  public:
@@ -54,7 +53,7 @@ class InMemoryReplicationHandlers {
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
       bool commit_txn_immediately, bool loading_wal, uint32_t start_batch_counter = 0);
 
-  static std::unique_ptr<storage::InMemoryStorage::ReplicationAccessor> cached_commit_accessor_;
+  static std::unique_ptr<storage::ReplicationAccessor> cached_commit_accessor_;
 };
 
 }  // namespace memgraph::dbms
