@@ -41,7 +41,7 @@ def test_cursor_based_pagination(query_server):
 
     # First request, specify no cursor to start at the beginning.
 
-    gotten = query_server.send_query(query, variables='{"after":""}')
+    gotten = query_server.send_query(query, variables={"after": ""})
     expected_result = dedent(
         """\
         {
@@ -94,7 +94,7 @@ def test_cursor_based_pagination(query_server):
     # next full block of 5 results.
 
     cursor = extract_cursor_from_response(str(gotten.text))
-    gotten = query_server.send_query(query, variables='{"after":"' + cursor + '"}')
+    gotten = query_server.send_query(query, variables={"after": cursor})
     expected_result = dedent(
         """\
         {
@@ -146,7 +146,7 @@ def test_cursor_based_pagination(query_server):
     # Third request passes cursor to retrieve final block of 3 results.
 
     cursor = extract_cursor_from_response(str(gotten.text))
-    gotten = query_server.send_query(query, variables='{"after":"' + cursor + '"}')
+    gotten = query_server.send_query(query, variables={"after": cursor})
     expected_result = dedent(
         """\
         {
@@ -190,7 +190,7 @@ def test_cursor_based_pagination(query_server):
     # more results.
 
     cursor = extract_cursor_from_response(str(gotten.text))
-    gotten = query_server.send_query(query, variables='{"after":"' + cursor + '"}')
+    gotten = query_server.send_query(query, variables={"after": cursor})
     expected_result = dedent(
         """\
         {
