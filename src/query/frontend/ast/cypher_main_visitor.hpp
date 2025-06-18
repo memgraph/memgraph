@@ -973,14 +973,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *ctx) override;
 
   /**
-   * List indexing and slicing.
-   *
-   * @return Expression*
-   */
-  antlrcpp::Any visitExpression3b(MemgraphCypher::Expression3bContext *ctx) override;
-
-  /**
-   * Does nothing, everything is done in visitExpression3b.
+   * Does nothing, everything is done in visitExpression2b.
    */
   antlrcpp::Any visitListIndexingOrSlicing(MemgraphCypher::ListIndexingOrSlicingContext *ctx) override;
 
@@ -992,7 +985,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExpression2a(MemgraphCypher::Expression2aContext *ctx) override;
 
   /**
-   * Property lookup.
+   * Property lookup, list indexing and slicing.
    *
    * @return Expression*
    */
