@@ -359,11 +359,11 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) override;
 
+    void AbortAndResetCommitTs();
+
     /// Represents the 2nd phase of the 2PC protocol
-    /// Returns void because it must not fail
     /// Needs to be called while holding the engine lock
-    /// TODO: (andi) Think if all methods inside can be noexcept
-    void FinalizeCommitPhase(uint64_t durability_commit_timestam);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
     /// @throw std::bad_alloc
     void Abort() override;

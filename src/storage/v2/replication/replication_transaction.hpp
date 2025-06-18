@@ -63,7 +63,6 @@ class TransactionReplication {
   // RPC stream won't be destroyed at the end of this function
   auto ShipDeltas(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool;
 
-  // TODO: (andi) Do you need db_acc protector here?
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
                            uint64_t durability_commit_timestamp) -> bool;
 

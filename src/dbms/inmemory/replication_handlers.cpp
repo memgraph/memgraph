@@ -337,7 +337,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  // TODO: (andi) Not sure if emptying the stream is needed? PR remove-emptying-stream, rebase on it
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
     // Empty the stream
     bool transaction_complete{false};
@@ -351,8 +350,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
-
-  spdlog::info("Commit immediately: {}", req.commit_immediately);
 
   try {
     auto deltas_res =
@@ -371,13 +368,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   const storage::replication::PrepareCommitRes res{true};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
-  // static std::random_device rd;
-  // static std::mt19937 gen(rd());
-  // std::uniform_int_distribution<> dist(0, 1); // uniform distribution between 0 and 1
-  // int random_bit = dist(gen);
-  // if (random_bit == 1) {
-  //   LOG_FATAL("Simulating crash after voting for yes");
-  // }
 }
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
@@ -400,32 +390,19 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     return;
   }
 
-  spdlog::info("Finalizing commit for db {} with decision {}", db_acc->get()->name(), req.decision);
-
   MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
 
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   if (req.decision) {
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
-    cached_commit_accessor_.reset();
-    if (mem_storage->wal_file_) {
-      mem_storage->FinalizeWalFile();
-    }
   } else {
-    // TODO: (andi) Probably should be abstracted into some method
-    if (mem_storage->wal_file_) {
-      mem_storage->FinalizeWalFile();
-    }
-    cached_commit_accessor_->Abort();
-    // We have aborted, need to release/cleanup commit_timestamp_ here
-    auto &commit_ts = cached_commit_accessor_->GetCommitTimestamp();
-    DMG_ASSERT(commit_ts.has_value());
-    mem_storage->commit_log_->MarkFinished(*commit_ts);
-    commit_ts.reset();
-    if (mem_storage->wal_file_) {
-      mem_storage->FinalizeWalFile();
-    }
+    cached_commit_accessor_->AbortAndResetCommitTs();
+  }
+
+  cached_commit_accessor_.reset();
+  if (mem_storage->wal_file_) {
+    mem_storage->FinalizeWalFile();
   }
 
   storage::replication::FinalizeCommitRes const res(true);
@@ -898,12 +875,10 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == kDeltasBatchProgressSize) {
-      spdlog::trace("Sending in progress msg");
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
 
-    // End of the stream
     auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
@@ -981,10 +956,6 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
           // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-          auto value = ToPropertyValue(data.value, mapper);
-          if (value.IsInt()) {
-            spdlog::info("Property key {}, value: {}", data.property, value.ValueInt());
-          }
           auto ret =
               vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (ret.HasError()) {
@@ -1133,9 +1104,8 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           }
         },
         [&](WalTransactionStart const &data) {
-          spdlog::trace("   Delta {}. Transaction start", current_delta_idx);
+          spdlog::trace("   Delta {}. Transaction start. Commit tnx? {}", current_delta_idx, data.commit);
           should_commit = data.commit;
-          spdlog::trace("Should commit: {}", should_commit);
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
@@ -1429,8 +1399,8 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
         },
     };
 
-    // If I received PrepareCommit, deltas should be applied (loading_wal will be false)
-    // If loading WAL file, WalTransactionStart is decision-maker
+    // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)
+    // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not
     if (loading_wal && !should_commit) continue;
 
     std::visit(delta_apply, delta.data_);

@@ -193,7 +193,6 @@ def check_if_data_preserved_after_restart(inner_instances_description, instance_
 
 # Tests that when all replicas are UP, 2PC should work
 # After instances restart, they should still see the same data as upon committing
-@pytest.mark.skip(reason="Works")
 def test_commit_works(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
     # Create data on MAIN
@@ -242,7 +241,6 @@ def test_async_commit_works(test_name):
 
 
 # One replica is down before commit starts on MAIN, hence in-memory state should be preserved and commit should fail
-@pytest.mark.skip(reason="Works")
 def test_replica_down_before_commit(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
 
@@ -273,7 +271,6 @@ def test_replica_down_before_commit(test_name):
 # One of replicas was down during the commit hence the txn will get aborted
 # Test that the other replica which was alive all the time and which receive PrepareRpc
 # won't contain any data after the restart.
-@pytest.mark.skip(reason="Works")
 def test_replica_after_restart_no_committed_data(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
 
@@ -308,7 +305,6 @@ def task(db):
         execute_and_fetch_all(main_cursor, get_query(i))
 
 
-@pytest.mark.skip(reason="Works")
 def test_mt_strict_sync_commit(test_name):
     setup_cluster(test_name, get_default_setup_queries())
 

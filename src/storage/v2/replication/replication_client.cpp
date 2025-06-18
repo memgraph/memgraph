@@ -353,11 +353,10 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
-// TODO: (andi) Do we need here db_acc protector?
 // RPC lock released at the end of this function
 // ReSharper disable once CppMemberFunctionMayBeConst
 [[nodiscard]] bool ReplicationStorageClient::SendFinalizeCommitRpc(
-    bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector /*db_acc*/,
+    bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
     uint64_t const durability_commit_timestamp, std::optional<ReplicaStream> &&replica_stream) noexcept {
   // Just skip instance which was down before voting
   if (!replica_stream.has_value()) {
@@ -375,7 +374,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
-// TODO: (andi) Change monitoring metrics for FinalizePrepareCommitPhase
+// Only STRICT_SYNC replicas can call this function
 bool ReplicationStorageClient::FinalizePrepareCommitPhase(DatabaseAccessProtector db_acc,
                                                           std::optional<ReplicaStream> &replica_stream,
                                                           uint64_t durability_commit_timestamp) const {
@@ -385,7 +384,7 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(DatabaseAccessProtecto
   // called from a one thread stands)
   utils::MetricsTimer const timer{metrics::FinalizeTxnReplication_us};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
-    spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString(state));
+    spdlog::trace("Finalizing 1st phase on replica {} in state {}", client_.name_, StateToString(state));
 
     if (state != ReplicaState::REPLICATING) {
       // Recovery finished between the txn start and txn finish.
@@ -412,47 +411,36 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(DatabaseAccessProtecto
     return false;
   }
 
-  auto task = [this, db_acc = std::move(db_acc), &replica_stream, durability_commit_timestamp]() mutable -> bool {
-    MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
-    try {
-      auto response = replica_stream->Finalize();
-      // NOLINTNEXTLINE
-      return replica_state_.WithLock(
-          [this, response, db_acc = std::move(db_acc), durability_commit_timestamp](auto &state) mutable {
-            // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-            // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-            // MAYBE_BEHIND state if we missed next txn.
-            if (state != ReplicaState::REPLICATING) {
-              return false;
-            }
+  MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
+  try {
+    auto response = replica_stream->Finalize();
+    // NOLINTNEXTLINE
+    return replica_state_.WithLock(
+        [this, response, db_acc = std::move(db_acc), durability_commit_timestamp](auto &state) mutable {
+          // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+          // MAYBE_BEHIND state if we missed next txn.
+          if (state != ReplicaState::REPLICATING) {
+            return false;
+          }
 
-            if (!response.success) {
-              state = ReplicaState::MAYBE_BEHIND;
-              return false;
-            }
+          if (!response.success) {
+            state = ReplicaState::MAYBE_BEHIND;
+            return false;
+          }
 
-            last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
-            state = ReplicaState::READY;
-            return true;
-          });
-    } catch (const rpc::RpcFailedException &) {
-      replica_state_.WithLock([&replica_stream](auto &state) {
-        replica_stream.reset();
-        state = ReplicaState::MAYBE_BEHIND;
-      });
-      LogRpcFailure();
-      return false;
-    }
-  };
-
-  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-    // When in ASYNC mode, we ignore the return value from task() and always return true
-    client_.thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
-    return true;
+          last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
+          state = ReplicaState::READY;
+          return true;
+        });
+  } catch (const rpc::RpcFailedException &) {
+    replica_state_.WithLock([&replica_stream](auto &state) {
+      replica_stream.reset();
+      state = ReplicaState::MAYBE_BEHIND;
+    });
+    LogRpcFailure();
+    return false;
   }
-
-  // If we are in SYNC mode, we return the result of task().
-  return task();
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
@@ -514,7 +502,6 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
 
         last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
         state = ReplicaState::READY;
-        spdlog::info("Set replica state to ready");
         return true;
       });
     } catch (const rpc::RpcFailedException &) {
