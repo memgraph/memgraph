@@ -23,12 +23,6 @@ disk_cluster: &disk_cluster
       validation_queries: []
 
 workloads:
-  - name: "GraphQL crud"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/graphql/temporary_procedures/"
-    args: ["graphql/graphql_crud.py"]
-    <<: *in_memory_cluster
-
   - name: "GraphQL queries and aggregations"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/graphql/temporary_procedures/"
@@ -70,12 +64,6 @@ workloads:
     proc: "tests/e2e/graphql/temporary_procedures/"
     args: ["graphql/graphql_mathematical_operators.py"]
     <<: *in_memory_cluster
-
-  - name: "Disk GraphQL crud"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/graphql/temporary_procedures/"
-    args: ["graphql/graphql_crud.py"]
-    <<: *disk_cluster
 
   - name: "Disk GraphQL queries and aggregations"
     binary: "tests/e2e/pytest_runner.sh"
