@@ -65,9 +65,33 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
   using PropertiesIndices = std::map<PropertiesPaths, std::shared_ptr<IndividualIndex>, Compare>;
-  using IndexContainer = std::map<LabelId, PropertiesIndices, std::less<>>;
+  using LabelPropertiesIndices = std::map<LabelId, PropertiesIndices, std::less<>>;
   using EntryDetail = std::tuple<PropertiesPaths const *, IndividualIndex *>;
-  using ReverseIndexContainer = std::unordered_map<PropertyId, std::multimap<LabelId, EntryDetail>>;
+  using ReverseLabelPropertiesIndices = std::unordered_map<PropertyId, std::multimap<LabelId, EntryDetail>>;
+  struct IndexContainer {
+    IndexContainer(IndexContainer const &other) : indices_(other.indices_) {
+      for (auto const &[label, by_label] : indices_) {
+        for (auto const &[propertyPaths, entry] : by_label) {
+          auto const ed = EntryDetail{&propertyPaths, entry.get()};
+          for (auto const &prop : propertyPaths) {
+            // Only the top level path
+            reverse_lookup_[prop[0]].emplace(label, ed);
+          }
+        }
+      }
+    }
+    IndexContainer(IndexContainer &&) = default;
+    IndexContainer &operator=(IndexContainer const &) = delete;
+    IndexContainer &operator=(IndexContainer &&) = default;
+    IndexContainer() = default;
+    ~IndexContainer() = default;
+
+    LabelPropertiesIndices indices_;
+    // This is keyed on the top-level property of a nested property. So for
+    // nested property `a.b.c`, only a key for the top-most `a` exists.
+    // Used to make UpdateOnSetProperty faster
+    ReverseLabelPropertiesIndices reverse_lookup_;
+  };
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
   InMemoryLabelPropertyIndex() : index_(std::make_shared<IndexContainer>()) {}
@@ -83,8 +107,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr,
-                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
 
@@ -137,18 +161,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   struct ActiveIndices : LabelPropertyIndex::ActiveIndices {
     ActiveIndices(std::shared_ptr<const IndexContainer> index_container = std::make_shared<IndexContainer>())
-        : index_container_{std::move(index_container)} {
-      // TODO: build this earlier instead of rebuilding each time
-      for (auto const &[label, by_label] : *index_container_) {
-        for (auto const &[propertyPaths, entry] : by_label) {
-          auto const ed = EntryDetail{&propertyPaths, entry.get()};
-          for (auto const &prop : propertyPaths) {
-            // Only the top level path
-            reverse_index_container_[prop[0]].emplace(label, ed);
-          }
-        }
-      }
-    }
+        : index_container_{std::move(index_container)} {}
 
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
@@ -159,8 +172,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
 
     auto ListIndices(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
@@ -190,10 +204,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;
-    // This is keyed on the top-level property of a nested property. So for
-    // nested property `a.b.c`, only a key for the top-most `a` exists.
-    // Used to make UpdateOnSetProperty faster
-    ReverseIndexContainer reverse_index_container_;
   };
 
   auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
@@ -217,9 +227,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
-  auto GetIndividualIndex(LabelId const &label,
-                          PropertiesPaths const &properties) const -> std::shared_ptr<IndividualIndex>;
-  void RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties);
+  auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
+      -> std::shared_ptr<IndividualIndex>;
+  bool RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties);
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_;
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
