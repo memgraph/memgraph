@@ -639,6 +639,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
     switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
       using enum coordination::RegisterInstanceCoordinatorStatus;
+      case STRICT_SYNC_AND_SYNC_FORBIDDEN:
+        throw QueryRuntimeException(
+            "Cluster cannot consists of both STRICT_SYNC and SYNC replicas. The valid cluster consists of either "
+            "STRICT_SYNC and ASYNC or SYNC and ASYNC replicas.");
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
       case MGMT_ENDPOINT_EXISTS:
