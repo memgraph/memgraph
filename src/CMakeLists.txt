@@ -44,12 +44,14 @@ set(mg_single_node_v2_sources
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(memgraph stdc++fs Threads::Threads
-        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler)
+target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
+        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link th
 # symbols in custom procedure module libraries.
+# The better approach might be to use visibility to define what to export. This is a simple way to have targeted
+# exporting of symbols without having to deal with all the libraries and their visibility.
 target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 set_target_properties(memgraph PROPERTIES
 

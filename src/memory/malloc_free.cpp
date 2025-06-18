@@ -9,217 +9,200 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <dlfcn.h>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
 #include <jemalloc/jemalloc.h>
 
-#include "utils/logging.hpp"
-
-static void *(*next_malloc)(size_t) = nullptr;
-static void (*next_free)(void *) = nullptr;
-static void *(*next_calloc)(size_t, size_t) = nullptr;
-static void *(*next_realloc)(void *, size_t) = nullptr;
-
-static int (*next_posix_memalign)(void **p, size_t alignment, size_t size) = nullptr;
-static void *(*next_aligned_alloc)(size_t alignment, size_t size) = nullptr;
-static void *(*next_memalign)(size_t alignment, size_t size) = nullptr;
-static void *(*next_valloc)(size_t size) = nullptr;
-static size_t (*next_malloc_usable_size)(void *p) = nullptr;
-
-// static void __attribute__((constructor)) init(void) {
-//   next_malloc = (void *(*)(size_t))dlsym(RTLD_NEXT, "malloc");
-//   next_free = (void (*)(void *))dlsym(RTLD_NEXT, "free");
-//   next_calloc = (void *(*)(size_t, size_t))dlsym(RTLD_NEXT, "calloc");
-//   next_realloc = (void *(*)(void *, size_t))dlsym(RTLD_NEXT, "realloc");
-//   next_aligned_alloc = (void *(*)(size_t, size_t))dlsym(RTLD_NEXT, "aligned_alloc");
-//   next_posix_memalign = (int (*)(void **, size_t, size_t))dlsym(RTLD_NEXT, "posix_memalign");
-//   next_valloc = (void *(*)(size_t))dlsym(RTLD_NEXT, "valloc");
-//   next_malloc_usable_size = (size_t(*)(void *))dlsym(RTLD_NEXT, "malloc_usable_size");
-//   next_memalign = (void *(*)(size_t, size_t))dlsym(RTLD_NEXT, "memalign");
-// }
+#include "query_memory_control.hpp"
+// #include "utils/logging.hpp"
 
 namespace {
+// static std::atomic<uint64_t> alloc{0};
 inline void log(auto &&fmt, auto &&...args) {
   // static thread_local char buf[256];
   // int len = snprintf(buf, sizeof(buf), fmt, std::forward<decltype(args)>(args)...);
   // write(STDERR_FILENO, buf, len);
 }
 
-static std::atomic<uint64_t> sum{0};
+// Protect against infinite recursion
+// je_malloc does not call malloc, so we don't need to protect it against recursive calls, but tracking/logging might
+static thread_local bool called = false;  // NOLINT
 
+template <typename Func, typename... Args>
+inline auto safe_execution(Func &&func, Args &&...args) -> std::invoke_result_t<Func, Args...> {
+  using R = std::invoke_result_t<Func, Args...>;
+
+  if constexpr (std::is_void_v<R>) {
+    if (!called) {
+      called = true;
+      func(std::forward<Args>(args)...);
+      called = false;
+    }
+  } else {
+    R res{};
+    if (!called) {
+      called = true;
+      res = func(std::forward<Args>(args)...);
+      called = false;
+    }
+    return res;
+  }
+}
+
+inline auto safe_query_alloc_tracking(size_t size, int flags = 0) -> bool {
+  // alloc.fetch_add(je_nallocx(size, flags), std::memory_order_relaxed);
+  return safe_execution([&]() {
+    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+      const auto actual_size = je_nallocx(size, flags);
+      return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+    }
+    return true;
+  });
+}
+
+inline void safe_query_failed_alloc_tracking(size_t size, int flags = 0) {
+  safe_execution([&]() {
+    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+      const auto actual_size = je_nallocx(size, flags);
+      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+    }
+  });
+}
+
+inline auto safe_query_realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
+  const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
+  const auto actual_size = je_nallocx(size, flags) - prev_size;
+  // alloc.fetch_add(actual_size, std::memory_order_relaxed);
+  return safe_execution([&]() {
+    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+      const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
+      const auto actual_size = je_nallocx(size, flags) - prev_size;
+      return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+    }
+    return true;
+  });
+}
+
+inline void safe_query_failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
+  safe_execution([&]() {
+    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+      const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
+      const auto actual_size = je_nallocx(size, flags) - prev_size;
+      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+    }
+  });
+}
+
+inline void safe_query_free_tracking(void *ptr, int flags = 0) {
+  // alloc.fetch_sub(je_sallocx(ptr, flags), std::memory_order_relaxed);
+  safe_execution([&]() {
+    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+      const auto actual_size = je_sallocx(ptr, flags);
+      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+    }
+  });
+}
 }  // namespace
 
 extern "C" void *malloc(size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_malloc) [[unlikely]] {
-      next_malloc = (void *(*)(size_t))dlsym(RTLD_NEXT, "malloc");
-      MG_ASSERT(next_malloc, "Failed to find next malloc function using dlsym");
-    }
-    void *const res = je_malloc(size);
-    log("malloc %p %d\n", res, size);
-    if (res) sum += je_sallocx(res, 0);
-    called = false;
-    return res;
+  if (!safe_query_alloc_tracking(size)) {
+    return nullptr;
   }
-  // Protect against infinite recursion
-  log("fallback on malloc!\n");
-  return next_malloc ? next_malloc(size) : ::malloc(size);
+  void *const res = je_malloc(size);
+  if (res == nullptr) [[unlikely]] {
+    safe_query_failed_alloc_tracking(size);
+  }
+  return res;
+}
+
+extern "C" void *calloc(size_t count, size_t size) {
+  if (!safe_query_alloc_tracking(size)) {
+    return nullptr;
+  }
+  void *const res = je_calloc(count, size);
+  if (res == nullptr) [[unlikely]] {
+    safe_query_failed_alloc_tracking(size);
+  }
+  return res;
+}
+
+extern "C" void *realloc(void *ptr, size_t size) {
+  if (!safe_query_realloc_tracking(ptr, size)) {
+    return nullptr;
+  }
+  void *const res = je_realloc(ptr, size);
+  if (res == nullptr) [[unlikely]] {
+    safe_query_failed_realloc_tracking(ptr, size);
+  }
+  return res;
+}
+
+extern "C" void *aligned_alloc(size_t alignment, size_t size) {
+  const int flags = MALLOCX_ALIGN(alignment);
+  if (!safe_query_alloc_tracking(size, flags)) {
+    return nullptr;
+  }
+  void *const res = je_aligned_alloc(alignment, size);
+  if (res == nullptr) [[unlikely]] {
+    safe_query_failed_alloc_tracking(size, flags);
+  }
+  return res;
+}
+
+extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
+  const int flags = MALLOCX_ALIGN(alignment);
+  if (!safe_query_alloc_tracking(size, flags)) {
+    return ENOMEM;
+  }
+  int const res = je_posix_memalign(p, alignment, size);
+  if (res != 0) [[unlikely]] {
+    safe_query_failed_alloc_tracking(size, flags);
+  }
+  return res;
+}
+
+extern "C" void *valloc(size_t size) {
+  const int flags = MALLOCX_ALIGN(4096);
+  if (!safe_query_alloc_tracking(size, flags)) {
+    return nullptr;
+  }
+  void *const res = je_valloc(size);
+  if (res == nullptr) [[unlikely]] {
+    safe_query_failed_alloc_tracking(size, flags);
+  }
+  return res;
+}
+
+extern "C" void *memalign(size_t alignment, size_t size) {
+  const int flags = MALLOCX_ALIGN(alignment);
+  if (!safe_query_alloc_tracking(size, flags)) {
+    return nullptr;
+  }
+  void *const res = je_memalign(alignment, size);
+  if (res == nullptr) [[unlikely]] {
+    safe_query_failed_alloc_tracking(size, flags);
+  }
+  return res;
 }
 
 extern "C" void free(void *ptr) {
   if (!ptr) return;
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_free) [[unlikely]] {
-      next_free = (void (*)(void *))dlsym(RTLD_NEXT, "free");
-      MG_ASSERT(next_malloc, "Failed to find next free function using dlsym");
-    }
-    const auto now = sum.fetch_sub(je_sallocx(ptr, 0));
-    je_free(ptr);
-    log("free %p now %u\n", ptr, now);
-    called = false;
-    return;
-  }
-  // Protect against infinite recursion
-  log("fallback on free!\n");
-  next_free ? next_free(ptr) : ::free(ptr);
+  safe_query_free_tracking(ptr);
+  je_free(ptr);
 }
 
-extern "C" void *calloc(size_t count, size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_calloc) [[unlikely]] {
-      next_calloc = (void *(*)(size_t, size_t))dlsym(RTLD_NEXT, "calloc");
-      MG_ASSERT(next_malloc, "Failed to find next calloc function using dlsym");
-    }
-    void *const res = je_calloc(count, size);
-    if (res) sum += je_sallocx(res, 0);
-    log("calloc %p %d\n", res, size);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_calloc ? next_calloc(count, size) : ::calloc(count, size);
-}
-
-extern "C" void *realloc(void *ptr, size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_realloc) [[unlikely]] {
-      next_realloc = (void *(*)(void *, size_t))dlsym(RTLD_NEXT, "realloc");
-      MG_ASSERT(next_malloc, "Failed to find next realloc function using dlsym");
-    }
-    const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
-    void *const res = je_realloc(ptr, size);
-    if (res) sum += je_sallocx(res, 0) - prev_size;
-    log("realloc %p %d\n", res, size);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_realloc ? next_realloc(ptr, size) : ::realloc(ptr, size);
-}
-
-extern "C" void *aligned_alloc(size_t alignment, size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_aligned_alloc) [[unlikely]] {
-      next_aligned_alloc = (void *(*)(size_t, size_t))dlsym(RTLD_NEXT, "aligned_alloc");
-      MG_ASSERT(aligned_alloc, "Failed to find next aligned_alloc function using dlsym");
-    }
-    void *const res = je_aligned_alloc(alignment, size);
-    if (res) sum += je_sallocx(res, MALLOCX_ALIGN(alignment));
-    log("aligned_alloc %p %d\n", res, size);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_aligned_alloc ? next_aligned_alloc(alignment, size) : ::aligned_alloc(alignment, size);
-}
-
-extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_posix_memalign) [[unlikely]] {
-      next_posix_memalign = (int (*)(void **, size_t, size_t))dlsym(RTLD_NEXT, "posix_memalign");
-      MG_ASSERT(next_posix_memalign, "Failed to find next posix_memalign function using dlsym");
-    }
-    int const res = je_posix_memalign(p, alignment, size);
-    if (res == 0) sum += je_sallocx(*p, MALLOCX_ALIGN(alignment));
-    log("posix_memalign %p %d\n", res, size);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_posix_memalign ? next_posix_memalign(p, alignment, size) : ::posix_memalign(p, alignment, size);
-}
-
-extern "C" void *valloc(size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_valloc) [[unlikely]] {
-      next_valloc = (void *(*)(size_t))dlsym(RTLD_NEXT, "valloc");
-      MG_ASSERT(next_valloc, "Failed to find next valloc function using dlsym");
-    }
-    void *const res = je_valloc(size);
-    if (res) sum += je_sallocx(res, MALLOCX_ALIGN(4096));
-    log("valloc %p %d\n", res, size);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_valloc ? next_valloc(size) : ::valloc(size);
-}
-
-extern "C" size_t malloc_usable_size(void *ptr) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_malloc_usable_size) [[unlikely]] {
-      next_malloc_usable_size = (size_t(*)(void *))dlsym(RTLD_NEXT, "malloc_usable_size");
-      MG_ASSERT(next_malloc, "Failed to find next malloc_usable_size function using dlsym");
-    }
-    size_t const res = je_malloc_usable_size(ptr);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_malloc_usable_size ? next_malloc_usable_size(ptr) : ::malloc_usable_size(ptr);
-}
-
-extern "C" void *memalign(size_t alignment, size_t size) {
-  static thread_local bool called = false;
-  if (!called) {
-    called = true;
-    if (!next_memalign) [[unlikely]] {
-      next_memalign = (void *(*)(size_t, size_t))dlsym(RTLD_NEXT, "memalign");
-      MG_ASSERT(next_memalign, "Failed to find next memalign function using dlsym");
-    }
-    void *const res = je_memalign(alignment, size);
-    if (res) sum += je_sallocx(res, MALLOCX_ALIGN(alignment));
-    log("memalign %p %d\n", res, size);
-    called = false;
-    return res;
-  }
-  // Protect against infinite recursion
-  return next_memalign ? next_memalign(alignment, size) : ::memalign(alignment, size);
-}
-
-void dallocx(void *ptr, int flags) {
-  const auto now = ptr ? sum.fetch_sub(je_sallocx(ptr, flags)) : 0;
+extern "C" void dallocx(void *ptr, int flags) {
+  if (!ptr) return;
+  safe_query_free_tracking(ptr);
   je_dallocx(ptr, flags);
-  log("dallocx %p now %u\n", ptr, now);
 }
 
-void sdallocx(void *ptr, size_t size, int flags) {
-  const auto now = ptr ? sum.fetch_sub(je_sallocx(ptr, flags)) : 0;
+extern "C" void sdallocx(void *ptr, size_t size, int flags) {
+  if (!ptr) return;
+  safe_query_free_tracking(ptr);
   je_sdallocx(ptr, size, flags);
-  log("sdallocx %p now %u\n", ptr, now);
 }
+
+extern "C" size_t malloc_usable_size(void *ptr) { return je_malloc_usable_size(ptr); }

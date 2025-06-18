@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query_memory_control.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 #include <cstdint>
 
@@ -50,25 +51,23 @@ struct ThreadTrackingBlocker {
 }  // namespace
 
 bool TrackAllocOnCurrentThread(size_t size) {
-  printf("tracking alloc of %u\n", size);
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
   if (!tracker) return true;
 
   const ThreadTrackingBlocker
-      blocker{};  // makes sure we cannot recursevly track allocations
+      blocker{};  // makes sure we cannot recursively track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
   return tracker->TrackAlloc(size);
 }
 
 void TrackFreeOnCurrentThread(size_t size) {
-  printf("tracking free of %u\n", size);
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
   if (!tracker) return;
 
   const ThreadTrackingBlocker
-      blocker{};  // makes sure we cannot recursevly track allocations
+      blocker{};  // makes sure we cannot recursively track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
   tracker->TrackFree(size);
 }
