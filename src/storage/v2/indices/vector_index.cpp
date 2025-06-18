@@ -471,7 +471,7 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
     result.emplace_back(VectorIndexInfo{
         spec.index_name, spec.label_or_edge_type, spec.property, NameFromMetric(locked_index->metric().metric_kind()),
         static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size(),
-        NameFromScalar(locked_index->metric().scalar_kind())});
+        NameFromScalar(locked_index->metric().scalar_kind()), spec.index_type});
   }
   for (const auto &[_, index_item] : pimpl->edge_index_) {
     const auto &[mg_index, spec] = index_item;
@@ -479,7 +479,7 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
     result.emplace_back(VectorIndexInfo{
         spec.index_name, spec.label_or_edge_type, spec.property, NameFromMetric(locked_index->metric().metric_kind()),
         static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size(),
-        NameFromScalar(locked_index->metric().scalar_kind())});
+        NameFromScalar(locked_index->metric().scalar_kind()), spec.index_type});
   }
   return result;
 }
@@ -494,9 +494,19 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   return result;
 }
 
-std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, PropertyId property) const {
+std::optional<uint64_t> VectorIndex::ApproximateNodesVectorCount(LabelId label, PropertyId property) const {
   auto it = pimpl->node_index_.find(LabelPropKey{label, property});
   if (it == pimpl->node_index_.end()) {
+    return std::nullopt;
+  }
+  auto &[mg_index, _] = it->second;
+  auto locked_index = mg_index->ReadLock();
+  return locked_index->size();
+}
+
+std::optional<uint64_t> VectorIndex::ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const {
+  auto it = pimpl->edge_index_.find(EdgeTypePropKey{edge_type, property});
+  if (it == pimpl->edge_index_.end()) {
     return std::nullopt;
   }
   auto &[mg_index, _] = it->second;
@@ -564,6 +574,14 @@ void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
                                  std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) {
   for (const auto &property_value_vertex : prop_vertices) {
     UpdateVectorIndex(VectorIndexOnLabelEntry{label_prop, property_value_vertex.second}, &property_value_vertex.first);
+  }
+}
+
+void VectorIndex::RestoreEntries(const EdgeTypePropKey &edge_type_prop,
+                                 std::span<std::pair<PropertyValue, Edge *> const> prop_edges) {
+  for (const auto &property_value_edge : prop_edges) {
+    UpdateVectorIndex(VectorIndexOnEdgeTypeEntry{edge_type_prop, property_value_edge.second},
+                      &property_value_edge.first);
   }
 }
 

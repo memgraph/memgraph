@@ -25,9 +25,21 @@
 namespace memgraph::storage {
 
 enum class VectorIndexType {
-  LABEL,
-  EDGE_TYPE,
+  ON_NODES,
+  ON_EDGES,
 };
+
+inline std::string VectorIndexTypeToString(VectorIndexType type) {
+  switch (type) {
+    case VectorIndexType::ON_NODES:
+      return "ON_NODES";
+    case VectorIndexType::ON_EDGES:
+      return "ON_EDGES";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 struct VectorIndexOnEdgeTypeEntry {
   EdgeTypePropKey edge_type_prop_key;
   Edge *edge;
@@ -68,6 +80,8 @@ struct VectorIndexInfo {
   std::size_t capacity;
   std::size_t size;
   std::string scalar_kind;
+  VectorIndexType
+      index_type;  // label and edge type are both uint32_t, so in order to distinguish them we need this field
 };
 
 /// @struct VectorIndexSpec
@@ -186,7 +200,9 @@ class VectorIndex {
   /// @param label The label of the vertices in the index.
   /// @param property The property of the vertices in the index.
   /// @return The number of vertices in the index.
-  std::optional<uint64_t> ApproximateVectorCount(LabelId label, PropertyId property) const;
+  std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const;
+
+  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
@@ -209,6 +225,9 @@ class VectorIndex {
   /// @param prop_vertices The vertices to be restored.
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
+
+  void RestoreEntries(const EdgeTypePropKey &edge_type_prop,
+                      std::span<std::pair<PropertyValue, Edge *> const> prop_edges);
 
   /// @brief Removes obsolete entries from the index.
   /// @param token A stop token to allow for cancellation of the operation.

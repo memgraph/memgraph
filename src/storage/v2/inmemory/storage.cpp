@@ -1008,7 +1008,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
-    std::map<EdgeTypePropKey, std::vector<std::pair<PropertyValue, Edge *>>> vector_edge_type_property_restore;
+    std::map<EdgeTypePropKey, std::vector<std::pair<PropertyValue, Edge *>>>
+        vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
+                                            // property is set, it's like removing the property from the edge type index
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
@@ -1338,6 +1340,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
     for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
       storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
+    }
+    for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
+      storage_->indices_.vector_index_.RestoreEntries(edge_type_prop, prop_edges);
     }
 
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
