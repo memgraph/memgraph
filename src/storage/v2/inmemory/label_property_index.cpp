@@ -920,7 +920,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties) const {
   auto it = index_container_->find(label);
-  DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+  DMG_ASSERT(it != index_container_->end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
   DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
@@ -931,7 +931,7 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValue const> values) const {
   auto const it = index_container_->find(label);
-  DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+  DMG_ASSERT(it != index_container_->end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
 
   auto const it2 = it->second.find(properties);
@@ -958,7 +958,7 @@ uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties, std::span<PropertyValueRange const> bounds) const {
   auto const it = index_container_->find(label);
-  DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+  DMG_ASSERT(it != index_container_->end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
 
   auto const it2 = it->second.find(properties);
@@ -1054,7 +1054,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
     Storage *storage, Transaction *transaction) {
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto it = index_container_->find(label);
-  DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+  DMG_ASSERT(it != index_container_->end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
   DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
@@ -1075,7 +1075,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_container_->find(label);
-  DMG_ASSERT(it != index_container_.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
+  DMG_ASSERT(it != index_container_->end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
              JoinPropertiesAsString(properties));
   auto it2 = it->second.find(properties);
   DMG_ASSERT(it2 != it->second.end(), "Index for label {} and properties {} doesn't exist", label.AsUint(),
@@ -1128,7 +1128,7 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<Lab
 void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
   for (auto const &[label, by_properties] : info) {
     auto it = index_container_->find(label);
-    DMG_ASSERT(it != index_container_.end());
+    DMG_ASSERT(it != index_container_->end());
     for (auto const &[prop, to_remove] : by_properties) {
       auto it2 = it->second.find(*prop);
       DMG_ASSERT(it2 != it->second.end());
