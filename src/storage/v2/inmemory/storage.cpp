@@ -723,6 +723,15 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   }
 }
 
+void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
+  Abort();
+  // We have aborted, need to release/cleanup commit_timestamp_ here
+  DMG_ASSERT(commit_timestamp_.has_value());
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+  commit_timestamp_.reset();
+}
+
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitReplicationArgs const repl_args, DatabaseAccessProtector db_acc) {
@@ -772,11 +781,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         maybe_unique_constraint_violation.has_value()) {
       // Release engine lock because we don't have to hold it anymore
       engine_guard.unlock();
-      Abort();
-      // We have aborted, need to release/cleanup commit_timestamp_ here
-      DMG_ASSERT(commit_timestamp_.has_value());
-      mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-      commit_timestamp_.reset();
+      AbortAndResetCommitTs();
       return StorageManipulationError{*maybe_unique_constraint_violation};
     }
     // Currently there are queries that write to some subsystem that are allowed on a replica
@@ -833,8 +838,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       if (!replicating_txn.ShouldRunTwoPC()) {
         // WAL file already finalized
         FinalizeCommitPhase(durability_commit_timestamp);
-        spdlog::info("No STRICT_SYNC replicas currently in the commit, committed on MAIN with durable ts {}.",
-                     durability_commit_timestamp);
         // Throw exception if we couldn't commit on one of SYNC replica
         if (!repl_prepare_phase_status) {
           return StorageManipulationError{SyncReplicationError{}};
@@ -851,26 +854,15 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-        spdlog::info("Finalized commit on main. Sending commit rpc to replicas");
 
-        if (replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc),
-                                                durability_commit_timestamp)) {
-          spdlog::info("Received OK from all replicas to FinalizeCommitRpc");
-        } else {
-          spdlog::info("One of replicas couldn't commit when FinalizeCommitRpc was received");
-        }
+        replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
       } else {
-        spdlog::info("One of replicas didn't vote for committing, aborting locally and sending abort to replicas.");
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
-        Abort();
-        // We have aborted, need to release/cleanup commit_timestamp_ here
-        DMG_ASSERT(commit_timestamp_.has_value());
-        mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-        commit_timestamp_.reset();
+        AbortAndResetCommitTs();
 
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
@@ -2339,10 +2331,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Safe to abort here because deltas weren't made durable yet
   if (!replicating_txn.ReplicationStartSuccessful()) {
-    Abort();
-    DMG_ASSERT(commit_timestamp_.has_value());
-    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-    commit_timestamp_.reset();
+    AbortAndResetCommitTs();
     return false;
   }
 

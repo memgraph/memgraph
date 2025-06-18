@@ -6709,7 +6709,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                            trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
               spdlog::warn(
-                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Data will be "
+                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Transaction will "
+                  "be "
                   "aborted. ",
                   trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
