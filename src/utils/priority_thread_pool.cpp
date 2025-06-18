@@ -295,13 +295,13 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     }
 
     // Phase 3 - spin for a while waiting on work
-    {
-      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
-      yielder y;  // NOLINT (misc-const-correctness)
-      while (std::chrono::steady_clock::now() < end) {
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
-      }
-    }
+    // {
+    //   const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
+    //   yielder y;  // NOLINT (misc-const-correctness)
+    //   while (std::chrono::steady_clock::now() < end) {
+    //     if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
+    //   }
+    // }
 
     // Phase 4A - reset hot mask
     if constexpr (ThreadPriority != Priority::HIGH) {
