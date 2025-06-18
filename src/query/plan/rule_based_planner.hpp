@@ -163,7 +163,8 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency);
+                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
+                                           bool in_exists_subquery);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
@@ -231,7 +232,7 @@ class RuleBasedPlanner {
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
                                        context.bound_symbols, *context.ast_storage, pattern_comprehension_ops,
-                                       query_parts.commit_frequency);
+                                       query_parts.commit_frequency, context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
             // Treat MERGE clause as write, because we do not know if it will
