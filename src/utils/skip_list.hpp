@@ -75,7 +75,7 @@ struct SkipListNode_base {
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
     uint32_t value = thread_local_mt19937()();
-    if (value == 0) return kSkipListMaxHeight;
+    if (value < 1UL << (32 - kSkipListMaxHeight)) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
     value >>= (32 - kSkipListMaxHeight);
     // ffs = find first set
@@ -1067,7 +1067,8 @@ class SkipList final : detail::SkipListNode_base {
 
  private:
   template <GCPolicy policy = GCPolicy::Random, typename TKey>
-  int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {
+  int find_node(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                std::array<TNode *, kSkipListMaxHeight> &succs) const {
     int layer_found = -1;
     TNode *pred = head_;
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
@@ -1112,7 +1113,8 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TObjUniv>
   std::pair<Iterator, bool> insert(TObjUniv &&object) {
     int top_layer = gen_height();
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     if (top_layer >= kSkipListGcHeightTrigger) gc_.Run();
     while (true) {
       int layer_found = find_node(object, preds, succs);
@@ -1186,7 +1188,8 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   SkipListNode<TObj> *find_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     while (true) {
       int layer_found = find_node(key, preds, succs);
       if (layer_found == -1) [[unlikely]] {
@@ -1219,7 +1222,8 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   Iterator find_equal_or_greater_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     while (true) {
       find_node(key, preds, succs);
       if (!succs[0]) {
@@ -1250,7 +1254,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = find_node(key, preds, succs);
     if (layer_found == -1) {
       return 0;
@@ -1284,7 +1289,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = -1;
     if (lower) {
       layer_found = find_node(lower->value(), preds, succs);
@@ -1429,7 +1435,8 @@ class SkipList final : detail::SkipListNode_base {
     TNode *node_to_delete = nullptr;
     bool is_marked = false;
     int top_layer = -1;
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     std::unique_lock<SpinLock> node_guard;
     while (true) {
       int layer_found = find_node<GCPolicy::DoNotRun>(key, preds, succs);

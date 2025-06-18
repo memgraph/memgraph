@@ -313,8 +313,7 @@ pushd jemalloc
   --with-lg-hugepage=21 \
   --with-jemalloc-prefix=je_ \
   --enable-shared=no --prefix=$working_dir \
-  --with-malloc-conf="prof:true,prof_active:true,background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
-  CFLAGS="-fPIC"
+  --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 make -j$CPUS install
 popd
 # else
