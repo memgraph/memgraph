@@ -91,6 +91,7 @@ target_sources(mg-storage-v2
         property_constants.hpp
         storage.hpp
         inmemory/storage.hpp
+        inmemory/storagefwd.hpp
         disk/storage.hpp
         config.hpp
         replication/replication_transaction.hpp
