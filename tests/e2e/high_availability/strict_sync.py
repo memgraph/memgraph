@@ -172,6 +172,25 @@ def get_mixed_setup_queries():
     ]
 
 
+# The test tests that STRICT_SYNC replicas cannot be used together with SYNC replicas
+@pytest.mark.parametrize("first_suffix, second_suffix", [("AS STRICT_SYNC", ""), ("", "AS STRICT_SYNC")])
+def test_strict_sync_and_sync_forbidden(test_name, first_suffix, second_suffix):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    execute_and_fetch_all(
+        coord_cursor_3,
+        f"REGISTER INSTANCE instance_1 {first_suffix} WITH CONFIG {{'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'}};",
+    )
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(
+            coord_cursor_3,
+            f"REGISTER INSTANCE instance_2 {second_suffix} WITH CONFIG {{'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'}};",
+        )
+    assert "Cluster cannot consists of both STRICT_SYNC and SYNC replicas" in str(e.value)
+
+
 # Executes setup queries and returns cluster info
 def setup_cluster(test_name, setup_queries):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
