@@ -13,7 +13,7 @@ on:
         required: true
       mode:
         type: string
-        description: "Cluster mode (sync, async, strict_sync)"
+        description: "Cluster mode (sync, sync_mixed, strict_sync)"
         required: true
 
 
@@ -49,8 +49,8 @@ jobs:
               sync)
                 echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
                 ;;
-              async)
-                echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
+              sync_mixed)
+                echo "CLUSTER=sync_mixed_cluster.edn" >> $GITHUB_ENV
                 ;;
               strict_sync)
                 echo "CLUSTER=strict_sync_cluster.edn" >> $GITHUB_ENV

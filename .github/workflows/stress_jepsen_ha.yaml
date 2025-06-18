@@ -10,10 +10,10 @@ on:
         description: "Jepsen mode"
         type: choice
         options:
-          - async
+          - sync_mixed
           - sync
           - strict_sync
-        default: async
+        default: sync_mixed
       run-mt:
         description: "Run MT tests"
         type: boolean
@@ -44,7 +44,7 @@ jobs:
           if [ $MOD -eq 0 ]; then
             echo "mode=sync" >> $GITHUB_OUTPUT
           elif [ $MOD -eq 1 ]; then
-            echo "mode=async" >> $GITHUB_OUTPUT
+            echo "mode=sync_mixed" >> $GITHUB_OUTPUT
           else
             echo "mode=strict_sync" >> $GITHUB_OUTPUT
           fi
