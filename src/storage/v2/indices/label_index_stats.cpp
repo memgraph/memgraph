@@ -9,22 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "storage/v2/indices/label_index_stats.hpp"
 
-#include <cstdint>
-#include <string>
+#include <fmt/core.h>
+#include "utils/simple_json.hpp"
 
 namespace memgraph::storage {
 
-struct LabelIndexStats {
-  uint64_t count;
-  double avg_degree;
-
-  auto operator<=>(const LabelIndexStats &) const = default;
-};
-
-std::string ToJson(const LabelIndexStats &in);
-
-bool FromJson(const std::string &json, LabelIndexStats &out);
-
+std::string ToJson(LabelIndexStats const &in) {
+  return fmt::format(R"({{"count":{}, "avg_degree":{}}})", in.count, in.avg_degree);
+}
+bool FromJson(std::string const &json, LabelIndexStats &out) {
+  bool res = true;
+  res &= utils::GetJsonValue(json, "count", out.count);
+  res &= utils::GetJsonValue(json, "avg_degree", out.avg_degree);
+  return res;
+}
 }  // namespace memgraph::storage
