@@ -13,6 +13,7 @@ on:
           - sync_mixed
           - sync
           - strict_sync
+          - strict_sync_mixed
         default: sync_mixed
       run-mt:
         description: "Run MT tests"
@@ -39,14 +40,16 @@ jobs:
         run: |
           # Get the current day of the month (leading zeros are stripped)
           DAY=$(date +%d)
-          MOD=$((10#$DAY % 3))
+          MOD=$((10#$DAY % 4))
 
           if [ $MOD -eq 0 ]; then
             echo "mode=sync" >> $GITHUB_OUTPUT
           elif [ $MOD -eq 1 ]; then
             echo "mode=sync_mixed" >> $GITHUB_OUTPUT
-          else
+          elif [ $MOD -eq 2 ]; then
             echo "mode=strict_sync" >> $GITHUB_OUTPUT
+          else
+            echo "mode=strict_sync_mixed" >> $GITHUB_OUTPUT
           fi
 
   run-jepsen-tests:
