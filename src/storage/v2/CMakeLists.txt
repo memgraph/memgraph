@@ -114,7 +114,7 @@ target_link_libraries(mg-storage-v2
     mg-rpc
     mg-slk
     mg-events
-    mg-memory
+    mg-memory-utils
     lib::rangev3
     mgcxx_text_search
     tantivy_text_search

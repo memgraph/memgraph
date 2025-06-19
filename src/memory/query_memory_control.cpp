@@ -9,12 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query_memory_control.hpp"
-#include "utils/query_memory_tracker.hpp"
-
 #include <cstdint>
 
+#include "query_memory_control.hpp"
+
 #include "utils/logging.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 namespace memgraph::memory {
 

@@ -20,8 +20,6 @@
 
 #include "utils/memory_tracker.hpp"
 
-extern "C" void dallocx(void *ptr, int flags);
-extern "C" void sdallocx(void *ptr, size_t size, int flags);
 namespace {
 inline void *newImpl(const std::size_t size) {
   auto *ptr = malloc(size);
@@ -64,6 +62,9 @@ inline void *newNoExcept(const std::size_t size, const std::align_val_t align) n
 }
 
 #if USE_JEMALLOC
+extern "C" void dallocx(void *ptr, int flags);
+extern "C" void sdallocx(void *ptr, size_t size, int flags);
+
 inline void deleteImpl(void *ptr) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;

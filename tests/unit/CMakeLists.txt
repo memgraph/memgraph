@@ -7,7 +7,7 @@ find_package(Threads REQUIRED)
 add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
+target_link_libraries(memgraph_unit_main "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" mg-utils gtest gmock Threads::Threads dl)
 
 function(add_unit_test test_cpp)
   _add_unit_test(${test_cpp} FALSE ${ARGN})
