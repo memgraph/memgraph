@@ -36,7 +36,7 @@ corresponding interpreter.
 template <typename StorageType>
 class TransactionQueueMultipleTest : public ::testing::Test {
  protected:
-  const std::string testSuite = "transactin_queue_multiple";
+  const std::string testSuite = "transaction_queue_multiple";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
 
@@ -101,22 +101,38 @@ class TransactionQueueMultipleTest : public ::testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(TransactionQueueMultipleTest, StorageTypes);
 
-// Tests whether admin can see transaction of superadmin
 TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
   std::vector<std::atomic<bool>> started(NUM_INTERPRETERS);
+  std::vector<std::atomic<bool>> thread_should_exit(NUM_INTERPRETERS);
   for (int i = 0; i < NUM_INTERPRETERS; i++) {
     started[i].store(false, std::memory_order_release);
+    thread_should_exit[i].store(false, std::memory_order_release);
   }
-  auto thread_func = [this, &started](int thread_index) {
+  auto thread_func = [this, &started, &thread_should_exit](int thread_index) {
     try {
       this->running_interpreters[thread_index]->Interpret("BEGIN");
-      started[thread_index].store(true, std::memory_order_release);
+      started[thread_index].store(true);
       // add try-catch block
       for (int j = 0; j < INSERTIONS; ++j) {
+        auto const tx_status{this->running_interpreters[thread_index]->interpreter.transaction_status_.load()};
+        if (tx_status == memgraph::query::TransactionStatus::IDLE) {
+          break;
+        }
+
         this->running_interpreters[thread_index]->Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) +
                                                             "})");
+        this->running_interpreters[thread_index]->HandlePendingTermination();
       }
+
     } catch (memgraph::query::HintedAbortError &e) {
+    }
+
+    try {
+      while (!thread_should_exit[thread_index].load(std::memory_order_acquire)) {
+        this->running_interpreters[thread_index]->HandlePendingTermination();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    } catch (memgraph::query::HintedAbortError &) {
     }
   };
 
@@ -148,11 +164,19 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
+
     // test here show transactions
-    auto show_stream_after_kill = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
-    ASSERT_EQ(show_stream_after_kill.GetResults().size(), NUM_INTERPRETERS);
+    while (true) {
+      auto show_stream_after_kill = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+      size_t const num_running_interpreters{show_stream_after_kill.GetResults().size()};
+      ASSERT_TRUE(num_running_interpreters == NUM_INTERPRETERS || num_running_interpreters == NUM_INTERPRETERS + 1);
+      if (num_running_interpreters == NUM_INTERPRETERS) break;
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     // wait to finish for threads
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
+      thread_should_exit[i].store(true, std::memory_order_release);
       running_threads[i].join();
     }
     // test the state of the database
