@@ -1364,7 +1364,7 @@ TYPED_TEST(InterpreterTest, IndexInfoNotifications) {
 
     auto notification = notifications[0].ValueMap();
     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-    ASSERT_EQ(notification["code"].ValueString(), "CreateIndex");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateIndexOnePass");
     ASSERT_EQ(notification["title"].ValueString(), "Created index on label Person on properties .");
     ASSERT_EQ(notification["description"].ValueString(), "");
   }
@@ -1377,7 +1377,7 @@ TYPED_TEST(InterpreterTest, IndexInfoNotifications) {
 
     auto notification = notifications[0].ValueMap();
     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-    ASSERT_EQ(notification["code"].ValueString(), "CreateIndex");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateIndexOnePass");
     ASSERT_EQ(notification["title"].ValueString(), "Created index on label Person on properties id.");
     ASSERT_EQ(notification["description"].ValueString(), "");
   }

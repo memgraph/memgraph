@@ -226,7 +226,7 @@ class InMemoryStorage final : public Storage {
     uint64_t ApproximateEdgeCount() const override { return storage_->edge_count_.load(std::memory_order_acquire); }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
-      return storage_->indices_.edge_type_index_->ApproximateEdgeCount(edge_type);
+      return transaction_.active_indices_.edge_type_->ApproximateEdgeCount(edge_type);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override {
@@ -302,8 +302,8 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
 
-    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {
-      return storage_->indices_.edge_type_index_->IndexExists(edge_type);
+    bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
+      return transaction_.active_indices_.edge_type_->IndexReady(edge_type);
     }
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const override {
@@ -363,8 +363,9 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     /// Create an index.
     /// Returns void if the index has been created.

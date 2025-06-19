@@ -37,6 +37,7 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveEdgeTypeIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 extern const Event ActiveVectorIndices;
@@ -339,7 +340,7 @@ class Storage {
       return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
-    virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
+    virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
 
     virtual bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
 
@@ -422,8 +423,9 @@ class Storage {
         LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
         PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               PropertyId property) = 0;
@@ -654,7 +656,10 @@ class Storage {
   }
 
   auto GetActiveIndices() const -> ActiveIndices {
-    return ActiveIndices{indices_.label_property_index_->GetActiveIndices()};
+    return ActiveIndices{
+        indices_.label_property_index_->GetActiveIndices(),
+        indices_.edge_type_index_->GetActiveIndices(),
+    };
   }
 
   // TODO: make non-public

@@ -265,7 +265,6 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   if (res2.HasError()) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
-  // Invalidate plans?
   return PublishIndex(label, properties, 0);
 }
 

@@ -14,12 +14,16 @@
 #include <map>
 #include <utility>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/indices/errors.hpp"
+#include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::storage {
 
@@ -45,39 +49,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   };
 
  public:
-  InMemoryEdgeTypeIndex() = default;
-
-  /// @throw std::bad_alloc
-  bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
-
-  /// Returns false if there was no index to drop
-  bool DropIndex(EdgeTypeId edge_type) override;
-
-  bool IndexExists(EdgeTypeId edge_type) const override;
-
-  std::vector<EdgeTypeId> ListIndices() const override;
-
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
-
-  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
-
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                            const Transaction &tx) override;
-
-  void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, const Transaction &tx) override;
-
-  void DropGraphClearIndices() override;
-
-  auto GetAbortProcessor() const -> AbortProcessor;
-
-  void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
-
-  static constexpr std::size_t kEdgeTypeIdPos = 0U;
-  static constexpr std::size_t kVertexPos = 1U;
-  static constexpr std::size_t kEdgeRefPos = 2U;
-
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
@@ -117,13 +88,88 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Transaction *transaction_;
   };
 
+ private:
+  struct IndividualIndex {
+    ~IndividualIndex();
+    void Publish(uint64_t commit_timestamp);
+
+    utils::SkipList<Entry> skip_list_;
+    IndexStatus status_{};
+  };
+
+  struct IndicesContainer {
+    IndicesContainer(IndicesContainer const &other) : indices_(other.indices_) {}
+    IndicesContainer(IndicesContainer &&) = default;
+    IndicesContainer &operator=(IndicesContainer const &) = default;
+    IndicesContainer &operator=(IndicesContainer &&) = default;
+    IndicesContainer() = default;
+    ~IndicesContainer() = default;
+
+    std::map<EdgeTypeId, std::shared_ptr<IndividualIndex>> indices_;  // This should be a std::map because we use it
+                                                                      // with assumption that it's sorted
+  };
+
+ public:
+  struct ActiveIndices : storage::EdgeTypeIndex::ActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices) : ptr_{std::move(indices)} {}
+
+    bool IndexReady(EdgeTypeId edge_type) const override;
+
+    bool IndexRegistered(EdgeTypeId edge_type) const override;
+
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
+
+    auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t override;
+
+    void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                              const Transaction &tx) override;
+
+    void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
+                                  EdgeTypeId edge_type, const Transaction &tx) override;
+    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
+    auto GetAbortProcessor() const -> AbortProcessor override;
+
+    Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
+
+   private:
+    std::shared_ptr<IndicesContainer const> ptr_;
+  };
+
+  InMemoryEdgeTypeIndex() = default;
+
+  /// @throw std::bad_alloc
+  bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
+  bool RegisterIndex(EdgeTypeId edge_type);
+  auto PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel) const
+      -> utils::BasicResult<IndexPopulateError>;
+
+  bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
+
+  /// Returns false if there was no index to drop
+  bool DropIndex(EdgeTypeId edge_type) override;
+
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+
+  void DropGraphClearIndices() override;
+
+  // TODO: move?
+  static constexpr std::size_t kEdgeTypeIdPos = 0U;
+  static constexpr std::size_t kVertexPos = 1U;
+  static constexpr std::size_t kEdgeRefPos = 2U;
+
   void RunGC();
 
-  Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
+  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
 
  private:
-  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;  // This should be a std::map because we use it with assumption
-                                                        // that it's sorted
+  auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
+
+  utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
+      std::make_shared<IndicesContainer>()};
 };
 
 }  // namespace memgraph::storage

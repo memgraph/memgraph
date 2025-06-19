@@ -92,7 +92,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                    const Transaction &tx) const {
-  edge_type_index_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
+  tx.active_indices_.edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(config.durability.storage_directory) {
@@ -116,7 +116,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(c
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
   return {static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
           active_indices.label_properties_->GetAbortProcessor(),
-          static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->GetAbortProcessor(),
+          active_indices.edge_type_->GetAbortProcessor(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
           static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
           vector_index_.Analysis()};
@@ -138,8 +138,8 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp) {
   label_.Process(*indices.label_index_, start_timestamp);
-  active_indices.label_properties_->AbortEntries(property_label_.cleanup_collection, start_timestamp);
   property_label_.Process(*active_indices.label_properties_, start_timestamp);
-  edge_type_.Process(*indices.edge_type_index_, start_timestamp);
+  edge_type_.Process(*active_indices.edge_type_, start_timestamp);
+  // TODO: edge type properties
 }
 }  // namespace memgraph::storage
