@@ -195,7 +195,7 @@ class DiskStorage final : public Storage {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
 
-    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
+    bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override;
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
 
@@ -228,8 +228,9 @@ class DiskStorage final : public Storage {
         LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel,
         PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       PropertyId property) override;

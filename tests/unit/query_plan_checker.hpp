@@ -754,7 +754,7 @@ class FakeDbAccessor {
     return res;
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) const {
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type) const {
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
   }
 

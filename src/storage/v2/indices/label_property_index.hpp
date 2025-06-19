@@ -184,6 +184,8 @@ class LabelPropertyIndex {
   struct ActiveIndices;
 
   struct AbortProcessor {
+    // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
+    //       + via constructor
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
 

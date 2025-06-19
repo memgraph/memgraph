@@ -16,6 +16,7 @@
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/errors.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
@@ -25,10 +26,6 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
-
-enum class IndexPopulateError {
-  Cancellation,
-};
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:

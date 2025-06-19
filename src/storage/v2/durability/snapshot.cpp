@@ -6303,7 +6303,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
-      auto edge_type = storage->indices_.edge_type_index_->ListIndices();
+      auto edge_type = transaction->active_indices_.edge_type_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item);

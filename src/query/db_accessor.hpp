@@ -500,7 +500,7 @@ class DbAccessor final {
     return accessor_->RelevantLabelPropertiesIndicesInfo(labels, properties);
   }
 
-  bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexExists(edge_type); }
+  bool EdgeTypeIndexReady(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexReady(edge_type); }
 
   bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
     return accessor_->EdgeTypePropertyIndexExists(edge_type, property);

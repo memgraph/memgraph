@@ -270,7 +270,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
     for (const auto &item : indices_metadata.edge) {
       // TODO: parallel execution
-      if (!mem_edge_type_index->CreateIndex(item, vertices->access(), snapshot_info)) {
+      if (!mem_edge_type_index->CreateIndexOnePass(item, vertices->access(), snapshot_info)) {
         throw RecoveryFailure("The edge-type index must be created here!");
       }
       spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
