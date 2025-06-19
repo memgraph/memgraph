@@ -9,23 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <atomic>
+// Query memory tracking is supported only with jemalloc. Do not override malloc/free if jemalloc is not used.
+#if USE_JEMALLOC
+
+#include <cerrno>
 #include <cstddef>
-#include <cstdint>
+#include <type_traits>
+#include <utility>
 
 #include <jemalloc/jemalloc.h>
 
 #include "query_memory_control.hpp"
-// #include "utils/logging.hpp"
 
 namespace {
-// static std::atomic<uint64_t> alloc{0};
-inline void log(auto &&fmt, auto &&...args) {
-  // static thread_local char buf[256];
-  // int len = snprintf(buf, sizeof(buf), fmt, std::forward<decltype(args)>(args)...);
-  // write(STDERR_FILENO, buf, len);
-}
-
 // Protect against infinite recursion
 // je_malloc does not call malloc, so we don't need to protect it against recursive calls, but tracking/logging might
 static thread_local bool called = false;  // NOLINT
@@ -52,7 +48,6 @@ inline auto safe_execution(Func &&func, Args &&...args) -> std::invoke_result_t<
 }
 
 inline auto safe_query_alloc_tracking(size_t size, int flags = 0) -> bool {
-  // alloc.fetch_add(je_nallocx(size, flags), std::memory_order_relaxed);
   return safe_execution([&]() {
     if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
       const auto actual_size = je_nallocx(size, flags);
@@ -72,9 +67,6 @@ inline void safe_query_failed_alloc_tracking(size_t size, int flags = 0) {
 }
 
 inline auto safe_query_realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
-  const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
-  const auto actual_size = je_nallocx(size, flags) - prev_size;
-  // alloc.fetch_add(actual_size, std::memory_order_relaxed);
   return safe_execution([&]() {
     if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
       const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
@@ -96,7 +88,6 @@ inline void safe_query_failed_realloc_tracking(void *ptr, size_t size, int flags
 }
 
 inline void safe_query_free_tracking(void *ptr, int flags = 0) {
-  // alloc.fetch_sub(je_sallocx(ptr, flags), std::memory_order_relaxed);
   safe_execution([&]() {
     if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
       const auto actual_size = je_sallocx(ptr, flags);
@@ -206,3 +197,5 @@ extern "C" void sdallocx(void *ptr, size_t size, int flags) {
 }
 
 extern "C" size_t malloc_usable_size(void *ptr) { return je_malloc_usable_size(ptr); }
+
+#endif  // USE_JEMALLOC
