@@ -122,4 +122,3 @@ if __name__ == "__main__":
 
     with open(args.output_file, "w") as f:
         f.write(data)
-    pass
