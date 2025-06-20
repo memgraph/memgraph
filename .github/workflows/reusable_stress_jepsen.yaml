@@ -128,12 +128,12 @@ jobs:
           name: "Jepsen Report-${{ inputs.name }}"
           path: tests/jepsen/Jepsen.tar.gz
 
-      - name: Refresh Jepsen Cluster
-        if: always()
-        continue-on-error: true
-        run: |
-          cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no $NODES_NO
+      # - name: Refresh Jepsen Cluster
+      #   if: always()
+      #   continue-on-error: true
+      #   run: |
+      #     cd tests/jepsen
+      #     ./run.sh cluster-refresh --nodes-no $NODES_NO
 
       - name: Stop mgbuild container
         if: always()
