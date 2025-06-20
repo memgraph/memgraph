@@ -462,7 +462,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
         continue;
       }
 
-      std::unordered_set<Vertex const *> res possible_conflicting;
+      std::unordered_set<Vertex const *> possible_conflicting;
       // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
       auto acc = storage->access();
       auto it = acc.find_equal_or_greater(*value_array);
