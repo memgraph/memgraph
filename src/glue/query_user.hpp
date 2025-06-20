@@ -30,22 +30,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{std::nullopt, std::nullopt}, auth_{auth} {}
 
-  QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role)
-      : query::QueryUserOrRole{std::visit(
-                                   utils::Overloaded{[](const auto &user_or_role) { return user_or_role.username(); }},
-                                   user_or_role),
-                               std::visit(utils::Overloaded{[&](const auth::User &) -> std::optional<std::string> {
-                                                              return std::nullopt;
-                                                            },
-                                                            [&](const auth::Role &role) -> std::optional<std::string> {
-                                                              return role.rolename();
-                                                            }},
-                                          user_or_role)},
-        auth_{auth} {
-    std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
-                                 [&](auth::Role &&role) { role_.emplace(std::move(role)); }},
-               std::move(user_or_role));
-  }
+  QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
   std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
     if (user_) return {*user_};

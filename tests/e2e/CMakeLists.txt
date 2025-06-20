@@ -5,12 +5,16 @@ function(add_query_module target_name src)
         target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endfunction()
 
+add_custom_target(memgraph__e2e)
+add_dependencies(memgraph__e2e memgraph)
+
 function(copy_e2e_python_files TARGET_PREFIX FILE_NAME)
         add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
                 ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
+        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
 endfunction()
 
 function(copy_e2e_python_files_from_parent_folder TARGET_PREFIX EXTRA_PATH FILE_NAME)
@@ -19,6 +23,7 @@ function(copy_e2e_python_files_from_parent_folder TARGET_PREFIX EXTRA_PATH FILE_
                 ${CMAKE_CURRENT_SOURCE_DIR}/${EXTRA_PATH}/${FILE_NAME}
                 ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${EXTRA_PATH}/${FILE_NAME})
+        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
 endfunction()
 
 function(copy_e2e_cpp_files TARGET_PREFIX FILE_NAME)
@@ -27,6 +32,7 @@ function(copy_e2e_cpp_files TARGET_PREFIX FILE_NAME)
                 ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
                 ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
+        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
 endfunction()
 
 function(copy_e2e_files TARGET_PREFIX FILE_NAME)
@@ -35,6 +41,7 @@ function(copy_e2e_files TARGET_PREFIX FILE_NAME)
                 ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}
                 ${CMAKE_CURRENT_BINARY_DIR}/${FILE_NAME}
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
+        add_dependencies(memgraph__e2e memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME})
 endfunction()
 
 add_subdirectory(fine_grained_access)

@@ -12,19 +12,10 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 
 namespace memgraph::storage {
 
-struct LabelIndexStats {
-  uint64_t count;
-  double avg_degree;
-
-  auto operator<=>(const LabelIndexStats &) const = default;
-};
-
-std::string ToJson(const LabelIndexStats &in);
-
-bool FromJson(const std::string &json, LabelIndexStats &out);
+const uint64_t kTimestampInitialId = 0;
+const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 }  // namespace memgraph::storage

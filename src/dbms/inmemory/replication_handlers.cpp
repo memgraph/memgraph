@@ -775,6 +775,8 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
   constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
   constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
+  // TODO: add when concurrent index creation can actually replicate using READ_ONLY
+  // constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
   auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
@@ -1058,6 +1060,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
@@ -1065,6 +1068,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           if (transaction->DropIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
@@ -1090,6 +1094,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelPropertyIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         data.composite_property_paths);
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError())
@@ -1100,6 +1105,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         [&](WalLabelPropertyIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         data.composite_property_paths);
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
 
@@ -1127,6 +1133,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(data.label));
         },
         [&](WalEdgeTypeIndexCreate const &data) {
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           spdlog::trace("   Delta {}. Create edge index on :{}", current_delta_idx, data.edge_type);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type)).HasError()) {
@@ -1141,6 +1148,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           }
         },
         [&](WalEdgeTypePropertyIndexCreate const &data) {
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           spdlog::trace("   Delta {}. Create edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
@@ -1159,6 +1167,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           }
         },
         [&](WalEdgePropertyIndexCreate const &data) {
+          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           spdlog::trace("       Create global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {

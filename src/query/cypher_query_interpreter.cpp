@@ -19,6 +19,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rule_based_planner.hpp"
+#include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
@@ -158,22 +159,43 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                                  rw_type_checker.type);
 }
 
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
-    if (existing_plan.has_value()) {
-      return existing_plan.value();
+    auto existing_plan =
+        plan_cache->WithLock([&](utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>> &cache) {
+          return cache.get(stripped_query.hash());
+        });
+    if (existing_plan.has_value() && existing_plan.value()->stripped_query() == stripped_query.query()) {
+      // validate the index usage
+      auto &ptr = existing_plan.value();
+      auto &plan = ptr->plan();
+
+      auto checker = plan::UsedIndexChecker{};
+      // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+      //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
+      const_cast<plan::LogicalOperator &>(plan).Accept(checker);
+
+      // TODO: when we are not eagerly collecting all indexes at CreateTransaction we want to Gather rather than Check
+      auto all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
+      if (all_satisfied) {
+        return ptr;
+      } else {
+        plan_cache->WithLock([&](utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>> &cache) {
+          cache.invalidate(stripped_query.hash());
+        });
+      }
     }
   }
 
-  auto plan = std::make_shared<PlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
+  auto plan = std::make_shared<CachedPlanWrapper>(
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers),
+      stripped_query.query());
 
   if (plan_cache) {
-    plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+    plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.hash(), plan); });
   }
 
   return plan;
@@ -190,4 +212,6 @@ SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperat
 
 const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
 
+CachedPlanWrapper::CachedPlanWrapper(std::unique_ptr<LogicalPlan> plan, std::string stripped_query)
+    : PlanWrapper(std::move(plan)), stripped_query_(std::move(stripped_query)) {}
 }  // namespace memgraph::query

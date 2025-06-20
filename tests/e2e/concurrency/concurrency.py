@@ -77,5 +77,41 @@ def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connec
     assert m2c_timeout is True
 
 
+def test_plan_cache_invalidation_on_index_drop(first_connection, second_connection):
+    first_connection.autocommit = True
+    second_connection.autocommit = False
+
+    # TX1: Create the index
+    c = first_connection.cursor()
+    execute_and_fetch_all(c, "CREATE INDEX ON :Label(prop)")
+
+    # TX2: Begin transaction on second connection
+    tx2_cursor = second_connection.cursor()
+    res = execute_and_fetch_all(tx2_cursor, "EXPLAIN MATCH (n:Label) WHERE n.prop = 42 RETURN n")
+    # Check we use the index
+    assert res == [(" * Produce {n}",), (" * ScanAllByLabelProperties (n :Label {prop})",), (" * Once",)]
+
+    # TX3: Drop index
+    c = first_connection.cursor()
+    execute_and_fetch_all(c, "DROP INDEX ON :Label(prop)")
+
+    # NOTE: the plan cache has now been cleared
+
+    # TX2: Run the same query again in same txn
+    res = execute_and_fetch_all(tx2_cursor, "EXPLAIN MATCH (n:Label) WHERE n.prop = 42 RETURN n")
+    # A new plan has been made, still using index since transaction has kept the indexes alive
+    assert res == [(" * Produce {n}",), (" * ScanAllByLabelProperties (n :Label {prop})",), (" * Once",)]
+    second_connection.commit()
+
+    # NOTE: now the index is no longer existing anywhere
+
+    # TX4: Run the same query again in a new transaction
+    c = second_connection.cursor()
+    res = execute_and_fetch_all(c, "EXPLAIN MATCH (n:Label) WHERE n.prop = 42 RETURN n")
+    # The previous cached plan is now invalid -> because the used index no longer exists
+    # Hence plan is removed. A new plan is now made without the index
+    assert res == [(" * Produce {n}",), (" * Filter (n :Label), {n.prop}",), (" * ScanAll (n)",), (" * Once",)]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -137,8 +137,8 @@ class VertexCountCache {
 
   bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
-    return db_->LabelPropertyIndexExists(label, properties);
+  bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
+    return db_->LabelPropertyIndexReady(label, properties);
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
@@ -147,7 +147,7 @@ class VertexCountCache {
     return db_->RelevantLabelPropertiesIndicesInfo(labels, properties);
   }
 
-  bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexExists(edge_type); }
+  bool EdgeTypeIndexReady(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexReady(edge_type); }
 
   bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) {
     return db_->EdgeTypePropertyIndexExists(edge_type, property);
