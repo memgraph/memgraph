@@ -623,7 +623,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           if (info->last_durable_timestamp) {
             last_loaded_timestamp.emplace(*info->last_durable_timestamp);
-            spdlog::trace("Set ldt to {} after loading from WAL {}", *info->last_durable_timestamp);
+            spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
           }
         }
 
