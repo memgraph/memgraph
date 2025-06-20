@@ -22,177 +22,142 @@
 #include "query_memory_control.hpp"
 
 namespace {
-// Protect against infinite recursion
-// je_malloc does not call malloc, so we don't need to protect it against recursive calls, but tracking/logging might
-static thread_local bool called = false;  // NOLINT
+inline auto alloc_tracking(size_t size, int flags = 0) -> bool {
+  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+    const auto actual_size = je_nallocx(size, flags);
+    return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+  }
+  return true;
+}
 
-template <typename Func, typename... Args>
-inline auto safe_execution(Func &&func, Args &&...args) -> std::invoke_result_t<Func, Args...> {
-  using R = std::invoke_result_t<Func, Args...>;
-
-  if constexpr (std::is_void_v<R>) {
-    if (!called) {
-      called = true;
-      func(std::forward<Args>(args)...);
-      called = false;
-    }
-  } else {
-    R res{};
-    if (!called) {
-      called = true;
-      res = func(std::forward<Args>(args)...);
-      called = false;
-    }
-    return res;
+inline void failed_alloc_tracking(size_t size, int flags = 0) {
+  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+    const auto actual_size = je_nallocx(size, flags);
+    memgraph::memory::TrackFreeOnCurrentThread(actual_size);
   }
 }
 
-inline auto safe_query_alloc_tracking(size_t size, int flags = 0) -> bool {
-  return safe_execution([&]() {
-    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-      const auto actual_size = je_nallocx(size, flags);
-      return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
-    }
-    return true;
-  });
+inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
+  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+    const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
+    const auto actual_size = je_nallocx(size, flags) - prev_size;
+    return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+  }
+  return true;
 }
 
-inline void safe_query_failed_alloc_tracking(size_t size, int flags = 0) {
-  safe_execution([&]() {
-    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-      const auto actual_size = je_nallocx(size, flags);
-      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
-    }
-  });
+inline void failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
+  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+    const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
+    const auto actual_size = je_nallocx(size, flags) - prev_size;
+    memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+  }
 }
 
-inline auto safe_query_realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
-  return safe_execution([&]() {
-    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-      const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
-      const auto actual_size = je_nallocx(size, flags) - prev_size;
-      return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
-    }
-    return true;
-  });
-}
-
-inline void safe_query_failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
-  safe_execution([&]() {
-    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-      const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
-      const auto actual_size = je_nallocx(size, flags) - prev_size;
-      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
-    }
-  });
-}
-
-inline void safe_query_free_tracking(void *ptr, int flags = 0) {
-  safe_execution([&]() {
-    if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-      const auto actual_size = je_sallocx(ptr, flags);
-      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
-    }
-  });
+inline void free_tracking(void *ptr, int flags = 0) {
+  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+    const auto actual_size = je_sallocx(ptr, flags);
+    memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+  }
 }
 }  // namespace
 
 extern "C" void *malloc(size_t size) {
-  if (!safe_query_alloc_tracking(size)) {
+  if (!alloc_tracking(size)) {
     return nullptr;
   }
   void *const res = je_malloc(size);
   if (res == nullptr) [[unlikely]] {
-    safe_query_failed_alloc_tracking(size);
+    failed_alloc_tracking(size);
   }
   return res;
 }
 
 extern "C" void *calloc(size_t count, size_t size) {
-  if (!safe_query_alloc_tracking(size)) {
+  if (!alloc_tracking(size)) {
     return nullptr;
   }
   void *const res = je_calloc(count, size);
   if (res == nullptr) [[unlikely]] {
-    safe_query_failed_alloc_tracking(size);
+    failed_alloc_tracking(size);
   }
   return res;
 }
 
 extern "C" void *realloc(void *ptr, size_t size) {
-  if (!safe_query_realloc_tracking(ptr, size)) {
+  if (!realloc_tracking(ptr, size)) {
     return nullptr;
   }
   void *const res = je_realloc(ptr, size);
   if (res == nullptr) [[unlikely]] {
-    safe_query_failed_realloc_tracking(ptr, size);
+    failed_realloc_tracking(ptr, size);
   }
   return res;
 }
 
 extern "C" void *aligned_alloc(size_t alignment, size_t size) {
   const int flags = MALLOCX_ALIGN(alignment);
-  if (!safe_query_alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) {
     return nullptr;
   }
   void *const res = je_aligned_alloc(alignment, size);
   if (res == nullptr) [[unlikely]] {
-    safe_query_failed_alloc_tracking(size, flags);
+    failed_alloc_tracking(size, flags);
   }
   return res;
 }
 
 extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
   const int flags = MALLOCX_ALIGN(alignment);
-  if (!safe_query_alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) {
     return ENOMEM;
   }
   int const res = je_posix_memalign(p, alignment, size);
   if (res != 0) [[unlikely]] {
-    safe_query_failed_alloc_tracking(size, flags);
+    failed_alloc_tracking(size, flags);
   }
   return res;
 }
 
 extern "C" void *valloc(size_t size) {
   const int flags = MALLOCX_ALIGN(4096);
-  if (!safe_query_alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) {
     return nullptr;
   }
   void *const res = je_valloc(size);
   if (res == nullptr) [[unlikely]] {
-    safe_query_failed_alloc_tracking(size, flags);
+    failed_alloc_tracking(size, flags);
   }
   return res;
 }
 
 extern "C" void *memalign(size_t alignment, size_t size) {
   const int flags = MALLOCX_ALIGN(alignment);
-  if (!safe_query_alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) {
     return nullptr;
   }
   void *const res = je_memalign(alignment, size);
   if (res == nullptr) [[unlikely]] {
-    safe_query_failed_alloc_tracking(size, flags);
+    failed_alloc_tracking(size, flags);
   }
   return res;
 }
 
 extern "C" void free(void *ptr) {
   if (!ptr) return;
-  safe_query_free_tracking(ptr);
+  free_tracking(ptr);
   je_free(ptr);
 }
 
 extern "C" void dallocx(void *ptr, int flags) {
   if (!ptr) return;
-  safe_query_free_tracking(ptr);
+  free_tracking(ptr);
   je_dallocx(ptr, flags);
 }
 
 extern "C" void sdallocx(void *ptr, size_t size, int flags) {
   if (!ptr) return;
-  safe_query_free_tracking(ptr);
+  free_tracking(ptr);
   je_sdallocx(ptr, size, flags);
 }
 

@@ -35,6 +35,8 @@ void Regular(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
+  std::cout << 1.23 << "test that the cout will not cause a crash" << std::endl;
+
   try {
     void *ptr{nullptr};
 
@@ -55,7 +57,7 @@ void Malloc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
-  std::cout << 1.23 << "aaaaaaaa" << std::endl;
+  std::cout << 1.23 << "test that the cout will not cause a crash" << std::endl;
 
   try {
     void *ptr{nullptr};
@@ -77,11 +79,13 @@ void New(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
 
+  std::cout << 1.23 << "test that the cout will not cause a crash" << std::endl;
+
   try {
-    auto *ptr = new std::array<uint8_t, mb_size_268>();
+    auto *ptr = new char[mb_size_268];
 
     memgraph::utils::OnScopeExit cleanup{[&ptr]() {
-      if (nullptr != ptr) delete ptr;
+      if (nullptr != ptr) delete[] ptr;
     }};
 
     auto new_record = record_factory.NewRecord();
@@ -91,24 +95,12 @@ void New(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
   }
 }
 
-void LocalStack(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mgp::MemoryDispatcherGuard guard{memory};
-  const auto arguments = mgp::List(args);
-  const auto record_factory = mgp::RecordFactory(result);
-
-  try {
-    [[maybe_unused]] std::array<uint8_t, mb_size_268> arr;
-    auto new_record = record_factory.NewRecord();
-    new_record.Insert("allocated", true);
-  } catch (std::exception &e) {
-    record_factory.SetErrorMessage(e.what());
-  }
-}
-
 void LocalHeap(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
+
+  std::cout << 1.23 << "test that the cout will not cause a crash" << std::endl;
 
   try {
     static std::vector<uint8_t> vec __attribute__((__used__));
@@ -129,9 +121,6 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::MemoryDispatcherGuard mdg{memory};
 
     AddProcedure(Regular, std::string("regular").c_str(), mgp::ProcedureType::Read, {},
-                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
-
-    AddProcedure(LocalStack, std::string("local_stack").c_str(), mgp::ProcedureType::Read, {},
                  {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
 
     AddProcedure(LocalHeap, std::string("local_heap").c_str(), mgp::ProcedureType::Read, {},

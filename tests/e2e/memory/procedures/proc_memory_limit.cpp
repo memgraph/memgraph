@@ -24,13 +24,7 @@
 #include "mg_procedure.h"
 #include "utils/on_scope_exit.hpp"
 
-enum mgp_error Alloc_256(mgp_memory *memory, void *&ptr) {
-  const size_t mib_size_256 = 1 << 28;
-
-  return mgp_alloc(memory, mib_size_256, (void **)(&ptr));
-}
-
-void Alloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void Alloc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, size_t size) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
@@ -45,7 +39,7 @@ void Alloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
       mgp_free(memory, ptr);
     }};
 
-    const enum mgp_error alloc_err = Alloc_256(memory, ptr);
+    const enum mgp_error alloc_err = mgp_alloc(memory, size, (void **)(&ptr));
     auto new_record = record_factory.NewRecord();
     new_record.Insert("allocated", alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
   } catch (std::exception &e) {
@@ -53,13 +47,17 @@ void Alloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
   }
 }
 
-enum mgp_error Alloc_32(mgp_memory *memory, void *&ptr) {
-  const size_t mib_size_32 = 1 << 25;
-
-  return mgp_alloc(memory, mib_size_32, (void **)(&ptr));
+void Alloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_256 = 1 << 28;
+  Alloc(args, memgraph_graph, result, memory, mib_size_256);
 }
 
 void Alloc_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_32 = 1 << 25;
+  Alloc(args, memgraph_graph, result, memory, mib_size_32);
+}
+
+void Malloc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, size_t size) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
@@ -68,21 +66,83 @@ void Alloc_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
     void *ptr{nullptr};
 
     memgraph::utils::OnScopeExit cleanup{[&ptr]() {
-      if (nullptr == ptr) {
-        return;
-      }
-      mgp_global_free(ptr);
+      if (nullptr != ptr) free(ptr);
     }};
 
-    const enum mgp_error alloc_err = Alloc_32(memory, ptr);
-    if (alloc_err != mgp_error::MGP_ERROR_NO_ERROR) {
-      record_factory.SetErrorMessage("Unable to allocate");
-    }
+    ptr = malloc(size);
     auto new_record = record_factory.NewRecord();
-    new_record.Insert("allocated", alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
+    new_record.Insert("allocated", ptr != nullptr);
   } catch (std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
+}
+
+void Malloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_256 = 1 << 28;
+  Malloc(args, memgraph_graph, result, memory, mib_size_256);
+}
+
+void Malloc_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_32 = 1 << 25;
+  Malloc(args, memgraph_graph, result, memory, mib_size_32);
+}
+
+void New(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, size_t size) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  const auto record_factory = mgp::RecordFactory(result);
+
+  try {
+    auto *ptr = new char[size];
+
+    memgraph::utils::OnScopeExit cleanup{[&ptr]() {
+      if (nullptr != ptr) delete[] ptr;
+    }};
+
+    auto new_record = record_factory.NewRecord();
+    new_record.Insert("allocated", ptr != nullptr);
+  } catch (std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+void New_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_256 = 1 << 28;
+  New(args, memgraph_graph, result, memory, mib_size_256);
+}
+
+void New_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_32 = 1 << 25;
+  New(args, memgraph_graph, result, memory, mib_size_32);
+}
+
+void LocalHeap(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory, size_t size) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  const auto record_factory = mgp::RecordFactory(result);
+
+  try {
+    static std::vector<uint8_t> vec __attribute__((__used__));
+    // Trying to always allocate new memory
+    vec.resize(vec.size() + size);
+    for (int i = 0; i < vec.size(); i += 4096) {
+      vec[i] = 1;
+    }
+    auto new_record = record_factory.NewRecord();
+    new_record.Insert("allocated", true);
+  } catch (std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+void LocalHeap_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_256 = 1 << 28;
+  LocalHeap(args, memgraph_graph, result, memory, mib_size_256);
+}
+
+void LocalHeap_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const size_t mib_size_32 = 1 << 25;
+  LocalHeap(args, memgraph_graph, result, memory, mib_size_32);
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
@@ -93,6 +153,24 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
 
     AddProcedure(Alloc_32_MiB, std::string("alloc_32_mib").c_str(), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+
+    AddProcedure(Malloc_256_MiB, std::string("malloc_256_mib").c_str(), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+
+    AddProcedure(Malloc_32_MiB, std::string("malloc_32_mib").c_str(), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+
+    AddProcedure(LocalHeap_256_MiB, std::string("local_heap_256_mib").c_str(), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+
+    AddProcedure(LocalHeap_32_MiB, std::string("local_heap_32_mib").c_str(), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+
+    AddProcedure(New_256_MiB, std::string("new_256_mib").c_str(), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+
+    AddProcedure(New_32_MiB, std::string("new_32_mib").c_str(), mgp::ProcedureType::Read, {},
                  {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
 
   } catch (const std::exception &e) {
