@@ -756,12 +756,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       return StorageManipulationError{*maybe_violation};
     }
 
-    // Result of validating the vertex against unique constraints. It has to be
-    // declared outside the critical section scope because its value is
-    // tested for Abort call which has to be done out of the scope.
-
-    // Save these so we can mark them used in the commit log.
-
     spdlog::trace("Trying to acquire engine lock in prepare phase");
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
     spdlog::trace("acquired engine lock in prepare phase");
