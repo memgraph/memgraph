@@ -764,6 +764,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     spdlog::trace("Trying to acquire engine lock in prepare phase");
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
+    spdlog::trace("acquired engine lock in prepare phase");
 
     // LabelIndex auto-creation block.
     if (storage_->config_.salient.items.enable_label_index_auto_creation) {
@@ -868,6 +869,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
         AbortAndResetCommitTs();
+
+        spdlog::trace("Aborted and resetted commit ts, ready to send AbortRpc to replicas");
 
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
@@ -2334,15 +2337,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                                                      std::optional<bool> const &commit_immediately) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // A single transaction will always be fully-contained in a single WAL file.
-  auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
-
-  // Safe to abort here because deltas weren't made durable yet
-  if (!replicating_txn.ReplicationStartSuccessful()) {
-    AbortAndResetCommitTs();
-    return false;
-  }
-
   bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
     // Replica
     if (commit_immediately.has_value()) {
@@ -2498,7 +2492,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
     }
   }
-
+  // A single transaction will always be fully-contained in a single WAL file.
+  auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
