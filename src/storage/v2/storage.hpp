@@ -427,10 +427,11 @@ class Storage {
         EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
         PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                              PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
+        PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
         LabelId label, DropIndexWrapper wrapper = drop_no_wrap) = 0;
@@ -438,12 +439,14 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
         LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        EdgeTypeId edge_type, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
-                                                                            PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
+        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;

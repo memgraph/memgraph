@@ -37,10 +37,15 @@ bool UsedIndexChecker::PreVisit(ScanAllByLabelProperties &op) {
   required_indices_.label_properties_.emplace_back(op.label_, op.properties_);
   return true;
 }
+
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeType &op) {
+  required_indices_.edge_type_.emplace_back(op.common_.edge_types[0]);
+  return true;
+}
+
 PRE_VISIT(ScanAllById)
 
 PRE_VISIT(ScanAllByEdge)                   // TODO: gather for concurrent index check
-PRE_VISIT(ScanAllByEdgeType)               // TODO: gather for concurrent index check
 PRE_VISIT(ScanAllByEdgeTypeProperty)       // TODO: gather for concurrent index check
 PRE_VISIT(ScanAllByEdgeTypePropertyValue)  // TODO: gather for concurrent index check
 PRE_VISIT(ScanAllByEdgeTypePropertyRange)  // TODO: gather for concurrent index check

@@ -44,7 +44,7 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<
 
   auto const accessor_factory = [&] { return index->skip_list_.access(); };
 
-  // TODO: ATM this is not MVCC
+  // TODO: ATM this is not MVCC or parallel
   auto edge_acc = accessor_factory();
   for (auto &from_vertex : vertices) {
     if (from_vertex.deleted) {

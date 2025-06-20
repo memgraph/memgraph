@@ -232,10 +232,11 @@ class DiskStorage final : public Storage {
         EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
         PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
+        PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
                                                                     DropIndexWrapper wrapper = drop_no_wrap) override;
@@ -244,11 +245,14 @@ class DiskStorage final : public Storage {
                                                                     std::vector<storage::PropertyPath> &&properties,
                                                                     DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
+        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) override;
