@@ -28,6 +28,7 @@ class TransactionReplication {
   // proceed with the Commit.
   TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
+    spdlog::trace("Successfully locked clients");
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
       // SYNC and ASYNC replicas should commit immediately when receiving deltas
