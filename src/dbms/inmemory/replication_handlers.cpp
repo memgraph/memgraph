@@ -1105,7 +1105,7 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
           }
         },
         [&](WalTransactionStart const &data) {
-          spdlog::trace("   Delta {}. Transaction start. Commit tnx? {}", current_delta_idx, data.commit);
+          spdlog::trace("   Delta {}. Transaction start. Commit txn? {}", current_delta_idx, data.commit);
           should_commit = data.commit;
         },
         [&](WalTransactionEnd const &) {
