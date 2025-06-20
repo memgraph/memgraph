@@ -762,6 +762,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     // Save these so we can mark them used in the commit log.
 
+    spdlog::trace("Trying to acquire engine lock in prepare phase");
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
     // LabelIndex auto-creation block.
@@ -814,8 +815,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
       // couldn't be retrieved. As long as this object is alive, RPC streams are held. We use recursive mutex because
       // this thread will lock the RPC lock twice: once for PrepareCommitRpc and 2nd time for FinalizeCommitRpc
+      spdlog::trace("Trying to acquire RPC streams");
       auto replicating_txn = mem_storage->repl_storage_state_.StartPrepareCommitPhase(
           mem_storage->wal_file_->SequenceNumber(), mem_storage, db_acc);
+      spdlog::trace("Acquired RPC streams");
 
       // This will block until we receive OK votes from all replicas if we are main
       // If we are replica, we will make durable our deltas and return
