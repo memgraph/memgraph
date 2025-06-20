@@ -67,6 +67,8 @@ class TransactionReplication {
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
                            uint64_t durability_commit_timestamp) -> bool;
 
+  auto AllStrictSyncReplicasUp() const -> bool;
+
   auto ShouldRunTwoPC() const -> bool;
 
  private:

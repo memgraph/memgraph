@@ -73,6 +73,15 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   return strict_sync_replicas_succ;
 }
 
+auto TransactionReplication::AllStrictSyncReplicasUp() const -> bool {
+  for (auto const &[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+    if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC && !replica_stream.has_value()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 auto TransactionReplication::ShouldRunTwoPC() const -> bool {
   return std::ranges::any_of(*locked_clients, [](auto const &client) {
     return client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC;

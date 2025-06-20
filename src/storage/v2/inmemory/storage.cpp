@@ -821,6 +821,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           mem_storage->wal_file_->SequenceNumber(), mem_storage, db_acc);
       spdlog::trace("Acquired RPC streams");
 
+      // StartTxnReplication unsuccessful, this avoids sending PrepareCommitReq to replica if some other is down
+      if (!replicating_txn.AllStrictSyncReplicasUp()) {
+        engine_guard.unlock();
+        AbortAndResetCommitTs();
+        return StorageManipulationError{StrictSyncReplicationError{}};
+      }
+
       // This will block until we receive OK votes from all replicas if we are main
       // If we are replica, we will make durable our deltas and return
       bool const repl_prepare_phase_status = HandleDurabilityAndReplicate(
