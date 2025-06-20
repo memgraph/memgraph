@@ -1418,14 +1418,14 @@ void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::st
 }
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
-  encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
-  encoder.WriteString(VectorIndex::NameFromMetric(index_spec.metric_kind));
-  encoder.WriteUint(index_spec.dimension);
-  encoder.WriteUint(index_spec.resize_coefficient);
-  encoder.WriteUint(index_spec.capacity);
-  encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
+  // encoder.WriteString(index_spec.index_name);
+  // encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
+  // encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
+  // encoder.WriteString(VectorIndex::NameFromMetric(index_spec.metric_kind));
+  // encoder.WriteUint(index_spec.dimension);
+  // encoder.WriteUint(index_spec.resize_coefficient);
+  // encoder.WriteUint(index_spec.capacity);
+  // encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }

@@ -69,6 +69,19 @@ struct LabelPropKey {
   PropertyId property_;
 };
 
+struct EdgeTypePropKey {
+  EdgeTypePropKey(EdgeTypeId const &edge_type, PropertyId const &property)
+      : edge_type_(edge_type), property_(property) {}
+  friend auto operator<=>(EdgeTypePropKey const &, EdgeTypePropKey const &) = default;
+
+  auto edge_type() const -> EdgeTypeId { return edge_type_; }
+  auto property() const -> PropertyId { return property_; }
+
+ private:
+  EdgeTypeId edge_type_;
+  PropertyId property_;
+};
+
 }  // namespace memgraph::storage
 
 namespace std {

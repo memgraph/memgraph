@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <sys/types.h>
+#include <cstdint>
 #include "mg_procedure.h"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -299,6 +301,8 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
+    virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
     virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
@@ -448,8 +452,6 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
-    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
-
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
 
@@ -524,7 +526,7 @@ class Storage {
                                PropertyValue const &bottom_left, PropertyValue const &top_right,
                                WithinBBoxCondition condition) -> PointIterable = 0;
 
-    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;

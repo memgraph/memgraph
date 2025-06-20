@@ -24,6 +24,35 @@
 
 namespace memgraph::storage {
 
+enum class VectorIndexType {
+  ON_NODES,
+  ON_EDGES,
+};
+
+inline std::string VectorIndexTypeToString(VectorIndexType type) {
+  switch (type) {
+    case VectorIndexType::ON_NODES:
+      return "ON_NODES";
+    case VectorIndexType::ON_EDGES:
+      return "ON_EDGES";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+struct VectorIndexOnEdgeTypeEntry {
+  EdgeTypePropKey edge_type_prop_key;
+  Edge *edge;
+};
+
+struct VectorIndexOnLabelEntry {
+  LabelPropKey label_prop_key;
+  Vertex *vertex;
+};
+
+using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
+using VectorSearchEdgeResults = std::vector<std::tuple<Edge *, double, double>>;
+
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -44,13 +73,15 @@ struct VectorIndexConfigMap {
 /// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
-  LabelId label;
+  std::variant<LabelId, EdgeTypeId> label_or_edge_type;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
   std::size_t capacity;
   std::size_t size;
   std::string scalar_kind;
+  VectorIndexType
+      index_type;  // label and edge type are both uint32_t, so in order to distinguish them we need this field
 };
 
 /// @struct VectorIndexSpec
@@ -60,13 +91,15 @@ struct VectorIndexInfo {
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
   std::string index_name;
-  LabelId label;
+  std::variant<LabelId, EdgeTypeId> label_or_edge_type;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
   unum::usearch::scalar_kind_t scalar_kind;
+  VectorIndexType
+      index_type;  // label and edge type are both uint32_t, so in order to distinguish them we need this field
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
@@ -85,6 +118,8 @@ class VectorIndex {
   struct IndexStats {
     std::map<LabelId, std::vector<PropertyId>> l2p;
     std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
+    std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
 
   explicit VectorIndex();
@@ -150,6 +185,9 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
+  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                           PropertyId property, const PropertyValue &value);
+
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
@@ -162,15 +200,20 @@ class VectorIndex {
   /// @param label The label of the vertices in the index.
   /// @param property The property of the vertices in the index.
   /// @return The number of vertices in the index.
-  std::optional<uint64_t> ApproximateVectorCount(LabelId label, PropertyId property) const;
+  std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const;
+
+  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
-  std::vector<std::tuple<Vertex *, double, double>> Search(std::string_view index_name, uint64_t result_set_size,
-                                                           const std::vector<float> &query_vector) const;
+  VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
+                                      const std::vector<float> &query_vector) const;
+
+  VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
+                                      const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries that were inserted in the specified transaction.
   /// @param label_prop The label of the vertices to be removed.
@@ -183,15 +226,16 @@ class VectorIndex {
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 
+  void RestoreEntries(const EdgeTypePropKey &edge_type_prop,
+                      std::span<std::pair<PropertyValue, Edge *> const> prop_edges);
+
+  /// @brief Removes obsolete entries from the index.
+  /// @param token A stop token to allow for cancellation of the operation.
   void RemoveObsoleteEntries(std::stop_token token) const;
 
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
-
-  /// @brief Tries to insert a vertex into the index.
-  /// @param vertex The vertex to be inserted.
-  void TryInsertVertex(Vertex *vertex);
 
  private:
   /// @brief Adds a vertex to an existing index.
@@ -199,7 +243,8 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+  bool UpdateVectorIndex(std::variant<VectorIndexOnLabelEntry, VectorIndexOnEdgeTypeEntry> entry,
+                         const PropertyValue *value = nullptr);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

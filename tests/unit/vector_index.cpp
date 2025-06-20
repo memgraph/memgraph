@@ -98,7 +98,7 @@ TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
   const auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
   ASSERT_NO_ERROR(acc->Commit());
 
-  const auto result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{1.0, 1.0});
+  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
   EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
 }
@@ -114,7 +114,7 @@ TYPED_TEST(VectorSearchTest, HighDimensionalSearchTest) {
   ASSERT_NO_ERROR(acc->Commit());
 
   std::vector<float> query_vector(1000, 1.0);
-  const auto result = acc->VectorIndexSearch(test_index.data(), 1, query_vector);
+  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, query_vector);
   EXPECT_EQ(result.size(), 1);
   EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
 }
@@ -147,12 +147,12 @@ TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
   std::vector<float> query = {10.0, 10.0};
 
   // Perform search for one closest node
-  const auto result = acc->VectorIndexSearch(test_index.data(), 1, query);
+  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 1);
   EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex2.Gid());  // Expect the second vertex to be the closest
 
   // Perform search for two closest nodes
-  const auto result2 = acc->VectorIndexSearch(test_index.data(), 2, query);
+  const auto result2 = acc->VectorIndexSearchOnNodes(test_index.data(), 2, query);
   EXPECT_EQ(result2.size(), 2);
 }
 
@@ -206,7 +206,7 @@ TYPED_TEST(VectorSearchTest, UpdatePropertyValueTest) {
     ASSERT_NO_ERROR(acc->Commit());
 
     // Verify update with search
-    const auto search_result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{2.0, 2.0});
+    const auto search_result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, std::vector<float>{2.0, 2.0});
     EXPECT_EQ(search_result.size(), 1);
     EXPECT_EQ(std::get<0>(search_result[0]).vertex_->properties.GetProperty(acc->NameToProperty(test_property)),
               updated_value);
@@ -227,7 +227,7 @@ TYPED_TEST(VectorSearchTest, DeleteVertexTest) {
 
   // Verify that the vertex was deleted
   std::vector<float> query = {1.0, 1.0};
-  const auto result = acc->VectorIndexSearch(test_index.data(), 1, query);
+  const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 0);
 }
 

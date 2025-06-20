@@ -3558,7 +3558,8 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
 
-    if (const auto err = mgp_value_make_string(impl->LabelToName(label).c_str(), memory, &label_value);
+    if (const auto err = mgp_value_make_string(impl->LabelToName(std::get<memgraph::storage::LabelId>(label)).c_str(),
+                                               memory, &label_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
@@ -3810,7 +3811,7 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
         throw std::logic_error(
             "Unrecognized argument type when performing vector search, expected values are Double or Int!");
       }
-      found_vertices = graph->getImpl()->VectorIndexSearch(index_name, result_size, search_query_vector);
+      found_vertices = graph->getImpl()->VectorIndexSearchOnNodes(index_name, result_size, search_query_vector);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
