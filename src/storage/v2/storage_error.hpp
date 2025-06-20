@@ -17,7 +17,8 @@
 
 namespace memgraph::storage {
 
-struct ReplicationError {};
+struct SyncReplicationError {};
+struct StrictSyncReplicationError {};
 struct PersistenceError {};  // TODO: Generalize and add to InMemory durability as well (currently durability just
                              // asserts and terminated if failed)
 
@@ -29,8 +30,8 @@ struct ConstraintsPersistenceError {};
 struct SerializationError {};
 inline bool operator==(const SerializationError & /*err1*/, const SerializationError & /*err2*/) { return true; }
 
-using StorageManipulationError =
-    std::variant<ConstraintViolation, ReplicationError, SerializationError, PersistenceError>;
+using StorageManipulationError = std::variant<ConstraintViolation, SyncReplicationError, StrictSyncReplicationError,
+                                              SerializationError, PersistenceError>;
 
 using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefinitionConfigError>;
 

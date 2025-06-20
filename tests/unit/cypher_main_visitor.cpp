@@ -2852,22 +2852,38 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
-  const std::string faulty_query = "REGISTER REPLICA TO";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+  {
+    const std::string faulty_query = "REGISTER REPLICA TO";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+  }
 
-  const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+  {
+    const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+  }
 
-  const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
-  auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
-  check_replication_query(&ast_generator, correct_query_parsed, "replica1", TypedValue("127.0.0.1"),
-                          ReplicationQuery::SyncMode::SYNC);
+  {
+    const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
+    auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
+    check_replication_query(&ast_generator, correct_query_parsed, "replica1", TypedValue("127.0.0.1"),
+                            ReplicationQuery::SyncMode::SYNC);
+  }
 
-  std::string full_query = R"(REGISTER REPLICA replica2 SYNC TO "1.1.1.1:10000")";
-  auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
-  ASSERT_TRUE(full_query_parsed);
-  check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
-                          ReplicationQuery::SyncMode::SYNC);
+  {
+    std::string full_query = R"(REGISTER REPLICA replica2 SYNC TO "1.1.1.1:10000")";
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
+                            ReplicationQuery::SyncMode::SYNC);
+  }
+
+  {
+    std::string full_query = R"(REGISTER REPLICA replica2 STRICT_SYNC TO "1.1.1.1:10000")";
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
+                            ReplicationQuery::SyncMode::STRICT_SYNC);
+  }
 }
 
 #ifdef MG_ENTERPRISE
@@ -2916,6 +2932,39 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
 
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
   EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.find(memgraph::query::kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(memgraph::query::kManagementServer)->second, "127.0.0.1:10011");
+  EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
+}
+
+TEST_P(CypherMainVisitorTest, TestRegisterStrictSyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const async_instance =
+      R"(REGISTER INSTANCE instance_1 AS STRICT_SYNC WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001",
+    "management_server": "127.0.0.1:10011"})";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(async_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::STRICT_SYNC);
 
   auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
       -> std::map<std::string, std::string, std::less<>> {

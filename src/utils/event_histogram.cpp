@@ -37,7 +37,7 @@
   GenerateRpcTimer(StateCheckRpc)                                                                                 \
   GenerateRpcTimer(GetDatabaseHistoriesRpc)                                                                       \
   GenerateRpcTimer(HeartbeatRpc)                                                                                  \
-  GenerateRpcTimer(AppendDeltasRpc)                                                                               \
+  GenerateRpcTimer(PrepareCommitRpc)                                                                              \
   GenerateRpcTimer(SnapshotRpc)                                                                                   \
   GenerateRpcTimer(CurrentWalRpc)                                                                                 \
   GenerateRpcTimer(WalFilesRpc)                                                                                   \

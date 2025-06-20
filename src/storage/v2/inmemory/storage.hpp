@@ -27,12 +27,9 @@
 /// REPLICATION ///
 
 #include "storage/v2/delta_container.hpp"
-#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/memory.hpp"
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -142,6 +139,34 @@ class InMemoryStorage final : public Storage {
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                               StorageMode storage_mode,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+
+    std::optional<ConstraintViolation> ExistenceConstraintsViolation() const;
+
+    std::optional<ConstraintViolation> UniqueConstraintsViolation() const;
+
+    void CheckForFastDiscardOfDeltas();
+
+    template <class T, class TMutex = std::mutex>
+    void CreateAutoIndices(utils::Synchronized<T, TMutex> &indices) {
+      indices.WithLock([&](auto &label_indices) {
+        for (auto &label : label_indices) {
+          --label.second;
+          // If there are multiple transactions that would like to create an
+          // auto-created index on a specific label, we only build the index
+          // when the last one commits.
+          if (label.second == 0) {
+            // NOLINTNEXTLINE
+            CreateIndex(label.first, false);
+            label_indices.erase(label.first);
+          }
+        }
+      });
+    }
+
+    [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
+                                                    DatabaseAccessProtector db_acc,
+                                                    TransactionReplication &replicating_txn,
+                                                    std::optional<bool> const &commit_immediately);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -320,18 +345,25 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
+    /// Represents the 1st phase of 2PC protocol.
     /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occures. Error can be:
+    /// Returns `StorageDataManipulationError` if an error occurred. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                              DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplicationArgs repl_args = {}, DatabaseAccessProtector db_acc = {}) override;
 
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) override;
+
+    void AbortAndResetCommitTs();
+
+    /// Represents the 2nd phase of the 2PC protocol
+    /// Needs to be called while holding the engine lock
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -512,23 +544,9 @@ class InMemoryStorage final : public Storage {
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
                              IndexPerformanceTracker &impact_tracker);
     SalientConfig::Items config_;
-  };
 
-  class ReplicationAccessor final : public InMemoryAccessor {
-   public:
-    explicit ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
-
-    /// @throw std::bad_alloc
-    std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
-
-    /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                      storage::Gid gid) {
-      return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
-    }
-
-    const Transaction &GetTransaction() const { return transaction_; }
-    Transaction &GetTransaction() { return transaction_; }
+    uint64_t commit_flag_wal_position_{0};
+    bool needs_wal_update_{false};
   };
 
   using Storage::Access;
@@ -585,9 +603,6 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo() override;
 
-  /// Return true in all cases except if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
-                                 DatabaseAccessProtector db_acc);
   uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;
@@ -688,6 +703,40 @@ class InMemoryStorage final : public Storage {
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
   void Clear();
+};
+
+class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
+ public:
+  ReplicationAccessor(ReplicationAccessor &&other) = default;
+  ReplicationAccessor &operator=(ReplicationAccessor &&other) = delete;
+
+  ReplicationAccessor(ReplicationAccessor const &) = delete;
+  ReplicationAccessor &operator=(ReplicationAccessor const &) = delete;
+  ~ReplicationAccessor() override = default;
+
+  /// @throw std::bad_alloc
+  std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
+
+  /// @throw std::bad_alloc
+  Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid) {
+    return InMemoryAccessor::CreateEdgeEx(from, to, edge_type, gid);
+  }
+
+  auto GetCommitTimestamp() -> std::optional<uint64_t> & { return commit_timestamp_; }
+
+  void ResetCommitTimestamp() { commit_timestamp_.reset(); }
+
+  const Transaction &GetTransaction() const { return transaction_; }
+  Transaction &GetTransaction() { return transaction_; }
+};
+
+static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication accessor isn't move constructible");
+
+struct SingleTxnDeltasProcessingResult {
+  std::unique_ptr<ReplicationAccessor> commit_acc;
+  uint64_t current_delta_idx;
+  uint64_t durability_commit_timestamp;
+  uint32_t current_batch_counter;
 };
 
 }  // namespace memgraph::storage

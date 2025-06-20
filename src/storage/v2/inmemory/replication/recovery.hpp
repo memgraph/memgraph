@@ -69,7 +69,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   if (mode == replication_coordination_glue::ReplicationMode::ASYNC) {
     maybe_stream_result = client.TryStream<T>(kRecoveryRpcTimeout, std::forward<Args>(args)...);
   } else {
-    // in SYNC mode, we block until we obtain RPC lock
+    // in SYNC and STRICT_SYNC mode, we block until we obtain RPC lock
     maybe_stream_result.emplace(client.Stream<T>(std::forward<Args>(args)...));
   }
 

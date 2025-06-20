@@ -10,12 +10,12 @@
 // licenses/APL.txt.
 
 #include "replication/status.hpp"
-
 #include "io/network/endpoint.hpp"
-
-#include "fmt/format.h"
+#include "replication_coordination_glue/role.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include "fmt/format.h"
 
 namespace memgraph::replication::durability {
 

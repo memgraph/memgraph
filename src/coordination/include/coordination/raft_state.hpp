@@ -12,9 +12,9 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+
 #include <optional>
 
-#include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
