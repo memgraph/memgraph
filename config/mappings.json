@@ -1,6 +1,7 @@
 {
     "dbms.components": "mgps.components",
     "apoc.util.validate": "mgps.validate",
+    "apoc.util.validatePredicate": "mgps.validate_predicate",
     "db.schema.nodeTypeProperties": "schema.NodeTypeOroperties",
     "db.schema.relTypeProperties": "schema.RelTypeProperties",
     "apoc.coll.contains": "collections.contains",
@@ -22,5 +23,6 @@
     "apoc.refactor.cloneNode": "refactor.clone_node",
     "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",
     "apoc.refactor.cloneSubgraphFromPath": "refactor.clone_subgraph_from_path",
-    "apoc.label.exists": "label.exists"
+    "apoc.label.exists": "label.exists",
+    "apoc.date.convertFormat": "date.convert_format"
 }
