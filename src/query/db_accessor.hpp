@@ -469,13 +469,13 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplArgs reparg = {},
+  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplicationArgs reparg = {},
                                                                      storage::DatabaseAccessProtector db_acc = {}) {
-    return accessor_->Commit(std::move(reparg), std::move(db_acc));
+    return accessor_->PrepareForCommitPhase(std::move(reparg), std::move(db_acc));
   }
 
   utils::BasicResult<storage::StorageManipulationError, void> PeriodicCommit(
-      storage::CommitReplArgs reparg = {}, storage::DatabaseAccessProtector db_acc = {}) {
+      storage::CommitReplicationArgs reparg = {}, storage::DatabaseAccessProtector db_acc = {}) {
     return accessor_->PeriodicCommit(std::move(reparg), std::move(db_acc));
   }
 

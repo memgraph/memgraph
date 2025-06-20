@@ -10,25 +10,39 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/rpc.hpp"
-#include <cstdint>
-#include <rpc/version.hpp>
 
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
 
+#include <cstdint>
+
 namespace memgraph {
 
 namespace storage::replication {
 
-void AppendDeltasReq::Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder) {
+void PrepareCommitReq::Save(const PrepareCommitReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
-void AppendDeltasReq::Load(AppendDeltasReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void AppendDeltasRes::Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder) {
+void PrepareCommitReq::Load(PrepareCommitReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+void PrepareCommitRes::Save(const PrepareCommitRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
-void AppendDeltasRes::Load(AppendDeltasRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+void PrepareCommitRes::Load(PrepareCommitRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void FinalizeCommitReq::Save(const FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self, builder);
+}
+void FinalizeCommitReq::Load(FinalizeCommitReq *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
+
+void FinalizeCommitRes::Save(const FinalizeCommitRes &self, memgraph::slk::Builder *builder) {
+  slk::Save(self, builder);
+}
+void FinalizeCommitRes::Load(FinalizeCommitRes *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
 
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -58,11 +72,17 @@ void CurrentWalRes::Load(CurrentWalRes *self, memgraph::slk::Reader *reader) { m
 
 }  // namespace storage::replication
 
-constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::TypeId::REP_APPEND_DELTAS_REQ,
-                                                                       "AppendDeltasReq", nullptr};
+constexpr utils::TypeInfo storage::replication::PrepareCommitReq::kType{utils::TypeId::PREPARE_COMMIT_REQ,
+                                                                        "PrepareCommitReq", nullptr};
 
-constexpr utils::TypeInfo storage::replication::AppendDeltasRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
-                                                                       "AppendDeltasRes", nullptr};
+constexpr utils::TypeInfo storage::replication::PrepareCommitRes::kType{utils::TypeId::PREPARE_COMMIT_RES,
+                                                                        "PrepareCommitRes", nullptr};
+
+constexpr utils::TypeInfo storage::replication::FinalizeCommitReq::kType{utils::TypeId::FINALIZE_COMMIT_REQ,
+                                                                         "FinalizeCommitReq", nullptr};
+
+constexpr utils::TypeInfo storage::replication::FinalizeCommitRes::kType{utils::TypeId::FINALIZE_COMMIT_RES,
+                                                                         "FinalizeCommitRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::InProgressRes::kType{utils::TypeId::REP_IN_PROGRESS_RES,
                                                                      "InProgressRes", nullptr};
@@ -196,30 +216,50 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
   memgraph::slk::Load(&self->epoch_id, reader);
 }
 
-// Serialize code for AppendDeltasRes
+// Serialize code for PrepareCommitRes
 
-void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
-  slk::Save(self.success, builder);
+void Save(const storage::replication::PrepareCommitRes &self, Builder *builder) { slk::Save(self.success, builder); }
+
+void Load(storage::replication::PrepareCommitRes *self, Reader *reader) { memgraph::slk::Load(&self->success, reader); }
+
+// Serialize code for PrepareCommitReq
+
+void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self.main_uuid, builder);
+  slk::Save(self.storage_uuid, builder);
+  slk::Save(self.previous_commit_timestamp, builder);
+  slk::Save(self.seq_num, builder);
+  slk::Save(self.commit_immediately, builder);
 }
 
-void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
+void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk::Reader *reader) {
+  slk::Load(&self->main_uuid, reader);
+  slk::Load(&self->storage_uuid, reader);
+  slk::Load(&self->previous_commit_timestamp, reader);
+  slk::Load(&self->seq_num, reader);
+  slk::Load(&self->commit_immediately, reader);
 }
 
-// Serialize code for AppendDeltasReq
+// Serialize code for FinalizeCommitRes
 
-void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(self.previous_commit_timestamp, builder);
-  memgraph::slk::Save(self.seq_num, builder);
+void Save(const storage::replication::FinalizeCommitRes &self, Builder *builder) { slk::Save(self.success, builder); }
+
+void Load(storage::replication::FinalizeCommitRes *self, Reader *reader) { slk::Load(&self->success, reader); }
+
+// Serialize code for FinalizeCommitReq
+
+void Save(const memgraph::storage::replication::FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self.decision, builder);
+  slk::Save(self.main_uuid, builder);
+  slk::Save(self.storage_uuid, builder);
+  slk::Save(self.durability_commit_timestamp, builder);
 }
 
-void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->uuid, reader);
-  memgraph::slk::Load(&self->previous_commit_timestamp, reader);
-  memgraph::slk::Load(&self->seq_num, reader);
+void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk::Reader *reader) {
+  slk::Load(&self->decision, reader);
+  slk::Load(&self->main_uuid, reader);
+  slk::Load(&self->storage_uuid, reader);
+  slk::Load(&self->durability_commit_timestamp, reader);
 }
 
 // Serialize SalientConfig

@@ -209,11 +209,11 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                              DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) override;
 
     void UpdateObjectsCountOnAbort();

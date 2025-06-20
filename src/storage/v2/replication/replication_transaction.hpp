@@ -24,13 +24,21 @@ namespace memgraph::storage {
 
 class TransactionReplication {
  public:
+  // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
+  // proceed with the Commit.
   TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
       : locked_clients{clients.ReadLock()} {
+    spdlog::trace("Successfully locked clients");
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc));
+      // SYNC and ASYNC replicas should commit immediately when receiving deltas
+      bool const should_commit_immediately =
+          client->Mode() != replication_coordination_glue::ReplicationMode::STRICT_SYNC;
+      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately));
     }
   }
+
+  ~TransactionReplication() = default;
 
   template <typename... Args>
   void AppendDelta(Args &&...args) {
@@ -53,22 +61,15 @@ class TransactionReplication {
     }
   }
 
-  bool FinalizeTransaction(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) {
-    bool finalized_on_all_replicas{true};
-    MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
-              "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
-              "handle ASYNC tasks");
-    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
-                                     replica_stream);
-      const auto finalized =
-          client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
-      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-      }
-    }
-    return finalized_on_all_replicas;
-  }
+  // RPC stream won't be destroyed at the end of this function
+  auto ShipDeltas(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool;
+
+  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
+                           uint64_t durability_commit_timestamp) -> bool;
+
+  auto AllStrictSyncReplicasUp() const -> bool;
+
+  auto ShouldRunTwoPC() const -> bool;
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;

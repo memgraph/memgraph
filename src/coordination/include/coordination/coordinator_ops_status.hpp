@@ -29,7 +29,8 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   SUCCESS,
   LOCK_OPENED,
   FAILED_TO_OPEN_LOCK,
-  FAILED_TO_CLOSE_LOCK
+  FAILED_TO_CLOSE_LOCK,
+  STRICT_SYNC_AND_SYNC_FORBIDDEN,
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
