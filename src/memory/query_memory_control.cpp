@@ -9,11 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query_memory_control.hpp"
-
 #include <cstdint>
 
+#include "query_memory_control.hpp"
+
 #include "utils/logging.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 namespace memgraph::memory {
 
@@ -55,7 +56,7 @@ bool TrackAllocOnCurrentThread(size_t size) {
   if (!tracker) return true;
 
   const ThreadTrackingBlocker
-      blocker{};  // makes sure we cannot recursevly track allocations
+      blocker{};  // makes sure we cannot recursively track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
   return tracker->TrackAlloc(size);
 }
@@ -66,7 +67,7 @@ void TrackFreeOnCurrentThread(size_t size) {
   if (!tracker) return;
 
   const ThreadTrackingBlocker
-      blocker{};  // makes sure we cannot recursevly track allocations
+      blocker{};  // makes sure we cannot recursively track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
   tracker->TrackFree(size);
 }
