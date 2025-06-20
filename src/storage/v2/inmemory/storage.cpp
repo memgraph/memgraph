@@ -1456,7 +1456,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, PropertyId property) {
+    EdgeTypeId edge_type, PropertyId property, PublishIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
@@ -1470,12 +1470,16 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_type_property_index->CreateIndex(edge_type, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // TODO: concurrent index creation need to publish
+  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
+  publish_index_callback(0);  // ensures plan cache is cleared
+
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
-    PropertyId property) {
+    PropertyId property, PublishIndexWrapper wrapper) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
@@ -1488,6 +1492,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // TODO: concurrent index creation need to publish
+  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
+  publish_index_callback(0);  // ensures plan cache is cleared
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
   return {};
 }
@@ -1532,11 +1539,13 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type) {
+    EdgeTypeId edge_type, DropIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  if (!mem_edge_type_index->DropIndex(edge_type)) {
+  // Done inside the wrapper to ensure plan cache invalidation is safe
+  auto drop_index_callback = wrapper([&]() { return mem_edge_type_index->DropIndex(edge_type); });
+  if (!drop_index_callback()) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
@@ -1544,7 +1553,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type, PropertyId property) {
+    EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper) {
   MG_ASSERT(type() == UNIQUE, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
@@ -1552,12 +1561,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_type_property_index->DropIndex(edge_type, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // TODO: concurrent index drop
+  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
+  drop_index_callback();
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
-    PropertyId property) {
+    PropertyId property, DropIndexWrapper wrapper) {
   MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
@@ -1570,6 +1582,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_property_index->DropIndex(property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  // TODO: concurrent index drop
+  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
+  drop_index_callback();
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }

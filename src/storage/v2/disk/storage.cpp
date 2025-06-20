@@ -2095,14 +2095,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId /*edge_type*/,
-                                                                                             PropertyId /*property*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, PublishIndexWrapper /*wrapper*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateGlobalEdgeIndex(
-    PropertyId /*property*/) {
+    PropertyId /*property*/, PublishIndexWrapper /*wrapper*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
@@ -2156,19 +2156,20 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
+    EdgeTypeId /*edge_type*/, DropIndexWrapper /*wrapper*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
-                                                                                           PropertyId /*property*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, DropIndexWrapper /*wrapper*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropGlobalEdgeIndex(
-    PropertyId /*property*/) {
+    PropertyId /*property*/, DropIndexWrapper /*wrapper*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
