@@ -67,9 +67,6 @@ class TransactionReplication {
   auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
                            uint64_t durability_commit_timestamp) -> bool;
 
-  // If we don't check locked_clients, this check would fail for replicas since replicas have empty locked_clients
-  auto ReplicationStartSuccessful() const -> bool;
-
   auto ShouldRunTwoPC() const -> bool;
 
  private:
