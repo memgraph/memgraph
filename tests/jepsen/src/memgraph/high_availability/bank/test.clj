@@ -198,12 +198,21 @@
               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                 (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
               (catch Exception e
-                (if (or
-                     (utils/query-forbidden-on-replica? e)
-                     (utils/query-forbidden-on-main? e)
-                     (utils/sync-replica-down? e))
-                  (assoc op :type :info :value (str e))
-                  (assoc op :type :fail :value (str e))))))
+                (cond
+                    (utils/query-forbidden-on-replica? e)
+                    (assoc op :type :info :value "Query forbidden on replica")
+
+                    (utils/query-forbidden-on-main? e)
+                    (assoc op :type :info :value "Query forbidden on main")
+
+                    (utils/sync-replica-down? e)
+                    (assoc op :type :info :value "SYNC replica is down")
+
+                    (utils/main-unwriteable? e)
+                    (assoc op :type :info :value {:str "Cannot commit because main is currently non-writeable."})
+
+                )
+                 )))
           (assoc op :type :info :value "Not data instance"))
 
         :setup-cluster
