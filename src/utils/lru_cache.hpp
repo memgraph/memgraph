@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@ class LRUCache {
     item_map.insert(std::make_pair(key, item_list.begin()));
     try_clean();
   };
+
   std::optional<TVal> get(const TKey &key) {
     if (!exists(key)) {
       return std::nullopt;
@@ -44,10 +45,20 @@ class LRUCache {
     item_list.splice(item_list.begin(), item_list, it->second);
     return it->second->second;
   }
+
+  void invalidate(const TKey &key) {
+    auto it = item_map.find(key);
+    if (it != item_map.end()) {
+      item_list.erase(it->second);
+      item_map.erase(it);
+    }
+  }
+
   void reset() {
     item_list.clear();
     item_map.clear();
   };
+
   std::size_t size() { return item_map.size(); };
 
  private:

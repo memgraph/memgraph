@@ -27,11 +27,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include "utils/compile_time.hpp"
 
 namespace {
-template <typename>
-[[maybe_unused]] inline constexpr bool always_false_v = false;
-
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
 constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
 
@@ -576,7 +574,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
                 }
               },
-              []<typename T>(T const &) { static_assert(always_false_v<T>, "Missing type from variant visitor"); },
+              []<typename T>(T const &) { static_assert(utils::always_false<T>, "Missing type from variant visitor"); },
           },
           recovery_step);
     } catch (const rpc::RpcFailedException &) {

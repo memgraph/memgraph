@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,12 +47,7 @@ struct SchedulerInterval {
 
   std::variant<PeriodStartTime, std::string> period_or_cron{};
 
-  explicit operator bool() const {
-    return std::visit(
-        utils::Overloaded{[](const PeriodStartTime &pst) { return pst.period != std::chrono::milliseconds(0); },
-                          [](const std::string &cron) { return !cron.empty(); }},
-        period_or_cron);
-  }
+  explicit operator bool() const;
 
   void Execute(auto &&overloaded) const {
     std::visit(utils::Overloaded([&overloaded](PeriodStartTime pst) { overloaded(pst.period, pst.start_time); },

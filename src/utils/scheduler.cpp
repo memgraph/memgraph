@@ -126,6 +126,13 @@ SchedulerInterval::SchedulerInterval(std::string str) {
   LOG_FATAL("Scheduler setup not an interval or cron expression");
 }
 
+SchedulerInterval::operator bool() const {
+  return std::visit(
+      utils::Overloaded{[](const PeriodStartTime &pst) { return pst.period != std::chrono::milliseconds(0); },
+                        [](const std::string &cron) { return !cron.empty(); }},
+      period_or_cron);
+}
+
 // Checking stop_possible() is necessary because otherwise calling IsRunning
 // on a non-started Scheduler would return true.
 bool Scheduler::IsRunning() {

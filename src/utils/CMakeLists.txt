@@ -45,6 +45,7 @@ target_sources(mg-utils
     priority_thread_pool.hpp
     barrier.hpp
     transparent_compare.hpp
+    compile_time.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

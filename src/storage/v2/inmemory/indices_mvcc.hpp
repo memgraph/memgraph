@@ -11,20 +11,24 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
+#include "storage/v2/transaction_constants.hpp"
+
+#include <atomic>
 
 namespace memgraph::storage {
 
-struct LabelIndexStats {
-  uint64_t count;
-  double avg_degree;
+struct IndexStatus {
+  IndexStatus() = default;
 
-  auto operator<=>(const LabelIndexStats &) const = default;
+  bool is_populating() const { return commit_timestamp.load(std::memory_order_acquire) == kTransactionInitialId; }
+  bool is_ready() const { return !is_populating(); }
+  bool is_visible(uint64_t timestamp) const { return commit_timestamp.load(std::memory_order_acquire) <= timestamp; }
+
+  void commit(uint64_t timestamp) { commit_timestamp.store(timestamp, std::memory_order_release); }
+
+ private:
+  // kTransactionInitialId means popuating
+  std::atomic<uint64_t> commit_timestamp{kTransactionInitialId};
 };
-
-std::string ToJson(const LabelIndexStats &in);
-
-bool FromJson(const std::string &json, LabelIndexStats &out);
 
 }  // namespace memgraph::storage
