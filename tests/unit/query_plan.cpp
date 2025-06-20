@@ -3338,4 +3338,148 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
   DeleteListContent(&right_subquery_part);
 }
 
+TYPED_TEST(TestPlanner, BasicExistsSubquery) {
+  FakeDbAccessor dba;
+
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}), ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhere) {
+  FakeDbAccessor dba;
+
+  auto name = dba.Property("name");
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                         WHERE(EQ(PROPERTY_LOOKUP(dba, "n", name), PROPERTY_LOOKUP(dba, "m", name)))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                         new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}), ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhereOmitReturn) {
+  FakeDbAccessor dba;
+
+  auto name = dba.Property("name");
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                         WHERE(EQ(PROPERTY_LOOKUP(dba, "n", name), PROPERTY_LOOKUP(dba, "m", name))), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                         new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}), ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhere) {
+  FakeDbAccessor dba;
+
+  auto name = dba.Property("name");
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(WITH(LITERAL("Ozzy"), AS("ozzyName")), MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                         WHERE(EQ(PROPERTY_LOOKUP(dba, "n", name), IDENT("ozzyName")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectProduce(), new ExpectFilter(), new ExpectExpand(), new ExpectLimit(),
+                                         new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}), ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhereOnVertexPropety) {
+  FakeDbAccessor dba;
+
+  auto name = dba.Property("name");
+  auto *exists_subquery =
+      QUERY(SINGLE_QUERY(WITH(LITERAL("Ozzy"), AS("ozzyName")), MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                         WHERE(EQ(PROPERTY_LOOKUP(dba, "m", name), IDENT("ozzyName")))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> filter_tree{new ExpectProduce(), new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                         new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}), ExpectProduce());
+
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
+  FakeDbAccessor dba;
+
+  auto name = dba.Property("name");
+  auto *nested_exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r2"), NODE("o")))));
+  auto *exists_subquery = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), WHERE(EXISTS_SUBQUERY(nested_exists_subquery))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> nested_filter_tree{new ExpectExpand(), new ExpectLimit(),
+                                                new ExpectEvaluatePatternFilter()};
+  std::list<BaseOpChecker *> filter_tree{new ExpectExpand(),
+                                         new ExpectFilter(std::vector<std::list<BaseOpChecker *>>{nested_filter_tree}),
+                                         new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree}), ExpectProduce());
+
+  DeleteListContent(&nested_filter_tree);
+  DeleteListContent(&filter_tree);
+}
+
+TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
+  FakeDbAccessor dba;
+
+  auto name = dba.Property("name");
+  auto *exists_subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r1"), NODE("m1")))),
+                                UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r2"), NODE("m2"))))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(exists_subquery)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_exists_part{new ExpectExpand()};
+  std::list<BaseOpChecker *> right_exists_part{new ExpectExpand()};
+  std::list<BaseOpChecker *> exists_union_plan{new ExpectUnion(left_exists_part, right_exists_part),
+                                               new ExpectDistinct(), new ExpectLimit(),
+                                               new ExpectEvaluatePatternFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+            ExpectFilter(std::vector<std::list<BaseOpChecker *>>{exists_union_plan}), ExpectProduce());
+
+  DeleteListContent(&left_exists_part);
+  DeleteListContent(&right_exists_part);
+  DeleteListContent(&exists_union_plan);
+}
+
 }  // namespace

@@ -1200,37 +1200,69 @@ TYPED_TEST(TestSymbolGenerator, Foreach) {
 }
 
 TYPED_TEST(TestSymbolGenerator, Exists) {
-  auto query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n"))),
-      WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  {
+    auto query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
 
-  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  {
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
 
-  query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  {
+    auto query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
 
-  // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in return
-  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                  NODE("node", std::nullopt, false)))),
-                             RETURN("n")));
-  auto symbol_table = MakeSymbolTable(query);
-  ASSERT_EQ(symbol_table.max_position(), 7);
+  {
+    // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in
+    // return
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                         NODE("node", std::nullopt, false)))),
+                                    RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+    ASSERT_EQ(symbol_table.max_position(), 7);
 
-  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
-  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-  auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
 
-  expression->Accept(collector);
+    expression->Accept(collector);
 
-  ASSERT_EQ(collector.symbols_.size(), 1);
+    ASSERT_EQ(collector.symbols_.size(), 1);
 
-  auto symbol = *collector.symbols_.begin();
-  ASSERT_EQ(symbol.name_, "n");
+    auto symbol = *collector.symbols_.begin();
+    ASSERT_EQ(symbol.name_, "n");
+  }
+
+  {
+    auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                     NODE("node", std::nullopt, false))),
+                                       RETURN("n")));
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(subquery)), RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+
+    // match pattern, node, edge, second node, return param, node, return param, exists
+    ASSERT_EQ(symbol_table.max_position(), 8);
+
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+
+    expression->Accept(collector);
+
+    ASSERT_EQ(collector.symbols_.size(), 1);
+
+    auto symbol = *collector.symbols_.begin();
+    ASSERT_EQ(symbol.name_, "n");
+  }
 }
 
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
@@ -1496,7 +1528,7 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
   auto *ident = IDENT("x");
   auto query = QUERY(
       SINGLE_QUERY(RETURN(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
-                                                                     nullptr, ADD(ident, LITERAL(1)))))));
+                                                                    nullptr, ADD(ident, LITERAL(1)))))));
 
   auto symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 2);
