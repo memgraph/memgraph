@@ -719,8 +719,8 @@ fi
 # NOTE: pulsar v2.8.1 client can't be compield on 1.87+ of Boost -> both have to be upgraded.
 # BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
 # BOOST_VERSION=1.81.0
-BOOST_SHA256=be0d91732d5b0cc6fbb275c7939974457e79b54d6f07ce2e3dfdd68bef883b0b
-BOOST_VERSION=1.85.0
+BOOST_SHA256=3621533e820dcab1e8012afd583c0c73cf0f77694952b81352bf38c1488f9cb4
+BOOST_VERSION=1.88.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
@@ -1317,7 +1317,7 @@ fi
 #     cmake --build build -j$CPUS --target install
 #     popd
 # fi
-PULSAR_TAG="v2.8.1"
+PULSAR_TAG="v4.0.5"
 log_tool_name "pulsar $PULSAR_TAG"
 if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     if [ -d pulsar ]; then
