@@ -237,11 +237,11 @@ tar -xzf neo4j-community-5.6.0-unix.tar.gz
 mv neo4j-community-5.6.0 neo4j
 rm neo4j-community-5.6.0-unix.tar.gz
 
-rocksdb_tag="v9.10.0" # (2023-04-21)
-repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-pushd rocksdb
-git apply ../rocksdb9.10.0.patch
-popd
+# rocksdb_tag="v9.10.0" # (2023-04-21)
+# repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
+# pushd rocksdb
+# git apply ../rocksdb9.10.0.patch
+# popd
 
 # nlohmann json
 # We wget header instead of cloning repo since repo is huge (lots of test data).
