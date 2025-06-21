@@ -8,6 +8,10 @@ CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
 source "$DIR/../../util.sh"
 DISTRO="$(operating_system)"
+# this will remove the minor version from rocky linuxAdd commentMore actions
+if [[ "$DISTRO" =~ ^rocky-([0-9]+)\.[0-9]+$ ]]; then
+    DISTRO="rocky-${BASH_REMATCH[1]}"
+fi
 
 function log_tool_name () {
     echo ""
