@@ -194,3 +194,59 @@ Feature: Hops Limit
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'D'})> |
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'E'})> |
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'F'})> |
+
+    Scenario: Test retrieving hops limit counter
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) as x CREATE ()-[:NEXT]->()
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 100 CALL { MATCH (a)-[r]->(b) with a, r, b LIMIT 50 return count(*) as cnt } RETURN getHopsCounter() as counter;
+            """
+        Then the result should be:
+            | counter |
+            | 50      |
+
+    Scenario: Test retrieving hops limit counter without limit set is also active
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) as x CREATE ()-[:NEXT]->()
+            """
+        When executing query:
+            """
+            CALL { MATCH (a)-[r]->(b) with a, r, b LIMIT 50 return count(*) as cnt } RETURN getHopsCounter() as counter;
+            """
+        Then the result should be:
+            | counter |
+            | 50      |
+
+    Scenario: Test retrieving hops limit without traversing
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) as x CREATE ()-[:NEXT]->()
+            """
+        When executing query:
+            """
+            RETURN getHopsCounter() as counter;
+            """
+        Then the result should be:
+            | counter |
+            | 0       |
+
+    Scenario: Test retrieving hops limit without traversing 2
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) as x CREATE ()-[:NEXT]->()
+            """
+        When executing query:
+            """
+            MATCH (n) with count(n) as cnt RETURN getHopsCounter() as counter;
+            """
+        Then the result should be:
+            | counter |
+            | 0       |
