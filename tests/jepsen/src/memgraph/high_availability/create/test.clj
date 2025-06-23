@@ -603,7 +603,7 @@
    (gen/phases
     (gen/once setup-cluster)
     (gen/sleep 5)
-    (gen/once create-unique-constraint)
+    ; (gen/once create-unique-constraint)
     (gen/delay delay-requests-sec
                (gen/mix [show-instances-reads add-nodes])))))
 
