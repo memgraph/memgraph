@@ -294,6 +294,9 @@ class DiskStorage final : public Storage {
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
+    std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
    private:

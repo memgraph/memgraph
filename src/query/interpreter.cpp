@@ -1839,9 +1839,10 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
 
   auto resize_coefficient_it = transformed_map.find(kResizeCoefficient);
-  auto resize_coefficient = resize_coefficient_it != transformed_map.end()
-                                ? static_cast<std::uint16_t>(resize_coefficient_it->second.ValueInt())
-                                : kDefaultResizeCoefficient;
+  auto resize_coefficient =
+      resize_coefficient_it != transformed_map.end() && resize_coefficient_it->second.ValueInt() > 0
+          ? static_cast<std::uint16_t>(resize_coefficient_it->second.ValueInt())
+          : kDefaultResizeCoefficient;
   auto scalar_kind_it = transformed_map.find(kScalarKind);
   auto scalar_kind = storage::VectorIndex::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);

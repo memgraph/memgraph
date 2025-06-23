@@ -3149,6 +3149,22 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
   return result;
 }
 
+std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnEdges(
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  std::vector<std::tuple<EdgeAccessor, double, double>> result;
+
+  // we have to take edges accessor to be sure no edge is deleted while we are searching
+  auto acc = mem_storage->edges_.access();
+  const auto search_results = storage_->indices_.vector_index_.SearchEdges(index_name, number_of_results, vector);
+  std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
+    auto &[edge, distance, score] = item;
+    return std::make_tuple(EdgeAccessor{edge, storage_, &transaction_}, distance, score);
+  });
+
+  return result;
+}
+
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
   return storage_->indices_.vector_index_.ListVectorIndicesInfo();
 };

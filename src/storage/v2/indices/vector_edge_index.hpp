@@ -11,14 +11,11 @@
 
 #pragma once
 
-#include <cstdint>
-
+#include <map>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
@@ -31,21 +28,34 @@ namespace memgraph::storage {
 /// still operate in any other isolation level.
 /// This class is thread-safe and uses the Pimpl (Pointer to Implementation) idiom
 /// to hide implementation details.
-class VectorIndex {
+class VectorEdgeIndex {
  public:
   struct IndexStats {
-    std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
+    std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
+  };
+  struct EdgeIndexEntry {
+    Vertex *from_vertex;
+    Vertex *to_vertex;
+    Edge *edge;
+
+    friend bool operator<(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex) < std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex);
+    }
+
+    friend bool operator==(EdgeIndexEntry const &lhs, EdgeIndexEntry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex) == std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex);
+    }
   };
 
-  using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
+  using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
-  explicit VectorIndex();
-  ~VectorIndex();
-  VectorIndex(const VectorIndex &) = delete;
-  VectorIndex &operator=(const VectorIndex &) = delete;
-  VectorIndex(VectorIndex &&) noexcept;
-  VectorIndex &operator=(VectorIndex &&) noexcept;
+  explicit VectorEdgeIndex();
+  ~VectorEdgeIndex();
+  VectorEdgeIndex(const VectorEdgeIndex &) = delete;
+  VectorEdgeIndex &operator=(const VectorEdgeIndex &) = delete;
+  VectorEdgeIndex(VectorEdgeIndex &&) noexcept;
+  VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
@@ -63,21 +73,8 @@ class VectorIndex {
   /// @brief Drops all existing indexes.
   void Clear();
 
-  /// @brief Updates the index when a label is added to a vertex.
-  /// @param added_label The label that was added to the vertex.
-  /// @param vertex_after_update The vertex after the label was added.
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update);
-
-  /// @brief Updates the index when a label is removed from a vertex.
-  /// @param removed_label The label that was removed from the vertex.
-  /// @param vertex_before_update The vertex before the label was removed.
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update);
-
-  /// @brief Updates the index when a property is modified on a vertex.
-  /// @param property The property that was modified.
-  /// @param value The new value of the property.
-  /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
+  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                           PropertyId property, const PropertyValue &value);
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -87,30 +84,25 @@ class VectorIndex {
   /// @return A vector of specs representing vector indices configurations.
   std::vector<VectorIndexSpec> ListIndices() const;
 
-  /// @brief Returns number of vertices in the index.
-  /// @param label The label of the vertices in the index.
-  /// @param property The property of the vertices in the index.
-  /// @return The number of vertices in the index.
-  std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const;
+  /// @brief Returns number of edges in the index.
+  /// @param edge_type The type of the edges in the index.
+  /// @param property The property of the edges in the index.
+  /// @return The number of edges in the index.
+  std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const;
 
-  /// @brief Searches for nodes in the specified index using a query vector.
+  /// @brief Searches for edges in the specified index using a query vector.
   /// @param index_name The name of the index to search.
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
-  /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
-  VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
+  /// @return A vector of tuples containing the edge, distance, and similarity of the search results.
+  VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector) const;
 
-  /// @brief Aborts the entries that were inserted in the specified transaction.
-  /// @param label_prop The label of the vertices to be removed.
-  /// @param vertices The vertices to be removed.
-  void AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices);
-
-  /// @brief Restores the entries that were removed in the specified transaction.
-  /// @param label_prop The label and property of the vertices to be restored.
-  /// @param prop_vertices The vertices to be restored.
-  void RestoreEntries(const LabelPropKey &label_prop,
-                      std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
+  //   /// @brief Restores the entries that were removed in the specified transaction.
+  //   /// @param edge_type_prop The label and property of the vertices to be restored.
+  //   /// @param prop_edges The edges to be restored.
+  //   void RestoreEntries(const EdgeTypePropKey &edge_type_prop,
+  //                       std::span<std::pair<PropertyValue, Edge *> const> prop_edges);
 
   /// @brief Removes obsolete entries from the index.
   /// @param token A stop token to allow for cancellation of the operation.
@@ -126,7 +118,8 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+  bool UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
+                         const PropertyValue *value = nullptr);
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

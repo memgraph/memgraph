@@ -532,6 +532,11 @@ class DbAccessor final {
     return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
   }
 
+  std::vector<std::tuple<storage::EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
+  }
+
   std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {

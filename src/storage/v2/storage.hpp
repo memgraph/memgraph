@@ -529,6 +529,9 @@ class Storage {
     virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
+    virtual std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }

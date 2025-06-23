@@ -71,7 +71,9 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.hpp
         indices/point_iterator.hpp
         indices/point_index_expensive_header.hpp
+        indices/vector_index_utils.hpp
         indices/vector_index.hpp
+        indices/vector_edge_index.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp
