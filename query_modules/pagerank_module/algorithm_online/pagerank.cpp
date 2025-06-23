@@ -99,7 +99,7 @@ std::vector<std::pair<std::uint64_t, double>> CalculatePageRank() {
 
 ///
 ///@brief Creates a route starting from start_id, stores it in walk and updates the walk_index. Route is created via
-/// random walk depending on random number genrator.
+/// random walk depending on random number generator.
 ///
 ///@param graph Graph for route creation
 ///@param start_id Starting node in graph creation
@@ -238,7 +238,7 @@ void UpdateDelete(const mg_graph::GraphView<> &graph, std::uint64_t removed_vert
   pagerank_online_alg::context.walks_counter.erase(removed_vertex);
 }
 
-bool IsIncosistent(const mg_graph::GraphView<> &graph) {
+bool IsInconsistent(const mg_graph::GraphView<> &graph) {
   for (auto const [node_id] : graph.Nodes()) {
     auto external_id = graph.GetMemgraphNodeId(node_id);
     if (pagerank_online_alg::context.walks_counter.find(external_id) ==
@@ -281,9 +281,9 @@ std::vector<std::pair<std::uint64_t, double>> GetPagerank(const mg_graph::GraphV
   if (pagerank_online_alg::context.IsEmpty()) {
     return SetPagerank(graph);
   }
-  if (IsIncosistent(graph)) {
+  if (IsInconsistent(graph)) {
     throw std::runtime_error(
-        "Graph has been modified, therefore is incosistent with cached results, please update the Pagerank by calling "
+        "Graph has been modified, therefore is inconsistent with cached results, please update the Pagerank by calling "
         "set/reset!");
   }
   return CalculatePageRank();

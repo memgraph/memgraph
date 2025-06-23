@@ -168,7 +168,7 @@ struct Expansion {
   bool expand_from_edge{false};
 };
 
-/// @brief Determine if the given expression is splitted on AND or OR operators.
+/// @brief Determine if the given expression is split on AND or OR operators.
 enum class SplitExpressionMode { AND, OR };
 
 struct PatternComprehensionMatching;
@@ -763,8 +763,8 @@ struct SingleQueryPart {
   /// Since @c Merge is contained in `remaining_clauses`, this vector contains
   /// matching in the same order as @c Merge appears.
   //
-  /// Foreach @c does not violate this gurantee. However, update clauses are not stored
-  /// in the `remaining_clauses` but rather in the `Foreach` itself and are guranteed
+  /// Foreach @c does not violate this guarantee. However, update clauses are not stored
+  /// in the `remaining_clauses` but rather in the `Foreach` itself and are guaranteed
   /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
 

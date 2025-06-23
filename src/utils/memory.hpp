@@ -295,7 +295,7 @@ constexpr std::size_t bin_index(std::size_t n) {
   return msb_level + selector - no_overflow;
 }
 
-// This is the inverse opperation for bin_index
+// This is the inverse operation for bin_index
 // bin_size(bin_index(X)-1) < X <= bin_size(bin_index(X))
 template <std::size_t B = 2, std::size_t LB = 8>
 std::size_t bin_size(std::size_t idx) {

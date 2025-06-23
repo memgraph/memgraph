@@ -42,7 +42,7 @@ void Func(std::promise<bool> promise) {
       err = true;
     }
   } catch (const std::exception &e) {
-    spdlog::info("Good: Exception occured", e.what());
+    spdlog::info("Good: Exception occurred", e.what());
     err = true;
   }
   promise.set_value_at_thread_exit(err);

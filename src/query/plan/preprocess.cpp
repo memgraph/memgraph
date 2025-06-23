@@ -200,7 +200,7 @@ auto MatchesIdentifier(Identifier *identifier) {
     auto *exisiting_identifier = dynamic_cast<Identifier *>(existing_label_test->expression_);
     if (!exisiting_identifier) return false;
 
-    // If are the same symbol position then they must be referring to the same identifer
+    // If are the same symbol position then they must be referring to the same identifier
     return identifier->symbol_pos_ == exisiting_identifier->symbol_pos_;
   };
 };
@@ -591,7 +591,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       throw SemanticException("point.distance function requires 2 arguments");
     }
 
-    auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
+    auto extract_prop_lookup_and_identifiers = [&](Expression *lhs, Expression *rhs) -> bool {
       if (get_property_lookup(lhs, propertyLookup, ident)) {
         auto const &sym = symbol_table.at(*ident);
         if (!is_independant(sym, rhs)) return false;
@@ -601,7 +601,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return false;
     };
 
-    return commutative_apply(extract_prop_lookup_and_identifers, func->arguments_[0], func->arguments_[1]);
+    return commutative_apply(extract_prop_lookup_and_identifiers, func->arguments_[0], func->arguments_[1]);
   };
 
   auto add_point_distance_filter = [&](auto *expr1, auto *expr2, PointDistanceCondition kind) {
@@ -630,7 +630,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       throw SemanticException("point.withinbbox function requires 3 arguments");
     }
 
-    auto extract_prop_lookup_and_identifers = [&](Expression *point, Expression *bottom_left_expr,
+    auto extract_prop_lookup_and_identifiers = [&](Expression *point, Expression *bottom_left_expr,
                                                   Expression *top_right_expr) -> bool {
       if (get_property_lookup(point, propertyLookup, ident)) {
         auto const &scan_symbol = symbol_table.at(*ident);
@@ -643,7 +643,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       return false;
     };
 
-    return extract_prop_lookup_and_identifers(func->arguments_[0], func->arguments_[1], func->arguments_[2]);
+    return extract_prop_lookup_and_identifiers(func->arguments_[0], func->arguments_[1], func->arguments_[2]);
   };
 
   auto add_point_withinbbox_filter_binary = [&](auto *expr1, auto *expr2) {
@@ -730,7 +730,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     all_filters_.emplace_back(filter);
     return;
   };
-  // Check if maybe_id_fun is ID invocation on an indentifier and add it as
+  // Check if maybe_id_fun is ID invocation on an identifier and add it as
   // IdFilter.
   auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
     auto *id_fun = utils::Downcast<Function>(maybe_id_fun);

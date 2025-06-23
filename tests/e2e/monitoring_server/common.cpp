@@ -16,7 +16,7 @@
 std::string GetAuthenticationJSON(const Credentials &creds) {
   nlohmann::json json_creds;
   json_creds["username"] = creds.username;
-  json_creds["password"] = creds.passsword;
+  json_creds["password"] = creds.password;
   return json_creds.dump();
 }
 

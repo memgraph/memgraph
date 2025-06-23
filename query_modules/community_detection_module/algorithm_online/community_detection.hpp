@@ -116,7 +116,7 @@ class LabelRankT {
   ///@brief Checks if given node’s label probabilities are sufficiently distinct
   /// from its neighbors’.
   /// For a label probability vector to be considered sufficiently distinct, it
-  /// has to be a subset of less than k% label probabilty vectors of its
+  /// has to be a subset of less than k% label probability vectors of its
   /// neighbors.
   ///
   ///@param node_i -- given node

@@ -199,7 +199,7 @@ const uint8_t kShiftIdSize = 2;
 //     - encoded property ID
 //     - encoded property value as two ints, enum type then enum value, both same size
 //   * POINT
-//     - type; payload size is used to encode the crs type (this only works becuase there are 4 sizes + 4 crs types)
+//     - type; payload size is used to encode the crs type (this only works because there are 4 sizes + 4 crs types)
 //     - encoded property ID
 //     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
 

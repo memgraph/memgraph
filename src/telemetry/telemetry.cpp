@@ -135,7 +135,7 @@ void Telemetry::CollectData(const std::string &event) {
         data[collector.first] = collector.second();
       } catch (std::exception &e) {
         spdlog::warn(fmt::format(
-            "Unknwon exception occured on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
+            "Unknwon exception occurred on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
             e.what()));
       }
     }
