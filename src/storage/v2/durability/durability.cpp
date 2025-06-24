@@ -622,7 +622,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           if (info->last_durable_timestamp) {
-            last_loaded_timestamp.emplace(info->last_durable_timestamp.value_or(0));
+            last_loaded_timestamp.emplace(*info->last_durable_timestamp);
+            spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
           }
         }
 
@@ -634,6 +635,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         } else if (epoch_history->back().second < *last_loaded_timestamp) {
           // existing epoch, update with newer timestamp
           epoch_history->back().second = *last_loaded_timestamp;
+          spdlog::trace("Updating existing epoch {} with newer timestamp {}", epoch_history->back().second,
+                        *last_loaded_timestamp);
         }
 
       } catch (const RecoveryFailure &e) {

@@ -756,13 +756,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       return StorageManipulationError{*maybe_violation};
     }
 
-    // Result of validating the vertex against unique constraints. It has to be
-    // declared outside the critical section scope because its value is
-    // tested for Abort call which has to be done out of the scope.
-
-    // Save these so we can mark them used in the commit log.
-
+    spdlog::trace("Trying to acquire engine lock in prepare phase");
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
+    spdlog::trace("acquired engine lock in prepare phase");
 
     // LabelIndex auto-creation block.
     if (storage_->config_.salient.items.enable_label_index_auto_creation) {
@@ -814,8 +810,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
       // couldn't be retrieved. As long as this object is alive, RPC streams are held. We use recursive mutex because
       // this thread will lock the RPC lock twice: once for PrepareCommitRpc and 2nd time for FinalizeCommitRpc
+      spdlog::trace("Trying to acquire RPC streams");
       auto replicating_txn = mem_storage->repl_storage_state_.StartPrepareCommitPhase(
           mem_storage->wal_file_->SequenceNumber(), mem_storage, db_acc);
+      spdlog::trace("Acquired RPC streams");
 
       // This will block until we receive OK votes from all replicas if we are main
       // If we are replica, we will make durable our deltas and return
@@ -853,16 +851,20 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // WAL file
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
+          spdlog::trace("Finalized WAL file after commit");
         }
 
         replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
       } else {
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
+          spdlog::trace("Finalized WAL before abort");
         }
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
         AbortAndResetCommitTs();
+
+        spdlog::trace("Aborted and resetted commit ts, ready to send AbortRpc to replicas");
 
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
@@ -892,6 +894,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   if (commit_flag_wal_position_ != 0 && needs_wal_update_) {
     constexpr bool commit{true};
     mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
+    spdlog::trace("Updated commit status to true on position {}", commit_flag_wal_position_);
   }
 
   MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -904,6 +907,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
                                                                  std::memory_order_release);
+  spdlog::trace("Set ldt to {}",
+                mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire));
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
@@ -2326,15 +2331,6 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                                                      std::optional<bool> const &commit_immediately) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // A single transaction will always be fully-contained in a single WAL file.
-  auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
-
-  // Safe to abort here because deltas weren't made durable yet
-  if (!replicating_txn.ReplicationStartSuccessful()) {
-    AbortAndResetCommitTs();
-    return false;
-  }
-
   bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
     // Replica
     if (commit_immediately.has_value()) {
@@ -2490,7 +2486,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
     }
   }
-
+  // A single transaction will always be fully-contained in a single WAL file.
+  auto current_commit_timestamp = transaction_.commit_timestamp->load(std::memory_order_acquire);
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
@@ -2663,6 +2660,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // MAIN without STRICT SYNC replicas
   if (commit_flag) {
     mem_storage->FinalizeWalFile();
+    spdlog::trace("Finalized WAL file in the 1st phase");
   }
 
   // Ships deltas to instances and waits for the reply
