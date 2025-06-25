@@ -63,7 +63,7 @@ inline void free_tracking(void *ptr, int flags = 0) {
 }  // namespace
 
 extern "C" void *malloc(size_t size) {
-  if (!alloc_tracking(size)) {
+  if (!alloc_tracking(size)) [[unlikely]] {
     return nullptr;
   }
   void *const res = je_malloc(size);
@@ -74,18 +74,18 @@ extern "C" void *malloc(size_t size) {
 }
 
 extern "C" void *calloc(size_t count, size_t size) {
-  if (!alloc_tracking(size)) {
+  if (!alloc_tracking(count * size)) [[unlikely]] {
     return nullptr;
   }
   void *const res = je_calloc(count, size);
   if (res == nullptr) [[unlikely]] {
-    failed_alloc_tracking(size);
+    failed_alloc_tracking(count * size);
   }
   return res;
 }
 
 extern "C" void *realloc(void *ptr, size_t size) {
-  if (!realloc_tracking(ptr, size)) {
+  if (!realloc_tracking(ptr, size)) [[unlikely]] {
     return nullptr;
   }
   void *const res = je_realloc(ptr, size);
@@ -97,7 +97,7 @@ extern "C" void *realloc(void *ptr, size_t size) {
 
 extern "C" void *aligned_alloc(size_t alignment, size_t size) {
   const int flags = MALLOCX_ALIGN(alignment);
-  if (!alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
   }
   void *const res = je_aligned_alloc(alignment, size);
@@ -109,7 +109,7 @@ extern "C" void *aligned_alloc(size_t alignment, size_t size) {
 
 extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
   const int flags = MALLOCX_ALIGN(alignment);
-  if (!alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
     return ENOMEM;
   }
   int const res = je_posix_memalign(p, alignment, size);
@@ -121,7 +121,7 @@ extern "C" int posix_memalign(void **p, size_t alignment, size_t size) {
 
 extern "C" void *valloc(size_t size) {
   const int flags = MALLOCX_ALIGN(4096);
-  if (!alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
   }
   void *const res = je_valloc(size);
@@ -133,7 +133,7 @@ extern "C" void *valloc(size_t size) {
 
 extern "C" void *memalign(size_t alignment, size_t size) {
   const int flags = MALLOCX_ALIGN(alignment);
-  if (!alloc_tracking(size, flags)) {
+  if (!alloc_tracking(size, flags)) [[unlikely]] {
     return nullptr;
   }
   void *const res = je_memalign(alignment, size);
@@ -144,20 +144,23 @@ extern "C" void *memalign(size_t alignment, size_t size) {
 }
 
 extern "C" void free(void *ptr) {
-  if (!ptr) return;
+  if (!ptr) [[unlikely]]
+    return;
   free_tracking(ptr);
   je_free(ptr);
 }
 
 extern "C" void dallocx(void *ptr, int flags) {
-  if (!ptr) return;
-  free_tracking(ptr);
+  if (!ptr) [[unlikely]]
+    return;
+  free_tracking(ptr, flags);
   je_dallocx(ptr, flags);
 }
 
 extern "C" void sdallocx(void *ptr, size_t size, int flags) {
-  if (!ptr) return;
-  free_tracking(ptr);
+  if (!ptr) [[unlikely]]
+    return;
+  free_tracking(ptr, flags);
   je_sdallocx(ptr, size, flags);
 }
 
