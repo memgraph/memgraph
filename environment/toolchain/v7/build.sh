@@ -1322,14 +1322,14 @@ fi
 #     cmake --build build -j$CPUS --target install
 #     popd
 # fi
-PULSAR_TAG="v4.0.5"
+PULSAR_TAG="v3.7.1"
 log_tool_name "pulsar $PULSAR_TAG"
 if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     if [ -d pulsar ]; then
         rm -rf pulsar
     fi
     git clone https://github.com/apache/pulsar-client-cpp.git pulsar
-    pushd PULSAR_TAG
+    pushd pulsar
     git checkout $PULSAR_TAG
     cmake -B . $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
