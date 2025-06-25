@@ -16,7 +16,7 @@
 // Forward declaration
 namespace memgraph::utils {
 class QueryMemoryTracker;
-class UserResources;
+struct UserResources;
 }  // namespace memgraph::utils
 
 namespace memgraph::memory {
