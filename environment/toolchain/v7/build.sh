@@ -984,7 +984,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
 fi
 
 log_tool_name "python $PYTHON_VERSION"
-if [ ! -f $PREFIX/include/python3.12/Python.h ]; then
+if [ ! -f $PREFIX/include/python$PYTHON_VERSION/Python.h ]; then
     if [ -d python3-$PYTHON_VERSION ]; then
         rm -rf Python-$PYTHON_VERSION
     fi
@@ -1329,10 +1329,8 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
         rm -rf pulsar
     fi
     git clone https://github.com/apache/pulsar-client-cpp.git pulsar
-    pushd pulsar-client-cpp
+    pushd PULSAR_TAG
     git checkout $PULSAR_TAG
-    git apply $DIR/pulsar.patch
-    pushd pulsar-client-cpp
     cmake -B . $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
@@ -1346,7 +1344,6 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     # NOTE: For some reason the withdeps is not make installed...
     cp lib/libpulsarwithdeps.a $PREFIX/lib/
     cmake --build . -j$CPUS --target install
-    popd
     popd
 fi
 
