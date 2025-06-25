@@ -286,7 +286,7 @@ if [ ! -f $PREFIX/lib/libmpfr.a ]; then
 fi
 
 log_tool_name "binutils $BINUTILS_VERSION"
-if [ ! -f $PREFIX/bin/ld.gold ]; then
+if [ ! -f $PREFIX/bin/ld ]; then
     if [ -d binutils-$BINUTILS_VERSION ]; then
         rm -rf binutils-$BINUTILS_VERSION
     fi
@@ -624,15 +624,16 @@ fi
 # create activation script
 if [ ! -f $PREFIX/activate ]; then
     cat >$PREFIX/activate <<EOF
-current_shell=\$(ps -p \$\$ -o comm= | xargs)
-
-if [[ "\$current_shell" == "bash" ]]; then
+# Detect the shell
+if [ -n "\$BASH_VERSION" ]; then
+    current_shell="bash"
     SCRIPT_SOURCE="\${BASH_SOURCE[0]}"
-elif [[ "\$current_shell" == "zsh" ]]; then
+elif [ -n "\$ZSH_VERSION" ]; then
+    current_shell="zsh"
     SCRIPT_SOURCE="\${(%):-%N}"
 else
     echo "Unsupported shell. Only bash and zsh are supported." >&2
-    return 1
+    return 1 2>/dev/null || exit 1
 fi
 
 SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
