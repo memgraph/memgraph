@@ -1328,8 +1328,8 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     if [ -d pulsar ]; then
         rm -rf pulsar
     fi
-    git clone https://github.com/apache/pulsar.git pulsar
-    pushd pulsar
+    git clone https://github.com/apache/pulsar-client-cpp.git pulsar
+    pushd pulsar-client-cpp
     git checkout $PULSAR_TAG
     git apply $DIR/pulsar.patch
     pushd pulsar-client-cpp
