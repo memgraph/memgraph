@@ -58,7 +58,7 @@ inline void *newNoExcept(const std::size_t size) noexcept {
 
 inline void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-  return aligned_alloc(size, static_cast<std::size_t>(align));
+  return aligned_alloc(static_cast<std::size_t>(align), size);
 }
 
 #if USE_JEMALLOC
