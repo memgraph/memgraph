@@ -1451,8 +1451,8 @@ if [ ! -f $PREFIX/bin/mgconsole ]; then
     fi
     git clone https://github.com/memgraph/mgconsole.git mgconsole
     pushd mgconsole
-    patch < "$DIR/mgconsole.patch"
     git checkout $MGCONSOLE_TAG
+    patch < "$DIR/mgconsole.patch"
     cmake -B build $COMMON_CMAKE_FLAGS
     cmake --build build -j$CPUS --target mgconsole install
     popd
