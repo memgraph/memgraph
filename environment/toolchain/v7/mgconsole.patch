@@ -1,5 +1,5 @@
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@
+--- CMakeLists.txt	2025-06-26 12:00:00.000000000 +0000
++++ CMakeLists.txt	2025-06-26 12:01:00.000000000 +0000
+@@ -1 +1 @@
 -cmake_minimum_required(VERSION 3.4)
 +cmake_minimum_required(VERSION 3.5)
