@@ -329,7 +329,11 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-add_subdirectory(spdlog)
+mg_create_linkable_if_no_cmake(spdlog::spdlog STATIC
+  "${MG_TOOLCHAIN_ROOT}/lib/libspdlog.a"
+  "${MG_TOOLCHAIN_ROOT}/include/spdlog"
+)
+# add_subdirectory(spdlog)
 
 macro(build_kafka)
     import_external_library(librdkafka STATIC
