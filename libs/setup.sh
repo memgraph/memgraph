@@ -265,7 +265,7 @@ sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 mgconsole_tag="v1.4.0" # (2023-05-21)
 skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
-spdlog_tag="v1.12.0" # (2022-11-02)
+spdlog_tag="v1.15.3" # (2022-11-02)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 # librdkafka
