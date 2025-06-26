@@ -36,6 +36,7 @@ function setup_virtualenv () {
 setup_libs=true
 ci=false
 prep_testing=true
+check_system_packages=true
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
@@ -54,6 +55,9 @@ else
               shift
               prep_testing=false
           ;;
+          --skip-package-check)
+            shift
+            check_system_packages=false
           *)
               # unknown option
               echo "Invalid argument provided: $1"
@@ -64,15 +68,18 @@ else
     done
 fi
 
-if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
-  OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+if [[ $check_system_packages ]]; then
+  if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
+    OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+  else
+    OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+  fi
+  echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
+  $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
+  echo "All packages are in-place..."
 else
-  OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+  echo "Skipping package checks, good luck!"
 fi
-echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
-$OS_SCRIPT check MEMGRAPH_BUILD_DEPS
-echo "All packages are in-place..."
-
 # create a default build directory
 mkdir -p ./build
 
