@@ -550,7 +550,7 @@ class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) {
+  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
     bool first_path = true;
 
