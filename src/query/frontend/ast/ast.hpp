@@ -3741,7 +3741,7 @@ class fmt::formatter<memgraph::query::PropertyIxPath> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) {
+  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
 
     if (!wrapper.path.empty()) {
