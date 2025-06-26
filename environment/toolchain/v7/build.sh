@@ -914,6 +914,8 @@ popd
 
 pushd build
 source $PREFIX/activate
+BREAK_SYSTEM_PACKAGES=1
+pip install conan
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
 export CFLAGS="$CFLAGS -fPIC"
