@@ -39,7 +39,7 @@ fi
 # TODO(gitbuda): Add --skip-gpg and somehow make gpg check configurable per OS.
 TOOLCHAIN_VERSION=7
 # package versions used
-GCC_VERSION=14.2.0
+GCC_VERSION=15.1.0
 BINUTILS_VERSION=2.44
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
@@ -49,9 +49,9 @@ case "$DISTRO" in
         GDB_VERSION=16.2
     ;;
 esac
-CMAKE_VERSION=3.31.5
+CMAKE_VERSION=4.0.3
 CPPCHECK_VERSION=2.16.0
-LLVM_VERSION=19.1.7
+LLVM_VERSION=20.1.7
 SWIG_VERSION=4.3.0 # used only for LLVM compilation
 
 # define the name used to make the toolchain archive
