@@ -345,8 +345,12 @@ build_memgraph () {
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
+  local CONAN_PROFILE="./conan-profiles/$build_type"
   if [[ "$arch" == "arm" ]] || [[ "$os" =~ "-arm" ]]; then
     arm_flag="-DMG_ARCH="ARM64""
+    CONAN_PROFILE="$CONAN_PROFILE.arm64"
+  else
+    CONAN_PROFILE="$CONAN_PROFILE.x86_64"
   fi
   local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
   local telemetry_id_override_flag=""
@@ -463,14 +467,17 @@ build_memgraph () {
     echo "Zeroing ccache statistics for this build..."
     docker exec -u mg "$build_container" bash -c "ccache -z"
   fi
+  # set up conan
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && conan profile detect"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && conan install . --build=missing -pr $CONAN_PROFILE"
 
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag .."
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
+  local cmake_cmd="cmake --preset conan-release"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
       target=$1
-      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
+      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release --target $target -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
     build_target generated_code
@@ -484,16 +491,16 @@ build_memgraph () {
   # support nproc
   # shellcheck disable=SC2016
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$(nproc)'
     # NOTE: mgconsole comes with toolchain v6
     if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
+      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$(nproc) -B mgconsole'
     fi
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$THREADS'
     if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
+      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$THREADS -B mgconsole'
     fi
   fi
 
