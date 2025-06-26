@@ -218,7 +218,7 @@ cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # rapidcheck
-rapidcheck_tag="1c91f40e64d87869250cfb610376c629307bf77d" # (2023-08-15)
+rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 benchmark_tag="v1.6.0"
