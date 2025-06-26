@@ -246,10 +246,10 @@ rm neo4j-community-5.6.0-unix.tar.gz
 # nlohmann json
 # We wget header instead of cloning repo since repo is huge (lots of test data).
 # We use head on Sep 1, 2017 instead of last release since it was long time ago.
-mkdir -p json
-cd json
-file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
-cd ..
+# mkdir -p json
+# cd json
+# file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
+# cd ..
 
 # rocksdb_tag="v8.1.1" # (2023-04-21)
 # repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
