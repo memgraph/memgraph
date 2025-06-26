@@ -329,7 +329,6 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-add_subdirectory(spdlog SYSTEM)
 
 macro(build_kafka)
     import_external_library(librdkafka STATIC
