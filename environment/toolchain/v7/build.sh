@@ -914,7 +914,7 @@ popd
 
 pushd build
 source $PREFIX/activate
-BREAK_SYSTEM_PACKAGES=1
+PIP_BREAK_SYSTEM_PACKAGES=1
 pip install conan==2.17.1
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
