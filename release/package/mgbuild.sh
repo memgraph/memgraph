@@ -472,7 +472,7 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && conan install . --build=missing -pr $CONAN_PROFILE"
 
   # Define cmake command
-  local cmake_cmd="cmake --preset conan-release"
+  local cmake_cmd="cmake --preset conan-release $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag ."
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
@@ -491,16 +491,16 @@ build_memgraph () {
   # support nproc
   # shellcheck disable=SC2016
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$(nproc)'
+    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$(nproc)'
     # NOTE: mgconsole comes with toolchain v6
     if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$(nproc) -B mgconsole'
+      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$(nproc) -B mgconsole'
     fi
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$THREADS'
+    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$THREADS'
     if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$THREADS -B mgconsole'
+      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& cmake --build build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake --preset conan-release  -j$THREADS -B mgconsole'
     fi
   fi
 
