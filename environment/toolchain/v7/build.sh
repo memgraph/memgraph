@@ -1452,7 +1452,7 @@ if [ ! -f $PREFIX/bin/mgconsole ]; then
     git clone https://github.com/memgraph/mgconsole.git mgconsole
     pushd mgconsole
     git checkout $MGCONSOLE_TAG
-    cmake -B build $COMMON_CMAKE_FLAGS
+    cmake -B build $COMMON_CMAKE_FLAGS -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     cmake --build build -j$CPUS --target mgconsole install
     popd
 fi
