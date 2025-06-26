@@ -15,27 +15,10 @@ function print_help () {
     echo -e "  --ci\tscript is being run inside ci"
 }
 
-function setup_virtualenv () {
-    pushd $1 > /dev/null
-    echo "Setting up virtualenv for: $1"
-
-    # remove old virtualenv
-    if [ -d ve3 ]; then
-        rm -rf ve3
-    fi
-
-    # create new virtualenv
-    python3 -m virtualenv -p python3 ve3 || exit 1
-    source ve3/bin/activate
-    pip --timeout 1000 install -r requirements.txt || exit 1
-    deactivate
-
-    popd > /dev/null
-}
 
 setup_libs=true
 ci=false
-prep_testing=true
+check_system_packages=true
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
@@ -50,9 +33,9 @@ else
               shift
               ci=true
           ;;
-          --skip-prep-testing)
-              shift
-              prep_testing=false
+          --skip-package-check)
+            shift
+            check_system_packages=false
           ;;
           *)
               # unknown option
@@ -76,8 +59,6 @@ echo "All packages are in-place..."
 # create a default build directory
 mkdir -p ./build
 
-# this should fix --break-system-packages not being available in older distros
-export PIP_BREAK_SYSTEM_PACKAGES=1
 
 if [[ "$setup_libs" == "true" ]]; then
   # Setup libs (download).
@@ -87,32 +68,7 @@ if [[ "$setup_libs" == "true" ]]; then
   cd ..
 fi
 
-# Fix for centos 7 during release
-if [[ "$ci" == "false" ]]; then
-  if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
-    if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
-      python3 -m pip uninstall -y virtualenv
-    fi
-    python3 -m pip install virtualenv
-  fi
-else
-  if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "amzn-2" ]; then
-    if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
-      python3 -m pip uninstall -y virtualenv
-    fi
-    python3 -m pip install --user virtualenv
-  fi
-fi
 
-if [[ "$prep_testing" == "true" ]]; then
-  setup_virtualenv tests/gql_behave
-  setup_virtualenv tests/stress
-  setup_virtualenv tests/integration/ldap
-  setup_virtualenv tests/query_modules
-  cd tests
-  ./setup.sh
-  cd ..
-fi
 
 echo "Done installing dependencies for Memgraph"
 
