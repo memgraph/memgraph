@@ -404,6 +404,10 @@ if(TARGET pulsar)
   find_library(RTMP_LIB rtmp REQUIRED)
   find_library(LDAP_LIB ldap REQUIRED)
   find_library(LBER_LIB lber REQUIRED)
+  find_library(BROTLI_LIB brotlidec REQUIRED)
+  find_library(IDN2_LIB idn2 REQUIRED)
+  find_library(SSH_LIB ssh REQUIRED)
+
   target_link_libraries(
     pulsar 
     INTERFACE 
@@ -412,7 +416,10 @@ if(TARGET pulsar)
     ${GSSAPI_LIB}
     ${RTMP_LIB}
     ${LDAP_LIB}
-    ${LBER_LIB}   
+    ${LBER_LIB}
+    ${BROTLI_LIB}
+    ${IDN2_LIB}
+    ${SSH_LIB}
   )
 endif()
 
