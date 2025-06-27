@@ -391,6 +391,26 @@ endmacro()
 mg_build_if_needed(build_pulsar "pulsar")
 mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsarwithdeps.a" "${MG_TOOLCHAIN_ROOT}/include")
 
+# Link pulsar's transitive dependencies separately
+if(TARGET pulsar)
+  find_library(NGHTTP2_LIB nghttp2 REQUIRED)
+  find_library(PSL_LIB psl REQUIRED)
+  find_library(GSSAPI_LIB gssapi_krb5 REQUIRED)
+  find_library(RTMP_LIB rtmp REQUIRED)
+  find_library(LDAP_LIB ldap REQUIRED)
+  find_library(LBER_LIB lber REQUIRED)
+  target_link_libraries(
+    pulsar 
+    INTERFACE 
+    ${NGHTTP2_LIB} 
+    ${PSL_LIB}
+    ${GSSAPI_LIB}
+    ${RTMP_LIB}
+    ${LDAP_LIB}
+    ${LBER_LIB}   
+  )
+endif()
+
 macro(build_librdtsc)
   if(${MG_ARCH} STREQUAL "ARM64")
     set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
