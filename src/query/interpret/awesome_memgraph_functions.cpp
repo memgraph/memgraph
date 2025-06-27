@@ -679,6 +679,29 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 }
 
+TypedValue Fill(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Integer, Double>, Integer>("fill", args, nargs);
+  auto size = args[1].ValueInt();
+
+  if (size <= 0) {
+    throw QueryRuntimeException("Size of the elements in the function must be a non-negative integer!");
+  }
+
+  TypedValue::TVector elements(ctx.memory);
+  elements.reserve(size);
+
+  auto value = args[0];
+  for (auto i = 0; i < size; i++) {
+    if (value.IsInt()) {
+      elements.emplace_back(value.ValueInt());
+    } else {
+      elements.emplace_back(value.ValueDouble());
+    }
+  }
+
+  return TypedValue(std::move(elements));
+}
+
 // TODO: How is Keys different from Properties function?
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
@@ -720,6 +743,24 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     keys.emplace_back(string_key);
   }
   return TypedValue(std::move(keys));
+}
+
+TypedValue Ones(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Integer>("ones", args, nargs);
+  auto size = args[0].ValueInt();
+
+  if (size <= 0) {
+    throw QueryRuntimeException("Size of the elements in the function must be a non-negative integer!");
+  }
+
+  TypedValue::TVector elements(ctx.memory);
+  elements.reserve(size);
+
+  for (auto i = 0; i < size; i++) {
+    elements.emplace_back(1);
+  }
+
+  return TypedValue(std::move(elements));
 }
 
 TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -765,6 +806,24 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   }
 
   return TypedValue(std::move(values));
+}
+
+TypedValue Zeros(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Integer>("zeros", args, nargs);
+  auto size = args[0].ValueInt();
+
+  if (size <= 0) {
+    throw QueryRuntimeException("Size of the elements in the function must be a non-negative integer!");
+  }
+
+  TypedValue::TVector elements(ctx.memory);
+  elements.reserve(size);
+
+  for (auto i = 0; i < size; i++) {
+    elements.emplace_back(0);
+  }
+
+  return TypedValue(std::move(elements));
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1796,15 +1855,18 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"VALUETYPE", ValueType},
 
     // List, map functions
+    {"FILL", Fill},
     {"KEYS", Keys},
     {"LABELS", Labels},
     {"NODES", Nodes},
+    {"ONES", Ones},
     {"RANGE", Range},
     {"RELATIONSHIPS", Relationships},
     {"TAIL", Tail},
     {"TOSET", ToSet},
     {"UNIFORMSAMPLE", UniformSample},
     {"VALUES", Values},
+    {"ZEROS", Zeros},
 
     // Mathematical functions - numeric
     {"ABS", Abs},
