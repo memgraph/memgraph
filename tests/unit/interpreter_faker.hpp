@@ -34,6 +34,12 @@ struct InterpreterFaker {
     stream->Summary(summary);
   }
 
+  void HandlePendingTermination() {
+    if (interpreter.transaction_status_.load() == memgraph::query::TransactionStatus::TERMINATING) {
+      interpreter.Abort();
+    }
+  }
+
   /**
    * Execute the given query and commit the transaction.
    *

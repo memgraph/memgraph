@@ -270,7 +270,6 @@ class Interpreter final {
 
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
-  std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
@@ -398,7 +397,11 @@ class Interpreter final {
   void Abort();
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
-  std::optional<uint64_t> current_transaction_;
+  struct {
+    utils::SpinLock transaction_info_lock_;
+    std::optional<uint64_t> current_transaction_;
+    std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
+  };
 
   void ResetUser();
 

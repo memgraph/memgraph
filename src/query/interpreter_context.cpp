@@ -51,21 +51,13 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
   interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role,
                          privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
-      TransactionStatus alive_status = TransactionStatus::ACTIVE;
-      // if it is just checking kill, commit and abort should wait for the end of the check
-      // The only way to start checking if the transaction will get killed is if the transaction_status is
-      // active
-      if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+      // Quick check to skip any transactions which are already flagged for
+      // termination, or which have began to commit or rollback.
+      if (interpreter->transaction_status_.load(std::memory_order_acquire) != TransactionStatus::RUNNING) {
         continue;
       }
-      bool killed = false;
-      utils::OnScopeExit clean_status([interpreter, &killed]() {
-        if (killed) {
-          interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
-        } else {
-          interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-        }
-      });
+
+      std::lock_guard const lg{interpreter->transaction_info_lock_};
       std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
       if (!intr_trans.has_value()) continue;
 
@@ -81,16 +73,14 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
           return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
         };
 
-        auto same_user = [](const auto &lv, const auto &rv) {
-          if (lv.get() == rv) return true;
-          if (lv && rv) return *lv == *rv;
-          return false;
-        };
+        auto same_user = [](const auto &lv, const auto &rv) { return (lv.get() == rv) || (lv && rv && *lv == *rv); };
 
         if (same_user(interpreter->user_or_role_, user_or_role) ||
             privilege_checker(user_or_role, get_interpreter_db_name())) {
-          killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
-          spdlog::warn("Transaction {} successfully killed", transaction_id);
+          if (interpreter->transaction_status_.exchange(TransactionStatus::TERMINATING, std::memory_order_release) ==
+              TransactionStatus::RUNNING) {
+            spdlog::warn("Transaction {} successfully killed", transaction_id);
+          }
         } else {
           spdlog::warn("Not enough rights to kill the transaction");
         }
