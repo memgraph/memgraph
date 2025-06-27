@@ -667,6 +667,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
+    // Install the new point index, if needed (analytical mode)
+    mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                            transaction_.point_index_ctx_);
+
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -813,7 +817,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
         }
 
-        // Install the new point index, if needed
+        // Install the new point index, if needed (transactional mode)
         mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
                                                                 transaction_.point_index_ctx_);
 
