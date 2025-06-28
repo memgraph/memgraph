@@ -735,7 +735,6 @@ static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication ac
 struct SingleTxnDeltasProcessingResult {
   std::unique_ptr<ReplicationAccessor> commit_acc;
   uint64_t current_delta_idx;
-  uint64_t durability_commit_timestamp;
   uint32_t current_batch_counter;
 };
 

@@ -352,22 +352,15 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
-  try {
-    auto deltas_res =
-        ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
-                                    /*commit_txn_immediately*/ req.commit_immediately, /*loading_wal*/ false);
-    cached_commit_accessor_ = std::move(deltas_res.commit_acc);
-  } catch (const utils::BasicException &e) {
-    spdlog::error(
-        "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
-        "unsuccessfully.",
-        e.what());
-    const storage::replication::PrepareCommitRes res{false};
-    rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
-    return;
-  }
+  auto deltas_res =
+      ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
+                                  /*commit_txn_immediately*/ req.commit_immediately, /*loading_wal*/ false);
 
-  const storage::replication::PrepareCommitRes res{true};
+  storage::replication::PrepareCommitRes res{false};
+  if (deltas_res.has_value()) {
+    cached_commit_accessor_ = std::move(deltas_res->commit_acc);
+    res.success = true;
+  }
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
@@ -391,7 +384,17 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     return;
   }
 
-  MG_ASSERT(cached_commit_accessor_ != nullptr, "Cached commit accessor became invalid between two phases");
+  // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
+  // because replying to prepare happens after assignment to the accessor
+  // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
+  // safely return here OK because it means that the abort already happened while destructing accessor during
+  // ReadAndApplyDeltasSingleTxn
+  if (!cached_commit_accessor_) {
+    spdlog::warn("Cached commit accessor became invalid between two phases");
+    storage::replication::FinalizeCommitRes const res(true);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
 
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
@@ -753,72 +756,80 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     return {false, 0};
   }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
+
+  std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path);
-
-    // We have to check if this is our 1st wal, not what main is sending
-    if (storage->wal_seq_num_ == 0) {
-      storage->uuid().set(wal_info.uuid);
-    }
-
-    // If WAL file doesn't contain any changes that need to be applied, ignore it
-    if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
-      spdlog::trace("WAL file won't be applied since all changes already exist.");
-      return {true, 0};
-    }
-    // We trust only WAL files which contain changes we are interested in (newer changes)
-    if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
-      spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
-      auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
-      storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
-    }
-
-    // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
-    // This is because the snapshots completely wipes the storage and durability
-    // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
-    // able to recover from durable data
-    if (storage->wal_file_) {
-      storage->wal_file_->FinalizeWal();
-      storage->wal_file_.reset();
-      spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
-    }
-    spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
-    storage::durability::Decoder wal_decoder;
-    const auto version = wal_decoder.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
-    spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
-    if (!version) {
-      spdlog::error("Couldn't read WAL magic and/or version!");
-      return {false, 0};
-    }
-    if (!storage::durability::IsVersionSupported(*version)) {
-      spdlog::error("Invalid WAL version!");
-      return {false, 0};
-    }
-    wal_decoder.SetPosition(wal_info.offset_deltas);
-
-    uint32_t local_batch_counter = start_batch_counter;
-    for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
-      // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
-      auto const deltas_res =
-          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*commit_txn_immediately*/ true,
-                                      /*loading_wal*/ true, local_batch_counter);
-      local_delta_idx += deltas_res.current_delta_idx;
-      local_batch_counter = deltas_res.current_batch_counter;
-    }
-
-    spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
-    return {true, local_batch_counter};
-  } catch (const storage::durability::RecoveryFailure &e) {
-    spdlog::error("Couldn't recover WAL deltas from {} because of: {}.", *maybe_wal_path, e.what());
-    return {false, 0};
+    maybe_wal_info.emplace(storage::durability::ReadWalInfo(*maybe_wal_path));
   } catch (const utils::BasicException &e) {
-    spdlog::error("Loading WAL from {} failed because of {}.", *maybe_wal_path, e.what());
+    spdlog::error("Loading WAL info from {} failed because of {}.", *maybe_wal_path, e.what());
     return {false, 0};
   }
+
+  auto const &wal_info = *maybe_wal_info;
+
+  // We have to check if this is our 1st wal, not what main is sending
+  if (storage->wal_seq_num_ == 0) {
+    storage->uuid().set(wal_info.uuid);
+  }
+
+  // If WAL file doesn't contain any changes that need to be applied, ignore it
+  if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
+    spdlog::trace("WAL file won't be applied since all changes already exist.");
+    return {true, 0};
+  }
+
+  // We trust only WAL files which contain changes we are interested in (newer changes)
+  if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
+    spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
+    auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
+    storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
+  }
+
+  // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
+  // This is because the snapshots completely wipes the storage and durability
+  // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
+  // able to recover from durable data
+  if (storage->wal_file_) {
+    storage->wal_file_->FinalizeWal();
+    storage->wal_file_.reset();
+    spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
+  }
+
+  spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
+  storage::durability::Decoder wal_decoder;
+  const auto version = wal_decoder.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
+  spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
+  if (!version) {
+    spdlog::error("Couldn't read WAL magic and/or version!");
+    return {false, 0};
+  }
+  if (!storage::durability::IsVersionSupported(*version)) {
+    spdlog::error("Invalid WAL version!");
+    return {false, 0};
+  }
+
+  wal_decoder.SetPosition(wal_info.offset_deltas);
+
+  uint32_t local_batch_counter = start_batch_counter;
+  for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
+    // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
+    auto const deltas_res =
+        ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*commit_txn_immediately*/ true,
+                                    /*loading_wal*/ true, local_batch_counter);
+    if (deltas_res.has_value()) {
+      local_delta_idx += deltas_res->current_delta_idx;
+      local_batch_counter = deltas_res->current_batch_counter;
+    } else {
+      return {false, 0};
+    }
+  }
+
+  spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
+  return {true, local_batch_counter};
 }
 
 // The number of applied deltas also includes skipped deltas.
-storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
+std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
     slk::Builder *res_builder, bool const commit_txn_immediately, bool const loading_wal,
     uint32_t const start_batch_counter) {
@@ -1404,7 +1415,12 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
     // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not
     if (loading_wal && !should_commit) continue;
 
-    std::visit(delta_apply, delta.data_);
+    try {
+      std::visit(delta_apply, delta.data_);
+    } catch (const std::exception &e) {
+      spdlog::error("Applying deltas failed because of {}", e.what());
+      return std::nullopt;
+    }
     applied_deltas++;
   }
 
@@ -1412,7 +1428,6 @@ storage::SingleTxnDeltasProcessingResult InMemoryReplicationHandlers::ReadAndApp
 
   return storage::SingleTxnDeltasProcessingResult{.commit_acc = std::move(commit_accessor),
                                                   .current_delta_idx = current_delta_idx,
-                                                  .durability_commit_timestamp = commit_timestamp,
                                                   .current_batch_counter = current_batch_counter};
 }
 }  // namespace memgraph::dbms
