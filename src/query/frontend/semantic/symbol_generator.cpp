@@ -589,7 +589,7 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   }
 
   if (exists.subquery_) {
-    scopes_.emplace_back({.in_exists_subquery = true});
+    scopes_.emplace_back(.in_exists_subquery = true);
   }
 
   return true;
