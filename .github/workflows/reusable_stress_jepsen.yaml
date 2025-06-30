@@ -16,10 +16,10 @@ on:
         description: "Cluster mode (sync, sync_mixed, strict_sync, strict_sync_mixed)"
         required: true
       time-limit:
-        type: number
+        type: string
         description: "Duration of Jepsen test (in seconds)"
         required: true
-        default: 10800
+        default: "10800"
 
 
 env:
