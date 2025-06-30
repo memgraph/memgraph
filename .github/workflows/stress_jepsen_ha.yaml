@@ -23,6 +23,14 @@ on:
         description: "Run non-MT tests"
         type: boolean
         default: true
+      time-limit-mt:
+        description: "Time limit for MT test (in seconds)"
+        type: number
+        default: 10800
+        time-limit-non-mt:
+          description: "Time limit for non-MT test (in seconds)"
+          type: number
+          default: 25200
 
   schedule:
     - cron: "0 0 * * *"  # Run daily at midnight
@@ -72,6 +80,7 @@ jobs:
       name: "${{ inputs.mode }}"
       mt: false
       mode: ${{ inputs.mode }}
+      time-limit: ${{ inputs.time-limit-non-mt }}
     secrets: inherit
 
   run-manual-jepsen-tests-mt:
@@ -81,4 +90,5 @@ jobs:
       name: "${{ inputs.mode }}-mt"
       mt: true
       mode: ${{ inputs.mode }}
+      time-limit: ${{ inputs.time-limit-mt }}
     secrets: inherit

@@ -15,6 +15,11 @@ on:
         type: string
         description: "Cluster mode (sync, sync_mixed, strict_sync, strict_sync_mixed)"
         required: true
+      time-limit:
+        type: number
+        description: "Duration of Jepsen test (in seconds)"
+        required: false
+        default: 10800
 
 
 env:
@@ -99,9 +104,9 @@ jobs:
           trap "kill $CLEANUP_PID" EXIT
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 10800 --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit } --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit 25200 --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit } --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \
