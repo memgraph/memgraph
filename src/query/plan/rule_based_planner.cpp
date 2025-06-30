@@ -698,7 +698,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            bool in_exists_subquery) {
   // In existential subqueries, we should omit any return clauses as per Neo4j documentation
   if (in_exists_subquery) {
-    return std::move(input_op);
+    return input_op;
   }
 
   // Similar to WITH clause, but we want to accumulate when the query writes to
