@@ -71,6 +71,7 @@ jobs:
       name: "${{ needs.determine-sync.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
       mode: ${{ needs.determine-sync.outputs.mode == 'true' }}
+      time-limit: ${{ matrix.mt && '10800' || '25200' }}
     secrets: inherit
 
   run-manual-jepsen-tests:
