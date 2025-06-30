@@ -1198,12 +1198,21 @@ std::optional<RecoveryInfo> LoadWal(
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto timestamp = ReadWalDeltaHeader(&wal);
-        (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp) && should_commit) {
+        (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
-      std::visit(delta_apply, delta.data_);
-      ++deltas_applied;
+      // We should always check if the delta is WalTransactionStart to update should_commit
+      if (std::holds_alternative<WalTransactionStart>(delta.data_)) {
+        should_commit = std::get<WalTransactionStart>(delta.data_).commit;
+      }
+
+      if (should_commit) {
+        std::visit(delta_apply, delta.data_);
+        ++deltas_applied;
+      }
+
       ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
+
     } else {
       // This delta should be skipped.
       SkipWalDeltaData(&wal, *version);

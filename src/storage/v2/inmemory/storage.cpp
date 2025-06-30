@@ -254,7 +254,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertices_.run_gc();
       edges_.run_gc();
 
-      // AsyncTimer resources are global, not particularly storage related, more query releated
+      // AsyncTimer resources are global, not particularly storage related, more query related
       // At some point in the future this should be scheduled by something else
       utils::AsyncTimer::GCRun();
     };
@@ -1951,12 +1951,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false, std::memory_order_acq_rel);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false, std::memory_order_acq_rel);
 
-  // Short lock, to move to local variable. Hence allows other transactions to commit.
+  // Short lock, to move to local variable. Hence, allows other transactions to commit.
   auto linked_undo_buffers = std::list<GCDeltas>{};
   committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
 
-  // This is to track if any of the unlinked deltas would have an impact on index performance, ie. do they hint that
+  // This is to track if any of the unlinked deltas would have an impact on index performance, i.e. do they hint that
   // there are possible stale/duplicate entries that can be removed
   auto index_impact = IndexPerformanceTracker{};
 
@@ -2174,7 +2174,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
+  // EDGES METADATA (has ptr to Vertices, must be before removing vertices)
   if (!current_deleted_edges.empty() && config_.salient.items.enable_edges_metadata) {
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto edge : current_deleted_edges) {
