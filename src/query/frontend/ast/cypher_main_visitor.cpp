@@ -3148,7 +3148,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  if (exists->pattern_ ? exists->subquery_ : !exists->subquery_) {
+  const bool only_one_member_set = (exists->pattern_ != nullptr) == (exists->subquery_ != nullptr);
+  if (!only_one_member_set) {
     throw SyntaxException("EXISTS must have exactly one of pattern or subquery set.");
   }
 
@@ -3198,7 +3199,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  if (exists->pattern_ ? exists->subquery_ : !exists->subquery_) {
+  const bool only_one_member_set = (exists->pattern_ != nullptr) == (exists->subquery_ != nullptr);
+  if (!only_one_member_set) {
     throw SyntaxException("EXISTS must have exactly one of pattern or subquery set.");
   }
 
