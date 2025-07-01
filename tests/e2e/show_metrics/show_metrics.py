@@ -1,4 +1,4 @@
-# Copyright 2023 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,6 +39,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "RegisterReplicaOnMainRpcFail", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "RegisterReplicaOnMainRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "RemoveCoordInstance", "type": "HighAvailability", "metric type": "Counter"},
+        {"name": "ReplicaRecoveryFail", "type": "HighAvailability", "metric type": "Counter"},
+        {"name": "ReplicaRecoverySkip", "type": "HighAvailability", "metric type": "Counter"},
+        {"name": "ReplicaRecoverySuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "ShowInstance", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "ShowInstances", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "StateCheckRpcFail", "type": "HighAvailability", "metric type": "Counter"},
