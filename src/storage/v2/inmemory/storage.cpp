@@ -62,6 +62,9 @@
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
 }  // namespace memgraph::metrics
@@ -1008,7 +1011,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
-    std::map<EdgeTypePropKey, std::vector<std::pair<PropertyValue, Edge *>>>
+    std::map<EdgeTypePropKey,
+             std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
                                             // property is set, it's like removing the property from the edge type index
 
@@ -1035,14 +1039,15 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 const auto &indexed_edge_types =
                     index_abort_processor.property_edge_type_.p2et.find(current->property.key);
                 const auto &indexed_edge_prop_indices = index_abort_processor.property_edge_.ep;
-                const auto &vector_indexed_edge_types = index_abort_processor.vector_.p2et.find(current->property.key);
+                const auto &vector_indexed_edge_types =
+                    index_abort_processor.vector_edge_.p2et.find(current->property.key);
                 auto has_indexed_edge_types =
                     indexed_edge_types != index_abort_processor.property_edge_type_.p2et.end();
                 auto has_indexed_edge_prop_indices =
                     std::find(indexed_edge_prop_indices.begin(), indexed_edge_prop_indices.end(),
                               current->property.key) != indexed_edge_prop_indices.end();
                 auto has_vector_indexed_edge_types =
-                    vector_indexed_edge_types != index_abort_processor.vector_.p2et.end();
+                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
 
                 if (has_indexed_edge_types || has_indexed_edge_prop_indices || has_vector_indexed_edge_types) {
                   // we have to restore the old value
@@ -1062,7 +1067,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                         vector_indexed_edge_types->second.end()) {
                       // this edge type is indexed in the vector index
                       vector_edge_type_property_restore[EdgeTypePropKey{edge_type, current->property.key}].emplace_back(
-                          old_value, edge_ref.ptr);
+                          old_value, std::make_tuple(from_vertex, target_vertex, edge_ref.ptr));
                     }
                     // handle edge type-property index
                     if (!old_value.IsNull()) {
@@ -1184,7 +1189,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                                               label);
                   };
                   auto indexed_labels_on_vertex =
-                      vertex->labels | ranges::views::filter(has_indexed_label) | ranges::to<std::vector<LabelId>>();
+                      vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
 
                   for (const auto &label : indexed_labels_on_vertex) {
                     vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
@@ -1342,7 +1347,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
     }
     for (auto const &[edge_type_prop, prop_edges] : vector_edge_type_property_restore) {
-      storage_->indices_.vector_index_.RestoreEntries(edge_type_prop, prop_edges);
+      storage_->indices_.vector_edge_index_.RestoreEntries(edge_type_prop, prop_edges);
     }
 
     // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
@@ -3156,18 +3161,23 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 
   // we have to take edges accessor to be sure no edge is deleted while we are searching
   auto acc = mem_storage->edges_.access();
-  const auto search_results = storage_->indices_.vector_index_.SearchEdges(index_name, number_of_results, vector);
+  auto edge_type_id = mem_storage->indices_.vector_edge_index_.GetEdgeTypeId(index_name);
+  const auto search_results = storage_->indices_.vector_edge_index_.SearchEdges(index_name, number_of_results, vector);
   std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
-    auto &[edge, distance, score] = item;
-    return std::make_tuple(EdgeAccessor{edge, storage_, &transaction_}, distance, score);
+    auto &[edge_tuple, distance, score] = item;
+    auto &[from_vertex, to_vertex, edge] = edge_tuple;
+    return std::make_tuple(EdgeAccessor{EdgeRef{edge}, edge_type_id, from_vertex, to_vertex, storage_, &transaction_},
+                           distance, score);
   });
 
   return result;
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
-  return storage_->indices_.vector_index_.ListVectorIndicesInfo();
-};
+  auto vertex_indices = storage_->indices_.vector_index_.ListVectorIndicesInfo();
+  auto edge_indices = storage_->indices_.vector_edge_index_.ListVectorIndicesInfo();
+  return rv::concat(vertex_indices, edge_indices) | r::to<std::vector>();
+}
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                                       PropertyValue const &bottom_left, PropertyValue const &top_right,

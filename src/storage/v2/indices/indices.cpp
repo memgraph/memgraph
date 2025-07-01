@@ -88,7 +88,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
                                                  tx.start_timestamp);
   edge_property_index_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
                                             tx.start_timestamp);
-  vector_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
+  vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
 }
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,

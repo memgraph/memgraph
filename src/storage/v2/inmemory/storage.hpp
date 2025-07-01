@@ -15,6 +15,7 @@
 #include <memory>
 #include <utility>
 #include "flags/run_time_configurable.hpp"
+#include "storage/v2/commit_log.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -268,7 +269,7 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
-      return storage_->indices_.vector_index_.ApproximateEdgesVectorCount(edge_type, property);
+      return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {

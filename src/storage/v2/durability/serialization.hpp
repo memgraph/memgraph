@@ -32,7 +32,8 @@ class BaseEncoder {
  public:
   virtual void WriteMarker(Marker marker) = 0;
   virtual void WriteBool(bool value) = 0;
-  virtual void WriteUint(uint64_t value) = 0;
+  virtual void WriteUint64(uint64_t value) = 0;
+  virtual void WriteUint8(uint8_t value) = 0;
   virtual void WriteDouble(double value) = 0;
   virtual void WriteString(std::string_view value) = 0;
   virtual void WriteEnum(storage::Enum value) = 0;
@@ -57,7 +58,8 @@ class Encoder final : public BaseEncoder {
 
   void WriteMarker(Marker marker) override;
   void WriteBool(bool value) override;
-  void WriteUint(uint64_t value) override;
+  void WriteUint64(uint64_t value) override;
+  void WriteUint8(uint8_t value) override;
   void WriteDouble(double value) override;
   void WriteString(std::string_view value) override;
   void WriteEnum(storage::Enum value) override;
@@ -100,7 +102,8 @@ class BaseDecoder {
  public:
   virtual std::optional<Marker> ReadMarker() = 0;
   virtual std::optional<bool> ReadBool() = 0;
-  virtual std::optional<uint64_t> ReadUint() = 0;
+  virtual std::optional<uint64_t> ReadUint64() = 0;
+  virtual std::optional<uint8_t> ReadUint8() = 0;
   virtual std::optional<double> ReadDouble() = 0;
   virtual std::optional<std::string> ReadString() = 0;
   virtual std::optional<Enum> ReadEnumValue() = 0;
@@ -126,7 +129,8 @@ class Decoder final : public BaseDecoder {
 
   std::optional<Marker> ReadMarker() override;
   std::optional<bool> ReadBool() override;
-  std::optional<uint64_t> ReadUint() override;
+  std::optional<uint64_t> ReadUint64() override;
+  std::optional<uint8_t> ReadUint8() override;
   std::optional<double> ReadDouble() override;
   std::optional<std::string> ReadString() override;
   std::optional<Enum> ReadEnumValue() override;

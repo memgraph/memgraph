@@ -62,9 +62,9 @@ bool VectorEdgeIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<V
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
     const auto edge_type = std::get<EdgeTypeId>(spec.label_or_edge_type);
-    const EdgeTypePropKey key{edge_type, spec.property};
+    const EdgeTypePropKey edge_type_prop{edge_type, spec.property};
 
-    if (pimpl->edge_index_.contains(key)) {
+    if (pimpl->edge_index_.contains(edge_type_prop)) {
       throw query::VectorSearchException("Vector index with the given edge type and property already exists.");
     }
 
@@ -79,11 +79,12 @@ bool VectorEdgeIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<V
     }
 
     spdlog::info("Created vector index {}", spec.index_name);
-    pimpl->index_name_to_edge_type_prop_.emplace(spec.index_name, key);
+    pimpl->index_name_to_edge_type_prop_.emplace(spec.index_name, edge_type_prop);
     pimpl->edge_index_.emplace(
-        key, EdgeTypeIndexItem{std::make_shared<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>>(
-                                   std::move(mg_edge_index)),
-                               spec});
+        edge_type_prop,
+        EdgeTypeIndexItem{
+            std::make_shared<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>>(std::move(mg_edge_index)),
+            spec});
 
     for (auto &from_vertex : vertices) {
       if (from_vertex.deleted) {
@@ -253,14 +254,15 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   return result;
 }
 
-// void VectorEdgeIndex::RestoreEntries(const EdgeTypePropKey &edge_type_prop,
-//                                  std::span<std::pair<PropertyValue, Edge *> const> prop_edges) {
-//   for (const auto &property_value_edge : prop_edges) {
-//     UpdateVectorIndex(
-//         {property_value_edge.second->from_vertex, property_value_edge.second->to_vertex, property_value_edge.second},
-//         edge_type_prop, &property_value_edge.first);
-//   }
-// }
+void VectorEdgeIndex::RestoreEntries(
+    const EdgeTypePropKey &edge_type_prop,
+    std::span<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>> const> prop_edges) {
+  for (const auto &property_value_edge : prop_edges) {
+    const auto &[property_value, edge_tuple] = property_value_edge;
+    const auto &[from_vertex, to_vertex, edge] = edge_tuple;
+    UpdateVectorIndex({from_vertex, to_vertex, edge}, edge_type_prop, &property_value);
+  }
+}
 
 void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
   auto maybe_stop = utils::ResettableCounter(2048);
@@ -292,6 +294,14 @@ VectorEdgeIndex::IndexStats VectorEdgeIndex::Analysis() const {
     res.p2et[property].emplace_back(edge_type);
   }
   return res;
+}
+
+EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
+  auto it = pimpl->index_name_to_edge_type_prop_.find(index_name.data());
+  if (it == pimpl->index_name_to_edge_type_prop_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  }
+  return it->second.edge_type();
 }
 
 }  // namespace memgraph::storage

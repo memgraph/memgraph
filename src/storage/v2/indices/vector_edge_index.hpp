@@ -98,11 +98,12 @@ class VectorEdgeIndex {
   VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector) const;
 
-  //   /// @brief Restores the entries that were removed in the specified transaction.
-  //   /// @param edge_type_prop The label and property of the vertices to be restored.
-  //   /// @param prop_edges The edges to be restored.
-  //   void RestoreEntries(const EdgeTypePropKey &edge_type_prop,
-  //                       std::span<std::pair<PropertyValue, Edge *> const> prop_edges);
+  /// @brief Restores the entries that were removed in the specified transaction.
+  /// @param edge_type_prop The label and property of the vertices to be restored.
+  /// @param prop_edges The edges to be restored.
+  void RestoreEntries(
+      const EdgeTypePropKey &edge_type_prop,
+      std::span<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>> const> prop_edges);
 
   /// @brief Removes obsolete entries from the index.
   /// @param token A stop token to allow for cancellation of the operation.
@@ -111,6 +112,12 @@ class VectorEdgeIndex {
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
+
+  /// @brief Returns the EdgeTypeId for the given index name.
+  /// @param index_name The name of the index.
+  /// @return The EdgeTypeId associated with the index name.
+  /// @throw query::VectorSearchException if the index does not exist.
+  EdgeTypeId GetEdgeTypeId(std::string_view index_name);
 
  private:
   /// @brief Adds a vertex to an existing index.
@@ -126,3 +133,16 @@ class VectorEdgeIndex {
 };
 
 }  // namespace memgraph::storage
+
+namespace std {
+template <>
+struct hash<memgraph::storage::VectorEdgeIndex::EdgeIndexEntry> {
+  size_t operator()(const memgraph::storage::VectorEdgeIndex::EdgeIndexEntry &entry) const noexcept {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, entry.from_vertex);
+    boost::hash_combine(seed, entry.to_vertex);
+    boost::hash_combine(seed, entry.edge);
+    return seed;
+  }
+};
+}  // namespace std

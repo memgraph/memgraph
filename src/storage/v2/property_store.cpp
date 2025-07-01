@@ -271,7 +271,7 @@ class Writer {
     }
   }
 
-  std::optional<Size> WriteUint(uint64_t value) {
+  std::optional<Size> WriteUint64(uint64_t value) {
     if (InternalWriteInt<uint8_t>(value)) {
       return Size::INT8;
     } else if (InternalWriteInt<uint16_t>(value)) {
@@ -285,7 +285,7 @@ class Writer {
     }
   }
 
-  std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
+  std::optional<Size> WriteDouble(double value) { return WriteUint64(utils::MemcpyCast<uint64_t>(value)); }
   bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(utils::MemcpyCast<uint64_t>(value)); }
 
   bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
@@ -396,7 +396,7 @@ class Reader {
     return ret;
   }
 
-  std::optional<uint64_t> ReadUint(Size size) {
+  std::optional<uint64_t> ReadUint64(Size size) {
     uint64_t ret = 0;
     switch (size) {
       case Size::INT8: {
@@ -428,7 +428,7 @@ class Reader {
   }
 
   std::optional<double> ReadDouble(Size size) {
-    auto value = ReadUint(size);
+    auto value = ReadUint64(size);
     if (!value) return std::nullopt;
     return utils::MemcpyCast<double>(*value);
   }
@@ -441,7 +441,7 @@ class Reader {
 
   std::optional<utils::Timezone> ReadTimezone(auto type) {
     if (type == Type::ZONED_TEMPORAL_DATA) {
-      auto tz_str_length = ReadUint(TZ_NAME_LENGTH_SIZE);
+      auto tz_str_length = ReadUint64(TZ_NAME_LENGTH_SIZE);
       if (!tz_str_length) return std::nullopt;
       std::string tz_str_v(*tz_str_length, '\0');
       if (!ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
@@ -570,14 +570,14 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     }
     case PropertyValue::Type::String: {
       const auto &str = value.ValueString();
-      auto size = writer->WriteUint(str.size());
+      auto size = writer->WriteUint64(str.size());
       if (!size) return std::nullopt;
       if (!writer->WriteBytes(str.data(), str.size())) return std::nullopt;
       return {{Type::STRING, *size}};
     }
     case PropertyValue::Type::List: {
       const auto &list = value.ValueList();
-      auto size = writer->WriteUint(list.size());
+      auto size = writer->WriteUint64(list.size());
       if (!size) return std::nullopt;
       for (const auto &item : list) {
         auto metadata = writer->WriteMetadata();
@@ -590,12 +590,12 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     }
     case PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
-      auto size = writer->WriteUint(map.size());
+      auto size = writer->WriteUint64(map.size());
       if (!size) return std::nullopt;
       for (const auto &item : map) {
         auto metadata = writer->WriteMetadata();
         if (!metadata) return std::nullopt;
-        auto property_id_size = writer->WriteUint(item.first.AsUint());
+        auto property_id_size = writer->WriteUint64(item.first.AsUint());
         if (!property_id_size) return std::nullopt;
         auto ret = EncodePropertyValue(writer, item.second);
         if (!ret) return std::nullopt;
@@ -608,7 +608,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!metadata) return std::nullopt;
 
       const auto temporal_data = value.ValueTemporalData();
-      auto type_size = writer->WriteUint(utils::UnderlyingCast(temporal_data.type));
+      auto type_size = writer->WriteUint64(utils::UnderlyingCast(temporal_data.type));
       if (!type_size) return std::nullopt;
 
       auto microseconds_size = writer->WriteInt(temporal_data.microseconds);
@@ -623,7 +623,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!metadata) return std::nullopt;
 
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
-      auto type_size = writer->WriteUint(utils::UnderlyingCast(zoned_temporal_data.type));
+      auto type_size = writer->WriteUint64(utils::UnderlyingCast(zoned_temporal_data.type));
       if (!type_size) return std::nullopt;
 
       auto microseconds_size = writer->WriteInt(zoned_temporal_data.IntMicroseconds());
@@ -633,7 +633,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
         metadata->Set({Type::ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
 
         const auto &tz_str = zoned_temporal_data.timezone.TimezoneName();
-        if (!writer->WriteUint(tz_str.size())) return std::nullopt;
+        if (!writer->WriteUint64(tz_str.size())) return std::nullopt;
         if (!writer->WriteBytes(tz_str.data(), tz_str.size())) return std::nullopt;
 
         // We don't need payload size so we set it to a random value
@@ -695,7 +695,7 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   auto metadata = reader.ReadMetadata();
   if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
 
-  auto type_value = reader.ReadUint(metadata->id_size);
+  auto type_value = reader.ReadUint64(metadata->id_size);
   if (!type_value) return std::nullopt;
 
   auto microseconds_value = reader.ReadInt(metadata->payload_size);
@@ -712,7 +712,7 @@ std::optional<uint32_t> DecodeTemporalDataSize(Reader &reader) {
 
   temporal_data_size += 1;
 
-  auto type_value = reader.ReadUint(metadata->id_size);
+  auto type_value = reader.ReadUint64(metadata->id_size);
   if (!type_value) return std::nullopt;
 
   temporal_data_size += SizeToByteSize(metadata->id_size);
@@ -733,7 +733,7 @@ std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
     return std::nullopt;
   }
 
-  auto type_value = reader.ReadUint(metadata->id_size);
+  auto type_value = reader.ReadUint64(metadata->id_size);
   if (!type_value) return std::nullopt;
 
   auto microseconds_value = reader.ReadInt(metadata->payload_size);
@@ -757,7 +757,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
   zoned_temporal_data_size += 1;
 
-  auto type_value = reader.ReadUint(metadata->id_size);
+  auto type_value = reader.ReadUint64(metadata->id_size);
   if (!type_value) return std::nullopt;
 
   zoned_temporal_data_size += SizeToByteSize(metadata->id_size);
@@ -768,7 +768,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
   zoned_temporal_data_size += SizeToByteSize(metadata->payload_size);
 
   if (metadata->type == Type::ZONED_TEMPORAL_DATA) {
-    auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
+    auto tz_str_length = reader.ReadUint64(TZ_NAME_LENGTH_SIZE);
     if (!tz_str_length) return std::nullopt;
     zoned_temporal_data_size += (1 + *tz_str_length);
     reader.SkipBytes(*tz_str_length);
@@ -815,7 +815,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::STRING: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       std::string str_v(*size, '\0');
       if (!reader->ReadBytes(str_v.data(), *size)) return false;
@@ -823,7 +823,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::LIST: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       std::vector<PropertyValue> list;
       list.reserve(*size);
@@ -838,14 +838,14 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::MAP: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       auto map = PropertyValue::map_t{};
       do_reserve(map, *size);
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-        auto property_id = reader->ReadUint(metadata->id_size);
+        auto property_id = reader->ReadUint64(metadata->id_size);
         if (!property_id) return false;
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
@@ -868,9 +868,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::ENUM: {
-      auto e_type = reader->ReadUint(payload_size);
+      auto e_type = reader->ReadUint64(payload_size);
       if (!e_type) return false;
-      auto e_value = reader->ReadUint(payload_size);
+      auto e_value = reader->ReadUint64(payload_size);
       if (!e_value) return false;
       value = PropertyValue(Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}});
       return true;
@@ -917,7 +917,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return std::optional<PropertyValue>{std::in_place, *double_v};
     }
     case Type::STRING: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return std::nullopt;
 
       auto sv = reader->ReadBytesToStringView(*size);
@@ -925,7 +925,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return std::optional<PropertyValue>{std::in_place, *sv};
     }
     case Type::LIST: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return std::nullopt;
       std::vector<PropertyValue> list;
       list.reserve(*size);
@@ -939,14 +939,14 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return std::optional<PropertyValue>{std::in_place, std::move(list)};
     }
     case Type::MAP: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return std::nullopt;
       auto map = PropertyValue::map_t{};
       do_reserve(map, *size);
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return std::nullopt;
-        auto property_id = reader->ReadUint(metadata->id_size);
+        auto property_id = reader->ReadUint64(metadata->id_size);
         if (!property_id) return std::nullopt;
         auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
         if (!item) return std::nullopt;
@@ -966,9 +966,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return std::optional<PropertyValue>{std::in_place, *maybe_zoned_temporal_data};
     }
     case Type::ENUM: {
-      auto e_type = reader->ReadUint(payload_size);
+      auto e_type = reader->ReadUint64(payload_size);
       if (!e_type) return std::nullopt;
-      auto e_value = reader->ReadUint(payload_size);
+      auto e_value = reader->ReadUint64(payload_size);
       if (!e_value) return std::nullopt;
       return std::optional<PropertyValue>{std::in_place, Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}}};
     }
@@ -1006,7 +1006,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::STRING: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       property_size += SizeToByteSize(payload_size);
 
@@ -1016,7 +1016,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::LIST: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
 
       uint32_t list_property_size = SizeToByteSize(payload_size);
@@ -1033,7 +1033,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::MAP: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
 
       uint32_t map_property_size = SizeToByteSize(payload_size);
@@ -1106,13 +1106,13 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return reader->ReadDouble(payload_size).has_value();
     }
     case Type::STRING: {
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       if (!reader->SkipBytes(*size)) return false;
       return true;
     }
     case Type::LIST: {
-      auto const size = reader->ReadUint(payload_size);
+      auto const size = reader->ReadUint64(payload_size);
       if (!size) return false;
       auto size_val = *size;
       for (uint32_t i = 0; i != size_val; ++i) {
@@ -1123,7 +1123,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::MAP: {
-      auto const size = reader->ReadUint(payload_size);
+      auto const size = reader->ReadUint64(payload_size);
       if (!size) return false;
       auto size_val = *size;
       for (uint32_t i = 0; i != size_val; ++i) {
@@ -1205,7 +1205,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::STRING: {
       if (!value.IsString()) return false;
       const auto &str = value.ValueString();
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       if (*size != str.size()) return false;
       return reader->VerifyBytes(str.data(), *size);
@@ -1213,7 +1213,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::LIST: {
       if (!value.IsList()) return false;
       const auto &list = value.ValueList();
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       if (*size != list.size()) return false;
       for (uint32_t i = 0; i < *size; ++i) {
@@ -1226,13 +1226,13 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::MAP: {
       if (!value.IsMap()) return false;
       const auto &map = value.ValueMap();
-      auto size = reader->ReadUint(payload_size);
+      auto size = reader->ReadUint64(payload_size);
       if (!size) return false;
       if (*size != map.size()) return false;
       for (const auto &item : map) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
-        auto property_id = reader->ReadUint(metadata->id_size);
+        auto property_id = reader->ReadUint64(metadata->id_size);
         if (!property_id) return false;
         if (PropertyId::FromUint(*property_id) != item.first) return false;
         if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, item.second)) return false;
@@ -1262,9 +1262,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     }
     case Type::ENUM: {
       if (!value.IsEnum()) return false;
-      auto e_type = reader->ReadUint(payload_size);
+      auto e_type = reader->ReadUint64(payload_size);
       if (!e_type) return false;
-      auto e_value = reader->ReadUint(payload_size);
+      auto e_value = reader->ReadUint64(payload_size);
       if (!e_value) return false;
       return value.ValueEnum() == Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}};
     }
@@ -1293,7 +1293,7 @@ bool EncodeProperty(Writer *writer, PropertyId property, const PropertyValue &va
   auto metadata = writer->WriteMetadata();
   if (!metadata) return false;
 
-  auto id_size = writer->WriteUint(property.AsUint());
+  auto id_size = writer->WriteUint64(property.AsUint());
   if (!id_size) return false;
 
   auto type_property_size = EncodePropertyValue(writer, value);
@@ -1334,7 +1334,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
 
   if (*property_id == expected_property.AsUint()) {
@@ -1362,7 +1362,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return {ExpectedPropertyStatus::MISSING_DATA, std::nullopt};
 
   if (expected_property.AsUint() < property_id) {
@@ -1386,7 +1386,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
 
   if (*property_id == expected_property.AsUint()) {
@@ -1407,7 +1407,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
 
   switch (metadata->type) {
@@ -1503,7 +1503,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
 
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
@@ -1521,7 +1521,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return std::nullopt;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return std::nullopt;
 
   // Special case: TEMPORAL_DATA has a subtype we need to extract
@@ -1545,7 +1545,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return std::nullopt;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return std::nullopt;
 
   if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
@@ -1557,7 +1557,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return std::nullopt;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return std::nullopt;
 
   switch (metadata->type) {
@@ -1623,7 +1623,7 @@ enum class ExpectedPropertyStatus {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return false;
 
-  auto property_id = reader->ReadUint(metadata->id_size);
+  auto property_id = reader->ReadUint64(metadata->id_size);
   if (!property_id) return false;
   if (*property_id != expected_property.AsUint()) return false;
 
@@ -2608,7 +2608,7 @@ std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> t
       auto metadata = reader.ReadMetadata();
       if (!metadata || metadata->type == Type::EMPTY) break;
 
-      auto property_id = reader.ReadUint(metadata->id_size);
+      auto property_id = reader.ReadUint64(metadata->id_size);
       if (!property_id) break;
 
       if (utils::Contains(types, metadata->type)) {
@@ -2631,7 +2631,7 @@ std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId proper
         return std::nullopt;
       }
 
-      auto property_id = reader.ReadUint(metadata->id_size);
+      auto property_id = reader.ReadUint64(metadata->id_size);
       if (!property_id) {
         return std::nullopt;
       }

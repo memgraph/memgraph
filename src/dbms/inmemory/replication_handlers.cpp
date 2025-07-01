@@ -1304,7 +1304,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
-          auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
+          auto metric_kind = storage::MetricFromName(data.metric_kind);
           auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                               : unum::usearch::scalar_kind_t::f32_k;
 

@@ -1824,7 +1824,7 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
                          ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
 
   auto metric_kind_it = transformed_map.find(kMetric);
-  auto metric_kind = storage::VectorIndex::MetricFromName(
+  auto metric_kind = storage::MetricFromName(
       metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
   auto dimension = transformed_map.find(kDimension);
   if (dimension == transformed_map.end()) {
@@ -1844,7 +1844,7 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
           ? static_cast<std::uint16_t>(resize_coefficient_it->second.ValueInt())
           : kDefaultResizeCoefficient;
   auto scalar_kind_it = transformed_map.find(kScalarKind);
-  auto scalar_kind = storage::VectorIndex::ScalarFromName(
+  auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : kDefaultScalarKind);
   return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient, scalar_kind};
 }
@@ -4917,12 +4917,18 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : info.vector_indices_spec) {
-          // results.push_back({TypedValue(vector_label_property_index_mark),
-          // TypedValue(storage->LabelToName(spec.label)),
-          //                    TypedValue(storage->PropertyToName(spec.property)),
-          //                    TypedValue(static_cast<int>(
-          //                        storage_acc->ApproximateVerticesVectorCount(spec.label,
-          //                        spec.property).value_or(0)))});
+          auto label_or_edge_type_as_str =
+              std::holds_alternative<storage::LabelId>(spec.label_or_edge_type)
+                  ? TypedValue(storage->LabelToName(std::get<storage::LabelId>(spec.label_or_edge_type)))
+                  : TypedValue(storage->EdgeTypeToName(std::get<storage::EdgeTypeId>(spec.label_or_edge_type)));
+          auto count = std::holds_alternative<storage::LabelId>(spec.label_or_edge_type)
+                           ? storage_acc->ApproximateVerticesVectorCount(
+                                 std::get<storage::LabelId>(spec.label_or_edge_type), spec.property)
+                           : storage_acc->ApproximateEdgesVectorCount(
+                                 std::get<storage::EdgeTypeId>(spec.label_or_edge_type), spec.property);
+          results.push_back({TypedValue(vector_label_property_index_mark), label_or_edge_type_as_str,
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int>(count.value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {

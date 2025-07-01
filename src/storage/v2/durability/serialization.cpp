@@ -82,10 +82,17 @@ void Encoder<FileType>::WriteBool(bool value) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::WriteUint(uint64_t value) {
+void Encoder<FileType>::WriteUint64(uint64_t value) {
   value = utils::HostToLittleEndian(value);
   WriteMarker(Marker::TYPE_INT);
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
+}
+
+template <typename FileType>
+void Encoder<FileType>::WriteUint8(uint8_t value) {
+  WriteMarker(Marker::TYPE_INT);
+  auto value_le = utils::HostToLittleEndian(value);
+  Write(reinterpret_cast<const uint8_t *>(&value_le), sizeof(value_le));
 }
 
 template <typename FileType>
@@ -115,7 +122,7 @@ void Encoder<FileType>::WriteEnum(storage::Enum value) {
 template <typename FileType>
 void Encoder<FileType>::WritePoint2d(storage::Point2d value) {
   WriteMarker(Marker::TYPE_POINT_2D);
-  WriteUint(CrsToSrid(value.crs()).value_of());
+  WriteUint64(CrsToSrid(value.crs()).value_of());
   WriteDouble(value.x());
   WriteDouble(value.y());
 }
@@ -123,7 +130,7 @@ void Encoder<FileType>::WritePoint2d(storage::Point2d value) {
 template <typename FileType>
 void Encoder<FileType>::WritePoint3d(storage::Point3d value) {
   WriteMarker(Marker::TYPE_POINT_3D);
-  WriteUint(CrsToSrid(value.crs()).value_of());
+  WriteUint64(CrsToSrid(value.crs()).value_of());
   WriteDouble(value.x());
   WriteDouble(value.y());
   WriteDouble(value.z());
@@ -142,7 +149,7 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       break;
     }
     case ExternalPropertyValue::Type::Int: {
-      WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
+      WriteUint64(utils::MemcpyCast<uint64_t>(value.ValueInt()));
       break;
     }
     case ExternalPropertyValue::Type::Double: {
@@ -175,19 +182,19 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
     case ExternalPropertyValue::Type::TemporalData: {
       const auto temporal_data = value.ValueTemporalData();
       WriteMarker(Marker::TYPE_TEMPORAL_DATA);
-      WriteUint(static_cast<uint64_t>(temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
+      WriteUint64(static_cast<uint64_t>(temporal_data.type));
+      WriteUint64(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
       break;
     }
     case ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
-      WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
+      WriteUint64(static_cast<uint64_t>(zoned_temporal_data.type));
+      WriteUint64(utils::MemcpyCast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
       if (zoned_temporal_data.timezone.InTzDatabase()) {
         WriteString(zoned_temporal_data.timezone.TimezoneName());
       } else {
-        WriteUint(zoned_temporal_data.timezone.DefiningOffset());
+        WriteUint64(zoned_temporal_data.timezone.DefiningOffset());
       }
       break;
     }
@@ -323,10 +330,18 @@ std::optional<bool> Decoder::ReadBool() {
   return *value == Marker::VALUE_TRUE;
 }
 
-std::optional<uint64_t> Decoder::ReadUint() {
+std::optional<uint64_t> Decoder::ReadUint64() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
+  if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) return std::nullopt;
+  return utils::LittleEndianToHost(value);
+}
+
+std::optional<uint8_t> Decoder::ReadUint8() {
+  auto marker = ReadMarker();
+  if (!marker || *marker != Marker::TYPE_INT) return std::nullopt;
+  uint8_t value;
   if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) return std::nullopt;
   return utils::LittleEndianToHost(value);
 }
@@ -368,7 +383,7 @@ std::optional<Point2d> Decoder::ReadPoint2dValue() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_POINT_2D) return std::nullopt;
 
-  const auto srid = ReadUint();
+  const auto srid = ReadUint64();
   if (!srid) return std::nullopt;
 
   auto crs = SridToCrs(Srid{*srid});
@@ -388,7 +403,7 @@ std::optional<Point3d> Decoder::ReadPoint3dValue() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_POINT_3D) return std::nullopt;
 
-  const auto srid = ReadUint();
+  const auto srid = ReadUint64();
   if (!srid) return std::nullopt;
 
   auto crs = SridToCrs(Srid{*srid});
@@ -412,10 +427,10 @@ std::optional<TemporalData> ReadTemporalData(Decoder &decoder) {
   const auto inner_marker = decoder.ReadMarker();
   if (!inner_marker || *inner_marker != Marker::TYPE_TEMPORAL_DATA) return std::nullopt;
 
-  const auto type = decoder.ReadUint();
+  const auto type = decoder.ReadUint64();
   if (!type) return std::nullopt;
 
-  const auto microseconds = decoder.ReadUint();
+  const auto microseconds = decoder.ReadUint64();
   if (!microseconds) return std::nullopt;
 
   return TemporalData{static_cast<TemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds)};
@@ -425,10 +440,10 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
   const auto inner_marker = decoder.ReadMarker();
   if (!inner_marker || *inner_marker != Marker::TYPE_ZONED_TEMPORAL_DATA) return std::nullopt;
 
-  const auto type = decoder.ReadUint();
+  const auto type = decoder.ReadUint64();
   if (!type) return std::nullopt;
 
-  const auto microseconds = decoder.ReadUint();
+  const auto microseconds = decoder.ReadUint64();
   if (!microseconds) return std::nullopt;
 
   auto marker = decoder.PeekMarker();
@@ -442,7 +457,7 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
                                utils::Timezone(*timezone_name)};
     }
     case Marker::TYPE_INT: {
-      auto offset_minutes = decoder.ReadUint();
+      auto offset_minutes = decoder.ReadUint64();
       if (!offset_minutes) return std::nullopt;
       return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
                                utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
@@ -473,7 +488,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       return ExternalPropertyValue(*value);
     }
     case Marker::TYPE_INT: {
-      auto value = ReadUint();
+      auto value = ReadUint64();
       if (!value) return std::nullopt;
       return ExternalPropertyValue(utils::MemcpyCast<int64_t>(*value));
     }
@@ -632,7 +647,7 @@ bool Decoder::SkipExternalPropertyValue() {
       return !!ReadBool();
     }
     case Marker::TYPE_INT: {
-      return !!ReadUint();
+      return !!ReadUint64();
     }
     case Marker::TYPE_DOUBLE: {
       return !!ReadDouble();

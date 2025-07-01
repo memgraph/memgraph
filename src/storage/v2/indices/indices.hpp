@@ -21,6 +21,7 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -63,6 +64,7 @@ struct Indices {
     // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
     VectorIndex::IndexStats vector_;
+    VectorEdgeIndex::IndexStats vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
@@ -103,6 +105,7 @@ struct Indices {
   mutable TextIndex text_index_;
   PointIndexStorage point_index_;
   mutable VectorIndex vector_index_;
+  mutable VectorEdgeIndex vector_edge_index_;
 };
 
 }  // namespace memgraph::storage

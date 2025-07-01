@@ -14,14 +14,12 @@
 #include <sys/types.h>
 #include <cstdint>
 #include "mg_procedure.h"
-#include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"

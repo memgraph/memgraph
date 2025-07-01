@@ -258,7 +258,7 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
 template <bool is_read>
 auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, Gid, void> {
-  const auto gid = decoder->ReadUint();
+  const auto gid = decoder->ReadUint64();
   if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return Gid::FromUint(*gid);
@@ -294,7 +294,7 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
             const uint64_t /*version*/) -> std::conditional_t<is_read, std::set<std::string, std::less<>>, void> {
   if constexpr (is_read) {
     std::set<std::string, std::less<>> strings;
-    const auto count = decoder->ReadUint();
+    const auto count = decoder->ReadUint64();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
       auto str = decoder->ReadString();
@@ -303,7 +303,7 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
     }
     return strings;
   } else {
-    const auto count = decoder->ReadUint();
+    const auto count = decoder->ReadUint64();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
       if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -315,7 +315,7 @@ template <bool is_read, typename T>
 auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
-    const auto count = decoder->ReadUint();
+    const auto count = decoder->ReadUint64();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     std::vector<T> values;
     values.reserve(*count);
@@ -325,7 +325,7 @@ auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, co
     }
     return values;
   } else {
-    const auto count = decoder->ReadUint();
+    const auto count = decoder->ReadUint64();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
       Decode<false>(utils::tag_t<T>, decoder, 0);
@@ -337,18 +337,18 @@ template <bool is_read>
 auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
-    auto kind = decoder->ReadUint();
+    auto kind = decoder->ReadUint64();
     if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
     return static_cast<TypeConstraintKind>(*kind);
   } else {
-    if (!decoder->ReadUint()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (!decoder->ReadUint64()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
 template <bool is_read>
 auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, uint16_t, void> {
-  const auto uint16 = decoder->ReadUint();
+  const auto uint16 = decoder->ReadUint64();
   if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return static_cast<uint16_t>(*uint16);
@@ -358,7 +358,7 @@ auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const ui
 template <bool is_read>
 auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, uint8_t, void> {
-  const auto uint8 = decoder->ReadUint();
+  const auto uint8 = decoder->ReadUint64();
   if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return static_cast<uint8_t>(*uint8);
@@ -368,7 +368,7 @@ auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uin
 template <bool is_read>
 auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::size_t, void> {
-  const auto size = decoder->ReadUint();
+  const auto size = decoder->ReadUint64();
   if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return static_cast<std::size_t>(*size);
@@ -564,7 +564,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     if (!wal_size) throw RecoveryFailure(kInvalidWalErrorMessage);
 
     auto read_offset = [&wal, wal_size] {
-      auto maybe_offset = wal.ReadUint();
+      auto maybe_offset = wal.ReadUint64();
       if (!maybe_offset) throw RecoveryFailure("Invalid WAL format!");
       auto offset = *maybe_offset;
       if (offset > *wal_size) throw RecoveryFailure("Invalid WAL format!");
@@ -590,7 +590,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     if (!maybe_epoch_id) throw RecoveryFailure(kInvalidWalErrorMessage);
     info.epoch_id = std::move(*maybe_epoch_id);
 
-    auto maybe_seq_num = wal.ReadUint();
+    auto maybe_seq_num = wal.ReadUint64();
     if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
     info.seq_num = *maybe_seq_num;
   }
@@ -647,7 +647,7 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
   auto marker = decoder->ReadMarker();
   if (!marker || *marker != Marker::SECTION_DELTA) throw RecoveryFailure(kInvalidWalErrorMessage);
 
-  auto timestamp = decoder->ReadUint();
+  auto timestamp = decoder->ReadUint64();
   if (!timestamp) throw RecoveryFailure(kInvalidWalErrorMessage);
   return *timestamp;
 }
@@ -670,19 +670,19 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
+  encoder->WriteUint64(timestamp);
   auto guard = std::shared_lock{vertex.lock};
   switch (delta.action) {
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
     case Delta::Action::RECREATE_OBJECT: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
-      encoder->WriteUint(vertex.gid.AsUint());
+      encoder->WriteUint64(vertex.gid.AsUint());
       break;
     }
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
-      encoder->WriteUint(vertex.gid.AsUint());
+      encoder->WriteUint64(vertex.gid.AsUint());
       encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // vertex.
@@ -696,7 +696,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
-      encoder->WriteUint(vertex.gid.AsUint());
+      encoder->WriteUint64(vertex.gid.AsUint());
       encoder->WriteString(name_id_mapper->IdToName(delta.label.value.AsUint()));
       break;
     }
@@ -704,13 +704,13 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
     case Delta::Action::REMOVE_OUT_EDGE: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
       if (items.properties_on_edges) {
-        encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
+        encoder->WriteUint64(delta.vertex_edge.edge.ptr->gid.AsUint());
       } else {
-        encoder->WriteUint(delta.vertex_edge.edge.gid.AsUint());
+        encoder->WriteUint64(delta.vertex_edge.edge.gid.AsUint());
       }
       encoder->WriteString(name_id_mapper->IdToName(delta.vertex_edge.edge_type.AsUint()));
-      encoder->WriteUint(vertex.gid.AsUint());
-      encoder->WriteUint(delta.vertex_edge.vertex->gid.AsUint());
+      encoder->WriteUint64(vertex.gid.AsUint());
+      encoder->WriteUint64(delta.vertex_edge.vertex->gid.AsUint());
       break;
     }
     case Delta::Action::ADD_IN_EDGE:
@@ -727,12 +727,12 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   // because the Delta's represent undo actions and we want to store redo
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
+  encoder->WriteUint64(timestamp);
   auto guard = std::shared_lock{edge.lock};
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
-      encoder->WriteUint(edge.gid.AsUint());
+      encoder->WriteUint64(edge.gid.AsUint());
       encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
       // The property value is the value that is currently stored in the
       // edge.
@@ -742,7 +742,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       encoder->WriteExternalPropertyValue(
           ToExternalPropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
-      encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
+      encoder->WriteUint64(delta.property.out_vertex->gid.AsUint());
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -766,7 +766,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
 
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
+  encoder->WriteUint64(timestamp);
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
 }
 
@@ -1156,7 +1156,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto unum_metric_kind = VectorIndex::MetricFromName(data.metric_kind);
+        const auto unum_metric_kind = MetricFromName(data.metric_kind);
         auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                             : unum::usearch::scalar_kind_t::f32_k;
         indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
@@ -1214,21 +1214,21 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   uint64_t offset_deltas = 0;
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
   offset_offsets = wal_.GetPosition();
-  wal_.WriteUint(offset_metadata);
-  wal_.WriteUint(offset_deltas);
+  wal_.WriteUint64(offset_metadata);
+  wal_.WriteUint64(offset_deltas);
 
   // Write metadata.
   offset_metadata = wal_.GetPosition();
   wal_.WriteMarker(Marker::SECTION_METADATA);
   wal_.WriteString(std::string{uuid});
   wal_.WriteString(epoch_id);
-  wal_.WriteUint(seq_num);
+  wal_.WriteUint64(seq_num);
 
   // Write final offsets.
   offset_deltas = wal_.GetPosition();
   wal_.SetPosition(offset_offsets);
-  wal_.WriteUint(offset_metadata);
-  wal_.WriteUint(offset_deltas);
+  wal_.WriteUint64(offset_metadata);
+  wal_.WriteUint64(offset_deltas);
   wal_.SetPosition(offset_deltas);
 
   // Sync the initial data.
@@ -1336,7 +1336,7 @@ void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTyp
   encoder.WriteString(*etype_str);
   auto const *values = enum_store.ToValuesStrings(etype);
   DMG_ASSERT(values);
-  encoder.WriteUint(values->size());
+  encoder.WriteUint64(values->size());
   for (auto const &value : *values) {
     encoder.WriteString(value);
   }
@@ -1354,9 +1354,9 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                               std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
-  encoder.WriteUint(properties.size());
+  encoder.WriteUint64(properties.size());
   for (auto const &path : properties) {
-    encoder.WriteUint(path.size());
+    encoder.WriteUint64(path.size());
     for (auto const &segment : path) {
       encoder.WriteString(name_id_mapper.IdToName(segment.AsUint()));
     }
@@ -1386,9 +1386,9 @@ void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::span<PropertyPath const> properties) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
-  encoder.WriteUint(properties.size());
+  encoder.WriteUint64(properties.size());
   for (const auto &path : properties) {
-    encoder.WriteUint(path.size());
+    encoder.WriteUint64(path.size());
     for (const auto &property : path) {
       encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
     }
@@ -1398,7 +1398,7 @@ void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, L
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
-  encoder.WriteUint(properties.size());
+  encoder.WriteUint64(properties.size());
   for (const auto &property : properties) {
     encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
   }
@@ -1408,7 +1408,7 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
                           TypeConstraintKind type) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
-  encoder.WriteUint(static_cast<uint64_t>(type));
+  encoder.WriteUint64(static_cast<uint64_t>(type));
 }
 
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
@@ -1418,21 +1418,23 @@ void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::st
 }
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
-  // encoder.WriteString(index_spec.index_name);
-  // encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
-  // encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
-  // encoder.WriteString(VectorIndex::NameFromMetric(index_spec.metric_kind));
-  // encoder.WriteUint(index_spec.dimension);
-  // encoder.WriteUint(index_spec.resize_coefficient);
-  // encoder.WriteUint(index_spec.capacity);
-  // encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
+  encoder.WriteString(index_spec.index_name);
+  std::visit([&](auto id) { encoder.WriteString(name_id_mapper.IdToName(id.AsUint())); },
+             index_spec.label_or_edge_type);
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
+  encoder.WriteString(NameFromMetric(index_spec.metric_kind));
+  encoder.WriteUint64(index_spec.dimension);
+  encoder.WriteUint64(index_spec.resize_coefficient);
+  encoder.WriteUint64(index_spec.capacity);
+  encoder.WriteUint64(static_cast<uint64_t>(index_spec.scalar_kind));
+  encoder.WriteUint8(static_cast<uint8_t>(index_spec.index_type));
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {
   encoder.WriteMarker(Marker::SECTION_DELTA);
-  encoder.WriteUint(timestamp);
+  encoder.WriteUint64(timestamp);
   encoder.WriteMarker(OperationToMarker(Op));
 }
 
