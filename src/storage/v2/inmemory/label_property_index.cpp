@@ -354,7 +354,7 @@ void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timest
 
 InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
   if (status.is_ready()) {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   }
 }
 
