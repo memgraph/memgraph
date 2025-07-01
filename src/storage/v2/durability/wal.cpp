@@ -816,7 +816,6 @@ std::optional<RecoveryInfo> LoadWal(
   }
 
   RecoveryInfo ret;
-  ret.last_durable_timestamp = info.to_timestamp;
 
   // Recover deltas
   wal.SetPosition(info.offset_deltas);
@@ -1201,17 +1200,18 @@ std::optional<RecoveryInfo> LoadWal(
         (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
+
       // We should always check if the delta is WalTransactionStart to update should_commit
-      if (std::holds_alternative<WalTransactionStart>(delta.data_)) {
-        should_commit = std::get<WalTransactionStart>(delta.data_).commit;
+      if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
+        should_commit = txn_start->commit;
       }
 
       if (should_commit) {
         std::visit(delta_apply, delta.data_);
         ++deltas_applied;
+        ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
+        ret.last_durable_timestamp = timestamp;
       }
-
-      ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
 
     } else {
       // This delta should be skipped.
