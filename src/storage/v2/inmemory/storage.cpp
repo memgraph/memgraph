@@ -1540,7 +1540,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     EdgeTypeId edge_type, DropIndexWrapper wrapper) {
-  MG_ASSERT(type() == UNIQUE, "Drop index requires a unique access to the storage!");
+  // Because of replication we still use UNIQUE ATM
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   // Done inside the wrapper to ensure plan cache invalidation is safe
