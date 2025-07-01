@@ -36,12 +36,14 @@ bool InMemoryLabelIndex::CreateIndex(
     return false;
   }
 
-  auto const func = [&](Vertex &vertex, auto &index_accessor) { TryInsertLabelIndex(vertex, label, index_accessor); };
+  auto const func = [&](Vertex &vertex, auto &index_accessor) {
+    TryInsertLabelIndex(vertex, label, index_accessor, snapshot_info);
+  };
 
   if (parallel_exec_info) {
-    CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func, snapshot_info);
+    CreateIndexOnMultipleThreads(vertices, it, index_, *parallel_exec_info, func);
   } else {
-    CreateIndexOnSingleThread(vertices, it, index_, func, snapshot_info);
+    CreateIndexOnSingleThread(vertices, it, index_, func);
   }
 
   return true;

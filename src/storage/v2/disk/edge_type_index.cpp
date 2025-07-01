@@ -66,9 +66,14 @@ auto DiskEdgeTypeIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypeInde
 
 void EdgeTypeIndex::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                                                          Edge *edge) {
-  // TODO: this is a filter for only relevant edge_types? If so it should be based off the ActiveIndices
-  if (std::binary_search(edge_type_.begin(), edge_type_.end(), edge_type)) {
-    cleanup_collection_[edge_type].emplace_back(from_vertex, to_vertex, edge);
+  auto it = cleanup_collection_.find(edge_type);
+  if (it == cleanup_collection_.end()) return;
+  it->second.emplace_back(from_vertex, to_vertex, edge);
+}
+
+EdgeTypeIndex::AbortProcessor::AbortProcessor(std::span<EdgeTypeId const> edge_types) {
+  for (auto edge_type : edge_types) {
+    cleanup_collection_.insert({edge_type, {}});
   }
 }
 }  // namespace memgraph::storage

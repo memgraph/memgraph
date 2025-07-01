@@ -142,7 +142,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
                           std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   bool RegisterIndex(EdgeTypeId edge_type);
-  auto PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+  auto PopulateIndex(EdgeTypeId insert_function, utils::SkipList<Vertex>::Accessor vertices,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
                      Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
       -> utils::BasicResult<IndexPopulateError>;
@@ -166,10 +166,15 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
 
  private:
+  void CleanupAllIndicies();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndicesContainer>()};
+
+  // For correct GC we need a copy of all indexes, even if dropped, this is so we can ensure dangling ptr are removed
+  // even for dropped indices
+  utils::Synchronized<std::vector<std::shared_ptr<IndividualIndex>>, utils::WritePrioritizedRWLock> all_indexes_{};
 };
 
 }  // namespace memgraph::storage

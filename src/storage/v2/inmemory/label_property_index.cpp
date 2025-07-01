@@ -201,7 +201,8 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor) {
+                                          auto &&index_accessor,
+                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
@@ -214,10 +215,16 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x.
   index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
+
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor, Transaction const &tx) {
+                                          auto &&index_accessor,
+                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                          Transaction const &tx) {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -253,6 +260,10 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   }
 
   index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
+
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
@@ -296,8 +307,6 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   });
 }
 
-struct PopulateCancel : std::exception {};
-
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
@@ -315,22 +324,16 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        if (cancel_check()) {
-          throw PopulateCancel{};
-        }
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, *tx);
+      auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        if (cancel_check()) {
-          throw PopulateCancel{};
-        }
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor);
+      auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
     RemoveIndividualIndex(label, properties);

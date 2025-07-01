@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <map>
+#include <span>
 #include <vector>
 
 namespace memgraph::storage {
@@ -30,8 +31,7 @@ class EdgeTypeIndex {
   struct ActiveIndices;
 
   struct AbortProcessor {
-    // TODO: why constructed with vector?
-    explicit AbortProcessor(std::vector<EdgeTypeId> edge_type) : edge_type_(std::move(edge_type)) {}
+    explicit AbortProcessor(std::span<EdgeTypeId const> edge_types);
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
 
@@ -40,7 +40,6 @@ class EdgeTypeIndex {
     }
 
    private:
-    std::vector<EdgeTypeId> edge_type_;
     AbortableInfo cleanup_collection_;
   };
 

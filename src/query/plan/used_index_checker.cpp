@@ -44,8 +44,8 @@ bool UsedIndexChecker::PreVisit(ScanAllByEdgeType &op) {
 }
 
 PRE_VISIT(ScanAllById)
+PRE_VISIT(ScanAllByEdge)
 
-PRE_VISIT(ScanAllByEdge)                   // TODO: gather for concurrent index check
 PRE_VISIT(ScanAllByEdgeTypeProperty)       // TODO: gather for concurrent index check
 PRE_VISIT(ScanAllByEdgeTypePropertyValue)  // TODO: gather for concurrent index check
 PRE_VISIT(ScanAllByEdgeTypePropertyRange)  // TODO: gather for concurrent index check

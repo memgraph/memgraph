@@ -6257,10 +6257,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
-  void Visit(EdgeIndexQuery &) override {
-    // TODO: concurrent creation
-    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
-  }
   void Visit(PointIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(TextIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(VectorIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
@@ -6308,6 +6304,27 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
         } else {
           accessor_type_ = storage::Storage::Accessor::Type::READ;
         }
+      }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    }
+  }
+  void Visit(EdgeIndexQuery &edge_index_query) override {
+    if (is_in_memory_transactional_) {
+      // Concurrent population of index requires snapshot isolation
+      isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
+      if (edge_index_query.properties_.empty()) {
+        // edge type index
+        if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
+          // Need writers to leave so we can make populate a consistent index
+          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
+        } else {
+          accessor_type_ = storage::Storage::Accessor::Type::READ;
+        }
+      } else {
+        // edge type + properties
+        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
       }
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
