@@ -26,6 +26,28 @@ const std::string kStrippedDoubleToken = "0.0";
 const std::string kStrippedStringToken = "\"a\"";
 const std::string kStrippedBooleanToken = "true";
 
+struct HashedString {
+  HashedString() = default;
+  HashedString(std::string str) : str_(std::move(str)) {}
+  HashedString(HashedString const &) = default;
+  HashedString(HashedString &&) = default;
+  HashedString &operator=(HashedString const &) = default;
+  HashedString &operator=(HashedString &&) = default;
+
+  friend bool operator==(const HashedString &lhs, const HashedString &rhs) {
+    return std::tie(lhs.hash_, lhs.str_) == std::tie(rhs.hash_, rhs.str_);
+  }
+  friend bool operator<(const HashedString &lhs, const HashedString &rhs) {
+    return std::tie(lhs.hash_, lhs.str_) < std::tie(rhs.hash_, rhs.str_);
+  }
+  size_t hash() const { return hash_; }
+  auto str() const -> std::string const & { return str_; }
+
+ private:
+  std::string str_{};
+  size_t hash_{utils::Fnv(str_)};
+};
+
 /**
  * StrippedQuery contains:
  *     * stripped query
@@ -56,12 +78,11 @@ class StrippedQuery {
   StrippedQuery(StrippedQuery &&other) = default;
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
-  auto query() const -> std::string const & { return query_; }
+  auto stripped_query() const -> HashedString const & { return stripped_query_; }
   const auto &original_query() const { return original_; }
   const auto &literals() const { return literals_; }
   const auto &named_expressions() const { return named_exprs_; }
   const auto &parameters() const { return parameters_; }
-  uint64_t hash() const { return hash_; }
 
  private:
   // Return len of matched keyword if something is matched, otherwise 0.
@@ -81,7 +102,7 @@ class StrippedQuery {
   std::string original_;
 
   // Stripped query.
-  std::string query_;
+  HashedString stripped_query_;
 
   // Token positions of stripped out literals mapped to their values.
   // TODO: Parameters class really doesn't provide anything interesting. This
@@ -95,9 +116,15 @@ class StrippedQuery {
   // Token positions of nonaliased named expressions in return statement mapped
   // to their original (unstripped) string.
   std::unordered_map<int, std::string> named_exprs_;
-
-  // Hash based on the stripped query.
-  uint64_t hash_;
 };
 
 }  // namespace memgraph::query::frontend
+
+namespace std {
+template <>
+struct hash<memgraph::query::frontend::HashedString> {
+  size_t operator()(const memgraph::query::frontend::HashedString &hs) const noexcept {
+    return hs.hash();  // or expose hash_ via accessor
+  }
+};
+}  // namespace std

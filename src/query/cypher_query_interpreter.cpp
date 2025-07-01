@@ -63,7 +63,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
 
   // Cache the query's AST if it isn't already.
-  auto hash = stripped_query.hash();
+  auto hash = stripped_query.stripped_query().hash();
   auto accessor = cache->access();
   auto it = accessor.find(hash);
   std::unique_ptr<frontend::opencypher::Parser> parser;
@@ -84,7 +84,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 
   if (it == accessor.end()) {
     try {
-      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
+      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
       // on the original query to get an appropriate error messsage.
@@ -165,10 +165,10 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
     auto existing_plan =
-        plan_cache->WithLock([&](utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>> &cache) {
-          return cache.get(stripped_query.hash());
+        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
+          return cache.get(stripped_query.stripped_query());
         });
-    if (existing_plan.has_value() && existing_plan.value()->stripped_query() == stripped_query.query()) {
+    if (existing_plan.has_value()) {
       // validate the index usage
       auto &ptr = existing_plan.value();
       auto &plan = ptr->plan();
@@ -178,24 +178,22 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &st
       //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
       const_cast<plan::LogicalOperator &>(plan).Accept(checker);
 
-      // TODO: when we are not eagerly collecting all indexes at CreateTransaction we want to Gather rather than Check
-      auto all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
+      auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
       if (all_satisfied) {
         return ptr;
       } else {
-        plan_cache->WithLock([&](utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>> &cache) {
-          cache.invalidate(stripped_query.hash());
+        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
+          cache.invalidate(stripped_query.stripped_query());
         });
       }
     }
   }
 
-  auto plan = std::make_shared<CachedPlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers),
-      stripped_query.query());
+  auto plan = std::make_shared<PlanWrapper>(
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
 
   if (plan_cache) {
-    plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.hash(), plan); });
+    plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 
   return plan;
@@ -211,7 +209,4 @@ SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperat
       rw_type_{rw_type} {}
 
 const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
-
-CachedPlanWrapper::CachedPlanWrapper(std::unique_ptr<LogicalPlan> plan, std::string stripped_query)
-    : PlanWrapper(std::move(plan)), stripped_query_(std::move(stripped_query)) {}
 }  // namespace memgraph::query

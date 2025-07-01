@@ -76,14 +76,6 @@ class PlanWrapper {
   std::unique_ptr<LogicalPlan> plan_;
 };
 
-struct CachedPlanWrapper : PlanWrapper {
-  explicit CachedPlanWrapper(std::unique_ptr<LogicalPlan> plan, std::string stripped_query);
-  auto stripped_query() const -> std::string_view { return stripped_query_; }
-
- private:
-  std::string stripped_query_;  // used so we can identify hash collision
-};
-
 struct CachedQuery {
   AstStorage ast_storage;
   Query *query;
@@ -140,8 +132,8 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
-using PlanCacheLRU = utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlanWrapper>>,
-                                         utils::RWSpinLock>;  // TODO: check RW
+using PlanCacheLRU = utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>,
+                                         utils::RWSpinLock>;
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,

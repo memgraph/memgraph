@@ -2671,8 +2671,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                   Interpreter &interpreter, CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
-  MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
-            "Expected stripped query to start with '{}'", kExplainQueryStart);
+  MG_ASSERT(
+      utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kExplainQueryStart),
+      "Expected stripped query to start with '{}'", kExplainQueryStart);
 
   // Parse and cache the inner query separately (as if it was a standalone
   // query), producing a fresh AST. Note that currently we cannot just reuse
@@ -2731,8 +2732,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
 
-  MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
-            "Expected stripped query to start with '{}'", kProfileQueryStart);
+  MG_ASSERT(
+      utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kProfileQueryStart),
+      "Expected stripped query to start with '{}'", kProfileQueryStart);
 
   // PROFILE isn't allowed inside multi-command (explicit) transactions. This is
   // because PROFILE executes each PROFILE'd query and collects additional

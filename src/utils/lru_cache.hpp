@@ -32,22 +32,22 @@ class LRUCache {
       item_list.erase(it->second);
       item_map.erase(it);
     }
-    item_list.push_front(std::make_pair(key, val));
+    item_list.emplace_front(key, val);
     item_map.insert(std::make_pair(key, item_list.begin()));
     try_clean();
   };
 
   std::optional<TVal> get(const TKey &key) {
-    if (!exists(key)) {
+    auto const it = item_map.find(key);
+    if (it == item_map.end()) {
       return std::nullopt;
     }
-    auto it = item_map.find(key);
     item_list.splice(item_list.begin(), item_list, it->second);
     return it->second->second;
   }
 
   void invalidate(const TKey &key) {
-    auto it = item_map.find(key);
+    auto const it = item_map.find(key);
     if (it != item_map.end()) {
       item_list.erase(it->second);
       item_map.erase(it);
@@ -59,18 +59,16 @@ class LRUCache {
     item_map.clear();
   };
 
-  std::size_t size() { return item_map.size(); };
+  std::size_t size() const { return item_map.size(); }
 
  private:
   void try_clean() {
     while (item_map.size() > cache_size) {
-      auto last_it_elem_it = item_list.end();
-      last_it_elem_it--;
-      item_map.erase(last_it_elem_it->first);
+      auto last = std::prev(item_list.end());
+      item_map.erase(last->first);
       item_list.pop_back();
     }
   };
-  bool exists(const TKey &key) { return (item_map.count(key) > 0); };
 
   std::list<std::pair<TKey, TVal>> item_list;
   std::unordered_map<TKey, decltype(item_list.begin())> item_map;
