@@ -22,6 +22,64 @@ namespace rv = r::views;
 
 namespace memgraph::storage {
 
+namespace {
+inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  if (from_vertex.deleted) {
+    return;
+  }
+
+  for (auto const &[type, to_vertex, edge_ref] : from_vertex.out_edges) {
+    if (type != edge_type) continue;
+    if (to_vertex->deleted) {
+      continue;
+    }
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, 0});
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::EDGES);
+    }
+  }
+}
+
+inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const &tx) {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  utils::small_vector<Vertex::EdgeTriple> edges;
+  auto matches_edge_type = [edge_type](auto const &each) { return std::get<EdgeTypeId>(each) == edge_type; };
+  {
+    auto guard = std::shared_lock{from_vertex.lock};
+    deleted = from_vertex.deleted;
+    delta = from_vertex.delta;
+    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
+  }
+  // Create and drop index will always use snapshot isolation
+  if (delta) {
+    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Exists_ActionMethod(exists),
+        Deleted_ActionMethod(deleted),
+        Edges_ActionMethod<EdgeDirection::OUT>(edges, edge_type)
+      });
+      // clang-format on
+    });
+  }
+  if (!exists || deleted || edges.empty()) {
+    return;
+  }
+
+  for (auto const &[type, to_vertex, edge_ref] : edges) {
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::EDGES);
+    }
+  }
+}
+
+}  // namespace
+
 bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
                                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto res = RegisterIndex(edge_type);
@@ -33,37 +91,44 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::Skip
   return PublishIndex(edge_type, 0);
 }
 
+struct PopulateCancel : std::exception {};
+
 auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                          Transaction const *tx, CheckCancelFunction cancel_check) const
+                                          Transaction const *tx, CheckCancelFunction cancel_check)
     -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
   }
 
-  auto const accessor_factory = [&] { return index->skip_list_.access(); };
+  try {
+    auto const accessor_factory = [&] { return index->skip_list_.access(); };
 
-  // TODO: ATM this is not MVCC or parallel
-  auto edge_acc = accessor_factory();
-  for (auto &from_vertex : vertices) {
-    if (from_vertex.deleted) {
-      continue;
-    }
-
-    for (auto &edge : from_vertex.out_edges) {
-      const auto type = std::get<kEdgeTypeIdPos>(edge);
-      if (type == edge_type) {
-        auto *to_vertex = std::get<kVertexPos>(edge);
-        if (to_vertex->deleted) {
-          continue;
+    // TODO: ATM this is not parallel
+    if (tx) {
+      auto edge_acc = accessor_factory();
+      for (auto &from_vertex : vertices) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
         }
-        edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
-        if (snapshot_info) {
-          snapshot_info->Update(UpdateType::EDGES);
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, edge_acc, snapshot_info, *tx);
+      }
+    } else {
+      auto edge_acc = accessor_factory();
+      for (auto &from_vertex : vertices) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
         }
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, edge_acc, snapshot_info);
       }
     }
+  } catch (const PopulateCancel &) {
+    DropIndex(edge_type);
+    return IndexPopulateError::Cancellation;
+  } catch (const utils::OutOfMemoryException &) {
+    DropIndex(edge_type);
+    throw;
   }
   return {};
 }
@@ -97,7 +162,7 @@ void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp) 
 
 InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
   if (status_.is_ready()) {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
   }
 }
 

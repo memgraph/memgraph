@@ -3390,7 +3390,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 }
 
 PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                    std::vector<Notification> *notifications, CurrentDB &current_db) {
+                                    std::vector<Notification> *notifications, CurrentDB &current_db,
+                                    StoppingContext stopping_context) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -3441,24 +3442,40 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                                                index_query->edge_type_.name, ix_properties.front().name);
       }
 
-      handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
+      handler = [dba, edge_type, edge_type_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder)](Notification &index_notification) {
+                 plan_invalidator_builder = std::move(plan_invalidator_builder),
+                 stopping_context = std::move(stopping_context)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
           if (global_index) {
-            if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
+            if (properties.empty()) throw utils::BasicException("Missing property for global edge index.");
             return dba->CreateGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
+          } else if (properties.empty()) {
+            return dba->CreateIndex(edge_type, make_create_index_cancel_callback(stopping_context),
+                                    std::move(plan_invalidator_builder));
           }
-          return properties.empty() ? dba->CreateIndex(edge_type, std::move(plan_invalidator_builder))
-                                    : dba->CreateIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
+          return dba->CreateIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
         });
 
         if (maybe_index_error.HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Index on edge-type {} on properties {} already exists.", label_name, properties_stringified);
+          auto const error_visitor = [&]<typename T>(T const &) {
+            if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
+                          std::is_same_v<T, storage::IndexDefinitionConfigError> ||
+                          std::is_same_v<T, storage::IndexDefinitionAlreadyExistsError>) {
+              index_notification.code = NotificationCode::EXISTENT_INDEX;
+              index_notification.title = fmt::format("Index on edge-type {} on properties {} already exists.",
+                                                     edge_type_name, properties_stringified);
+            } else if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
+              // TODO: could also be SHUTDOWN...but this is good enough for now
+              throw HintedAbortError(AbortReason::TERMINATED);
+            } else {
+              static_assert(utils::always_false<T>, "Unhandled error type in error_visitor");
+            }
+          };
+
+          std::visit(error_visitor, maybe_index_error.GetError());
         }
       };
       break;
@@ -6458,7 +6475,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                          &query_execution->notifications, current_db_, make_stopping_context());
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                             &query_execution->notifications, current_db_);
+                                             &query_execution->notifications, current_db_, make_stopping_context());
     } else if (utils::Downcast<PointIndexQuery>(parsed_query.query)) {
       prepared_query = PreparePointIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, current_db_);

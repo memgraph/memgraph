@@ -647,8 +647,9 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::EdgeTypeId edge_type, storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(edge_type, true, storage::neverCancel /*TODO*/, std::move(wrapper));
+      storage::EdgeTypeId edge_type, storage::CheckCancelFunction cancel_check = storage::neverCancel,
+      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
+    return accessor_->CreateIndex(edge_type, true, std::move(cancel_check), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
