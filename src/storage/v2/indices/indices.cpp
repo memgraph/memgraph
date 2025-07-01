@@ -65,13 +65,13 @@ void Indices::DropGraphClearIndices() {
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
-  label_index_->UpdateOnAddLabel(label, vertex, tx);
+  tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
-  label_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(label, vertex);
 }
@@ -114,7 +114,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(c
 }
 
 Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_indices) const {
-  return {static_cast<InMemoryLabelIndex *>(label_index_.get())->GetAbortProcessor(),
+  return {active_indices.label_->GetAbortProcessor(),
           active_indices.label_properties_->GetAbortProcessor(),
           active_indices.edge_type_->GetAbortProcessor(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
@@ -137,9 +137,9 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp) {
-  label_.Process(*indices.label_index_, start_timestamp);
-  label_properties_.Process(*active_indices.label_properties_, start_timestamp);
-  edge_type_.Process(*active_indices.edge_type_, start_timestamp);
+  active_indices.label_->AbortEntries(label_.cleanup_collection_, start_timestamp);
+  active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);
+  active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
   // TODO: edge type properties
 }
 }  // namespace memgraph::storage

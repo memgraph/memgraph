@@ -187,8 +187,7 @@ class DiskStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexExists(LabelId label) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_index_->IndexExists(label);
+      return transaction_.active_indices_.label_->IndexReady(label);
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
@@ -222,7 +221,8 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
         LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel,
@@ -290,8 +290,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;

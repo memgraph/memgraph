@@ -697,24 +697,25 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
       // LabelIndex auto-creation block.
-      if (!transaction_.introduced_new_label_index_.empty()) {
-        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-          for (auto label : transaction_.introduced_new_label_index_) {
-            auto it = label_indices.find(label);
-            auto &[_, count] = *it;
-            --count;
-            // If there are multiple transactions that would like to create an
-            // auto-created index on a specific label, we only build the index
-            // when the last one commits.
-            if (count == 0) {
-              // TODO: (andi) Handle auto-creation issue
-              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-              CreateIndex(label, false);
-              label_indices.erase(it);
-            }
-          }
-        });
-      }
+      // TODO (ivan): autoindexing
+      // if (!transaction_.introduced_new_label_index_.empty()) {
+      //   storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+      //     for (auto label : transaction_.introduced_new_label_index_) {
+      //       auto it = label_indices.find(label);
+      //       auto &[_, count] = *it;
+      //       --count;
+      //       // If there are multiple transactions that would like to create an
+      //       // auto-created index on a specific label, we only build the index
+      //       // when the last one commits.
+      //       if (count == 0) {
+      //         // TODO: (andi) Handle auto-creation issue
+      //         // NOLINTNEXTLINE(clang-diagnostic-unused-result)
+      //         CreateIndex(label, false);
+      //         label_indices.erase(it);
+      //       }
+      //     }
+      //   });
+      // }
 
       // EdgeIndex auto-creation block.
       if (!transaction_.introduced_new_edge_type_index_.empty()) {
@@ -1284,19 +1285,20 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// this is because they point into vertices skip_list
 
     // auto index creation cleanup
-    if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-        !transaction_.introduced_new_label_index_.empty()) {
-      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-        for (const auto label : transaction_.introduced_new_label_index_) {
-          auto it = label_indices.find(label);
-          auto &[_, count] = *it;
-          --count;
-          if (count == 0) {
-            label_indices.erase(it);
-          }
-        }
-      });
-    }
+    // TODO (ivan): autoindexing
+    // if (storage_->config_.salient.items.enable_label_index_auto_creation &&
+    //     !transaction_.introduced_new_label_index_.empty()) {
+    //   storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+    //     for (const auto label : transaction_.introduced_new_label_index_) {
+    //       auto it = label_indices.find(label);
+    //       auto &[_, count] = *it;
+    //       --count;
+    //       if (count == 0) {
+    //         label_indices.erase(it);
+    //       }
+    //     }
+    //   });
+    // }
 
     if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
         !transaction_.introduced_new_edge_type_index_.empty()) {
@@ -1377,22 +1379,30 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed, PublishIndexWrapper wrapper) {
-  if (unique_access_needed) {
-    MG_ASSERT(type() == UNIQUE, "Creating label index requires a unique access to the storage!");
-  }
+    LabelId label, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating label index requires a unique or read only access to the storage!");
+  // UNIQUE access is also required by schema.assert
+
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
+  if (!mem_label_index->RegisterIndex(label)) {
+    return StorageIndexDefinitionError{IndexDefinitionAlreadyExistsError{}};
   }
-  // TODO: concurrent index creation need to publish
-  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
-  publish_index_callback(0);  // ensures plan cache is cleared
+  DowngradeToReadIfValid();
+  if (mem_label_index
+          ->PopulateIndex(label, in_memory->vertices_.access(), std::nullopt, std::nullopt, &transaction_,
+                          std::move(cancel_check))
+          .HasError()) {
+    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  }
+  // Wrapper will make sure plan cache is cleared
+  auto publisher =
+      wrapper([=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
   return {};
 }
 
@@ -1503,19 +1513,20 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, DropIndexWrapper wrapper) {
-  MG_ASSERT(type() == UNIQUE, "Dropping label index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index drop
-  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
-  drop_index_callback();
+  auto drop_index_callback = wrapper([&]() { return mem_label_index->DropIndex(label); });
+  if (!drop_index_callback()) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
   return {};
 }
 
@@ -1743,8 +1754,8 @@ utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::In
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
-  return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
+  auto *active_indices = static_cast<InMemoryLabelIndex::ActiveIndices *>(transaction_.active_indices_.label_.get());
+  return VerticesIterable(active_indices->Vertices(label, view, storage_, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
@@ -3097,14 +3108,13 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
 
   // TODO: add status populating/ready?
-  return {mem_label_index->ListIndices(),
+  return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),
           mem_edge_type_property_index->ListIndices(),

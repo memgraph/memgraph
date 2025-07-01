@@ -30,8 +30,9 @@ EdgeImportModeCache::EdgeImportModeCache(const Config &config)
 
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  return mem_label_index->Vertices(label, vertices_.access(), view, storage, transaction);
+  auto index = in_memory_indices_.label_index_->GetActiveIndices();
+  return static_cast<InMemoryLabelIndex::ActiveIndices *>(index.get())
+      ->Vertices(label, vertices_.access(), view, storage, transaction);
 }
 
 InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
@@ -60,7 +61,7 @@ bool EdgeImportModeCache::CreateIndex(
 bool EdgeImportModeCache::CreateIndex(
     LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  bool res = mem_label_index->CreateIndex(label, vertices_.access(), parallel_exec_info);
+  bool res = mem_label_index->CreateIndexOnePass(label, vertices_.access(), parallel_exec_info);
   if (res) {
     scanned_labels_.insert(label);
   }

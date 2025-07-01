@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
@@ -28,9 +29,10 @@ struct IndicesCollection {
 
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
-  explicit ActiveIndices(std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
+  explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
+                         std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
                          std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type)
-      : label_properties_{std::move(label_properties)}, edge_type_{std::move(edge_type)} {}
+      : label_{std::move(label)}, label_properties_{std::move(label_properties)}, edge_type_{std::move(edge_type)} {}
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
@@ -51,6 +53,7 @@ struct ActiveIndices {
     return true;
   }
 
+  std::unique_ptr<LabelIndex::ActiveIndices> label_;
   std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
   std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
 };

@@ -198,7 +198,7 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label) const override {
-      return storage_->indices_.label_index_->ApproximateVertexCount(label);
+      return transaction_.active_indices_.label_->ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
@@ -296,7 +296,9 @@ class InMemoryStorage final : public Storage {
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                          VertexAccessor *to_vertex) override;
 
-    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index_->IndexExists(label); }
+    bool LabelIndexExists(LabelId label) const override {
+      return transaction_.active_indices_.label_->IndexReady(label);
+    }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
@@ -345,7 +347,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -499,8 +502,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
