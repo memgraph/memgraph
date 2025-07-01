@@ -187,9 +187,9 @@ class LabelPropertyIndex {
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
 
-    void collect_on_label_removal(LabelId label, Vertex *vertex);
-    void collect_on_property_change(PropertyId propId, Vertex *vertex);
-    void process(ActiveIndices &active_indices, uint64_t start_timestamp);
+    void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+    void Process(ActiveIndices &active_indices, uint64_t start_timestamp);
 
     // collection
     AbortableInfo cleanup_collection;

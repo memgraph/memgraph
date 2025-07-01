@@ -23,7 +23,11 @@ struct IndicesCollection {
 };
 
 struct ActiveIndices {
-  bool CheckIndicesAreReady(IndicesCollection const &required_indices) {
+  ActiveIndices() = delete;  // to avoid nullptr
+  explicit ActiveIndices(std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties)
+      : label_properties_{std::move(label_properties)} {}
+
+  bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
     for ([[maybe_unused]] auto const &label : required_indices.label_) {
       // TODO: when we have concurrent index creation for labels

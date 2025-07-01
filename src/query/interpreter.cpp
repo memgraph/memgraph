@@ -3231,7 +3231,7 @@ struct DoNothing {
 };
 
 // Creating an index influences computed plan costs.
-// We need to atomically invcalidate the plan when publishing new index
+// We need to atomically invalidate the plan when publishing new index
 auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
   // capture DatabaseAccess in builder
   return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {

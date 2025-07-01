@@ -40,7 +40,7 @@ struct CppApiTestFixture : public ::testing::Test {
   }
 
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
       return this->storage->ReadOnlyAccess();
     } else {
       return this->storage->UniqueAccess();
@@ -48,7 +48,7 @@ struct CppApiTestFixture : public ::testing::Test {
   }
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    if constexpr ((std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>)) {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
       return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
     } else {
       return this->storage->UniqueAccess();

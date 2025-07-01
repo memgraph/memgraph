@@ -266,7 +266,7 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) {
+  bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {
     return accessor_->CheckIndicesAreReady(required_indices);
   }
 

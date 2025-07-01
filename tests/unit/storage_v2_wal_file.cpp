@@ -47,9 +47,7 @@ class DeltaGenerator final {
                        gen->storage_mode_, false, false,
                        memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
                        memgraph::storage::ActiveIndices{
-                           // TODO: fake?
-                           .label_properties_ =
-                               std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>()}) {}
+                           std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>()}) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {

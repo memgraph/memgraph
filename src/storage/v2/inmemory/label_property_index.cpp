@@ -348,12 +348,12 @@ bool InMemoryLabelPropertyIndex::PublishIndex(LabelId label, PropertiesPaths con
 }
 
 void InMemoryLabelPropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
-  status.commit(commit_timestamp);
+  status.Commit(commit_timestamp);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 }
 
 InMemoryLabelPropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.is_ready()) {
+  if (status.IsReady()) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   }
 }
@@ -534,7 +534,7 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
   if (it != index_container_->indices_.end()) {
     auto it2 = it->second.find(properties);
     if (it2 != it->second.end()) {
-      return it2->second->status.is_ready();
+      return it2->second->status.IsReady();
     }
   }
 
@@ -580,7 +580,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesIn
 
     for (const auto &[nested_props, index] : it->second) {
       // Skip indexes which are not ready, they are never relevant for planning
-      if (!index->status.is_ready()) continue;
+      if (!index->status.IsReady()) continue;
 
       bool has_matching_property = false;
       auto positions = std::vector<int64_t>();
@@ -613,7 +613,7 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
   ret.reserve(num_indexes);
   for (auto const &[label, indices] : index_container_->indices_) {
     for (auto const &[props, index] : indices) {
-      if (index->status.is_visible(start_timestamp)) {
+      if (index->status.IsVisible(start_timestamp)) {
         ret.emplace_back(label, props);
       }
     }

@@ -14,7 +14,7 @@ April 23, 2025
 Currently, index creation is a unique access operation, meaning that:
 - Queries can not run concurrently while the index is being made
 - Allowing for a consistent index to be made
-- One complete other queries can run again using the new index in the plan
+- Once complete other queries can run again using the new index in the plan
 
 **Criteria**
 
@@ -33,7 +33,7 @@ populating for all entries consistent with its snapshot isolation. Once the inde
 it can be made availible for the planner to use.
 
 Considerations:
-- Replica, would also be able to use READ_ONLY downgrade to READ. But replica has no writters
+- Replica, would also be able to use READ_ONLY downgrade to READ. But replica has no writers
   so this would be a perf win.
 - TTL, enable + disable modified multiple internal indices. Can only downgrade once, need to
   take that into consideration.
