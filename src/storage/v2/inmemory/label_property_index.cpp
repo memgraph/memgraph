@@ -203,6 +203,11 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // observe regardless
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
+
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
@@ -215,16 +220,17 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   // Using 0 as a timestamp is fine because the index is created at timestamp x
   // and any query using the index will be > x.
   index_accessor.insert({props.ApplyPermutation(std::move(values)), &vertex, 0});
-
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
                                           auto &&index_accessor,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
                                           Transaction const &tx) {
+  // observe regardless
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
+
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -260,10 +266,6 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
   }
 
   index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
-
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
