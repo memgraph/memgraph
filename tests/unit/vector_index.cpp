@@ -33,8 +33,7 @@ static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kin
 static constexpr std::size_t resize_coefficient = 2;
 static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
 
-template <typename StorageType>
-class VectorSearchTest : public testing::Test {
+class VectorIndexTest : public testing::Test {
  public:
   static constexpr std::string_view testSuite = "vector_search";
   std::unique_ptr<Storage> storage;
@@ -68,9 +67,7 @@ class VectorSearchTest : public testing::Test {
   }
 };
 
-TYPED_TEST_SUITE(VectorSearchTest, InMemoryStorage);
-
-TYPED_TEST(VectorSearchTest, SimpleAddNodeTest) {
+TEST_F(VectorIndexTest, SimpleAddNodeTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
@@ -90,7 +87,7 @@ TYPED_TEST(VectorSearchTest, SimpleAddNodeTest) {
   EXPECT_EQ(vector_index_info[0].size, 1);
 }
 
-TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
+TEST_F(VectorIndexTest, SimpleSearchTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
@@ -103,7 +100,7 @@ TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
   EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
 }
 
-TYPED_TEST(VectorSearchTest, HighDimensionalSearchTest) {
+TEST_F(VectorIndexTest, HighDimensionalSearchTest) {
   // Create index with high dimension
   this->CreateIndex(1000, 2);
   auto acc = this->storage->Access();
@@ -119,7 +116,7 @@ TYPED_TEST(VectorSearchTest, HighDimensionalSearchTest) {
   EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
 }
 
-TYPED_TEST(VectorSearchTest, InvalidDimensionTest) {
+TEST_F(VectorIndexTest, InvalidDimensionTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
@@ -131,7 +128,7 @@ TYPED_TEST(VectorSearchTest, InvalidDimensionTest) {
                memgraph::query::VectorSearchException);
 }
 
-TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
+TEST_F(VectorIndexTest, SearchWithMultipleNodes) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
@@ -156,7 +153,7 @@ TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
   EXPECT_EQ(result2.size(), 2);
 }
 
-TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
+TEST_F(VectorIndexTest, ConcurrencyTest) {
   this->CreateIndex(2, 10);
 
   const auto index_size = std::thread::hardware_concurrency();  // default value for the number of threads in the pool
@@ -184,7 +181,7 @@ TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
 }
 
-TYPED_TEST(VectorSearchTest, UpdatePropertyValueTest) {
+TEST_F(VectorIndexTest, UpdatePropertyValueTest) {
   this->CreateIndex(2, 10);
   Gid vertex_gid;
   {
@@ -213,7 +210,7 @@ TYPED_TEST(VectorSearchTest, UpdatePropertyValueTest) {
   }
 }
 
-TYPED_TEST(VectorSearchTest, DeleteVertexTest) {
+TEST_F(VectorIndexTest, DeleteVertexTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
@@ -231,7 +228,7 @@ TYPED_TEST(VectorSearchTest, DeleteVertexTest) {
   EXPECT_EQ(result.size(), 0);
 }
 
-TYPED_TEST(VectorSearchTest, SimpleAbortTest) {
+TEST_F(VectorIndexTest, SimpleAbortTest) {
   this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
   static constexpr auto index_size = 10;  // has to be equal or less than the limit of the index
@@ -251,7 +248,7 @@ TYPED_TEST(VectorSearchTest, SimpleAbortTest) {
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
 }
 
-TYPED_TEST(VectorSearchTest, MultipleAbortsAndUpdatesTest) {
+TEST_F(VectorIndexTest, MultipleAbortsAndUpdatesTest) {
   this->CreateIndex(2, 10);
   Gid vertex_gid;
   PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
@@ -347,7 +344,7 @@ TYPED_TEST(VectorSearchTest, MultipleAbortsAndUpdatesTest) {
   }
 }
 
-TYPED_TEST(VectorSearchTest, RemoveObsoleteEntriesTest) {
+TEST_F(VectorIndexTest, RemoveObsoleteEntriesTest) {
   this->CreateIndex(2, 10);
   Gid vertex_gid;
   {
@@ -383,7 +380,7 @@ TYPED_TEST(VectorSearchTest, RemoveObsoleteEntriesTest) {
   }
 }
 
-TYPED_TEST(VectorSearchTest, IndexResizeTest) {
+TEST_F(VectorIndexTest, IndexResizeTest) {
   this->CreateIndex(2, 1);
   auto size = 0;
   auto capacity = 1;
@@ -404,7 +401,7 @@ TYPED_TEST(VectorSearchTest, IndexResizeTest) {
   EXPECT_GT(capacity, size);
 }
 
-TYPED_TEST(VectorSearchTest, DropIndexTest) {
+TEST_F(VectorIndexTest, DropIndexTest) {
   this->CreateIndex(2, 10);
   {
     auto acc = this->storage->Access();
@@ -428,7 +425,7 @@ TYPED_TEST(VectorSearchTest, DropIndexTest) {
   }
 }
 
-TYPED_TEST(VectorSearchTest, ClearTest) {
+TEST_F(VectorIndexTest, ClearTest) {
   this->CreateIndex(2, 10);
   {
     auto acc = this->storage->Access();
@@ -449,7 +446,7 @@ TYPED_TEST(VectorSearchTest, ClearTest) {
   }
 }
 
-TYPED_TEST(VectorSearchTest, CreateIndexWhenNodesExistsAlreadyTest) {
+TEST_F(VectorIndexTest, CreateIndexWhenNodesExistsAlreadyTest) {
   {
     auto acc = this->storage->Access();
 

@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <tuple>
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
@@ -1067,7 +1068,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                         vector_indexed_edge_types->second.end()) {
                       // this edge type is indexed in the vector index
                       vector_edge_type_property_restore[EdgeTypePropKey{edge_type, current->property.key}].emplace_back(
-                          old_value, std::make_tuple(from_vertex, target_vertex, edge_ref.ptr));
+                          *current->property.value, std::make_tuple(from_vertex, target_vertex, edge_ref.ptr));
                     }
                     // handle edge type-property index
                     if (!old_value.IsNull()) {

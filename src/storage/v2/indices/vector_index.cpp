@@ -274,7 +274,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
 }
 
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) {
-  auto &[mg_index, spec] = pimpl->index_.at(label_prop);
+  auto &[mg_index, _] = pimpl->index_.at(label_prop);
   auto locked_index = mg_index->MutableSharedLock();
   for (const auto &vertex : vertices) {
     locked_index->remove(vertex);

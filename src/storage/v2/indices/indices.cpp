@@ -59,6 +59,7 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
   point_index_.Clear();
   vector_index_.Clear();
+  vector_edge_index_.Clear();
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     text_index_.Clear();
   }
@@ -120,7 +121,8 @@ Indices::AbortProcessor Indices::GetAbortProcessor() const {
           static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->GetAbortProcessor(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
           static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
-          vector_index_.Analysis()};
+          vector_index_.Analysis(),
+          vector_edge_index_.Analysis()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
