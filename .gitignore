@@ -1,8 +1,8 @@
 # Conan files
 conanbuild.sh
-conanbuildenv-release-x86_64.sh
+conanbuildenv*
 conanrun.sh
-conanrunenv-release-x86_64.sh
+conanrunenv*
 deactivate_conanbuild.sh
 deactivate_conanrun.sh
 

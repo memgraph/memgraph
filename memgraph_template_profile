@@ -1,11 +1,12 @@
 [settings]
-arch=x86_64
-build_type=Release
+arch = {{ {"arm64": "armv8"}.get(platform.machine(), platform.machine()) }}
+build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
 compiler.cppstd=20
 compiler.libcxx=libstdc++11
 compiler.version=20
-os=Linux
+os = {{ {"Darwin": "Macos"}.get(platform.system(), platform.system()) }}
+
 
 [tool_requires]
 ninja/1.11.1
