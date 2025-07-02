@@ -162,7 +162,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
     }
   };
 
-  add_if_set(kDataInstances, delta_state.data_instances_);
+  add_if_set(kClusterState, delta_state.data_instances_);
   add_if_set(kCoordinatorInstances, delta_state.coordinator_instances_);
   add_if_set(kUuid, delta_state.current_main_uuid_);
   add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
@@ -177,8 +177,8 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
     CoordinatorClusterStateDelta delta_state;
     auto const json = nlohmann::json::parse(bs.get_str());
 
-    if (json.contains(kDataInstances.data())) {
-      auto const data_instances = json.at(kDataInstances.data());
+    if (json.contains(kClusterState.data())) {
+      auto const data_instances = json.at(kClusterState.data());
       delta_state.data_instances_ = data_instances.get<std::vector<DataInstanceContext>>();
     }
 
