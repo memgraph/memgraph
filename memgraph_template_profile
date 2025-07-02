@@ -1,10 +1,12 @@
+{% set toolchain_path = os.getenv("MG_TOOLCHAIN") %}
+
 [settings]
 arch = {{ {"arm64": "armv8"}.get(platform.machine(), platform.machine()) }}
 build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
 compiler.cppstd=20
 compiler.libcxx=libstdc++11
-compiler.version=20
+compiler.version=17
 os = {{ {"Darwin": "Macos"}.get(platform.system(), platform.system()) }}
 
 
@@ -12,9 +14,6 @@ os = {{ {"Darwin": "Macos"}.get(platform.system(), platform.system()) }}
 ninja/1.11.1
 cmake/4.0.3
 
-[buildenv]
-CC=clang-20
-CXX=clang++-20
-
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
+tools.cmake.cmaketoolchain:toolchain_file = {{ os.path.join(toolchain_path, "toolchain.cmake") }}

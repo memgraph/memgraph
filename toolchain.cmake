@@ -1,25 +1,22 @@
-set(CMAKE_SYSTEM_NAME Linux)
-execute_process(
-    COMMAND uname -m
-    OUTPUT_VARIABLE uname_result
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
+# This is the directory containing this toolchain file
+set(MG_TOOLCHAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 
-set(tools "/opt/toolchain-v7")
+# Enable ccache
+find_program(CCACHE_PROGRAM ccache)
 
+if(CCACHE_PROGRAM)
+    message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
+endif()
 
-#set(CMAKE_SYSROOT "${tools}")
-set(CMAKE_PREFIX_PATH "${tools}")
-set(MG_TOOLCHAIN_ROOT "${tools}")
-message(STATUS "Using toolchain file at: ${CMAKE_TOOLCHAIN_FILE}" )
+# Set compiler
+set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
+set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang++" CACHE STRING "" FORCE)
 
-set(CMAKE_C_COMPILER "${tools}/bin/clang")
-set(CMAKE_CXX_COMPILER "${tools}/bin/clang++")
-#set(CMAKE_C_FLAGS "-isystem '${tools}/include'")
-#set(CMAKE_CXX_FLAGS "-isystem '${tools}/include'")
+# Set linker
+set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE FILEPATH "" FORCE)
 
-#set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-#set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-#set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-#set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+# Tell Clang to use the custom linker
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -fuse-ld=lld")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=lld")
