@@ -297,8 +297,8 @@ struct PopulateCancel : std::exception {};
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -395,7 +395,7 @@ bool InMemoryLabelPropertyIndex::RemoveIndividualIndex(LabelId const &label, Pro
     // Erase the reverse lookup before removing the index entry
     for (auto const &prop_selector : properties) {
       auto it3 = new_index->reverse_lookup_.find(prop_selector[0]);
-      DMG_ASSERT(it3 != new_index->reverse_lookup_.cend(), "Reverse lookup should exist");
+      if (it3 == new_index->reverse_lookup_.cend()) continue;
       auto &label_map = it3->second;
       auto [b, e] = label_map.equal_range(label);
       // TODO(composite_index): replace linear search with logn
@@ -542,8 +542,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
-    -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels,
+    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
