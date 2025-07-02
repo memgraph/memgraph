@@ -639,6 +639,25 @@ TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
+TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariablesInsideSubquery) {
+  // MATCH (n) CALL { RETURN * } RETURN n
+  auto subquery_ret = this->storage.template Create<Return>();
+  subquery_ret->body_.all_identifiers = true;
+
+  auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), subquery_ret));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, WithAsteriskAllowedAtTopLevel) {
+  // WITH * RETURN 42
+  auto with = this->storage.template Create<With>();
+  with->body_.all_identifiers = true;
+
+  auto query = QUERY(SINGLE_QUERY(with, RETURN(LITERAL(42), AS("res"))));
+  EXPECT_NO_THROW(memgraph::query::MakeSymbolTable(query));
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
   const auto *r_type = "r";
@@ -1496,7 +1515,7 @@ TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
   auto *ident = IDENT("x");
   auto query = QUERY(
       SINGLE_QUERY(RETURN(NEXPR("added_numbers", LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)),
-                                                                     nullptr, ADD(ident, LITERAL(1)))))));
+                                                                    nullptr, ADD(ident, LITERAL(1)))))));
 
   auto symbol_table = MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 2);
