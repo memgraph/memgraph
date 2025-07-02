@@ -611,7 +611,7 @@
                (gen/mix [show-instances-reads add-nodes])))))
 
 (defn workload
-  "Basic HA workload."
+  "Basilico HA workload."
   [opts]
   (let [nodes-config (:nodes-config opts)
         db (:db opts)
