@@ -1,4 +1,4 @@
-{% set toolchain_path = os.getenv("MG_TOOLCHAIN") %}
+{% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT") %}
 
 [settings]
 arch = {{ {"arm64": "armv8"}.get(platform.machine(), platform.machine()) }}
