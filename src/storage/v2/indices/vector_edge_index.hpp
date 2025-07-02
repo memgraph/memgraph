@@ -119,6 +119,11 @@ class VectorEdgeIndex {
   /// @throw query::VectorSearchException if the index does not exist.
   EdgeTypeId GetEdgeTypeId(std::string_view index_name);
 
+  /// @brief Checks if a vector index exists for the given name.
+  /// @param index_name The name of the index to check.
+  /// @return true if the index exists, false otherwise.
+  bool IndexExists(std::string_view index_name) const;
+
  private:
   /// @brief Adds a vertex to an existing index.
   /// @param vertex The vertex to be added.

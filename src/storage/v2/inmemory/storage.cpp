@@ -1583,8 +1583,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
+  auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
-  if (!vector_index.CreateIndex(spec, vertices_acc)) {
+  // We don't allow creating vector index on nodes with the same name as vector edge index
+  if (vector_edge_index.IndexExists(spec.index_name) || !vector_index.CreateIndex(spec, vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
@@ -1598,12 +1600,33 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   MG_ASSERT(type() == UNIQUE, "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
-  if (!vector_index.DropIndex(index_name)) {
+  auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
+  if (vector_index.DropIndex(index_name)) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+  } else if (vector_edge_index.DropIndex(index_name)) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
+  } else {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
+    VectorIndexSpec spec) {
+  MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &vector_index = in_memory->indices_.vector_index_;
+  auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
+  auto vertices_acc = in_memory->vertices_.access();
+  // We don't allow creating vector edge index with the same name as vector index on nodes
+  if (vector_index.IndexExists(spec.index_name) || !vector_edge_index.CreateIndex(spec, vertices_acc)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
 }
 

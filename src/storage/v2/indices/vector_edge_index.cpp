@@ -304,4 +304,8 @@ EdgeTypeId VectorEdgeIndex::GetEdgeTypeId(std::string_view index_name) {
   return it->second.edge_type();
 }
 
+bool VectorEdgeIndex::IndexExists(std::string_view index_name) const {
+  return pimpl->index_name_to_edge_type_prop_.contains(index_name);
+}
+
 }  // namespace memgraph::storage

@@ -263,6 +263,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;
 
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(VectorIndexSpec spec) override;
+
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
 

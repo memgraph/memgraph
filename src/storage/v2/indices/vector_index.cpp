@@ -320,4 +320,8 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
   return res;
 }
 
+bool VectorIndex::IndexExists(std::string_view index_name) const {
+  return pimpl->index_name_to_label_prop_.contains(index_name);
+}
+
 }  // namespace memgraph::storage

@@ -701,6 +701,10 @@ class DbAccessor final {
     return accessor_->DropVectorIndex(index_name);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(storage::VectorIndexSpec spec) {
+    return accessor_->CreateVectorEdgeIndex(std::move(spec));
+  }
+
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {
     return accessor_->CreateExistenceConstraint(label, property);

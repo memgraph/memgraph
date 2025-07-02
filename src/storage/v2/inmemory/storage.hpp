@@ -433,6 +433,8 @@ class InMemoryStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorEdgeIndex(VectorIndexSpec spec) override;
+
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.

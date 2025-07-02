@@ -39,6 +39,7 @@ extern const Event ActiveLabelPropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 extern const Event ActiveVectorIndices;
+extern const Event ActiveVectorEdgeIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -99,6 +100,7 @@ struct StorageInfo {
   uint64_t label_property_indices;
   uint64_t text_indices;
   uint64_t vector_indices;
+  uint64_t vector_edge_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -129,6 +131,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["label_prop_indices"] = info.label_property_indices;
   res["text_indices"] = info.text_indices;
   res["vector_indices"] = info.vector_indices;
+  res["vector_edge_indices"] = info.vector_edge_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -449,6 +452,9 @@ class Storage {
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
+
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorIndexSpec spec) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;

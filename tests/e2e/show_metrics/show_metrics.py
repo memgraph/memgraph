@@ -123,6 +123,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActivePointIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveTextIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Counter"},
+        {"name": "ActiveVectorEdgeIndices", "type": "Index", "metric type": "Counter"},
         {"name": "UnreleasedDeltaObjects", "type": "Memory", "metric type": "Counter"},
         {"name": "DiskUsage", "type": "Memory", "metric type": "Gauge"},
         {"name": "MemoryRes", "type": "Memory", "metric type": "Gauge"},

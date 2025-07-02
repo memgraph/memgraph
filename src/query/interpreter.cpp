@@ -3642,7 +3642,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     index_notification.title = fmt::format("Created vector index on edge type {}, property {}.", edge_type, prop_name);
     auto edge_type_id = storage->NameToEdgeType(edge_type);
     auto prop_id = storage->NameToProperty(prop_name);
-    auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
+    auto maybe_error = dba->CreateVectorEdgeIndex(storage::VectorIndexSpec{
         .index_name = index_name,
         .label_or_edge_type = edge_type_id,
         .property = prop_id,

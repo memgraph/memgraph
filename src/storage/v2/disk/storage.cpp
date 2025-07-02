@@ -2168,6 +2168,12 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
+    VectorIndexSpec /*spec*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
   MG_ASSERT(type() == UNIQUE, "Create existence constraint requires a unique access to the storage!");
