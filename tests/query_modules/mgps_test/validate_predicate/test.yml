@@ -1,0 +1,9 @@
+- query: >-
+    RETURN mgps.validate_predicate(false, "Cannot convert %s to %s", ['string', 'map']) AS output;
+  output:
+    - output: True
+
+- query: >-
+    RETURN mgps.validate_predicate(true, "Cannot convert %s to %s", ['string', 'map'])
+  exception: >-
+    "Cannot convert string to map"
