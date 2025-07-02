@@ -1517,9 +1517,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
-  if (!mem_label_index->DropIndex(label)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
-  }
+
+  // Done inside the wrapper to ensure plan cache invalidation is safe
   auto drop_index_callback = wrapper([&]() { return mem_label_index->DropIndex(label); });
   if (!drop_index_callback()) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};

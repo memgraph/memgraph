@@ -330,7 +330,7 @@ class Storage {
 
     virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
 
-    virtual bool LabelIndexExists(LabelId label) const = 0;
+    virtual bool LabelIndexReady(LabelId label) const = 0;
 
     virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 

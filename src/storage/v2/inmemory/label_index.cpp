@@ -47,12 +47,12 @@ auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) 
 }
 
 void InMemoryLabelIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
-  status.commit(commit_timestamp);
+  status.Commit(commit_timestamp);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
 }
 
 InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
-  if (status.is_ready()) {
+  if (status.IsReady()) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
   }
 }
@@ -181,14 +181,14 @@ bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {
   if (it == index_container_->end()) [[unlikely]] {
     return false;
   }
-  return it->second->status.is_ready();
+  return it->second->status.IsReady();
 }
 
 std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   std::vector<LabelId> ret;
   ret.reserve(index_container_->size());
   for (const auto &item : *index_container_) {
-    if (item.second->status.is_visible(start_timestamp)) ret.push_back(item.first);
+    if (item.second->status.IsVisible(start_timestamp)) ret.push_back(item.first);
   }
   return ret;
 }

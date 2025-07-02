@@ -49,7 +49,7 @@ class InMemoryLabelIndex : public LabelIndex {
 
   using IndexContainer = std::map<LabelId, std::shared_ptr<IndividualIndex>>;
 
-  InMemoryLabelIndex() = default;
+  InMemoryLabelIndex() : index_(std::make_shared<IndexContainer>()) {}
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex>::Accessor vertices,

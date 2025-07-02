@@ -186,7 +186,7 @@ class DiskStorage final : public Storage {
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                          VertexAccessor *to_vertex) override;
 
-    bool LabelIndexExists(LabelId label) const override {
+    bool LabelIndexReady(LabelId label) const override {
       return transaction_.active_indices_.label_->IndexReady(label);
     }
 

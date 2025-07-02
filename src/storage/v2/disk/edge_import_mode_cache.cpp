@@ -11,17 +11,11 @@
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
 
-#include <algorithm>
-
-#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
-#include "storage/v2/mvcc.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/disk_utils.hpp"
-#include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
 
@@ -62,10 +56,9 @@ bool EdgeImportModeCache::CreateIndex(
     LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
   bool res = mem_label_index->CreateIndexOnePass(label, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_labels_.insert(label);
-  }
-  return res;
+  if (!res) return false;
+  scanned_labels_.insert(label);
+  return true;
 }
 
 bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {

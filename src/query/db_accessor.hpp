@@ -488,7 +488,7 @@ class DbAccessor final {
 
   storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetCreationStorageMode(); }
 
-  bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
+  bool LabelIndexReady(storage::LabelId label) const { return accessor_->LabelIndexReady(label); }
 
   bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->LabelPropertyIndexReady(label, properties);
