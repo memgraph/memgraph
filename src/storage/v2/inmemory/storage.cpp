@@ -734,11 +734,8 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
 
 void InMemoryStorage::InMemoryAccessor::AbortUniqueConstraints() {
   const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-
-  for (auto const *vertex : vertices_to_update) {
-    auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
-    storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
-  }
+  auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
+  storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
