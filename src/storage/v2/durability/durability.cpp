@@ -582,19 +582,12 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         spdlog::trace("1st wal file {} has sequence number {} which is != 0.", first_wal.path, first_wal.seq_num);
         // We don't have all WAL files. We need to see whether we need them all.
         if (!snapshot_timestamp) {
-          // We didn't recover from a snapshot and we must have all WAL files
+          // We didn't recover from a snapshot, and we must have all WAL files
           // starting from the first one (seq_num == 0) to be able to recover
           // data from them.
           LOG_FATAL(
               "There are missing prefix WAL files and data can't be "
               "recovered without them!");
-        } else if (first_wal.from_timestamp > *snapshot_timestamp) {
-          // We recovered from a snapshot and we must have at least one WAL file
-          // that has at least one delta that was created before the snapshot in order to
-          // verify that nothing is missing from the beginning of the WAL chain.
-          LOG_FATAL(
-              "You must have at least one WAL file that contains at least one "
-              "delta that was created before the snapshot file!");
         }
       }
     }

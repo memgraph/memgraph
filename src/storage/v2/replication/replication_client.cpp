@@ -162,6 +162,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
           client_.name_, main_db_name, epoch_info_iter->first, epoch_info_iter->second);
     }
   }
+
   if (branching_point) {
     auto log_error = [replica_name = client_.name_]() {
       spdlog::error(
@@ -204,6 +205,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 #endif
     return;
   }
+
   // No branching point
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
