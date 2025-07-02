@@ -361,6 +361,8 @@ class InMemoryStorage final : public Storage {
 
     void AbortAndResetCommitTs();
 
+    void AbortUniqueConstraints();
+
     /// Represents the 2nd phase of the 2PC protocol
     /// Needs to be called while holding the engine lock
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp);

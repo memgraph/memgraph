@@ -401,6 +401,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   if (req.decision) {
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
   } else {
+    cached_commit_accessor_->AbortUniqueConstraints();
     cached_commit_accessor_->AbortAndResetCommitTs();
   }
 

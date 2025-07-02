@@ -732,6 +732,15 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
   commit_timestamp_.reset();
 }
 
+void InMemoryStorage::InMemoryAccessor::AbortUniqueConstraints() {
+  const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
+
+  for (auto const *vertex : vertices_to_update) {
+    auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
+    storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
+  }
+}
+
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
     CommitReplicationArgs const repl_args, DatabaseAccessProtector db_acc) {
@@ -860,6 +869,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           mem_storage->FinalizeWalFile();
           spdlog::trace("Finalized WAL before abort");
         }
+
+        AbortUniqueConstraints();
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
         AbortAndResetCommitTs();
