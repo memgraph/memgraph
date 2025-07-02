@@ -207,7 +207,14 @@ add_compile_options(
         -Wno-c99-designator
         -Werror=implicit-fallthrough
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
+        -O3
+        -march=native
+        -flto
 )
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -flto")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
