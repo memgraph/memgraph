@@ -39,7 +39,7 @@ inline void failed_alloc_tracking(size_t size, int flags = 0) {
 
 inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-    const auto prev_size = ptr ? je_sallocx(ptr, 0) : 0;
+    const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
     const auto actual_size = je_nallocx(size, flags) - prev_size;
     return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
   }
