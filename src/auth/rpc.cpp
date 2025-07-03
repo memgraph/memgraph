@@ -22,8 +22,10 @@ namespace memgraph::slk {
 // Serialize code for auth::Role
 void Save(const auth::Role &self, Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
+#ifdef MG_ENTERPRISE
   // User profile
   memgraph::slk::Save(self.profile(), builder);
+#endif
 }
 
 namespace {
@@ -32,6 +34,7 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
   auto role = memgraph::auth::Role::Deserialize(json);
+#ifdef MG_ENTERPRISE
   // User profile
   std::optional<auth::UserProfiles::Profile> profile{};
   memgraph::slk::Load(&profile, reader);
@@ -40,6 +43,7 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   } else {
     role.ClearProfile();
   }
+#endif
   return role;
 }
 }  // namespace
@@ -63,10 +67,11 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   std::vector<auth::Role> roles{self.roles().cbegin(), self.roles().cend()};
   memgraph::slk::Save(roles, builder);
 #ifdef MG_ENTERPRISE
+  // MT roles
   memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
-#endif
   // User profile
   memgraph::slk::Save(self.profile(), builder);
+#endif
 }
 
 // Deserialize code for auth::User
@@ -104,6 +109,7 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
     }
   }
 
+#ifdef MG_ENTERPRISE
   // User profile
   std::optional<auth::UserProfiles::Profile> profile{};
   memgraph::slk::Load(&profile, reader);
@@ -112,6 +118,7 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   } else {
     self->ClearProfile();
   }
+#endif
 }
 
 // Serialize code for auth::Auth::Config
