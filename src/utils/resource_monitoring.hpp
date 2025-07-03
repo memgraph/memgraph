@@ -88,7 +88,7 @@ class Resource {
 using SessionsResource = Resource<size_t>;                    // Number of sessions
 class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed to be allocated
  public:
-  TransactionsMemoryResource() {}
+  TransactionsMemoryResource() = default;
   explicit TransactionsMemoryResource(size_t limit) : Resource(limit) {}
 
   bool Allocate(size_t size);
