@@ -108,7 +108,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     // These describe the composite index
     LabelId label_;
-    PropertiesIds const *properties_;
+    [[maybe_unused]] PropertiesIds const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
