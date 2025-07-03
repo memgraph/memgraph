@@ -58,7 +58,7 @@ enum class Permission : uint64_t {
   MULTI_DATABASE_USE     = 1U << 24U,
   COORDINATOR            = 1U << 25U,
   IMPERSONATE_USER       = 1U << 26U,
-  USER_PROFILE           = 1U << 27U,
+  PROFILE_RESTRICTION    = 1U << 27U,
 };
 // clang-format on
 

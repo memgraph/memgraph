@@ -22,10 +22,13 @@
 namespace memgraph::utils {
 
 struct MemoryTrackerStatus {
+  enum Type { kQuery, kGlobal, kUser };
+
   struct data {
     int64_t size;
     int64_t will_be;
     int64_t hard_limit;
+    Type type{kQuery};
   };
 
   // DEVNOTE: Do not call from within allocator, will cause another allocation
@@ -139,4 +142,11 @@ class MemoryTracker final {
 
 // Global memory tracker which tracks every allocation in the application.
 extern MemoryTracker total_memory_tracker;
+
+// Prevent memory tracker for throwing during the stack unwinding
+inline bool MemoryTrackerCanThrow() {
+  return !std::uncaught_exceptions() && MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
+         !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked();
+}
+
 }  // namespace memgraph::utils

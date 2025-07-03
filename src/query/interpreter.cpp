@@ -2527,12 +2527,6 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  // IDEA 1: tag here start/stop and have the global memory tracker handle it
-  // Have to have an atomic somewhere globally
-  // Resource limits at memgraph.cpp level, pass in everywhere?
-  // Even the query tracker is basically tagging here the global one
-  // Lets make it simpler
-  //
   auto &memory_tracker = ctx_.db_accessor->GetTransactionMemoryTracker();
   // Single query memory limit
   memory_tracker.SetQueryLimit(memory_limit_ ? *memory_limit_ : memgraph::memory::UNLIMITED_MEMORY);
@@ -2545,58 +2539,60 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 #endif
 
-  const utils::OnScopeExit reset_query_limit{[this]() {
-    // Stopping tracking of transaction occurs in interpreter::pull
-    // Exception can occur so we need to handle that case there.
-    // We can't stop tracking here as there can be multiple pulls
-    // so we need to take care of that after everything was pulled
-    memgraph::memory::StopTrackingCurrentThread();
+  {  // Limiting scope of memory tracking
+    auto reset_query_limit = utils::OnScopeExit{[this]() {
+      // Stopping tracking of transaction occurs in interpreter::pull
+      // Exception can occur so we need to handle that case there.
+      // We can't stop tracking here as there can be multiple pulls
+      // so we need to take care of that after everything was pulled
+      memgraph::memory::StopTrackingCurrentThread();
 #ifdef MG_ENTERPRISE
-    // User-specific resource monitoring
-    if (user_resource_) {
-      memgraph::memory::StopTrackingUserResource();
-    }
+      // User-specific resource monitoring
+      if (user_resource_) {
+        memgraph::memory::StopTrackingUserResource();
+      }
 #endif
-  }};
+    }};
 
-  // Returns true if a result was pulled.
-  const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
+    // Returns true if a result was pulled.
+    const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
 
-  auto values = std::vector<TypedValue>(output_symbols.size());
-  const auto stream_values = [&] {
-    for (auto const i : rv::iota(0UL, output_symbols.size())) {
-      values[i] = frame_[output_symbols[i]];
-    }
-    stream->Result(values);
-  };
+    auto values = std::vector<TypedValue>(output_symbols.size());
+    const auto stream_values = [&] {
+      for (auto const i : rv::iota(0UL, output_symbols.size())) {
+        values[i] = frame_[output_symbols[i]];
+      }
+      stream->Result(values);
+    };
 
-  // Get the execution time of all possible result pulls and streams.
-  utils::Timer timer;
+    // Get the execution time of all possible result pulls and streams.
+    utils::Timer timer;
 
-  int i = 0;
-  if (has_unsent_results_ && !output_symbols.empty()) {
-    // stream unsent results from previous pull
-    stream_values();
-    ++i;
-  }
-
-  for (; !n || i < n; ++i) {
-    if (!pull_result()) {
-      break;
-    }
-
-    if (!output_symbols.empty()) {
+    int i = 0;
+    if (has_unsent_results_ && !output_symbols.empty()) {
+      // stream unsent results from previous pull
       stream_values();
+      ++i;
     }
+
+    for (; !n || i < n; ++i) {
+      if (!pull_result()) {
+        break;
+      }
+
+      if (!output_symbols.empty()) {
+        stream_values();
+      }
+    }
+
+    // If we finished because we streamed the requested n results,
+    // we try to pull the next result to see if there is more.
+    // If there is additional result, we leave the pulled result in the frame
+    // and set the flag to true.
+    has_unsent_results_ = i == n && pull_result();
+
+    execution_time_ += timer.Elapsed();
   }
-
-  // If we finished because we streamed the requested n results,
-  // we try to pull the next result to see if there is more.
-  // If there is additional result, we leave the pulled result in the frame
-  // and set the flag to true.
-  has_unsent_results_ = i == n && pull_result();
-
-  execution_time_ += timer.Elapsed();
 
   if (has_unsent_results_) {
     return std::nullopt;

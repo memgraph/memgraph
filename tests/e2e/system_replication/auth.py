@@ -1153,7 +1153,7 @@ def test_user_profile_replication(connection, test_name):
     # CREATE USER
     execute_and_fetch_all(cursor_main, "CREATE USER user1")
     execute_and_fetch_all(cursor_main, "CREATE USER user2")
-    execute_and_fetch_all(cursor_main, "GRANT USER_PROFILE TO user2")
+    execute_and_fetch_all(cursor_main, "GRANT PROFILE_RESTRICTION TO user2")
     execute_and_fetch_all(cursor_main, "GRANT AUTH TO user2")
     check(
         show_users_func,

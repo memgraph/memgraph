@@ -270,7 +270,6 @@ class Interpreter final {
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
 #ifdef MG_ENTERPRISE
   std::shared_ptr<utils::UserResources> user_resource_;
-  size_t tx_memory_usage_{0};  // Current transaction's memory usage in bytes (Out of order execution is not supported)
 #endif
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
@@ -528,11 +527,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // the handler knows.
     AnyStream stream{result_stream, query_execution->execution_memory.resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
-#ifdef MG_ENTERPRISE
-    if (user_resource_) {
-      tx_memory_usage_ += user_resource_->FinalizeQuery();
-    }
-#endif
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
     // first.

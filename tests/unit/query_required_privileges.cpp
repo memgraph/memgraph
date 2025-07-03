@@ -241,5 +241,5 @@ TEST_F(TestPrivilegeExtractor, CallProcedureQuery) {
 
 TEST_F(TestPrivilegeExtractor, UserProfile) {
   auto *query = storage.Create<UserProfileQuery>();
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::USER_PROFILE));
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
 }

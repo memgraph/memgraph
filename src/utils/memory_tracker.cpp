@@ -12,23 +12,12 @@
 #include "utils/memory_tracker.hpp"
 
 #include <atomic>
-#include <exception>
 
 #include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
 
 namespace memgraph::utils {
-
-namespace {
-
-// Prevent memory tracker for throwing during the stack unwinding
-bool MemoryTrackerCanThrow() {
-  return !std::uncaught_exceptions() && MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
-         !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked();
-}
-
-}  // namespace
 
 thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_ = 0;
 thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_ = 0;
@@ -144,13 +133,24 @@ auto MemoryErrorStatus() -> MemoryTrackerStatus & { return status; }
 auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
   if (!data_) return std::nullopt;
 
-  auto [size, will_be, hard_limit] = *data_;
+  const auto [size, will_be, hard_limit, type] = *data_;
   data_.reset();
-  return fmt::format(
-      "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
-      "use to {}, while the maximum allowed size for allocation is set to {}.",
-      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-      GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+
+  switch (type) {
+    case kQuery:
+    case kGlobal:
+      return fmt::format(
+          "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+          "use to {}, while the maximum allowed size for allocation is set to {}.",
+          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+          GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+    case kUser:
+      return fmt::format(
+          "User memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+          "use to {}, while the maximum allowed size for allocation is set to {}.",
+          // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+          GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+  }
 }
 
 }  // namespace memgraph::utils
