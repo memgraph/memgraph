@@ -11,7 +11,18 @@
 
 #include "utils/skip_list.hpp"
 
-auto memgraph::utils::detail::thread_local_mt19937() -> std::mt19937 & {
+namespace memgraph::utils::detail {
+
+bool &SkipListGcRunning() {
+  thread_local bool skip_list_gc_running{false};
+  return skip_list_gc_running;
+}
+
+bool IsSkipListGcRunning() { return SkipListGcRunning(); }
+
+auto thread_local_mt19937() -> std::mt19937 & {
   thread_local std::mt19937 gen{std::random_device{}()};
   return gen;
 }
+
+}  // namespace memgraph::utils::detail
