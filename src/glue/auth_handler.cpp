@@ -292,7 +292,6 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
-#endif
 
 // Converting values from query to user profile framework
 memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
@@ -351,6 +350,7 @@ auto convert_limit_value(const memgraph::auth::UserProfiles::Profile &profile) {
   }
   return query_profile;
 }
+#endif
 }  // namespace
 
 namespace memgraph::glue {
