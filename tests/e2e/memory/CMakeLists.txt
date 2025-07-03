@@ -47,4 +47,14 @@ target_link_libraries(memgraph__e2e__procedure_memory_limit gflags mgclient mg-u
 add_executable(memgraph__e2e__procedure_memory_limit_multi_proc procedure_memory_limit_multi_proc.cpp)
 target_link_libraries(memgraph__e2e__procedure_memory_limit_multi_proc gflags mgclient mg-utils mg-io)
 
+# User profiles
+
+copy_e2e_python_files(memory common.py)
+copy_e2e_python_files(memory conftest.py)
+copy_e2e_python_files(memory user_limits.py)
+copy_e2e_python_files_from_parent_folder(memory ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(memory ".." interactive_mg_runner.py)
+copy_e2e_python_files_from_parent_folder(memory ".." mg_utils.py)
+
+
 copy_e2e_files(memory workloads.yaml)
