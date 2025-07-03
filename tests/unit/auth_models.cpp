@@ -1093,6 +1093,7 @@ TEST(AuthModule, RoleSerialization) {
   ASSERT_EQ(json, role.Serialize());
 }
 
+#ifdef MG_ENTERPRISE
 TEST(AuthModule, UserProfiles) {
   memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
   ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
@@ -1196,3 +1197,4 @@ TEST(AuthModule, UserProfiles) {
     ASSERT_EQ(profile->limits.size(), 1);
   }
 }
+#endif

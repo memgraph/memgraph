@@ -28,6 +28,8 @@
 #include "utils/string.hpp"
 
 namespace {
+
+#ifdef MG_ENTERPRISE
 void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::auth::UserProfiles::Profile &profile,
                              memgraph::utils::ResourceMonitoring &resource_monitor) {
   const auto sl = std::visit(
@@ -113,6 +115,7 @@ bool ShouldUpdateProfile(auto &auth, const std::string &name) {
   if (old_role) return old_role->profile().has_value();
   return false;
 }
+#endif
 }  // namespace
 
 namespace memgraph {
@@ -254,7 +257,9 @@ struct DropAuthData : memgraph::system::ISystemAction {
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kRoleLinkPrefix = "link:";
+#ifdef MG_ENTERPRISE
 const std::string kProfileLinkPrefix = "plink:";
+#endif
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
@@ -509,27 +514,27 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   return CallExternalModule(scheme, params);
 }
 
-void Auth::LinkUser(User &user) const {
-  // Role
-  {
-    auto link = storage_.Get(kRoleLinkPrefix + user.username());
-    if (link) {
-      auto role = GetRole(*link);
-      if (role) {
-        user.SetRole(*role);
-      }
+void Auth::LinkUser(User &user) const {// Role
+                                       {auto link = storage_.Get(kRoleLinkPrefix + user.username());
+if (link) {
+  auto role = GetRole(*link);
+  if (role) {
+    user.SetRole(*role);
+  }
+}
+}  // namespace memgraph::auth
+#ifdef MG_ENTERPRISE
+// Profile
+{
+  auto link = storage_.Get(kProfileLinkPrefix + user.username());
+  if (link) {
+    auto profile = GetProfile(*link);
+    if (profile) {
+      user.SetProfile(*profile);
     }
   }
-  // Profile
-  {
-    auto link = storage_.Get(kProfileLinkPrefix + user.username());
-    if (link) {
-      auto profile = GetProfile(*link);
-      if (profile) {
-        user.SetProfile(*profile);
-      }
-    }
-  }
+}
+#endif
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
@@ -698,16 +703,17 @@ bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end
 bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
 void Auth::LinkRole(Role &role) const {
-  // Profile
-  {
-    auto link = storage_.Get(kProfileLinkPrefix + role.rolename());
-    if (link) {
-      auto profile = GetProfile(*link);
-      if (profile) {
-        role.SetProfile(*profile);
-      }
-    }
+#ifdef MG_ENTERPRISE
+    // Profile
+    {auto link = storage_.Get(kProfileLinkPrefix + role.rolename());
+if (link) {
+  auto profile = GetProfile(*link);
+  if (profile) {
+    role.SetProfile(*profile);
   }
+}
+}
+#endif
 }
 
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
