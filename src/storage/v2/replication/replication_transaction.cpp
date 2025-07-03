@@ -61,18 +61,13 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
   bool strict_sync_replicas_succ{true};
 
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-    spdlog::info("Trying to process {} when sending finalize rpc", client->Name());
     if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
       const bool commit_res = client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp,
                                                             std::move(replica_stream));
-      if (!commit_res) {
-        spdlog::trace("Received unsuccessful response to FinalizeCommitRpc for replica {}", client->Name());
-      }
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     }
-    spdlog::info("Processed {} when sending finalize rpc", client->Name());
   }
   return strict_sync_replicas_succ;
 }

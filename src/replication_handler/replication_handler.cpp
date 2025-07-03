@@ -284,7 +284,6 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
 
     // STEP 3) We are now MAIN, update storage local epoch
     const auto &epoch = std::get<replication::RoleMainData>(locked_repl_state->ReplicationData()).epoch_;
-    spdlog::trace("New epoch is {}", epoch.id());
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = epoch;
