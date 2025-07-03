@@ -44,7 +44,12 @@ class ReplicationStorageClient;
 // You need to acquire the RPC lock before creating ReplicaStream object
 class ReplicaStream {
  public:
-  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream);
+  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream);
+  ReplicaStream(ReplicaStream const &) = delete;
+  ReplicaStream &operator=(ReplicaStream const &) = delete;
+  ReplicaStream(ReplicaStream &&) = default;
+  ReplicaStream &operator=(ReplicaStream &&) = default;
+  ~ReplicaStream() = default;
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -65,15 +70,17 @@ class ReplicaStream {
                        const std::set<PropertyId> &properties, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
-  replication::AppendDeltasRes Finalize();
+  replication::PrepareCommitRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
   auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
+  auto GetStreamHandler() -> rpc::Client::StreamHandler<replication::PrepareCommitRpc> && { return std::move(stream_); }
+
  private:
   Storage *storage_;
-  rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
+  rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream_;
 };
 
 class ReplicaStreamExecutor {
@@ -128,9 +135,11 @@ class ReplicationStorageClient {
    * @param current_wal_seq_num
    * @param storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param commit_immediately If set to true, replicas will commit immediately upon finalizing txn replication instead
+   * of waiting for MAIN's 2nd phase in 2PC protocol.
    */
-  auto StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-      -> std::optional<ReplicaStream>;
+  auto StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc,
+                                   bool commit_immediately) -> std::optional<ReplicaStream>;
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -174,9 +183,16 @@ class ReplicationStorageClient {
    * @return true
    * @return false
    */
-  [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &&replica_stream,
-                                                    uint64_t durability_commit_timestamp) const;
+  [[nodiscard]] bool FinalizePrepareCommitPhase(DatabaseAccessProtector db_acc,
+                                                std::optional<ReplicaStream> &replica_stream,
+                                                uint64_t durability_commit_timestamp) const;
+
+  bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc, std::optional<ReplicaStream> &&replica_stream,
+                                      uint64_t durability_commit_timestamp) const;
+
+  [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
+                                           DatabaseAccessProtector db_acc, uint64_t durability_commit_timestamp,
+                                           std::optional<ReplicaStream> &&replica_stream) noexcept;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary

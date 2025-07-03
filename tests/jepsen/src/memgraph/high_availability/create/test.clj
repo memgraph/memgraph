@@ -287,6 +287,9 @@
                                      (utils/no-write-server e)
                                      (assoc op :type :info :value {:str "Failed to obtain connection towards write server."})
 
+                                     (utils/strict-sync-replica-down? e)
+                                     (assoc op :type :ok :value {:str "STRICT_SYNC replica is down."})
+
                                      (utils/sync-replica-down? e)
                                      (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
@@ -608,7 +611,7 @@
                (gen/mix [show-instances-reads add-nodes])))))
 
 (defn workload
-  "Basic HA workload."
+  "The basic HA workload."
   [opts]
   (let [nodes-config (:nodes-config opts)
         db (:db opts)

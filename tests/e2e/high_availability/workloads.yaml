@@ -26,3 +26,7 @@ workloads:
   - name: "HA durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/durability.py"]
+
+  - name: "Strict sync mode"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/strict_sync.py"]

@@ -681,6 +681,23 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
+  if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
+          return instance.GetReplicationClientInfo().replication_mode ==
+                 replication_coordination_glue::ReplicationMode::SYNC;
+        })) {
+      return RegisterInstanceCoordinatorStatus::STRICT_SYNC_AND_SYNC_FORBIDDEN;
+    }
+
+  } else if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::SYNC) {
+    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
+          return instance.GetReplicationClientInfo().replication_mode ==
+                 replication_coordination_glue::ReplicationMode::STRICT_SYNC;
+        })) {
+      return RegisterInstanceCoordinatorStatus::STRICT_SYNC_AND_SYNC_FORBIDDEN;
+    }
+  }
+
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   auto *new_instance =
@@ -1218,8 +1235,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
       });
       MG_ASSERT(raft_instance != data_instances.cend(),
                 "In-memory instance not saved in the Raft. Please submit this bug since this isn't intended state.");
-      return raft_instance->config.replication_client_info.replication_mode !=
-             replication_coordination_glue::ReplicationMode::SYNC;
+      return raft_instance->config.replication_client_info.replication_mode ==
+             replication_coordination_glue::ReplicationMode::ASYNC;
     }();
 
     if (skip_instance) {

@@ -5759,7 +5759,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       return LoadSnapshotVersion25(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                    edge_count, config, enum_store, schema_info, snapshot_info);
     }
-    case 26U: {
+    case 26U:
+    case 27U: {  // Only added to WAL changes
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                         edge_count, config, enum_store, schema_info, snapshot_info);
     }
@@ -5823,6 +5824,7 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     // is being appended to.
     for (uint64_t i = 0; i < *pos; ++i) {
       const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
+      spdlog::trace("Deleting WAL file {} when cleaning durable data", wal_path);
       file_retainer->DeleteFile(wal_path);
     }
   }

@@ -6,6 +6,7 @@ target_sources(mg-replication
         BASE_DIRS include
         FILES
         include/replication/state.hpp
+        include/replication/statefwd.hpp
         include/replication/epoch.hpp
         include/replication/config.hpp
         include/replication/status.hpp

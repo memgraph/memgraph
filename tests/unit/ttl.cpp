@@ -168,7 +168,7 @@ TYPED_TEST(TTLFixture, Periodic) {
     ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
     ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
     ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   {
     auto acc = this->db_->Access();
@@ -225,7 +225,7 @@ TYPED_TEST(TTLFixture, StartTime) {
     ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
     ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
     ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   {
     auto acc = this->db_->Access();
@@ -314,7 +314,7 @@ TYPED_TEST(TTLFixture, Edge) {
       ASSERT_FALSE(e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   {
     auto acc = this->db_->Access();

@@ -31,11 +31,11 @@ using memgraph::slk::Load;
 using memgraph::storage::Config;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::ReplicaStream;
-using memgraph::storage::replication::AppendDeltasReq;
-using memgraph::storage::replication::AppendDeltasRes;
-using memgraph::storage::replication::AppendDeltasRpc;
 using memgraph::storage::replication::CurrentWalRpc;
 using memgraph::storage::replication::Decoder;
+using memgraph::storage::replication::PrepareCommitReq;
+using memgraph::storage::replication::PrepareCommitRes;
+using memgraph::storage::replication::PrepareCommitRpc;
 using memgraph::utils::UUID;
 
 using namespace std::string_view_literals;
@@ -74,7 +74,7 @@ class ReplicationRpcProgressTest : public ::testing::Test {
 };
 
 // Timeout immediately
-TEST_F(ReplicationRpcProgressTest, AppendDeltasNoTimeout) {
+TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
@@ -84,35 +84,35 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasNoTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
-    AppendDeltasReq req;
+  rpc_server.Register<memgraph::storage::replication::PrepareCommitRpc>([](auto *req_reader, auto *res_builder) {
+    PrepareCommitReq req;
     Load(&req, req_reader);
     // Epoch id needs to be read
     Decoder decoder(req_reader);
     auto maybe_epoch_id = decoder.ReadString();
 
     // Simulate done
-    AppendDeltasRes res{true};
+    PrepareCommitRes res{true};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("AppendDeltasReq"sv, 100)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, 100)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream_handler = client.Stream<AppendDeltasRpc>(
+  auto stream_handler = client.Stream<PrepareCommitRpc>(
       UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1, true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_NO_THROW(stream.Finalize());
 }
 
 // Timeout immediately
-TEST_F(ReplicationRpcProgressTest, AppendDeltasTimeout) {
+TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
@@ -122,35 +122,35 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
-    AppendDeltasReq req;
+  rpc_server.Register<memgraph::storage::replication::PrepareCommitRpc>([](auto *req_reader, auto *res_builder) {
+    PrepareCommitReq req;
     Load(&req, req_reader);
     Decoder decoder(req_reader);
     auto maybe_epoch_id = decoder.ReadString();
 
     // Simulate done
     std::this_thread::sleep_for(150ms);
-    AppendDeltasRes res{true};
+    PrepareCommitRes res{true};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("AppendDeltasReq"sv, 100)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, 100)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream_handler = client.Stream<AppendDeltasRpc>(
+  auto stream_handler = client.Stream<PrepareCommitRpc>(
       UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1, true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
   EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
 }
 
 // First send progress, then timeout
-TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
+TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
@@ -160,8 +160,8 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
-    AppendDeltasReq req;
+  rpc_server.Register<PrepareCommitRpc>([](auto *req_reader, auto *res_builder) {
+    PrepareCommitReq req;
     Load(&req, req_reader);
     Decoder decoder(req_reader);
     auto maybe_epoch_id = decoder.ReadString();
@@ -171,20 +171,20 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
     std::this_thread::sleep_for(200ms);
     memgraph::rpc::SendInProgressMsg(res_builder);
     std::this_thread::sleep_for(100ms);
-    AppendDeltasRes res{true};
+    PrepareCommitRes res{true};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("AppendDeltasReq"sv, 150)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, 150)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream_handler = client.Stream<AppendDeltasRpc>(
+  auto stream_handler = client.Stream<PrepareCommitRpc>(
       UUID{}, main_storage.uuid(),
-      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1);
+      main_storage.repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), 1, true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 

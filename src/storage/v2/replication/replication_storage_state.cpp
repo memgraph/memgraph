@@ -12,20 +12,15 @@
 #include "storage/v2/replication/replication_storage_state.hpp"
 
 #include "replication/replication_server.hpp"
-#include "storage/v2/replication/replication_transaction.hpp"
-
-#include <span>
-
-#include <range/v3/view.hpp>
 
 namespace memgraph::storage {
 
-auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-    -> TransactionReplication {
+auto ReplicationStorageState::StartPrepareCommitPhase(uint64_t seq_num, Storage *storage,
+                                                      DatabaseAccessProtector db_acc) -> TransactionReplication {
   return {seq_num, storage, db_acc, replication_storage_clients_};
 }
 
-std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view name) const {
+std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view const name) const {
   return replication_storage_clients_.WithReadLock(
       [&](auto const &clients) -> std::optional<replication::ReplicaState> {
         auto const name_matches = [=](ReplicationStorageClientPtr const &client) { return client->Name() == name; };
