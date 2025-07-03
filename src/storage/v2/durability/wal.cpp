@@ -1291,12 +1291,9 @@ void WalFile::FinalizeWal() {
     std::filesystem::path new_path(path_);
     new_path.replace_filename(RemakeWalName(path_.filename(), from_timestamp_, to_timestamp_));
 
-    spdlog::trace("Renamed WAL file {} to {}", path_, new_path);
-
     utils::CopyFile(path_, new_path);
     wal_.Close();
     file_retainer_->DeleteFile(path_);
-    spdlog::trace("deleted wal file {}", path_);
     path_ = std::move(new_path);
   }
 }
