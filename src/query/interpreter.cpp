@@ -6500,7 +6500,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+                     limits = std::move(query->limits_), interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
@@ -6513,7 +6513,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+                     limits = std::move(query->limits_), interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
@@ -6526,7 +6526,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     limits = std::move(query->limits_), interpreter = &*interpreter]() {
+                     limits = std::move(query->limits_), interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
@@ -6539,7 +6539,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_),
-                     user_or_role = std::move(query->user_or_role_), interpreter = &*interpreter]() {
+                     user_or_role = std::move(query->user_or_role_), interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
@@ -6554,8 +6554,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
-      callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_),
-                     interpreter = &*interpreter]() {
+      callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_), interpreter]() {
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
