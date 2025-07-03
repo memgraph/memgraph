@@ -9,11 +9,6 @@ compiler.libcxx=libstdc++11
 compiler.version=17
 os = {{ {"Darwin": "Macos"}.get(platform.system(), platform.system()) }}
 
-
-[tool_requires]
-ninja/1.11.1
-cmake/4.0.3
-
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
 tools.cmake.cmaketoolchain:toolchain_file = {{ os.path.join(toolchain_path, "toolchain.cmake") }}

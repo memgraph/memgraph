@@ -28,6 +28,9 @@ class Memgraph(ConanFile):
         cmake.configure()
         cmake.build()
 
+    def build_requirements(self):
+        self.tool_requires("cmake/4.0.3")
+
     def package(self):
         cmake = CMake(self)
         cmake.install()
