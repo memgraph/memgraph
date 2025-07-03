@@ -2540,7 +2540,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 #endif
 
   {  // Limiting scope of memory tracking
-    auto reset_query_limit = utils::OnScopeExit{[this]() {
+    auto reset_query_limit = utils::OnScopeExit{[
+#ifdef MG_ENTERPRISE
+                                                    this
+#endif
+    ]() {
       // Stopping tracking of transaction occurs in interpreter::pull
       // Exception can occur so we need to handle that case there.
       // We can't stop tracking here as there can be multiple pulls
