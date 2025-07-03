@@ -40,8 +40,14 @@ inline void failed_alloc_tracking(size_t size, int flags = 0) {
 inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
     const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
-    const auto actual_size = je_nallocx(size, flags) - prev_size;
-    return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+    const auto next_size = je_nallocx(size, flags);
+    if (next_size > prev_size) {  // increasing memory
+      const auto actual_size = next_size - prev_size;
+      return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+    } else if (next_size < prev_size) {  // decreasing memory
+      const auto actual_size = prev_size - next_size;
+      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+    }
   }
   return true;
 }
@@ -49,8 +55,14 @@ inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
 inline void failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
     const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
-    const auto actual_size = je_nallocx(size, flags) - prev_size;
-    memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+    const auto next_size = je_nallocx(size, flags);
+    if (next_size > prev_size) {  // failed while increasing memory
+      const auto actual_size = next_size - prev_size;
+      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+    } else if (next_size < prev_size) {  // failed while decreasing memory
+      const auto actual_size = prev_size - next_size;
+      memgraph::memory::TrackAllocOnCurrentThread(actual_size);  // fail silently
+    }
   }
 }
 
