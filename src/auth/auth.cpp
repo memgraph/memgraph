@@ -28,6 +28,8 @@
 #include "utils/string.hpp"
 
 namespace {
+
+#ifdef MG_ENTERPRISE
 void UpdateUserProfileLimits(const std::string &user_or_role, const memgraph::auth::UserProfiles::Profile &profile,
                              memgraph::utils::ResourceMonitoring &resource_monitor) {
   const auto sl = std::visit(
@@ -113,6 +115,7 @@ bool ShouldUpdateProfile(auto &auth, const std::string &name) {
   if (old_role) return old_role->profile().has_value();
   return false;
 }
+#endif
 }  // namespace
 
 namespace memgraph {
@@ -248,7 +251,9 @@ const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kRoleLinkPrefix = "link:";
 const std::string kMtLinkPrefix = "mtlink:";
+#ifdef MG_ENTERPRISE
 const std::string kProfileLinkPrefix = "plink:";
+#endif
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
@@ -667,6 +672,7 @@ void Auth::LinkUser(User &user) const {
     }
   }
 
+#ifdef MG_ENTERPRISE
   // Profile
   {
     auto link = storage_.Get(kProfileLinkPrefix + user.username());
@@ -677,6 +683,7 @@ void Auth::LinkUser(User &user) const {
       }
     }
   }
+#endif
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
@@ -873,6 +880,7 @@ bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end
 bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
 void Auth::LinkRole(Role &role) const {
+#ifdef MG_ENTERPRISE
   // Profile
   {
     auto link = storage_.Get(kProfileLinkPrefix + role.rolename());
@@ -883,6 +891,7 @@ void Auth::LinkRole(Role &role) const {
       }
     }
   }
+#endif
 }
 
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
