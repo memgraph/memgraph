@@ -11,20 +11,7 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
-
-namespace memgraph::storage {
-
-struct LabelIndexStats {
-  uint64_t count;
-  double avg_degree;
-
-  auto operator<=>(const LabelIndexStats &) const = default;
-};
-
-std::string ToJson(const LabelIndexStats &in);
-
-bool FromJson(const std::string &json, LabelIndexStats &out);
-
-}  // namespace memgraph::storage
+namespace memgraph::utils {
+template <typename>
+[[maybe_unused]] inline constexpr bool always_false = false;
+}

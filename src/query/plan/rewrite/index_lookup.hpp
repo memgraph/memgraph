@@ -72,7 +72,7 @@ struct IndexHints {
             index_hint.property_ixs_ | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
 
         // Fetching the corresponding index to the hint
-        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
+        if (!db->LabelPropertyIndexReady(db->NameToLabel(label_name), properties)) {
           auto property_names = index_hint.property_ixs_ |
                                 ranges::views::transform([&](auto &&path) { return fmt::format("{}", path); }) |
                                 ranges::views::join(", ") | ranges::to<std::string>;

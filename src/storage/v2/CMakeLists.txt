@@ -27,7 +27,9 @@ target_sources(mg-storage-v2
         edge_accessor.cpp
         edges_iterable.cpp
         indices/indices.cpp
+        indices/label_index_stats.cpp
         indices/label_property_index.cpp
+        indices/label_property_index_stats.cpp
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
@@ -64,34 +66,37 @@ target_sources(mg-storage-v2
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
+        config.hpp
+        constraints/type_constraints.hpp
+        constraints/type_constraints_kind.hpp
+        constraints/type_constraints_validator.hpp
         delta_container.hpp
+        disk/storage.hpp
+        edge_ref.hpp
         enum.hpp
         enum_store.hpp
+        id_types.hpp
+        indices/active_indices.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
-        indices/point_iterator.hpp
         indices/point_index_expensive_header.hpp
+        indices/point_iterator.hpp
         indices/vector_index.hpp
+        inmemory/indices_mvcc.hpp
+        inmemory/storage.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp
+        property_constants.hpp
         property_store.hpp
         property_value.hpp
+        property_value_utils.hpp
+        schema_info.hpp
+        storage.hpp
         transaction.hpp
-        constraints/type_constraints_kind.hpp
-        constraints/type_constraints.hpp
-        constraints/type_constraints_validator.hpp
+        transaction_constants.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
-        schema_info.hpp
-        edge_ref.hpp
-        id_types.hpp
-        property_value_utils.hpp
-        property_constants.hpp
-        storage.hpp
-        inmemory/storage.hpp
-        disk/storage.hpp
-        config.hpp
 )
 
 find_package(gflags REQUIRED)

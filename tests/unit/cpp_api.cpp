@@ -39,6 +39,22 @@ struct CppApiTestFixture : public ::testing::Test {
                      memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   }
 
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
+  auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
   const std::string testSuite = "cpp_api";
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
@@ -764,42 +780,82 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  {
+    auto storage_acc = this->CreateIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
-
-  auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(indices.Size(), 1);
-  auto index_info = indices[0].ValueString();
-  ASSERT_EQ(index_info, "User:name");
-
-  ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
-  auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(updated_indices.Size(), 0);
-
-  ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
+    auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(indices.Size(), 1);
+    auto index_info = indices[0].ValueString();
+    ASSERT_EQ(index_info, "User:name");
+  }
+  {
+    auto storage_acc = this->DropIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(updated_indices.Size(), 0);
+  }
+  {
+    auto storage_acc = this->DropIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
   if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
     GTEST_SKIP() << "TestNestedIndex runs only on InMemoryStorage.";
   }
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  {
+    auto storage_acc = this->CreateIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+    ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(indices.Size(), 1);
+    auto index_info = indices[0].ValueString();
+    ASSERT_EQ(index_info, "Label:nested1.nested2.nested3");
+  }
+  {
+    auto storage_acc = this->DropIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  auto indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(indices.Size(), 1);
-  auto index_info = indices[0].ValueString();
-  ASSERT_EQ(index_info, "Label:nested1.nested2.nested3");
-
-  ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-  auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
-  ASSERT_EQ(updated_indices.Size(), 0);
+    auto updated_indices = mgp::ListAllLabelPropertyIndices(&raw_graph);
+    ASSERT_EQ(updated_indices.Size(), 0);
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestExistenceConstraint) {
