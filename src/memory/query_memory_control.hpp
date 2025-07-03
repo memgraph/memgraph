@@ -62,6 +62,7 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 void PauseProcedureTracking();
 
 struct ThreadTrackingBlocker {
+#if USE_JEMALLOC
   ThreadTrackingBlocker();
   ~ThreadTrackingBlocker();
 
@@ -73,6 +74,7 @@ struct ThreadTrackingBlocker {
  private:
   utils::QueryMemoryTracker *prev_state_;
   utils::UserResources *prev_user_state_;
+#endif
 };
 
 }  // namespace memgraph::memory
