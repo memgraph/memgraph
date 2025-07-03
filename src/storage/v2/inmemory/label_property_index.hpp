@@ -99,7 +99,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
-  InMemoryLabelPropertyIndex() : index_(std::make_shared<IndexContainer>()) {}
+  InMemoryLabelPropertyIndex()
+      : index_(std::make_shared<IndexContainer>()), all_indexes_(std::make_shared<std::vector<AllIndicesEntry>>()) {}
 
   // Convience function that does Register + Populate + direct Publish
   // TODO: direct Publish...should it be for a particular timestamp?

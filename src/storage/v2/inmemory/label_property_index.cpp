@@ -1048,7 +1048,7 @@ void InMemoryLabelPropertyIndex::RunGC() {
   CleanupAllIndicies();
 
   auto cpy = all_indexes_.WithReadLock(std::identity{});
-  for (auto &[index, _, _] : *cpy) {
+  for (auto &[index, _1, _2] : *cpy) {
     index->skiplist.run_gc();
   }
 }
