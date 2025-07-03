@@ -97,6 +97,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/build_info.hpp"
+#include "utils/compile_time.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
@@ -2244,9 +2245,8 @@ struct TxTimeout {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
-                    std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
-                    std::optional<QueryLogger> &query_logger,
+                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+                    DatabaseAccessProtector db_acc, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {});
@@ -2280,11 +2280,10 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
-                   std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
-                   std::optional<QueryLogger> &query_logger, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit)
+                   std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+                   DatabaseAccessProtector db_acc, std::optional<QueryLogger> &query_logger,
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -2311,9 +2310,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
     }
   }
 #endif
-  ctx_.timer = std::move(tx_timer);
-  ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
-  ctx_.transaction_status = transaction_status;
+  ctx_.stopping_context = std::move(stopping_context);
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
@@ -2576,10 +2573,8 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUserOrRole> user_or_role,
-                                 std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer, Interpreter &interpreter,
-                                 FrameChangeCollector *frame_change_collector = nullptr) {
+                                 std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
   EvaluationContext evaluation_context;
@@ -2615,7 +2610,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   const auto is_cacheable = parsed_query.is_cacheable;
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
-  auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
+  auto plan = CypherQueryToPlan(parsed_query.stripped_query, std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters, plan_cache, dba);
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
@@ -2655,7 +2650,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
-      std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, interpreter.query_logger_,
+      std::move(user_or_role), std::move(stopping_context), current_db.db_acc_, interpreter.query_logger_,
       trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
   return PreparedQuery{std::move(header),
@@ -2676,8 +2671,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                   Interpreter &interpreter, CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
-  MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
-            "Expected stripped query to start with '{}'", kExplainQueryStart);
+  MG_ASSERT(
+      utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kExplainQueryStart),
+      "Expected stripped query to start with '{}'", kExplainQueryStart);
 
   // Parse and cache the inner query separately (as if it was a standalone
   // query), producing a fresh AST. Note that currently we cannot just reuse
@@ -2698,8 +2694,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
   auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, plan_cache, dba);
+      CypherQueryToPlan(parsed_inner_query.stripped_query, std::move(parsed_inner_query.ast_storage), cypher_query,
+                        parsed_inner_query.parameters, plan_cache, dba);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
@@ -2732,14 +2728,13 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, Interpreter &interpreter,
                                   CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::shared_ptr<QueryUserOrRole> user_or_role,
-                                  std::atomic<TransactionStatus> *transaction_status,
-                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
                                   FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
 
-  MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
-            "Expected stripped query to start with '{}'", kProfileQueryStart);
+  MG_ASSERT(
+      utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.stripped_query().str()), kProfileQueryStart),
+      "Expected stripped query to start with '{}'", kProfileQueryStart);
 
   // PROFILE isn't allowed inside multi-command (explicit) transactions. This is
   // because PROFILE executes each PROFILE'd query and collects additional
@@ -2787,8 +2782,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
   auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, plan_cache, dba);
+      CypherQueryToPlan(parsed_inner_query.stripped_query, std::move(parsed_inner_query.ast_storage), cypher_query,
+                        parsed_inner_query.parameters, plan_cache, dba);
   TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
@@ -2807,15 +2802,15 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // We want to execute the query we are profiling lazily, so we delay
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-       tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), frame_change_collector,
+       stopping_context = std::move(stopping_context), db_acc = current_db.db_acc_, hops_limit,
        &query_logger = interpreter.query_logger_](AnyStream *stream,
                                                   std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
-                       transaction_status, std::move(tx_timer), db_acc, query_logger, nullptr, memory_limit,
+                       std::move(stopping_context), db_acc, query_logger, nullptr, memory_limit,
                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
@@ -3227,8 +3222,50 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
                        RWType::NONE};
 }
 
+template <typename F>
+concept InvocableWithUInt64 = std::invocable<F, std::uint64_t>;
+
+struct DoNothing {
+  template <typename... Args>
+  bool operator()(Args &&...) {
+    return true;
+  }
+};
+
+// Creating an index influences computed plan costs.
+// We need to atomically invalidate the plan when publishing new index
+auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
+  // capture DatabaseAccess in builder
+  return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {
+    // build plan invalidator wrapper
+    return [db_acc = std::move(db_acc),
+            publish_func = std::forward<Func>(publish_func)](uint64_t commit_timestamp) mutable {
+      return db_acc->plan_cache()->WithLock([&](auto &cache) {
+        auto do_reset = publish_func(commit_timestamp);
+        if (do_reset) cache.reset();
+        return do_reset;
+      });
+    };
+  };
+}
+
+auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
+  // capture DatabaseAccess in builder
+  return [db_acc = std::move(db_acc)]<std::invocable Func = DoNothing>(Func && publish_func = Func{}) {
+    // build plan invalidator wrapper
+    return [db_acc = std::move(db_acc), publish_func = std::forward<Func>(publish_func)]() mutable {
+      return db_acc->plan_cache()->WithLock([&](auto &cache) {
+        auto do_reset = publish_func();
+        if (do_reset) cache.reset();
+        return do_reset;
+      });
+    };
+  };
+}
+
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::vector<Notification> *notifications, CurrentDB &current_db) {
+                                std::vector<Notification> *notifications, CurrentDB &current_db,
+                                StoppingContext stopping_context) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -3242,11 +3279,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-
-  // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
-  };
 
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
@@ -3269,6 +3301,21 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
+      constexpr auto kCancelPeriodCreateIndex = 10'000;  // TODO: control via flag?
+      auto cancel_callback = [stopping_context = std::move(stopping_context),
+                              counter = utils::ResettableCounter{kCancelPeriodCreateIndex}]() {
+        if (!counter()) {
+          return false;
+        }
+        // For now only handle TERMINATED + SHUTDOWN
+        // No timeout becasue we expect it would confuse users
+        // ie. we don't want to run for 20min and then discard because of timeout
+        auto reason = stopping_context.MustAbort();
+        return reason == AbortReason::TERMINATED || reason == AbortReason::SHUTDOWN;
+      };
+
+      // Creating an index influences computed plan costs.
+      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title =
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
@@ -3276,32 +3323,47 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
-        auto maybe_index_error =
-            properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, std::move(properties));
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
-
+                 plan_invalidator_builder = std::move(plan_invalidator_builder),
+                 cancel_callback = std::move(cancel_callback)](Notification &index_notification) mutable {
+        auto maybe_index_error = properties.empty()
+                                     ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
+                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
+                                                        std::move(plan_invalidator_builder));
         if (maybe_index_error.HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          // ABORT?
+          auto const error_visitor = [&]<typename T>(T const &) {
+            if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
+                          std::is_same_v<T, storage::IndexDefinitionConfigError> ||
+                          std::is_same_v<T, storage::IndexDefinitionAlreadyExistsError>) {
+              index_notification.code = NotificationCode::EXISTENT_INDEX;
+              index_notification.title =
+                  fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
+            } else if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
+              // TODO: could also be SHUTDOWN...but this is good enough for now
+              throw HintedAbortError(AbortReason::TERMINATED);
+            } else {
+              static_assert(utils::always_false<T>, "Unhandled error type in error_visitor");
+            }
+          };
+
+          std::visit(error_visitor, maybe_index_error.GetError());
         }
       };
       break;
     }
     case IndexQuery::Action::DROP: {
+      // Creating an index influences computed plan costs.
+      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) mutable {
+                 plan_invalidator_builder =
+                     std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
-
+            properties.empty() ? dba->DropIndex(label, std::move(plan_invalidator_builder))
+                               : dba->DropIndex(label, std::move(properties), std::move(plan_invalidator_builder));
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
@@ -6176,7 +6238,10 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
-  void Visit(EdgeIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(EdgeIndexQuery &) override {
+    // TODO: concurrent creation
+    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+  }
   void Visit(PointIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(TextIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(VectorIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
@@ -6185,9 +6250,12 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CreateEnumQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(AlterEnumAddValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(TtlQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(TtlQuery &) override {
+    // TODO: Ideally this would be READ ONLY downgrading to READ. Because it
+    //  interanally creates/drops concurrent indexes.
+    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+  }
   void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(IndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
 
   // Read access required
   void Visit(ExplainQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
@@ -6204,6 +6272,29 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   }
   void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
   void Visit(TriggerQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::WRITE; }
+
+  // Complex access logic
+  void Visit(IndexQuery &index_query) override {
+    if (is_in_memory_transactional_) {
+      // Concurrent population of index requires snapshot isolation
+      isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
+      if (index_query.properties_.empty()) {
+        // label index
+        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
+      } else {
+        // label + properties
+        if (index_query.action_ == IndexQuery::Action::CREATE) {
+          // Need writers to leave so we can make populate a consistent index
+          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
+        } else {
+          accessor_type_ = storage::Storage::Accessor::Type::READ;
+        }
+      }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    }
+  }
 
   // helper methods
   auto cypher_access_type() const -> storage::Storage::Accessor::Type {
@@ -6338,24 +6429,31 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
 
+    auto make_stopping_context = [&]() {
+      return StoppingContext{
+          .transaction_status = &transaction_status_,
+          .is_shutting_down = &interpreter_context_->is_shutting_down,
+          .timer = current_timeout_timer_,
+      };
+    };
+
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_,
-                             memory_resource, &query_execution->notifications, user_or_role_, &transaction_status_,
-                             current_timeout_timer_, *this, &*frame_change_collector_);
+      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
+                                          current_db_, memory_resource, &query_execution->notifications, user_or_role_,
+                                          make_stopping_context(), *this, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, *this, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, *this, current_db_,
-                                           memory_resource, user_or_role_, &transaction_status_, current_timeout_timer_,
-                                           &*frame_change_collector_);
+      prepared_query =
+          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                              &query_execution->notifications, interpreter_context_, *this, current_db_,
+                              memory_resource, user_or_role_, make_stopping_context(), &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                         &query_execution->notifications, current_db_);
+                                         &query_execution->notifications, current_db_, make_stopping_context());
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
