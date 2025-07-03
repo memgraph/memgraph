@@ -33,7 +33,7 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::CREATE_CONSTRAINT:
       return "CreateConstraint"sv;
     case NotificationCode::CREATE_INDEX:
-      return "CreateIndexOnePass"sv;
+      return "CreateIndex"sv;
     case NotificationCode::CREATE_STREAM:
       return "CreateStream"sv;
     case NotificationCode::CHECK_STREAM:
