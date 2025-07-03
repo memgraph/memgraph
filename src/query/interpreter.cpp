@@ -3031,8 +3031,12 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), frame_change_collector,
        stopping_context = std::move(stopping_context), db_acc = current_db.db_acc_, hops_limit,
-       &query_logger = interpreter.query_logger_, user_resource = std::move(user_resource)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       &query_logger = interpreter.query_logger_
+#ifdef MG_ENTERPRISE
+       ,
+       user_resource = std::move(user_resource)
+#endif
+  ](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
