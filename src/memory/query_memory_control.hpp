@@ -61,4 +61,18 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 // tracking on procedure once procedure execution resumes.
 void PauseProcedureTracking();
 
+struct ThreadTrackingBlocker {
+  ThreadTrackingBlocker();
+  ~ThreadTrackingBlocker();
+
+  ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
+  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
+  ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
+  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
+
+ private:
+  utils::QueryMemoryTracker *prev_state_;
+  utils::UserResources *prev_user_state_;
+};
+
 }  // namespace memgraph::memory

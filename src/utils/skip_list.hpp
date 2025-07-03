@@ -61,6 +61,15 @@ constexpr uint64_t kSkipListGcStackSize = 8191;
 
 namespace detail {
 
+bool &SkipListGcRunning();
+bool IsSkipListGcRunning();
+
+class SkipListGcMarker {
+ public:
+  SkipListGcMarker() { SkipListGcRunning() = true; }
+  ~SkipListGcMarker() { SkipListGcRunning() = false; }
+};
+
 auto thread_local_mt19937() -> std::mt19937 &;
 
 struct SkipListNode_base {
@@ -299,6 +308,7 @@ class SkipListGc final {
   }
 
   void Run() {
+    detail::SkipListGcMarker marker;  // mark when gc is running
     // This method can be called after any skip list method, including the add method
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.

@@ -13,18 +13,8 @@
 
 namespace memgraph::utils {
 
-thread_local size_t TransactionsMemoryResource::single_tx_memory_ = 0;
-
 bool TransactionsMemoryResource::Allocate(size_t size) { return Increment(size); }
 
 void TransactionsMemoryResource::Deallocate(size_t size) { Decrement(size); }
-
-size_t TransactionsMemoryResource::FinalizeQuery() {
-  // Decrement(single_tx_memory_);
-  // single_tx_memory_ = 0;
-  return std::exchange(single_tx_memory_, 0);
-}
-
-void TransactionsMemoryResource::FinalizeTransaction(size_t size) { Decrement(size); }
 
 }  // namespace memgraph::utils

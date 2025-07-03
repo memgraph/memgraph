@@ -16,6 +16,7 @@
 #include "utils/logging.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/resource_monitoring.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
 
@@ -35,32 +36,11 @@ inline auto &GetUserTracker() {
   return user_resource_;
 }
 
-struct ThreadTrackingBlocker {
-  ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
-    // Disable thread tracking
-    GetQueryTracker() = nullptr;
-    GetUserTracker() = nullptr;
-  }
-
-  ~ThreadTrackingBlocker() {
-    // Reset thread tracking to previous state
-    GetQueryTracker() = prev_state_;
-    GetUserTracker() = prev_user_state_;
-  }
-
-  ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
-  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
-  ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
-  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
-
- private:
-  utils::QueryMemoryTracker *prev_state_;
-  utils::UserResources *prev_user_state_;
-};
-
 }  // namespace
 
 bool TrackAllocOnCurrentThread(size_t size) {
+  if (utils::detail::IsSkipListGcRunning())
+    return true;  // GC is running, no way to control what gets deleted, just ignore this allocation
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
   auto *const user_resource = GetUserTracker();
@@ -71,8 +51,6 @@ bool TrackAllocOnCurrentThread(size_t size) {
                   // if allocations could happen here we would try to track that, which calls alloc
 
   if (user_resource && !user_resource->IncrementTransactionsMemory(size)) {
-    // register our error data, we will pick this up on the other side of jemalloc
-    utils::MemoryErrorStatus().set({1, 2, 3});
     return false;
   }
   if (tracker && !tracker->TrackAlloc(size)) {
@@ -83,6 +61,8 @@ bool TrackAllocOnCurrentThread(size_t size) {
 }
 
 void TrackFreeOnCurrentThread(size_t size) {
+  if (utils::detail::IsSkipListGcRunning())
+    return;  // GC is running, no way to control what gets deleted, just ignore this free
   // Read and check tracker before blocker as it wil temporarily reset the tracker
   auto *const tracker = GetQueryTracker();
   auto *const user_resource = GetUserTracker();
@@ -131,9 +111,9 @@ bool IsQueryTracked() {
 #endif
 }
 
-// TODO
 void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
 #if USE_JEMALLOC
+  // No need for user tracking at this level, if it was needed, it would have already been setup by this point
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
   GetQueryTracker()->TryCreateProcTracker(procedure_id, limit);
   GetQueryTracker()->SetActiveProc(procedure_id);
@@ -145,6 +125,18 @@ void PauseProcedureTracking() {
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
   GetQueryTracker()->StopProcTracking();
 #endif
+}
+
+ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
+  // Disable thread tracking
+  GetQueryTracker() = nullptr;
+  GetUserTracker() = nullptr;
+}
+
+ThreadTrackingBlocker::~ThreadTrackingBlocker() {
+  // Reset thread tracking to previous state
+  GetQueryTracker() = prev_state_;
+  GetUserTracker() = prev_user_state_;
 }
 
 }  // namespace memgraph::memory

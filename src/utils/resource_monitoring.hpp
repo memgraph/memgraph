@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 #include <atomic>
@@ -45,6 +46,13 @@ class Resource {
   void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
   bool Increment(T size) {
+    // Failure is forbidden, so increment, return true and don't throw
+    if (!MemoryTrackerCanThrow()) {
+      // NOTE: This is needed because we have paths that block exceptions
+      allocated_.fetch_add(size, std::memory_order_acq_rel);
+      return true;
+    }
+
     // Always track even if unlimited
     const auto limit =
         limit_.load(std::memory_order_relaxed);  // Could miss updates to limit, but allowing stale values for now
@@ -54,14 +62,19 @@ class Resource {
         return true;  // successfully incremented
       }
     }
+    // register our error data, we will pick this up on the other side of jemalloc
+    utils::MemoryErrorStatus().set({static_cast<int64_t>(size), static_cast<int64_t>(current + size),
+                                    static_cast<int64_t>(limit), utils::MemoryTrackerStatus::kUser});
     return false;  // increment failed
   }
 
   // Decrementing cannot fail
   void Decrement(T size) {
     auto current = allocated_.load(std::memory_order_acquire);
-    while (!allocated_.compare_exchange_weak(current, current - size, std::memory_order_acq_rel)) {
-    }
+    // Underflow protection
+    auto gen_next = [&current, size] { return current < size ? T(0) : current - size; };
+    while (!allocated_.compare_exchange_weak(current, gen_next(), std::memory_order_acq_rel))
+      ;
   }
 
   T GetCurrent() const { return allocated_.load(std::memory_order_acquire); }
@@ -81,13 +94,6 @@ class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed t
   bool Allocate(size_t size);
 
   void Deallocate(size_t size);
-
-  size_t FinalizeQuery();
-
-  void FinalizeTransaction(size_t size);
-
- private:
-  static thread_local size_t single_tx_memory_;
 };
 
 struct UserResources {
@@ -123,8 +129,6 @@ struct UserResources {
       const {
     return {transactions_memory.GetCurrent(), transactions_memory.GetLimit()};
   }
-  size_t FinalizeQuery() { return transactions_memory.FinalizeQuery(); }
-  void FinalizeTransaction(size_t size) { transactions_memory.FinalizeTransaction(size); }
 
  private:
   SessionsResource sessions{};
