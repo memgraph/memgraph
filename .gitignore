@@ -5,6 +5,7 @@ conanrun.sh
 conanrunenv*
 deactivate_conanbuild.sh
 deactivate_conanrun.sh
+CMakeUserPresets.json
 
 
 *.breakpoint

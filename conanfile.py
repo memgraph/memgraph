@@ -30,6 +30,7 @@ class Memgraph(ConanFile):
 
     def build_requirements(self):
         self.tool_requires("cmake/4.0.3")
+        self.tool_requires("ninja/1.11.1")
 
     def package(self):
         cmake = CMake(self)
