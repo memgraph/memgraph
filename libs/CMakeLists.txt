@@ -150,8 +150,8 @@ include(FetchContent)
 
 # NOTE: Called under, e.g., src/kvstore/CMakeLists.txt
 macro(mg_target_link_library_cmake toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
-  if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
+  if(DEFINED MG_TOOLCHAIN_VERSION)
+    if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
       message(STATUS "TOOLCHAIN v${toolchain_version}")
       find_package(${package_name} REQUIRED)
       target_link_libraries(${mg_target_name} ${toolchain_lib_name})
@@ -166,8 +166,8 @@ macro(mg_target_link_library_cmake toolchain_version mg_target_name package_name
 endmacro()
 
 macro(mg_build_if_needed build_macro lib_name)
-  if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+  if(DEFINED MG_TOOLCHAIN_VERSION)
+    if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
       message(STATUS "NOTE: ${lib_name} should be under the toolchain.")
     else()
       cmake_language(CALL ${build_macro})
@@ -178,8 +178,8 @@ macro(mg_build_if_needed build_macro lib_name)
 endmacro()
 
 macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
-  if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+  if(DEFINED MG_TOOLCHAIN_VERSION)
+    if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
       # NOTE: This is like the import_library, but the existing code
       # couldn't be used because it depends on the building the
       # project(lib) locally...
@@ -311,7 +311,10 @@ import_external_library(mgclient STATIC
   CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
   -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
   -DBUILD_TESTING=OFF
-  -DBUILD_CPP_BINDINGS=ON)
+  -DBUILD_CPP_BINDINGS=ON
+  BUILD_BYPRODUCTS ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a # Specific for Ninja
+)
+
 # NOTE: the following is possible because both imported targets are called the
 # same. This setting should be moved under mgclient lib itself.
 find_package(OpenSSL REQUIRED)
@@ -409,9 +412,9 @@ if(TARGET pulsar)
   find_library(SSH_LIB ssh REQUIRED)
 
   target_link_libraries(
-    pulsar 
-    INTERFACE 
-    ${NGHTTP2_LIB} 
+    pulsar
+    INTERFACE
+    ${NGHTTP2_LIB}
     ${PSL_LIB}
     ${GSSAPI_LIB}
     ${RTMP_LIB}
@@ -449,8 +452,10 @@ macro(link_jmalloc)
     ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
 endmacro()
 mg_build_if_needed(link_jmalloc "jemalloc")
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+
+message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
+if(DEFINED MG_TOOLCHAIN_VERSION)
+  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
     set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
   endif()
 endif()

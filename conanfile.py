@@ -32,6 +32,10 @@ class Memgraph(ConanFile):
         self.tool_requires("cmake/4.0.3")
         self.tool_requires("ninja/1.11.1")
 
+    def requirements(self):
+        pass
+        # self.requires("fmt/8.0.1")
+
     def package(self):
         cmake = CMake(self)
         cmake.install()
