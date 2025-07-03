@@ -6800,7 +6800,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
     mgp_memory proc_memory{&memory_tracking_resource};
 
-    // TODO: What about cross library boundary exceptions? OMG C++?!
+    // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
     auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
