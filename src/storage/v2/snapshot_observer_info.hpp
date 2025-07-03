@@ -20,7 +20,7 @@
 
 namespace memgraph::storage {
 
-enum class UpdateType : uint8_t { VERTICES, EDGES, TEXT_IDX, POINT_IDX, VECTOR_IDX };
+enum class UpdateType : uint8_t { VERTICES, EDGES, TEXT_IDX, POINT_IDX, VECTOR_IDX, VECTOR_EDGE_IDX };
 
 struct SnapshotObserverInfo {
   explicit SnapshotObserverInfo(std::shared_ptr<utils::Observer<void>> observer,
@@ -34,9 +34,10 @@ struct SnapshotObserverInfo {
   }
 
  private:
-  static constexpr std::array<std::pair<UpdateType, uint16_t>, 5> update_factors{
-      std::pair{UpdateType::VERTICES, 1}, std::pair{UpdateType::EDGES, 1}, std::pair{UpdateType::TEXT_IDX, 10},
-      std::pair{UpdateType::POINT_IDX, 10}, std::pair{UpdateType::VECTOR_IDX, 1000}};
+  static constexpr std::array<std::pair<UpdateType, uint16_t>, 6> update_factors{
+      std::pair{UpdateType::VERTICES, 1},      std::pair{UpdateType::EDGES, 1},
+      std::pair{UpdateType::TEXT_IDX, 10},     std::pair{UpdateType::POINT_IDX, 10},
+      std::pair{UpdateType::VECTOR_IDX, 1000}, std::pair{UpdateType::VECTOR_EDGE_IDX, 1000}};
   std::shared_ptr<utils::Observer<void>> observer_{nullptr};
   mutable utils::ResettableAtomicCounter cnt_;
 };

@@ -238,10 +238,8 @@ class DeltaGenerator final {
     std::optional<memgraph::storage::VectorIndexSpec> vector_index_spec;
     if (!vector_index_name.empty()) {
       vector_index_spec = memgraph::storage::VectorIndexSpec{
-          vector_index_name, label_id,
-          first_property_id, memgraph::storage::VectorIndex::MetricFromName(kMetricKind),
-          vector_dimension,  kResizeCoefficient,
-          vector_capacity,   kScalarKind};
+          vector_index_name, label_id,           first_property_id, memgraph::storage::MetricFromName(kMetricKind),
+          vector_dimension,  kResizeCoefficient, vector_capacity,   kScalarKind};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
@@ -333,6 +331,11 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_DROP:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeVectorIndexName(encoder, vector_index_name);
+        });
+        break;
+      case memgraph::storage::durability::StorageMetadataOperation::VECTOR_EDGE_INDEX_CREATE:
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeVectorEdgeIndexSpec(encoder, mapper_, vector_edge_index_spec);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:

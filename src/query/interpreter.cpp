@@ -5068,7 +5068,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       break;
     }
     case DatabaseInfoQuery::InfoType::VECTOR_INDEX: {
-      header = {"index_name", "label", "property", "capacity", "dimension", "metric", "size", "scalar_kind", "type"};
+      header = {"index_name", "label", "property", "capacity", "dimension", "metric", "size", "scalar_kind"};
       handler = [database, dba] {
         auto *storage = database->storage();
         auto vector_indices = dba->ListAllVectorIndices();

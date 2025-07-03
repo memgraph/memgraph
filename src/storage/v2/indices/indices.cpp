@@ -49,6 +49,7 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+  vector_edge_index_.RemoveObsoleteEntries(token);
 }
 
 void Indices::DropGraphClearIndices() {

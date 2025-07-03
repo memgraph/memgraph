@@ -13,6 +13,7 @@
 #include <ranges>
 #include <usearch/index_dense.hpp>
 #include "flags/bolt.hpp"
+#include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
@@ -54,6 +55,9 @@ VectorEdgeIndex::~VectorEdgeIndex() {}
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  if (!FLAGS_storage_properties_on_edges) {
+    throw query::VectorSearchException("Vector edge index can only be created when properties on edges are enabled.");
+  }
   try {
     if (pimpl->index_name_to_edge_type_prop_.contains(spec.index_name)) {
       throw query::VectorSearchException("Vector index with the given name already exists.");
@@ -99,8 +103,11 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
             continue;
           }
           // update the index with the edge
-          if (snapshot_info) {
-            snapshot_info->Update(UpdateType::EDGES);
+          if (UpdateVectorIndex(EdgeIndexEntry{&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr},
+                                edge_type_prop)) {
+            if (snapshot_info) {
+              snapshot_info->Update(UpdateType::VECTOR_EDGE_IDX);
+            }
           }
         }
       }
@@ -277,7 +284,7 @@ void VectorEdgeIndex::RemoveObsoleteEntries(std::stop_token token) const {
 
     auto deleted = edges_to_remove | rv::filter([](const EdgeIndexEntry &entry) {
                      auto guard = std::shared_lock{entry.edge->lock};
-                     return entry.from_vertex->deleted || entry.to_vertex->deleted || entry.edge->deleted;
+                     return entry.edge->deleted;
                    });
     for (const auto &entry : deleted) {
       locked_index->remove(entry);

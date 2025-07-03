@@ -27,6 +27,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -251,7 +252,7 @@ struct WalEnumAlterUpdate {
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, VersionDependant<kVectorIndexWithEdgeTypeProp, std::uint8_t>>;
+                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
   std::string label;
   std::string property;
