@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include <memory>
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -18,7 +19,6 @@
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
-
 namespace memgraph::storage {
 
 namespace {
@@ -462,23 +462,26 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
         continue;
       }
 
-      std::unordered_set<Vertex const *> possible_conflicting;
-      // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-      auto acc = storage->access();
-      auto it = acc.find_equal_or_greater(*value_array);
-      for (; it != acc.end(); ++it) {
-        if (*value_array != it->values) {
-          break;
-        }
+      auto possible_conflicting = std::invoke([&] {
+        // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
+        auto acc = storage->access();
+        auto it = acc.find_equal_or_greater(*value_array);
+        std::unordered_set<Vertex const *> res;
+        for (; it != acc.end(); ++it) {
+          if (*value_array != it->values) {
+            break;
+          }
 
-        // The `vertex` that is going to be committed violates a unique constraint
-        // if it's different than a vertex indexed in the list of constraints and
-        // has the same label and property value as the last committed version of
-        // the vertex from the list.
-        if (&vertex != it->vertex) {
-          possible_conflicting.insert(it->vertex);
+          // The `vertex` that is going to be committed violates a unique constraint
+          // if it's different than a vertex indexed in the list of constraints and
+          // has the same label and property value as the last committed version of
+          // the vertex from the list.
+          if (&vertex != it->vertex) {
+            res.insert(it->vertex);
+          }
         }
-      }
+        return res;
+      });
 
       for (auto const *v : possible_conflicting) {
         if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
