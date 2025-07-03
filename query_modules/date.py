@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from enum import IntEnum
 from zoneinfo import ZoneInfo
@@ -10,7 +11,6 @@ class FormatLength(IntEnum):
 
     DATE = 10  # Length of 'YYYY-MM-DD'
     TIME = 8  # Length of 'HH:MM:SS'
-    OFFSET = 5  # Length of '+hhmm' or '-hhmm'
 
 
 class DateFormatUtil:
@@ -69,7 +69,12 @@ def convert_format(temporal: str, current_format: str, convert_to: str) -> mgp.N
         if current_formatter == "iso_zoned_date_time":
             # Remove zone part in [] and parse
             temporal_without_zone = temporal.split("[")[0]
-            dt = datetime.strptime(temporal_without_zone, "%Y-%m-%dT%H:%M:%S%z")
+
+            if "." in temporal_without_zone:
+                temporal_without_zone = re.sub(r"(\.\d{6})\d*", r"\1", temporal_without_zone)
+                dt = datetime.strptime(temporal_without_zone, "%Y-%m-%dT%H:%M:%S.%f%z")
+            else:
+                dt = datetime.strptime(temporal_without_zone, "%Y-%m-%dT%H:%M:%S%z")
         elif current_format.lower() == "iso_date":
             # iso_date can have optional offset, try parsing with offset first
             try:
@@ -83,20 +88,21 @@ def convert_format(temporal: str, current_format: str, convert_to: str) -> mgp.N
             except ValueError:
                 dt = datetime.strptime(temporal, "%H:%M:%S")
         else:
-            # Standard parsing for all other formats
-            dt = datetime.strptime(temporal, current_formatter)
+            try:
+                dt = datetime.fromisoformat(temporal)
+            except Exception:
+                dt = datetime.strptime(temporal, current_formatter)
+
+        if convert_to.lower() in ["iso_offset_date", "iso_offset_time", "iso_offset_date_time"] and dt.tzinfo is None:
+            raise Exception("missing timezone")
 
         # Convert to target format
         if convert_to_formatter == "iso_zoned_date_time":
             # Converting to zoned date time: return offset datetime string (no zone name)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-            naive_part = dt.strftime("%Y-%m-%dT%H:%M:%S")
-            offset = dt.strftime("%z")
-            # Format offset as +hh:mm
-            if len(offset) == FormatLength.OFFSET:
-                offset = f"{offset[:3]}:{offset[3:]}"
-            converted = f"{naive_part}{offset}"
+            converted = dt.isoformat()
+
         elif convert_to.lower() == "iso_date":
             # iso_date: include offset if timezone info is present
             if dt.tzinfo is not None:
@@ -115,6 +121,8 @@ def convert_format(temporal: str, current_format: str, convert_to: str) -> mgp.N
                     converted = f"{converted[:-2]}:{converted[-2:]}"
             else:
                 converted = dt.strftime("%H:%M:%S")
+        elif convert_to.lower() in ["iso_zoned_date_time", "iso_offset_date_time"]:
+            converted = dt.isoformat()
         else:
             # For offset formats, ensure timezone is present
             if convert_to_formatter.endswith("%z") and dt.tzinfo is None:
