@@ -281,6 +281,11 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
     }
     auto helper = PropertiesPermutationHelper{properties};
     auto [it3, _2] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
+    all_indexes_.WithLock([&](auto &all_indexes) {
+      auto new_all_indexes = *all_indexes;
+      new_all_indexes.emplace_back(it3->second, label, properties);
+      all_indexes = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indexes));
+    });
 
     // Add entries into the reverse lookup
     auto de = EntryDetail{&it3->first, it3->second.get()};
@@ -297,8 +302,8 @@ struct PopulateCancel : std::exception {};
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -374,7 +379,7 @@ auto InMemoryLabelPropertyIndex::GetIndividualIndex(LabelId const &label, Proper
 }
 
 bool InMemoryLabelPropertyIndex::RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties) {
-  return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
+  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) {
     {
       auto it = index->indices_.find(label);
       if (it == index->indices_.cend()) [[unlikely]]
@@ -472,6 +477,8 @@ bool InMemoryLabelPropertyIndex::RemoveIndividualIndex(LabelId const &label, Pro
     index = std::move(new_index);
     return true;
   });
+  CleanupAllIndicies();
+  return result;
 }
 
 void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
@@ -542,8 +549,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;
@@ -624,37 +631,37 @@ auto InMemoryLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_times
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
-  auto index_container = index_.WithReadLock(std::identity{});
+  CleanupAllIndicies();
 
-  for (auto &[label_id, by_properties] : index_container->indices_) {
-    for (auto &[property_paths, index] : by_properties) {
-      // before starting index, check if stop_requested
-      if (token.stop_requested()) return;
+  auto cpy = all_indexes_.WithReadLock(std::identity{});
 
-      auto const &permutationHelper = index->permutations_helper;
-      auto index_acc = index->skiplist.access();
-      auto it = index_acc.begin();
-      auto end_it = index_acc.end();
-      if (it == end_it) continue;
-      while (true) {
-        // Hot loop, don't check stop_requested every time
-        if (maybe_stop() && token.stop_requested()) return;
+  for (auto &[index, label_id, property_paths] : *cpy) {
+    // before starting index, check if stop_requested
+    if (token.stop_requested()) return;
 
-        auto next_it = it;
-        ++next_it;
+    auto const &permutationHelper = index->permutations_helper;
+    auto index_acc = index->skiplist.access();
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+    if (it == end_it) continue;
+    while (true) {
+      // Hot loop, don't check stop_requested every time
+      if (maybe_stop() && token.stop_requested()) return;
 
-        bool has_next = next_it != end_it;
-        if (it->timestamp < oldest_active_start_timestamp) {
-          bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
-          if (redundant_duplicate ||
-              !AnyVersionHasLabelProperties(*it->vertex, label_id, property_paths, permutationHelper, it->values,
-                                            oldest_active_start_timestamp)) {
-            index_acc.remove(*it);
-          }
+      auto next_it = it;
+      ++next_it;
+
+      bool has_next = next_it != end_it;
+      if (it->timestamp < oldest_active_start_timestamp) {
+        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
+        if (redundant_duplicate ||
+            !AnyVersionHasLabelProperties(*it->vertex, label_id, property_paths, permutationHelper, it->values,
+                                          oldest_active_start_timestamp)) {
+          index_acc.remove(*it);
         }
-        if (!has_next) break;
-        it = next_it;
       }
+      if (!has_next) break;
+      it = next_it;
     }
   }
 }
@@ -1037,12 +1044,12 @@ std::optional<storage::LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetI
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  // TODO: optimise...only copy the per_properties
-  auto cpy = index_.WithReadLock(std::identity{});
-  for (auto &per_label : cpy->indices_ | std::views::values) {
-    for (auto &per_properties : per_label | std::views::values) {
-      per_properties->skiplist.run_gc();
-    }
+  // Remove indicies that are not used by any txn
+  CleanupAllIndicies();
+
+  auto cpy = all_indexes_.WithReadLock(std::identity{});
+  for (auto &[index, _, _] : *cpy) {
+    index->skiplist.run_gc();
   }
 }
 
@@ -1092,6 +1099,7 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::ActiveIndices::
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](auto &idx) { idx = std::make_shared<IndexContainer>(); });
   stats_->clear();
+  CleanupAllIndicies();
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const -> LabelPropertyIndex::AbortProcessor {
@@ -1135,6 +1143,17 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
       }
     }
   }
+}
+
+void InMemoryLabelPropertyIndex::CleanupAllIndicies() {
+  // By cleanup, we mean just cleanup of the all_indexes_
+  // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it
+  all_indexes_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
+    if (!r::all_of(*indices, keep_condition)) {
+      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    }
+  });
 }
 
 }  // namespace memgraph::storage

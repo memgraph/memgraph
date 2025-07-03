@@ -92,6 +92,11 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     // Used to make UpdateOnSetProperty faster
     ReverseLabelPropertiesIndices reverse_lookup_;
   };
+  struct AllIndicesEntry {
+    std::shared_ptr<IndividualIndex> index_;
+    LabelId label_;
+    PropertiesPaths properties_;
+  };
   using PropertiesIndicesStats = std::map<PropertiesPaths, storage::LabelPropertyIndexStats, Compare>;
 
   InMemoryLabelPropertyIndex() : index_(std::make_shared<IndexContainer>()) {}
@@ -227,11 +232,14 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void DropGraphClearIndices() override;
 
  private:
+  void CleanupAllIndicies();
   auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
       -> std::shared_ptr<IndividualIndex>;
   bool RemoveIndividualIndex(LabelId const &label, PropertiesPaths const &properties);
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock>
+      all_indexes_{};
   utils::Synchronized<std::map<LabelId, PropertiesIndicesStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
