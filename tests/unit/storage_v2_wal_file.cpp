@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
@@ -236,10 +237,16 @@ class DeltaGenerator final {
     }
 
     std::optional<memgraph::storage::VectorIndexSpec> vector_index_spec;
+    std::optional<memgraph::storage::VectorEdgeIndexSpec> vector_edge_index_spec;
     if (!vector_index_name.empty()) {
       vector_index_spec = memgraph::storage::VectorIndexSpec{
           vector_index_name, label_id,           first_property_id, memgraph::storage::MetricFromName(kMetricKind),
           vector_dimension,  kResizeCoefficient, vector_capacity,   kScalarKind};
+      vector_edge_index_spec = memgraph::storage::VectorEdgeIndexSpec{
+          vector_index_name, edge_type_id.value_or(memgraph::storage::EdgeTypeId::FromUint(0)),
+          first_property_id, memgraph::storage::MetricFromName(kMetricKind),
+          vector_dimension,  kResizeCoefficient,
+          vector_capacity,   kScalarKind};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
@@ -335,7 +342,7 @@ class DeltaGenerator final {
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_EDGE_INDEX_CREATE:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeVectorEdgeIndexSpec(encoder, mapper_, vector_edge_index_spec);
+          EncodeVectorEdgeIndexSpec(encoder, mapper_, *vector_edge_index_spec);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
@@ -392,11 +399,11 @@ class DeltaGenerator final {
           case LABEL_INDEX_STATS_SET:
             return {WalLabelIndexStatsSet{label, stats}};
           case LABEL_PROPERTIES_INDEX_CREATE:
-            return {WalLabelPropertyIndexCreate{label, property_paths_as_str}};
+            return {WalLabelPropertyIndexCreate{label, {property_paths_as_str}}};
           case LABEL_PROPERTIES_INDEX_DROP:
-            return {WalLabelPropertyIndexDrop{label, property_paths_as_str}};
+            return {WalLabelPropertyIndexDrop{label, {property_paths_as_str}}};
           case LABEL_PROPERTIES_INDEX_STATS_SET:
-            return {WalLabelPropertyIndexStatsSet{label, property_paths_as_str, stats}};
+            return {WalLabelPropertyIndexStatsSet{label, {property_paths_as_str}, stats}};
           case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
             return {WalLabelPropertyIndexStatsClear{label}};
           case EDGE_INDEX_CREATE:
@@ -442,6 +449,10 @@ class DeltaGenerator final {
           case VECTOR_INDEX_CREATE:
             return {WalVectorIndexCreate{vector_index_name, label, first_property, kMetricKind, vector_dimension,
                                          kResizeCoefficient, vector_capacity, static_cast<uint8_t>(kScalarKind)}};
+          case VECTOR_EDGE_INDEX_CREATE:
+            return {WalVectorEdgeIndexCreate{vector_index_name, edge_type, first_property, kMetricKind,
+                                             vector_dimension, kResizeCoefficient, vector_capacity,
+                                             static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
         }
