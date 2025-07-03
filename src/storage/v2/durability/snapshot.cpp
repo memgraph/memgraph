@@ -6395,6 +6395,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                    edge_count, config, enum_store, schema_info, snapshot_info);
     }
     case 26U: {
+      return LoadSnapshotVersion26(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                   edge_count, config, enum_store, schema_info, snapshot_info);
+    }
+    case 27U: {
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                         edge_count, config, enum_store, schema_info, snapshot_info);
     }
