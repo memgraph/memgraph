@@ -281,7 +281,11 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
     } else {
       // No access control -> give empty user
       session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+#ifdef MG_ENTERPRISE
       interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
+#else
+      interpreter_.SetUser(session_user_or_role_);
+#endif
       interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
@@ -330,8 +334,8 @@ void SessionHL::LogOff() {
     user_resource_->DecrementSessions();
     user_resource_.reset();
   }
-#endif
   interpreter_.ResetDB();
+#endif
   interpreter_.ResetUser();
   session_user_or_role_.reset();
 }
