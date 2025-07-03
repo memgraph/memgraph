@@ -35,7 +35,7 @@ class EdgeTypeIndex {
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
 
-    void process(ActiveIndices &active_indices, uint64_t start_timestamp) {
+    void Process(ActiveIndices &active_indices, uint64_t start_timestamp) {
       active_indices.AbortEntries(cleanup_collection_, start_timestamp);
     }
 

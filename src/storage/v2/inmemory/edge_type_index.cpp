@@ -151,12 +151,12 @@ bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_t
 }
 
 void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
-  status_.commit(commit_timestamp);
+  status_.Commit(commit_timestamp);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
 }
 
 InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
-  if (status_.is_ready()) {
+  if (status_.IsReady()) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
   }
 }
@@ -183,7 +183,7 @@ bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTyp
   auto const &indices = ptr_->indices_;
   auto it = indices.find(edge_type);
   if (it == indices.end()) return false;
-  return it->second->status_.is_ready();
+  return it->second->status_.IsReady();
 }
 
 bool InMemoryEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type) const {
@@ -194,7 +194,7 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64
   auto ret = std::vector<EdgeTypeId>{};
   ret.reserve(ptr_->indices_.size());
   for (auto const &[edge_type, index] : ptr_->indices_) {
-    if (index->status_.is_visible(start_timestamp)) {
+    if (index->status_.IsVisible(start_timestamp)) {
       ret.emplace_back(edge_type);
     }
   }

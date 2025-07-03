@@ -28,8 +28,9 @@ struct IndicesCollection {
 
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
-  explicit ActiveIndices(std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties)
-      : label_properties_{std::move(label_properties)} {}
+  explicit ActiveIndices(std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
+                         std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type)
+      : label_properties_{std::move(label_properties)}, edge_type_{std::move(edge_type)} {}
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
