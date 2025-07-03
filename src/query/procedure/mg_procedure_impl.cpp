@@ -43,6 +43,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -3415,8 +3416,9 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
   return std::visit(get_vertex_by_gid, graph->impl);
 }
 
+template <typename FoundElementRange, typename MakeElementValueFunc>
 void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result, size_t found_elements_size,
-                             auto make_element_value, auto &&found_elements,
+                             MakeElementValueFunc make_element_value, FoundElementRange &&found_elements,
                              const std::optional<std::string> &error_msg) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_map");
@@ -3541,34 +3543,10 @@ void WrapVectorSearchOnEdgesResults(
   WrapVectorSearchResults(graph, memory, result, found_edges.size(), make_edge_value, found_edges, error_msg);
 }
 
-void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
-                               std::vector<memgraph::storage::VectorIndexInfo> &info,
-                               const std::optional<std::string> &error_msg = std::nullopt,
-                               memgraph::query::DbAccessor *impl = nullptr) {
-  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving vector search results failed during creation of a mgp_map");
-  }
-
-  mgp_value *error_value = nullptr;
-  if (error_msg.has_value()) {
-    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
-        err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
-    }
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
-    }
-    return;
-  }
-
-  mgp_list *search_results = nullptr;
-  if (const auto err = mgp_list_make_empty(info.size(), memory, &search_results);
-      err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
-  }
-
-  for (const auto &[index_name, label_or_edge_type, property, metric, dimension, capacity, size, scalar_kind, _] :
-       info) {
+template <typename InfoType, typename GetNameFunc>
+void AppendIndexInfoList(const std::vector<InfoType> &info, mgp_memory *memory, mgp_list *search_results,
+                         GetNameFunc get_name, memgraph::query::DbAccessor *impl) {
+  for (const auto &[index_name, label_or_edge_type, property, metric, dimension, capacity, size, scalar_kind] : info) {
     mgp_value *index_name_value = nullptr;
     mgp_value *label_value = nullptr;
     mgp_value *property_value = nullptr;
@@ -3577,19 +3555,14 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value *capacity_value = nullptr;
     mgp_value *size_value = nullptr;
     mgp_value *scalar_kind_value = nullptr;
+
     if (const auto err = mgp_value_make_string(index_name.c_str(), memory, &index_name_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
 
-    auto err =
-        std::holds_alternative<memgraph::storage::LabelId>(label_or_edge_type)
-            ? mgp_value_make_string(impl->LabelToName(std::get<memgraph::storage::LabelId>(label_or_edge_type)).c_str(),
-                                    memory, &label_value)
-            : mgp_value_make_string(
-                  impl->EdgeTypeToName(std::get<memgraph::storage::EdgeTypeId>(label_or_edge_type)).c_str(), memory,
-                  &label_value);
-    if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_value_make_string(get_name(label_or_edge_type).c_str(), memory, &label_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
 
@@ -3624,46 +3597,18 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     }
 
     mgp_list *index_info = nullptr;
-    if (const auto err = mgp_list_make_empty(6, memory, &index_info); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_list_make_empty(8, memory, &index_info); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
     }
 
-    if (const auto err = mgp_list_append_extend(index_info, index_name_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, label_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, property_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, metric_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, dimension_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, capacity_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, size_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error(
-          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
-    }
-
-    if (const auto err = mgp_list_append_extend(index_info, scalar_kind_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (mgp_list_append_extend(index_info, index_name_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, label_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, property_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, metric_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, dimension_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, capacity_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, size_value) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_list_append_extend(index_info, scalar_kind_value) != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
     }
@@ -3688,6 +3633,43 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(size_value);
     mgp_value_destroy(scalar_kind_value);
   }
+}
+
+void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
+                               const std::vector<memgraph::storage::VectorIndexInfo> &info,
+                               const std::vector<memgraph::storage::VectorEdgeIndexInfo> &edge_info,
+                               const std::optional<std::string> &error_msg = std::nullopt,
+                               memgraph::query::DbAccessor *impl = nullptr) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving vector search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *error_value = nullptr;
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
+    }
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
+    }
+    return;
+  }
+
+  mgp_list *search_results = nullptr;
+  size_t total_size = info.size() + edge_info.size();
+  if (const auto err = mgp_list_make_empty(total_size, memory, &search_results); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
+  }
+
+  // For VectorIndexInfo (label_or_edge_type is LabelId)
+  AppendIndexInfoList(
+      info, memory, search_results, [impl](auto label_id) { return impl->LabelToName(label_id); }, impl);
+
+  // For VectorEdgeIndexInfo (label_or_edge_type is EdgeTypeId)
+  AppendIndexInfoList(
+      edge_info, memory, search_results, [impl](auto edge_type_id) { return impl->EdgeTypeToName(edge_type_id); },
+      impl);
 
   mgp_value *search_results_value = nullptr;
   if (const auto err = mgp_value_make_list(search_results, &search_results_value);
@@ -3888,13 +3870,15 @@ mgp_error mgp_graph_search_vector_index_on_edges(mgp_graph *graph, const char *i
 mgp_error mgp_graph_show_index_info(mgp_graph *graph, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, result]() {
     std::vector<memgraph::storage::VectorIndexInfo> index_info;
+    std::vector<memgraph::storage::VectorEdgeIndexInfo> edge_index_info;
     std::optional<std::string> error_msg = std::nullopt;
     try {
       index_info = graph->getImpl()->ListAllVectorIndices();
+      edge_index_info = graph->getImpl()->ListAllVectorEdgeIndices();
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
-    WrapVectorIndexInfoResult(memory, result, index_info, error_msg, graph->getImpl());
+    WrapVectorIndexInfoResult(memory, result, index_info, edge_index_info, error_msg, graph->getImpl());
   });
 }
 

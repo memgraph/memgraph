@@ -19,6 +19,37 @@
 
 namespace memgraph::storage {
 
+/// @struct VectorEdgeIndexSpec
+/// @brief Represents a specification for creating a vector index in the system.
+///
+/// This structure includes the index name, the label and property on which the index is created,
+/// and the configuration options for the index in the form of a JSON object.
+struct VectorEdgeIndexSpec {
+  std::string index_name;
+  EdgeTypeId edge_type_id;
+  PropertyId property;
+  unum::usearch::metric_kind_t metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+  unum::usearch::scalar_kind_t scalar_kind;
+
+  friend bool operator==(const VectorEdgeIndexSpec &, const VectorEdgeIndexSpec &) = default;
+};
+
+/// @struct VectorEdgeIndexInfo
+/// @brief Represents information about a vector index in the system.
+struct VectorEdgeIndexInfo {
+  std::string index_name;
+  EdgeTypeId edge_type_id;
+  PropertyId property;
+  std::string metric;
+  std::uint16_t dimension;
+  std::size_t capacity;
+  std::size_t size;
+  std::string scalar_kind;
+};
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///
@@ -62,7 +93,7 @@ class VectorEdgeIndex {
   /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+  bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
@@ -78,11 +109,11 @@ class VectorEdgeIndex {
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
-  std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
+  std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const;
 
   /// @brief Lists the labels and properties that have vector indices.
   /// @return A vector of specs representing vector indices configurations.
-  std::vector<VectorIndexSpec> ListIndices() const;
+  std::vector<VectorEdgeIndexSpec> ListIndices() const;
 
   /// @brief Returns number of edges in the index.
   /// @param edge_type The type of the edges in the index.

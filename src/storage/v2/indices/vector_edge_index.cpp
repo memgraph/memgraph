@@ -30,7 +30,7 @@ using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::Ed
 struct EdgeTypeIndexItem {
   // Similar to NodeIndexItem, but for edge type indices.
   std::shared_ptr<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>> mg_index;
-  VectorIndexSpec spec;
+  VectorEdgeIndexSpec spec;
 };
 
 /// @brief Implements the underlying functionality of the `VectorIndex` class.
@@ -52,7 +52,7 @@ struct VectorEdgeIndex::Impl {
 VectorEdgeIndex::VectorEdgeIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorEdgeIndex::~VectorEdgeIndex() {}
 
-bool VectorEdgeIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
   try {
     if (pimpl->index_name_to_edge_type_prop_.contains(spec.index_name)) {
@@ -61,7 +61,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<V
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
-    const auto edge_type = std::get<EdgeTypeId>(spec.label_or_edge_type);
+    const auto edge_type = spec.edge_type_id;
     const EdgeTypePropKey edge_type_prop{edge_type, spec.property};
 
     if (pimpl->edge_index_.contains(edge_type_prop)) {
@@ -193,22 +193,22 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
   }
 }
 
-std::vector<VectorIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const {
-  std::vector<VectorIndexInfo> result;
+std::vector<VectorEdgeIndexInfo> VectorEdgeIndex::ListVectorIndicesInfo() const {
+  std::vector<VectorEdgeIndexInfo> result;
   result.reserve(pimpl->edge_index_.size());
   for (const auto &[_, index_item] : pimpl->edge_index_) {
     const auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->ReadLock();
-    result.emplace_back(VectorIndexInfo{
-        spec.index_name, std::get<EdgeTypeId>(spec.label_or_edge_type), spec.property,
-        NameFromMetric(locked_index->metric().metric_kind()), static_cast<std::uint16_t>(locked_index->dimensions()),
-        locked_index->capacity(), locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind())});
+    result.emplace_back(spec.index_name, spec.edge_type_id, spec.property,
+                        NameFromMetric(locked_index->metric().metric_kind()),
+                        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(),
+                        locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind()));
   }
   return result;
 }
 
-std::vector<VectorIndexSpec> VectorEdgeIndex::ListIndices() const {
-  std::vector<VectorIndexSpec> result;
+std::vector<VectorEdgeIndexSpec> VectorEdgeIndex::ListIndices() const {
+  std::vector<VectorEdgeIndexSpec> result;
   result.reserve(pimpl->edge_index_.size());
   r::transform(pimpl->edge_index_, std::back_inserter(result),
                [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });

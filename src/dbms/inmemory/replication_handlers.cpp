@@ -1310,7 +1310,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
-              .label_or_edge_type = labelId,
+              .label_id = labelId,
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1320,6 +1320,28 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           });
           if (res.HasError()) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
+          }
+        },
+        [&](WalVectorEdgeIndexCreate const &data) {
+          spdlog::trace("   Delta {}. Create vector index on :{}({})", current_delta_idx, data.edge_type,
+                        data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto edgeType = storage->NameToEdgeType(data.edge_type);
+          auto propId = storage->NameToProperty(data.property);
+          auto metric_kind = storage::MetricFromName(data.metric_kind);
+
+          auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
+              .index_name = data.index_name,
+              .edge_type_id = edgeType,
+              .property = propId,
+              .metric_kind = metric_kind,
+              .dimension = data.dimension,
+              .resize_coefficient = data.resize_coefficient,
+              .capacity = data.capacity,
+              .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
+          });
+          if (res.HasError()) {
+            throw utils::BasicException("Failed to create vector index on :{}({})", data.edge_type, data.property);
           }
         },
         [&](WalVectorIndexDrop const &data) {

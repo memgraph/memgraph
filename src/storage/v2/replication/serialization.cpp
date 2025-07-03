@@ -20,12 +20,7 @@ void Encoder::WriteBool(bool value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteUint64(uint64_t value) {
-  WriteMarker(durability::Marker::TYPE_INT);
-  slk::Save(value, builder_);
-}
-
-void Encoder::WriteUint8(uint8_t value) {
+void Encoder::WriteUint(uint64_t value) {
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
 }
@@ -86,7 +81,7 @@ bool Encoder::WriteFile(const std::filesystem::path &path) {
   const auto &filename = path.filename().generic_string();
   WriteString(filename);
   auto const file_size = file.GetSize();
-  WriteUint64(file_size);
+  WriteUint(file_size);
   WriteFileData(&file);
   return true;
 }
@@ -105,16 +100,9 @@ std::optional<bool> Decoder::ReadBool() {
   return value;
 }
 
-std::optional<uint64_t> Decoder::ReadUint64() {
+std::optional<uint64_t> Decoder::ReadUint() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
-  slk::Load(&value, reader_);
-  return value;
-}
-
-std::optional<uint8_t> Decoder::ReadUint8() {
-  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_INT) return std::nullopt;
-  uint8_t value;
   slk::Load(&value, reader_);
   return value;
 }
@@ -187,7 +175,7 @@ std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::pa
   auto path = directory / filename;
 
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  std::optional<size_t> maybe_file_size = ReadUint64();
+  std::optional<size_t> maybe_file_size = ReadUint();
   MG_ASSERT(maybe_file_size, "File size missing");
   auto file_size = *maybe_file_size;
   uint8_t buffer[utils::kFileBufferSize];

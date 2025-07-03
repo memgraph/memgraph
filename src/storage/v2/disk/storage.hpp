@@ -263,7 +263,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(VectorIndexSpec spec) override;
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
@@ -300,6 +301,8 @@ class DiskStorage final : public Storage {
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
+    std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
 
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);

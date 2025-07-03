@@ -31,6 +31,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -333,11 +334,19 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 }
 
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
-  auto label_or_edge_type_as_str = std::holds_alternative<storage::LabelId>(spec.label_or_edge_type)
-                                       ? dba->LabelToName(std::get<storage::LabelId>(spec.label_or_edge_type))
-                                       : dba->EdgeTypeToName(std::get<storage::EdgeTypeId>(spec.label_or_edge_type));
-  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(label_or_edge_type_as_str)
+  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label_id))
       << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec.dimension << ", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
+}
+
+void DumpVectorEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorEdgeIndexSpec &spec) {
+  *os << "CREATE VECTOR EDGE INDEX " << EscapeName(spec.index_name)
+      << " ON :" << EscapeName(dba->EdgeTypeToName(spec.edge_type_id)) << "("
+      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
       << "\"dimension\": " << spec.dimension << ", "
       << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
       << "\"capacity\": " << spec.capacity << ", "
@@ -415,6 +424,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreatePointIndicesPullChunk(),
                    // Dump all vector indices
                    CreateVectorIndicesPullChunk(),
+                   // Dump all vector edge indices
+                   CreateVectorEdgeIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -699,6 +710,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateVectorIndicesPullChunk() {
     }
 
     if (global_index == vector.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVectorEdgeIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vector_edge = indices_info_->vector_edge_indices_spec;
+
+    size_t local_counter = 0;
+    while (global_index < vector_edge.size() && (!n || local_counter < *n)) {
+      const auto &index = vector_edge[global_index];
+      std::ostringstream os;
+      DumpVectorEdgeIndex(&os, dba_, index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vector_edge.size()) {
       return local_counter;
     }
 

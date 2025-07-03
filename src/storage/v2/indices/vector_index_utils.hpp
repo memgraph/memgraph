@@ -21,22 +21,6 @@
 
 namespace memgraph::storage {
 
-enum class VectorIndexType {
-  ON_NODES,
-  ON_EDGES,
-};
-
-inline std::string_view VectorIndexTypeToString(VectorIndexType type) {
-  switch (type) {
-    case VectorIndexType::ON_NODES:
-      return "ON_NODES";
-    case VectorIndexType::ON_EDGES:
-      return "ON_EDGES";
-    default:
-      return "UNKNOWN";
-  }
-}
-
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -48,44 +32,6 @@ struct VectorIndexConfigMap {
   std::size_t capacity;
   std::uint16_t resize_coefficient;
   unum::usearch::scalar_kind_t scalar_kind;
-};
-
-/// @struct VectorIndexInfo
-/// @brief Represents information about a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// the dimension of the vectors in the index, and the size of the index.
-struct VectorIndexInfo {
-  std::string index_name;
-  std::variant<LabelId, EdgeTypeId> label_or_edge_type;
-  PropertyId property;
-  std::string metric;
-  std::uint16_t dimension;
-  std::size_t capacity;
-  std::size_t size;
-  std::string scalar_kind;
-  VectorIndexType
-      index_type;  // label and edge type are both uint32_t, so in order to distinguish them we need this field
-};
-
-/// @struct VectorIndexSpec
-/// @brief Represents a specification for creating a vector index in the system.
-///
-/// This structure includes the index name, the label and property on which the index is created,
-/// and the configuration options for the index in the form of a JSON object.
-struct VectorIndexSpec {
-  std::string index_name;
-  std::variant<LabelId, EdgeTypeId> label_or_edge_type;
-  PropertyId property;
-  unum::usearch::metric_kind_t metric_kind;
-  std::uint16_t dimension;
-  std::uint16_t resize_coefficient;
-  std::size_t capacity;
-  unum::usearch::scalar_kind_t scalar_kind;
-  VectorIndexType
-      index_type;  // label and edge type are both uint32_t, so in order to distinguish them we need this field
-
-  friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
 
 inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {

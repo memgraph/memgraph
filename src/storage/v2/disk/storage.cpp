@@ -1805,6 +1805,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::POINT_INDEX_DROP:
           throw utils::NotYetImplemented("Point index is not implemented for DiskStorage. {}", kErrorMessage);
         case MetadataDelta::Action::VECTOR_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
       }
@@ -2169,7 +2170,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
-    VectorIndexSpec /*spec*/) {
+    VectorEdgeIndexSpec /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }
@@ -2268,6 +2269,10 @@ std::vector<std::tuple<EdgeAccessor, double, double>> DiskStorage::DiskAccessor:
 }
 
 std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+};
+
+std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeIndices() const {
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 

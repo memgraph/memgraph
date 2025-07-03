@@ -47,8 +47,8 @@ class VectorEdgeIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto edge_type = unique_acc->NameToEdgeType(test_edge_type.data());
     const auto property = unique_acc->NameToProperty(test_property.data());
-    const auto spec = VectorIndexSpec{test_index.data(), edge_type,          property, metric,
-                                      dimension,         resize_coefficient, capacity, scalar_kind};
+    const auto spec = VectorEdgeIndexSpec{test_index.data(), edge_type,          property, metric,
+                                          dimension,         resize_coefficient, capacity, scalar_kind};
     EXPECT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -79,7 +79,7 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   this->CreateEdge(acc.get(), "wrong_property", property_value, test_edge_type);
   this->CreateEdge(acc.get(), test_property, property_value, "wrong_edge_type");
   ASSERT_NO_ERROR(acc->Commit());
-  const auto all_vector_indices = acc->ListAllVectorIndices();
+  const auto all_vector_indices = acc->ListAllVectorEdgeIndices();
   EXPECT_EQ(all_vector_indices.size(), 1);
 }
 
@@ -112,7 +112,7 @@ TEST_F(VectorEdgeIndexTest, SearchWithMultipleEdges) {
   PropertyValue properties2(std::vector<PropertyValue>{PropertyValue(10.0), PropertyValue(10.0)});
   auto [from_vertex2, to_vertex2, edge2] = this->CreateEdge(acc.get(), test_property, properties2, test_edge_type);
   ASSERT_NO_ERROR(acc->Commit());
-  EXPECT_EQ(acc->ListAllVectorIndices().size(), 1);
+  EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
   std::vector<float> query = {10.0, 10.0};
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 1);
@@ -140,7 +140,7 @@ TEST_F(VectorEdgeIndexTest, ConcurrencyTest) {
     thread.join();
   }
   auto acc = this->storage->Access();
-  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
+  EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, index_size);
 }
 
 TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
@@ -193,21 +193,21 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), null_value).HasError());
     acc->Abort();
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), null_value).HasError());
     ASSERT_NO_ERROR(acc->Commit());
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), properties).HasError());
     acc->Abort();
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
     auto acc = this->storage->Access();
@@ -216,7 +216,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     acc->Abort();
     // check that the index is still empty
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
     auto acc = this->storage->Access();
@@ -226,7 +226,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     ASSERT_NO_ERROR(acc->Commit());
     edge_gid = edge.Gid();
     // check that the index is not empty
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
     auto acc = this->storage->Access();
@@ -235,7 +235,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     EXPECT_EQ(acc->DeleteEdge(&edge).HasValue(), true);
     acc->Abort();
     // check that the index is still not empty
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
 }
 
@@ -258,13 +258,13 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
   }
   {
     auto acc = this->storage->Access();
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
     mem_storage->indices_.vector_edge_index_.RemoveObsoleteEntries(std::stop_token());
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
 }
 
@@ -281,7 +281,7 @@ TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
     size++;
   }
   auto acc = this->storage->Access();
-  const auto all_vector_indices = acc->ListAllVectorIndices();
+  const auto all_vector_indices = acc->ListAllVectorEdgeIndices();
   size = all_vector_indices[0].size;
   capacity = all_vector_indices[0].capacity;
   EXPECT_GT(capacity, size);
@@ -303,7 +303,7 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
   }
 }
 
@@ -320,7 +320,7 @@ TEST_F(VectorEdgeIndexTest, ClearTest) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
   }
 }
 
@@ -338,6 +338,6 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
   this->CreateEdgeIndex(2, 10);
   {
     auto acc = this->storage->Access();
-    EXPECT_EQ(acc->ListAllVectorIndices().size(), 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
   }
 }

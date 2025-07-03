@@ -29,9 +29,7 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteBool(bool value) override;
 
-  void WriteUint64(uint64_t value) override;
-
-  void WriteUint8(uint8_t value) override;
+  void WriteUint(uint64_t value) override;
 
   void WriteDouble(double value) override;
 
@@ -63,9 +61,7 @@ class Decoder final : public durability::BaseDecoder {
 
   std::optional<bool> ReadBool() override;
 
-  std::optional<uint64_t> ReadUint64() override;
-
-  std::optional<uint8_t> ReadUint8() override;
+  std::optional<uint64_t> ReadUint() override;
 
   std::optional<double> ReadDouble() override;
 

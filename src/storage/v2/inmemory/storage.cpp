@@ -16,6 +16,7 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <iterator>
 #include <mutex>
 #include <optional>
 #include <system_error>
@@ -106,6 +107,7 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
     add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
   }
 #undef add_case
@@ -1615,8 +1617,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
-    VectorIndexSpec spec) {
-  MG_ASSERT(type() == UNIQUE, "Creating vector index requires a unique access to the storage!");
+    VectorEdgeIndexSpec spec) {
+  MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
@@ -1625,7 +1627,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (vector_index.IndexExists(spec.index_name) || !vector_edge_index.CreateIndex(spec, vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_edge_index_create, spec);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorEdgeIndices);
   return {};
@@ -2426,6 +2428,12 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
+      case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeVectorEdgeIndexSpec(encoder, *name_id_mapper_, md_delta.vector_edge_index_spec);
+        });
+        break;
+      }
       case MetadataDelta::Action::VECTOR_INDEX_DROP: {
         apply_encode(
             op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexName(encoder, md_delta.vector_index_name); });
@@ -3086,6 +3094,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
   auto &vector_index = storage_->indices_.vector_index_;
+  auto &vector_edge_index = storage_->indices_.vector_edge_index_;
 
   return {mem_label_index->ListIndices(),
           mem_label_property_index->ListIndices(),
@@ -3094,7 +3103,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
           mem_edge_property_index->ListIndices(),
           text_index.ListIndices(),
           point_index.ListIndices(),
-          vector_index.ListIndices()};
+          vector_index.ListIndices(),
+          vector_edge_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -3198,9 +3208,11 @@ std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryA
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
-  auto vertex_indices = storage_->indices_.vector_index_.ListVectorIndicesInfo();
-  auto edge_indices = storage_->indices_.vector_edge_index_.ListVectorIndicesInfo();
-  return rv::concat(vertex_indices, edge_indices) | r::to<std::vector>();
+  return storage_->indices_.vector_index_.ListVectorIndicesInfo();
+}
+
+std::vector<VectorEdgeIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorEdgeIndices() const {
+  return storage_->indices_.vector_edge_index_.ListVectorIndicesInfo();
 }
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,

@@ -80,6 +80,7 @@ struct IndicesInfo {
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
+  std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -454,7 +455,7 @@ class Storage {
         std::string_view index_name) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
-        VectorIndexSpec spec) = 0;
+        VectorEdgeIndexSpec spec) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
@@ -537,6 +538,8 @@ class Storage {
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
+
+    virtual std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const = 0;
 
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 

@@ -22,6 +22,40 @@
 
 namespace memgraph::storage {
 
+/// @struct VectorIndexInfo
+/// @brief Represents information about a vector index in the system.
+///
+/// This structure includes the index name, the label and property on which the index is created,
+/// the dimension of the vectors in the index, and the size of the index.
+struct VectorIndexInfo {
+  std::string index_name;
+  LabelId label_id;
+  PropertyId property;
+  std::string metric;
+  std::uint16_t dimension;
+  std::size_t capacity;
+  std::size_t size;
+  std::string scalar_kind;
+};
+
+/// @struct VectorIndexSpec
+/// @brief Represents a specification for creating a vector index in the system.
+///
+/// This structure includes the index name, the label and property on which the index is created,
+/// and the configuration options for the index in the form of a JSON object.
+struct VectorIndexSpec {
+  std::string index_name;
+  LabelId label_id;
+  PropertyId property;
+  unum::usearch::metric_kind_t metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+  unum::usearch::scalar_kind_t scalar_kind;
+
+  friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
+};
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///

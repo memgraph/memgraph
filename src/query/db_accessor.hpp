@@ -22,6 +22,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -539,6 +540,10 @@ class DbAccessor final {
 
   std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
 
+  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const {
+    return accessor_->ListAllVectorEdgeIndices();
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }
@@ -701,7 +706,8 @@ class DbAccessor final {
     return accessor_->DropVectorIndex(index_name);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(storage::VectorIndexSpec spec) {
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+      storage::VectorEdgeIndexSpec spec) {
     return accessor_->CreateVectorEdgeIndex(std::move(spec));
   }
 

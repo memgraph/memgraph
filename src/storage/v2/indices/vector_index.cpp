@@ -69,7 +69,7 @@ VectorIndex::~VectorIndex() {}
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  const auto label = std::get<LabelId>(spec.label_or_edge_type);
+  const auto label = spec.label_id;
   const auto label_prop = LabelPropKey{label, spec.property};
   try {
     // Create the index
@@ -219,10 +219,10 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->ReadLock();
-    result.emplace_back(VectorIndexInfo{
-        spec.index_name, std::get<LabelId>(spec.label_or_edge_type), spec.property,
-        NameFromMetric(locked_index->metric().metric_kind()), static_cast<std::uint16_t>(locked_index->dimensions()),
-        locked_index->capacity(), locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind())});
+    result.emplace_back(spec.index_name, spec.label_id, spec.property,
+                        NameFromMetric(locked_index->metric().metric_kind()),
+                        static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(),
+                        locked_index->size(), NameFromScalar(locked_index->metric().scalar_kind()));
   }
   return result;
 }
