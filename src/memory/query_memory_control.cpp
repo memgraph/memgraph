@@ -127,6 +127,7 @@ void PauseProcedureTracking() {
 #endif
 }
 
+#if USE_JEMALLOC
 ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
   // Disable thread tracking
   GetQueryTracker() = nullptr;
@@ -138,5 +139,6 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
   GetQueryTracker() = prev_state_;
   GetUserTracker() = prev_user_state_;
 }
+#endif
 
 }  // namespace memgraph::memory
