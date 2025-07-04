@@ -71,7 +71,7 @@ auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
     auto new_index = std::make_shared<IndexContainer>(*index);
     auto it = new_index->find(label);
     if (it == new_index->end()) [[unlikely]]
-      return false;  // TODO: maybe assert?
+      return false;
     new_index->erase(it);
     index = std::move(new_index);
     return true;
@@ -186,6 +186,10 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
 }
 
 bool InMemoryLabelIndex::DropIndex(LabelId label) { return RemoveIndividualIndex(label); }
+
+bool InMemoryLabelIndex::ActiveIndices::IndexExists(LabelId label) const {
+  return index_container_->find(label) != index_container_->end();
+}
 
 bool InMemoryLabelIndex::ActiveIndices::IndexReady(LabelId label) const {
   auto it = index_container_->find(label);

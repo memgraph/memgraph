@@ -35,6 +35,8 @@ class DiskLabelIndex : public storage::LabelIndex {
 
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
+    bool IndexExists(LabelId label) const override;
+
     bool IndexReady(LabelId label) const override;
 
     std::vector<LabelId> ListIndices(uint64_t start_timestamp) const override;

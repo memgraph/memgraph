@@ -697,25 +697,24 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
       // LabelIndex auto-creation block.
-      // TODO (ivan): autoindexing
-      // if (!transaction_.introduced_new_label_index_.empty()) {
-      //   storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-      //     for (auto label : transaction_.introduced_new_label_index_) {
-      //       auto it = label_indices.find(label);
-      //       auto &[_, count] = *it;
-      //       --count;
-      //       // If there are multiple transactions that would like to create an
-      //       // auto-created index on a specific label, we only build the index
-      //       // when the last one commits.
-      //       if (count == 0) {
-      //         // TODO: (andi) Handle auto-creation issue
-      //         // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-      //         CreateIndex(label, false);
-      //         label_indices.erase(it);
-      //       }
-      //     }
-      //   });
-      // }
+      if (!transaction_.introduced_new_label_index_.empty()) {
+        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+          for (auto label : transaction_.introduced_new_label_index_) {
+            auto it = label_indices.find(label);
+            auto &[_, count] = *it;
+            --count;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific label, we only build the index
+            // when the last one commits.
+            if (count == 0) {
+              // TODO: (andi) Handle auto-creation issue
+              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
+              CreateIndex(label);
+              label_indices.erase(it);
+            }
+          }
+        });
+      }
 
       // EdgeIndex auto-creation block.
       if (!transaction_.introduced_new_edge_type_index_.empty()) {
@@ -1285,20 +1284,19 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// this is because they point into vertices skip_list
 
     // auto index creation cleanup
-    // TODO (ivan): autoindexing
-    // if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-    //     !transaction_.introduced_new_label_index_.empty()) {
-    //   storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-    //     for (const auto label : transaction_.introduced_new_label_index_) {
-    //       auto it = label_indices.find(label);
-    //       auto &[_, count] = *it;
-    //       --count;
-    //       if (count == 0) {
-    //         label_indices.erase(it);
-    //       }
-    //     }
-    //   });
-    // }
+    if (storage_->config_.salient.items.enable_label_index_auto_creation &&
+        !transaction_.introduced_new_label_index_.empty()) {
+      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+        for (const auto label : transaction_.introduced_new_label_index_) {
+          auto it = label_indices.find(label);
+          auto &[_, count] = *it;
+          --count;
+          if (count == 0) {
+            label_indices.erase(it);
+          }
+        }
+      });
+    }
 
     if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
         !transaction_.introduced_new_edge_type_index_.empty()) {

@@ -192,6 +192,8 @@ bool DiskLabelIndex::DropIndex(LabelId label) {
   return CommitWithTimestamp(disk_transaction.get(), 0);
 }
 
+bool DiskLabelIndex::ActiveIndices::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
+
 bool DiskLabelIndex::ActiveIndices::IndexReady(LabelId label) const { return index_.find(label) != index_.end(); }
 
 std::vector<LabelId> DiskLabelIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {

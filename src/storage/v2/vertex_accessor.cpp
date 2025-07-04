@@ -165,15 +165,13 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
   }
-
-  // TODO (ivan): autoindexing
-  // if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-  //     !storage_->indices_.label_index_->IndexExists(label)) {
-  //   auto [_, inserted] = transaction_->introduced_new_label_index_.insert(label);
-  //   if (inserted) {
-  //     storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { ++label_indices[label]; });
-  //   }
-  // }
+  if (storage_->config_.salient.items.enable_label_index_auto_creation &&
+      !transaction_->active_indices_.label_->IndexExists(label)) {
+    auto [_, inserted] = transaction_->introduced_new_label_index_.insert(label);
+    if (inserted) {
+      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { ++label_indices[label]; });
+    }
+  }
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
