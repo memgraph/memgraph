@@ -137,6 +137,7 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
     auto [new_it, _] = new_container->indices_.emplace(edge_type, std::make_shared<IndividualIndex>());
+    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
     all_indexes_.WithLock([&](auto &all_indexes) { all_indexes.emplace_back(new_it->second); });
     indices_container = new_container;
     return true;
