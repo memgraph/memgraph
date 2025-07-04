@@ -401,9 +401,32 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
 void Auth::LinkUser(User &user) const {
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
-    auto role = GetRole(*link);
-    if (role) {
-      user.SetRole(*role);  // This will clear existing roles and set the first one
+    try {
+      // Try to parse as JSON array (new format)
+      auto json_data = ParseJson(*link);
+      if (json_data.is_array()) {
+        // New format: array of role names
+        for (const auto &role_name : json_data) {
+          if (role_name.is_string()) {
+            auto role = GetRole(role_name.get<std::string>());
+            if (role) {
+              user.AddRole(*role);
+            }
+          }
+        }
+      } else {
+        // Old format: single role name as string
+        auto role = GetRole(*link);
+        if (role) {
+          user.SetRole(*role);  // This will clear existing roles and set the first one
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // If JSON parsing fails, treat as old format (single role name)
+      auto role = GetRole(*link);
+      if (role) {
+        user.SetRole(*role);
+      }
     }
   }
 }
@@ -420,11 +443,14 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   bool success = false;
-  if (const auto *role = user.role(); role != nullptr) {
-    // For backward compatibility, we only save the first role in the storage system
-    // TODO: In the future, we may want to extend the storage system to support multiple roles
-    success = storage_.PutMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
+  if (!user.roles().empty()) {
+    // Store all roles as a JSON array
+    nlohmann::json roles_array = nlohmann::json::array();
+    for (const auto &role : user.roles()) {
+      roles_array.push_back(role.rolename());
+    }
+    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
+                                    {kLinkPrefix + user.username(), roles_array.dump()}});
   } else {
     success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
                                             {kLinkPrefix + user.username()});
@@ -596,14 +622,59 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
-  std::vector<std::string> keys;
+
+  // First, remove the role from all users who have it
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
-    if (utils::ToLowerCase(it->second) == rolename) {
-      keys.push_back(it->first);
+    auto username = it->first.substr(kLinkPrefix.size());
+    bool needs_update = false;
+    nlohmann::json updated_roles;
+
+    try {
+      // Try to parse as JSON array (new format)
+      auto json_data = ParseJson(it->second);
+      if (json_data.is_array()) {
+        // New format: remove the role from the array
+        updated_roles = nlohmann::json::array();
+        for (const auto &role_name : json_data) {
+          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
+            updated_roles.push_back(role_name);
+          } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+            needs_update = true;
+          }
+        }
+      } else {
+        // Old format: single role name as string
+        if (utils::ToLowerCase(it->second) == rolename) {
+          needs_update = true;
+          // Remove the link entirely for old format
+          updated_roles = nullptr;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // If JSON parsing fails, treat as old format (single role name)
+      if (utils::ToLowerCase(it->second) == rolename) {
+        needs_update = true;
+        // Remove the link entirely for old format
+        updated_roles = nullptr;
+      }
+    }
+
+    if (needs_update) {
+      if (updated_roles.is_null()) {
+        // Remove the link entirely (old format or empty array)
+        storage_.Delete(it->first);
+      } else if (updated_roles.empty()) {
+        // Remove the link entirely (empty array)
+        storage_.Delete(it->first);
+      } else {
+        // Update with the remaining roles
+        storage_.Put(it->first, updated_roles.dump());
+      }
     }
   }
-  keys.push_back(kRolePrefix + rolename);
-  if (!storage_.DeleteMultiple(keys)) {
+
+  // Then remove the role itself
+  if (!storage_.Delete(kRolePrefix + rolename)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
 
@@ -652,8 +723,33 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     auto username = it->first.substr(kLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    if (it->second != utils::ToLowerCase(it->second)) continue;
-    if (it->second == rolename) {
+
+    bool has_role = false;
+    try {
+      // Try to parse as JSON array (new format)
+      auto json_data = ParseJson(it->second);
+      if (json_data.is_array()) {
+        // New format: check if role is in the array
+        for (const auto &role_name : json_data) {
+          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+            has_role = true;
+            break;
+          }
+        }
+      } else {
+        // Old format: single role name as string
+        if (utils::ToLowerCase(it->second) == rolename) {
+          has_role = true;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // If JSON parsing fails, treat as old format (single role name)
+      if (utils::ToLowerCase(it->second) == rolename) {
+        has_role = true;
+      }
+    }
+
+    if (has_role) {
       if (auto user = GetUser(username)) {
         ret.push_back(std::move(*user));
       } else {
