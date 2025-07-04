@@ -7764,7 +7764,16 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
   if (query_logger_) {
     query_logger_->SetUser(user_or_role_->key());
   }
+  // Pre-existsing user resource; decrement session (since it is not being used anymore)
+  if (user_resource_) {
+    user_resource_->DecrementSessions();
+    user_resource_.reset();
+  }
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Monitoring always, resource limit check only if license is valid
+    if (user_resource && !user_resource->IncrementSessions()) {
+      throw auth::AuthException("User exceeded session limit.");
+    }
     user_resource_ = std::move(user_resource);
   }
 }
@@ -7794,7 +7803,10 @@ void Interpreter::ResetUser() {
     query_logger_->ResetUser();
   }
 #ifdef MG_ENTERPRISE
-  user_resource_.reset();
+  if (user_resource_) {
+    user_resource_->DecrementSessions();
+    user_resource_.reset();
+  }
 #endif
 }
 
