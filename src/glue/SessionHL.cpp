@@ -240,12 +240,11 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
 #ifdef MG_ENTERPRISE
       // Setup user-related resource monitoring
       user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
-      // Monitoring always, resource limit check only if license is valid
-      if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
-          !user_resource_->IncrementSessions()) {
+      try {
+        interpreter_.SetUser(session_user_or_role_, user_resource_);
+      } catch (const auth::AuthException & /*unused*/) {
         return communication::bolt::AuthFailure::kResourceBound;
       }
-      interpreter_.SetUser(session_user_or_role_, user_resource_);
 #else
       interpreter_.SetUser(session_user_or_role_);
 #endif
@@ -286,12 +285,11 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
 #ifdef MG_ENTERPRISE
   // Setup user-related resource monitoring
   user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
-  // Monitoring always, resource limit check only if license is valid
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
-      !user_resource_->IncrementSessions()) {
+  try {
+    interpreter_.SetUser(session_user_or_role_, user_resource_);
+  } catch (const auth::AuthException & /*unused*/) {
     return communication::bolt::AuthFailure::kResourceBound;
   }
-  interpreter_.SetUser(session_user_or_role_, user_resource_);
 #else
   interpreter_.SetUser(session_user_or_role_);
 #endif
@@ -302,11 +300,6 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
 
 void SessionHL::LogOff() {
 #ifdef MG_ENTERPRISE
-  // User-related resource monitoring
-  if (user_resource_) {
-    user_resource_->DecrementSessions();
-    user_resource_.reset();
-  }
   interpreter_.ResetDB();
 #endif
   interpreter_.ResetUser();
@@ -537,11 +530,6 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
                         auto user_or_role = AuthChecker::GenQueryUser(auth_, imp_usr);
                         // Setup user-related resource monitoring
                         auto user_resource = ResourceAtLogin(*user_or_role, interpreter_context_->resource_monitoring);
-                        // Monitoring always, resource limit check only if license is valid
-                        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && user_resource_ &&
-                            !user_resource_->IncrementSessions()) {
-                          throw auth::AuthException("User exceeded session limit.");
-                        }
                         interpreter_.SetUser(std::move(user_or_role), std::move(user_resource));
                         TryDefaultDB();
                       } else {
@@ -570,9 +558,7 @@ SessionHL::~SessionHL() {
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 #ifdef MG_ENTERPRISE
   // User-related resource monitoring
-  if (user_resource_) {
-    user_resource_->DecrementSessions();
-  }
+  interpreter_.ResetUser();
 #endif
 }
 
