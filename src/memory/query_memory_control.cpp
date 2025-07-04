@@ -39,43 +39,37 @@ inline auto &GetUserTracker() {
 }  // namespace
 
 bool TrackAllocOnCurrentThread(size_t size) {
-  if (utils::detail::IsSkipListGcRunning())
-    return true;  // GC is running, no way to control what gets deleted, just ignore this allocation
+  const ThreadTrackingBlocker blocker{};  // makes sure we cannot recursively track allocations
+  // if allocations could happen here we would try to track that, which calls alloc
+
   // Read and check tracker before blocker as it wil temporarily reset the tracker
-  auto *const tracker = GetQueryTracker();
-  auto *const user_resource = GetUserTracker();
-  if (!tracker && !user_resource) return true;
+  auto *const tracker = blocker.GetPrevMemoryTracker();
+  if (!tracker) return true;
 
-  const ThreadTrackingBlocker
-      blocker{};  // makes sure we cannot recursively track allocations
-                  // if allocations could happen here we would try to track that, which calls alloc
-
+  if (!tracker->TrackAlloc(size)) {
+    return false;
+  }
+  auto *const user_resource = blocker.GetPrevUserTracker();
   if (user_resource && !user_resource->IncrementTransactionsMemory(size)) {
+    tracker->TrackFree(size);
     return false;
   }
-  if (tracker && !tracker->TrackAlloc(size)) {
-    if (user_resource) user_resource->DecrementTransactionsMemory(size);
-    return false;
-  }
+
   return true;
 }
 
 void TrackFreeOnCurrentThread(size_t size) {
-  if (utils::detail::IsSkipListGcRunning())
-    return;  // GC is running, no way to control what gets deleted, just ignore this free
+  const ThreadTrackingBlocker blocker{};  // makes sure we cannot recursively track allocations
+  // if allocations could happen here we would try to track that, which calls alloc
+
   // Read and check tracker before blocker as it wil temporarily reset the tracker
-  auto *const tracker = GetQueryTracker();
-  auto *const user_resource = GetUserTracker();
-  if (!tracker && !user_resource) return;
+  auto *const tracker = blocker.GetPrevMemoryTracker();
+  if (!tracker) return;
 
-  const ThreadTrackingBlocker
-      blocker{};  // makes sure we cannot recursively track allocations
-                  // if allocations could happen here we would try to track that, which calls alloc
+  tracker->TrackFree(size);
+  auto *const user_resource = blocker.GetPrevUserTracker();
   if (user_resource) user_resource->DecrementTransactionsMemory(size);
-  if (tracker) tracker->TrackFree(size);
 }
-
-bool IsThreadTracked() { return GetQueryTracker() != nullptr || GetUserTracker() != nullptr; }
 
 #endif
 
@@ -105,7 +99,8 @@ void StopTrackingUserResource() {
 
 bool IsQueryTracked() {
 #if USE_JEMALLOC
-  return GetQueryTracker() != nullptr;
+  return GetQueryTracker() != nullptr && !utils::detail::IsSkipListGcRunning();
+  // GC is running, no way to control what gets deleted, just ignore this allocation;
 #else
   return false;
 #endif
