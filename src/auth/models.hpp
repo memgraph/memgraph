@@ -521,15 +521,19 @@ class User final {
   const std::unordered_set<Role> &roles() const;
   std::unordered_set<Role> &roles();
 
-  Permissions GetPermissions() const;
+  Permissions GetPermissions() const;  // TODO Deprecate
 
 #ifdef MG_ENTERPRISE
-  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
   FineGrainedAccessPermissions GetUserFineGrainedAccessLabelPermissions() const;
   FineGrainedAccessPermissions GetUserFineGrainedAccessEdgeTypePermissions() const;
-  FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
 #endif
@@ -538,7 +542,7 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  const Role *role() const;
+  const Role *role() const;  // TODO Deprecate
 
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
@@ -558,17 +562,33 @@ class User final {
     }
     return grants;
   }
-  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
+
+  bool HasAccess(std::string_view db_name) const {
+    auto denies = DeniesDB(db_name);
+    auto grants = GrantsDB(db_name);
+    for (const auto &role : roles_) {
+      denies |= role.DeniesDB(db_name);
+      grants |= role.GrantsDB(db_name);
+    }
+    return !denies && grants;
+  }
 #endif
 
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const User &user) const {
-    if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
+  bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (db_name) {
+      if (GetPermissions(*db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
+    } else {
+      if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
+    }
     bool role_grants = false;
     bool role_denies = false;
     for (const auto &role : roles_) {
-      role_denies |= role.UserImpIsDenied(user);
-      role_grants |= role.UserImpIsGranted(user);
+      // If db_name is provided, only include roles that grant access to that database
+      if (!db_name || role.GrantsDB(*db_name)) {
+        role_denies |= role.UserImpIsDenied(user);
+        role_grants |= role.UserImpIsGranted(user);
+      }
     }
     if (!user_impersonation_) return !role_denies && role_grants;
     bool user_grants = role_grants || user_impersonation_->IsGranted(user);
@@ -591,6 +611,33 @@ class User final {
   }
 
   const auto &user_impersonation() const { return user_impersonation_; }
+#endif
+
+// Multi-tenant role management
+#ifdef MG_ENTERPRISE
+
+  Permissions GetPermissions(std::string_view db_name) const {
+    Permissions permissions = permissions_;
+    for (const auto &role : roles_) {
+      if (role.GrantsDB(db_name)) {
+        permissions = Permissions{permissions.grants() | role.permissions().grants(),
+                                  permissions.denies() | role.permissions().denies()};
+      }
+    }
+    return permissions;
+  }
+
+  std::unordered_set<Role> GetRoles(std::optional<std::string_view> db_name = std::nullopt) const {
+    std::unordered_set<Role> roles;
+    for (const auto &role : roles_) {
+      if (!db_name || role.GrantsDB(*db_name)) {
+        roles.insert(role);
+      }
+    }
+    return roles;
+  }
+
+  // TODO Insert user db to role mapping (see PR #2832)
 #endif
 
   const utils::UUID &uuid() const { return uuid_; }
