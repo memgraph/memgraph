@@ -83,6 +83,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::MULTI_DATABASE_USE,
     Permission::COORDINATOR,
     Permission::IMPERSONATE_USER,
+    Permission::PROFILE_RESTRICTION,
 };
 
 }  // namespace
@@ -161,6 +162,8 @@ std::string PermissionToString(Permission permission) {
       return "COORDINATOR";
     case Permission::IMPERSONATE_USER:
       return "IMPERSONATE_USER";
+    case Permission::PROFILE_RESTRICTION:
+      return "PROFILE_RESTRICTION";
   }
 }
 
@@ -684,10 +687,10 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
       permissions_(permissions),
+      uuid_(uuid),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
       database_access_(std::move(db_access)),
-      user_impersonation_{std::move(usr_imp)},
-      uuid_(uuid) {}
+      user_impersonation_{std::move(usr_imp)} {}
 #endif
 
 bool User::CheckPassword(const std::string &password) {
@@ -786,6 +789,7 @@ const Role *User::role() const {
 }
 
 nlohmann::json User::Serialize() const {
+  // NOTE: Role and Profile are stored as links to the role and profile lists.
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
   data[kUUID] = uuid_;

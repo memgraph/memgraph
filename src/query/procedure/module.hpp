@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -126,38 +126,6 @@ class ModuleRegistry final {
   const std::filesystem::path &InternalModuleDir() const noexcept;
 
  private:
-  class SharedLibraryHandle {
-   public:
-    SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "")
-        : handle_{dlopen(shared_library.c_str(), mode)} {
-      if (!handle_) {
-        spdlog::warn("Unable to load {}. {}", shared_library, hint_message);
-      }
-    }
-    SharedLibraryHandle(const SharedLibraryHandle &) = delete;
-    SharedLibraryHandle(SharedLibraryHandle &&) = delete;
-    SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
-    SharedLibraryHandle operator=(SharedLibraryHandle &&) = delete;
-
-    ~SharedLibraryHandle() {
-      if (handle_) {
-        dlclose(handle_);
-      }
-    }
-
-   private:
-    void *handle_;
-  };
-
-  inline static const std::string kLibstdcppWarning =
-      "Query modules might not work as expected. Printing non-string values from query modules might not work. Please "
-      "install libstdc++ or compile from source with the recent toolchain (all included).";
-#if __has_feature(address_sanitizer)
-  // This is why we need RTLD_NODELETE with ASAN: https://github.com/google/sanitizers/issues/89
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE, kLibstdcppWarning};
-#else
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL, kLibstdcppWarning};
-#endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
 };

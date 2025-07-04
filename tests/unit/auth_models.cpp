@@ -1092,3 +1092,109 @@ TEST(AuthModule, RoleSerialization) {
   json[kUserImp][kUserImpDenied] = nlohmann::json::array({{{kUserImpName, "user2"}, {kUserImpId, user2.uuid()}}});
   ASSERT_EQ(json, role.Serialize());
 }
+
+#ifdef MG_ENTERPRISE
+TEST(AuthModule, UserProfiles) {
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
+  ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
+
+  memgraph::auth::UserProfiles::Profile profile{"profile", {}};
+  memgraph::auth::UserProfiles::Profile other_profile{
+      "other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}};
+
+  // User
+  memgraph::auth::User user{};
+  ASSERT_FALSE(user.profile());
+  ASSERT_FALSE(user.GetProfile());
+  ASSERT_NO_THROW(user.SetProfile(profile));
+  {
+    const auto profile = user.profile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  ASSERT_NO_THROW(user.SetProfile(other_profile));
+  {
+    const auto profile = user.profile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  ASSERT_NO_THROW(user.ClearProfile());
+  ASSERT_FALSE(user.profile());
+  ASSERT_FALSE(user.GetProfile());
+
+  // Role
+  memgraph::auth::Role role{};
+  ASSERT_FALSE(role.profile());
+  ASSERT_NO_THROW(role.SetProfile(profile));
+  {
+    const auto profile = role.profile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  ASSERT_NO_THROW(role.SetProfile(other_profile));
+  {
+    const auto profile = role.profile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  ASSERT_NO_THROW(role.ClearProfile());
+  ASSERT_FALSE(role.profile());
+
+  // User with role
+  user.SetRole(role);
+  ASSERT_FALSE(user.profile());
+  ASSERT_FALSE(user.GetProfile());
+  ASSERT_NO_THROW(role.SetProfile(profile));
+  user.SetRole(role);
+  ASSERT_FALSE(user.profile());
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  ASSERT_NO_THROW(user.SetProfile(other_profile));
+  {
+    const auto profile = user.profile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile\nprofile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  ASSERT_NO_THROW(role.ClearProfile());
+  user.SetRole(role);
+  {
+    const auto profile = user.profile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+  {
+    const auto profile = user.GetProfile();
+    ASSERT_TRUE(profile.has_value());
+    ASSERT_EQ(profile->name, "other_profile");
+    ASSERT_EQ(profile->limits.size(), 1);
+  }
+}
+#endif
