@@ -1,5 +1,56 @@
-# This is the directory containing this toolchain file
-set(MG_TOOLCHAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}")
+set(CMAKE_SYSTEM_NAME Linux)
+execute_process(
+     COMMAND uname -m
+     OUTPUT_VARIABLE uname_result
+     OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
+
+set(tools "/opt/toolchain-v7")
+
+# Optional: paths for find_package(), find_library(), etc.
+set(CMAKE_FIND_ROOT_PATH "${tools}")
+# Configure how the find_* commands search
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+
+
+set(MG_TOOLCHAIN_ROOT "${tools}")
+SET(MG_TOOLCHAIN_VERSION 7)
+
+# Set compiler
+set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
+set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang++" CACHE STRING "" FORCE)
+
+# set(CMAKE_LINKER_TYPE LLD)
+
+# set(CMAKE_C_FLAGS_INIT "-fuse-ld=lld")
+# set(CMAKE_CXX_FLAGS_INIT "-fuse-ld=lld")
+
+# Explicitly set the linker to use the compiler as linker driver
+# set(CMAKE_C_LINK_EXECUTABLE "${CMAKE_C_COMPILER} <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
+# set(CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_COMPILER} <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
+
+# set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld")
+# set(CMAKE_MODULE_LINKER_FLAGS_INIT "-fuse-ld=lld")
+# set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld")
+
+# set(CMAKE_C_COMPILER_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE STRING "" FORCE)
+# set(CMAKE_CXX_COMPILER_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE STRING "" FORCE)
+
+# Set linker
+# set(CMAKE_C_LINKER_LAUNCHER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE FILEPATH "" FORCE)
+# set(CMAKE_CXX_LINKER_LAUNCHER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE FILEPATH "" FORCE)
+
+# list(APPEND CMAKE_EXE_LINKER_FLAGS_INIT -fuse-ld=lld)
+# list(APPEND CMAKE_MODULE_LINKER_FLAGS_INIT -fuse-ld=lld)
+# list(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT -fuse-ld=lld)
+
+# Set linker
+# set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE FILEPATH "" FORCE)
+
 
 # Enable ccache
 find_program(CCACHE_PROGRAM ccache)
@@ -9,14 +60,3 @@ if(CCACHE_PROGRAM)
     set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM} CACHE STRING "" FORCE)
 endif()
-
-# Set compiler
-set(CMAKE_C_COMPILER   "${MG_TOOLCHAIN_ROOT}/bin/clang"   CACHE STRING "" FORCE)
-set(CMAKE_CXX_COMPILER "${MG_TOOLCHAIN_ROOT}/bin/clang++" CACHE STRING "" FORCE)
-
-# Set linker
-set(CMAKE_LINKER "${MG_TOOLCHAIN_ROOT}/bin/ld.lld" CACHE FILEPATH "" FORCE)
-
-# Tell Clang to use the custom linker
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -fuse-ld=lld")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=lld")
