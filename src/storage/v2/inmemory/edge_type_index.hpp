@@ -157,11 +157,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void DropGraphClearIndices() override;
 
-  // TODO: move?
-  static constexpr std::size_t kEdgeTypeIdPos = 0U;
-  static constexpr std::size_t kVertexPos = 1U;
-  static constexpr std::size_t kEdgeRefPos = 2U;
-
   void RunGC();
 
   auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;

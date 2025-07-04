@@ -64,16 +64,4 @@ auto DiskEdgeTypeIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypeInde
   return std::make_unique<DiskEdgeTypeIndex::ActiveIndices>();
 }
 
-void EdgeTypeIndex::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
-                                                         Edge *edge) {
-  auto it = cleanup_collection_.find(edge_type);
-  if (it == cleanup_collection_.end()) return;
-  it->second.emplace_back(from_vertex, to_vertex, edge);
-}
-
-EdgeTypeIndex::AbortProcessor::AbortProcessor(std::span<EdgeTypeId const> edge_types) {
-  for (auto edge_type : edge_types) {
-    cleanup_collection_.insert({edge_type, {}});
-  }
-}
 }  // namespace memgraph::storage

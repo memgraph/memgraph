@@ -129,16 +129,16 @@ void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex 
 
 void Indices::AbortProcessor::CollectOnLabelRemoval(LabelId labelId, Vertex *vertex) {
   label_.CollectOnLabelRemoval(labelId, vertex);
-  property_label_.CollectOnLabelRemoval(labelId, vertex);
+  label_properties_.CollectOnLabelRemoval(labelId, vertex);
 }
 
 void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
-  property_label_.CollectOnPropertyChange(propId, vertex);
+  label_properties_.CollectOnPropertyChange(propId, vertex);
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp) {
   label_.Process(*indices.label_index_, start_timestamp);
-  property_label_.Process(*active_indices.label_properties_, start_timestamp);
+  label_properties_.Process(*active_indices.label_properties_, start_timestamp);
   edge_type_.Process(*active_indices.edge_type_, start_timestamp);
   // TODO: edge type properties
 }

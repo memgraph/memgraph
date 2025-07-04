@@ -26,6 +26,7 @@ target_sources(mg-storage-v2
         durability/wal.cpp
         edge_accessor.cpp
         edges_iterable.cpp
+        indices/edge_type_index.cpp
         indices/indices.cpp
         indices/label_index_stats.cpp
         indices/label_property_index.cpp
@@ -34,9 +35,9 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
         indices/vector_index.cpp
+        inmemory/edge_property_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
-        inmemory/edge_property_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/replication/recovery.cpp

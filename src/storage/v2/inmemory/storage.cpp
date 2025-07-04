@@ -1318,9 +1318,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
     }
+    // TODO: abort processor
     for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
       storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
     }
+    // TODO: missing Global edge property aborts
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
       storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
     }

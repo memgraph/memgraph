@@ -6324,6 +6324,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
         }
       } else {
         // edge type + properties
+        // edge global property
         accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
       }
     } else {
