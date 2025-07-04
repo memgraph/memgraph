@@ -709,16 +709,41 @@ void User::UpdatePassword(const std::optional<std::string> &password,
 
 void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
 
-void User::SetRole(const Role &role) { role_.emplace(role); }
+void User::SetRole(const Role &role) {
+  roles_.clear();
+  roles_.push_back(role);
+}
 
-void User::ClearRole() { role_ = std::nullopt; }
+void User::ClearRole() { roles_.clear(); }
+
+// New methods for multiple roles
+void User::AddRole(const Role &role) {
+  // Check if role already exists
+  for (const auto &existing_role : roles_) {
+    if (existing_role.rolename() == role.rolename()) {
+      return;  // Role already exists
+    }
+  }
+  roles_.push_back(role);
+}
+
+void User::RemoveRole(const std::string &rolename) {
+  roles_.erase(std::remove_if(roles_.begin(), roles_.end(),
+                              [&rolename](const Role &role) { return role.rolename() == rolename; }),
+               roles_.end());
+}
+
+const std::vector<Role> &User::roles() const { return roles_; }
+
+std::vector<Role> &User::roles() { return roles_; }
 
 Permissions User::GetPermissions() const {
-  if (role_) {
-    return Permissions{permissions_.grants() | role_->permissions().grants(),
-                       permissions_.denies() | role_->permissions().denies()};
+  Permissions combined_permissions = permissions_;
+  for (const auto &role : roles_) {
+    combined_permissions = Permissions{combined_permissions.grants() | role.permissions().grants(),
+                                       combined_permissions.denies() | role.permissions().denies()};
   }
-  return permissions_;
+  return combined_permissions;
 }
 
 #ifdef MG_ENTERPRISE
@@ -751,10 +776,11 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions()
     return FineGrainedAccessPermissions{};
   }
 
-  if (role_) {
-    return role()->fine_grained_access_handler().edge_type_permissions();
+  FineGrainedAccessPermissions combined_permissions{};
+  for (const auto &role : roles_) {
+    combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
   }
-  return FineGrainedAccessPermissions{};
+  return combined_permissions;
 }
 
 FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions() const {
@@ -762,10 +788,11 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions() co
     return FineGrainedAccessPermissions{};
   }
 
-  if (role_) {
-    return role()->fine_grained_access_handler().label_permissions();
+  FineGrainedAccessPermissions combined_permissions{};
+  for (const auto &role : roles_) {
+    combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
   }
-  return FineGrainedAccessPermissions{};
+  return combined_permissions;
 }
 #endif
 
@@ -779,10 +806,10 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
 const Role *User::role() const {
-  if (role_.has_value()) {
-    return &role_.value();
+  if (roles_.empty()) {
+    return nullptr;
   }
-  return nullptr;
+  return &roles_[0];
 }
 
 nlohmann::json User::Serialize() const {
@@ -881,12 +908,12 @@ bool operator==(const User &first, const User &second) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-           first.permissions_ == second.permissions_ && first.role_ == second.role_ &&
+           first.permissions_ == second.permissions_ && first.roles_ == second.roles_ &&
            first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
   }
 #endif
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-         first.permissions_ == second.permissions_ && first.role_ == second.role_;
+         first.permissions_ == second.permissions_ && first.roles_ == second.roles_;
 }
 
 #ifdef MG_ENTERPRISE
