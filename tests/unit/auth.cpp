@@ -24,6 +24,8 @@
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
 
+#include <boost/dll/runtime_symbol_info.hpp>
+
 using namespace memgraph::auth;
 namespace fs = std::filesystem;
 
@@ -40,6 +42,21 @@ class AuthWithStorage : public ::testing::Test {
   void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
+  Auth::Config auth_config{};
+  std::optional<Auth> auth{};
+};
+
+class V1Auth : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::license::global_license_checker.EnableTesting();
+    auth.emplace(test_folder_, auth_config);
+  }
+
+  void TearDown() override {}
+
+  fs::path test_folder_{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
@@ -1314,6 +1331,32 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   admin->DenyUserImp({*another_user});
   ASSERT_TRUE(admin->CanImpersonate(*user));
   ASSERT_FALSE(admin->CanImpersonate(*another_user));
+}
+
+TEST_F(V1Auth, MigrationTest) {
+  // Check if migration was successful
+  ASSERT_TRUE(auth->HasUsers());
+  ASSERT_FALSE(auth->AllRoles().empty());
+
+  // Check for specific users
+  auto user1 = auth->GetUser("user1");
+  auto user2 = auth->GetUser("user2");
+  ASSERT_TRUE(user1);
+  ASSERT_TRUE(user2);
+
+  // Check for specific roles
+  auto role1 = auth->GetRole("role1");
+  auto role2 = auth->GetRole("role2");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+
+  // Check that each user is connected to a role
+  ASSERT_TRUE(user1->role());
+  ASSERT_TRUE(user2->role());
+
+  // Verify the role assignments
+  ASSERT_EQ(user1->role()->rolename(), "role1");
+  ASSERT_EQ(user2->role()->rolename(), "role2");
 }
 
 #endif
