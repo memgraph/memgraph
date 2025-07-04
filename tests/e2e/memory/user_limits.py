@@ -215,8 +215,8 @@ def test_user_profile_setup(connection, test_name):
     } == show_users_func(cursor_main)()
 
     cursor_main = connection(BOLT_PORT, "main", "user1").cursor()
-    resource_check("user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
-    resource_check("user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
+    resource_check("user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
 
     # SET PROFILES
     execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
@@ -239,7 +239,7 @@ def test_user_profile_setup(connection, test_name):
     assert {("p2",)} == show_profile_for_user_func(cursor_main, "user2")()
     assert {("user2",)} == show_users_for_profile_func(cursor_main, "p2")()
 
-    resource_check("user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
     resource_check("user2", {("transactions_memory", "0B", "200.00MiB"), ("sessions", 0, 2)})
 
     # Restart instance and check values
@@ -252,14 +252,14 @@ def test_user_profile_setup(connection, test_name):
     assert {("p2",)} == show_profile_for_user_func(cursor_main, "user2")()
     assert {("user2",)} == show_users_for_profile_func(cursor_main, "p2")()
 
-    resource_check("user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
     resource_check("user2", {("transactions_memory", "0B", "200.00MiB"), ("sessions", 0, 2)})
 
     # DROP USER WITH PROFILE
     execute_and_fetch_all(cursor_main, "DROP USER user2")
     assert set() == show_users_for_profile_func(cursor_main, "p2")()  # empty
 
-    resource_check("user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
 
     # DROP PROFILE WITH USER
     execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
@@ -269,7 +269,7 @@ def test_user_profile_setup(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
     assert {("null",)} == show_profile_for_user_func(cursor_main, "user1")()
     assert set() == show_profiles_func(cursor_main)()  # empty
-    resource_check("user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
 
     # COMPREHENSIVE PROFILE COMBINATION TESTS
     # Test all possible combinations: no profile, user profile only, role profile only, both profiles
@@ -282,7 +282,7 @@ def test_user_profile_setup(connection, test_name):
 
     # Case 1: No profile (default/unlimited)
     assert {("null",)} == show_profile_for_user_func(cursor_main, "test_user")()
-    resource_check("test_user", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
+    resource_check("test_user", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
 
     # Case 2: User profile only (no role)
     execute_and_fetch_all(cursor_main, "SET PROFILE FOR test_user TO user_profile")
@@ -342,7 +342,7 @@ def test_user_profile_setup(connection, test_name):
     assert {("null",)} == show_role_for_user_func(cursor_main, "test_user")()  # User lost the role
     assert {("null",)} == show_profile_for_user_func(cursor_main, "test_user")()  # User lost the role's profile
     resource_check(
-        "test_user", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
+        "test_user", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
     )  # Back to unlimited
 
     # Verify the role profile still exists but is no longer associated with any role
@@ -376,7 +376,7 @@ def test_user_profile_setup(connection, test_name):
     # Verify user lost the profile
     assert {("null",)} == show_profile_for_user_func(cursor_main, "test_user2")()  # User lost direct profile
     resource_check(
-        "test_user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
+        "test_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
     )  # Back to unlimited
 
     # Verify role lost the profile
@@ -403,7 +403,7 @@ def test_user_profile_setup(connection, test_name):
     # Verify user lost inherited profile
     assert {("null",)} == show_profile_for_user_func(cursor_main, "test_user2")()  # No direct profile
     resource_check(
-        "test_user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
+        "test_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
     )  # Back to unlimited
 
     # Test edge case: User and role both have the same profile
@@ -439,7 +439,7 @@ def test_user_profile_setup(connection, test_name):
     assert {("null",)} == show_profile_for_user_func(cursor_main, "test_user3")()  # User lost profile
     assert {("null",)} == show_profile_for_user_func(cursor_main, "test_role3")()  # Role lost profile
     resource_check(
-        "test_user3", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
+        "test_user3", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")}
     )  # Back to unlimited
 
     # Verify profile no longer exists
@@ -487,35 +487,35 @@ def test_user_profile_session_tracking(connection, test_name):
         assert expected_usage == usage
 
     # Initial state - no sessions, no memory usage
-    resource_check("tracking_user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
-    resource_check("tracking_user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
+    resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
+    resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
 
     # Simulate session creation for tracking_user1
     cursor_user1 = connection(BOLT_PORT, "main", "tracking_user1").cursor()
 
     # Check that session count increased
-    resource_check("tracking_user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
-    resource_check("tracking_user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
+    resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 0, "UNLIMITED")})
 
     # Create another session for the same user
     cursor_user1_2 = connection(BOLT_PORT, "main", "tracking_user1").cursor()
 
     # Check that session count increased to 2
-    resource_check("tracking_user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+    resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
     # Simulate session creation for tracking_user2
     cursor_user2 = connection(BOLT_PORT, "main", "tracking_user2").cursor()
 
     # Check that tracking_user2 now has 1 session while tracking_user1 still has 2
-    resource_check("tracking_user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
-    resource_check("tracking_user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+    resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
 
     # Close one session for tracking_user1 and verify session count decreases
     cursor_user1.close()
 
     # Check that session count decreased to 1
-    resource_check("tracking_user1", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
-    resource_check("tracking_user2", {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("tracking_user1", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
+    resource_check("tracking_user2", {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")})
 
     # Clean up test users
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
