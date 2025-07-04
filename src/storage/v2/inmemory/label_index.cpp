@@ -68,11 +68,12 @@ InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
 
 auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
-    auto new_index = std::make_shared<IndexContainer>(*index);
-    auto it = new_index->find(label);
-    if (it == new_index->end()) [[unlikely]]
+    auto it = index->find(label);
+    if (it == index->end()) [[unlikely]] {
       return false;
-    new_index->erase(it);
+    }
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    new_index->erase(label);
     index = std::move(new_index);
     return true;
   });
@@ -187,7 +188,6 @@ bool InMemoryLabelIndex::CreateIndexOnePass(
   if (res2.HasError()) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
-  // Invalidate plans?
   return PublishIndex(label, 0);
 }
 
@@ -201,7 +201,7 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
 
 bool InMemoryLabelIndex::DropIndex(LabelId label) { return RemoveIndividualIndex(label); }
 
-bool InMemoryLabelIndex::ActiveIndices::IndexExists(LabelId label) const {
+bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
   return index_container_->find(label) != index_container_->end();
 }
 
@@ -225,13 +225,13 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
 void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   CleanupAllIndices();
   auto maybe_stop = utils::ResettableCounter(2048);
-  auto index_container = index_.WithReadLock(std::identity{});
+  auto index_container = all_indices_.WithReadLock(std::identity{});
 
-  for (auto &label_storage : *index_container) {
+  for (auto &[index, label] : *index_container) {
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
 
-    auto vertices_acc = label_storage.second->skiplist.access();
+    auto vertices_acc = index->skiplist.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       // Hot loop, don't check stop_requested every time
       if (maybe_stop() && token.stop_requested()) return;
@@ -245,7 +245,7 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
       }
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(*it->vertex, label_storage.first, oldest_active_start_timestamp)) {
+          !AnyVersionHasLabel(*it->vertex, label, oldest_active_start_timestamp)) {
         vertices_acc.remove(*it);
       }
 
@@ -318,9 +318,9 @@ uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label
 
 void InMemoryLabelIndex::RunGC() {
   CleanupAllIndices();
-  auto cpy = index_.WithReadLock(std::identity{});
-  for (auto &index_entry : *cpy) {
-    index_entry.second->skiplist.run_gc();
+  auto cpy = all_indices_.WithReadLock(std::identity{});
+  for (auto &[index, _] : *cpy) {
+    index->skiplist.run_gc();
   }
 }
 
@@ -389,8 +389,8 @@ LabelIndex::AbortProcessor InMemoryLabelIndex::ActiveIndices::GetAbortProcessor(
 
 void InMemoryLabelIndex::DropGraphClearIndices() {
   index_.WithLock([](auto &idx) { idx = std::make_shared<IndexContainer>(); });
-  CleanupAllIndices();
   stats_->clear();
+  CleanupAllIndices();
 }
 
 void InMemoryLabelIndex::CleanupAllIndices() {

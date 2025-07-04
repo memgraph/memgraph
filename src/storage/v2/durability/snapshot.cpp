@@ -5829,8 +5829,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 }
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
-                                        const std::string &uuid, utils::FileRetainer *file_retainer,
-                                        Storage *storage) -> OldSnapshotFiles {
+                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
+    -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -6216,11 +6216,11 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     // Write label indices statistics.
     {
       // NOTE: On-disk does not support snapshots
-      auto *inmem_index = static_cast<InMemoryLabelIndex *>(storage->indices_.label_index_.get());
       auto labels = transaction->active_indices_.label_->ListIndices(transaction->start_timestamp);
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
+      auto *inmem_index = static_cast<InMemoryLabelIndex *>(storage->indices_.label_index_.get());
       for (const auto &item : labels) {
         auto stats = inmem_index->GetIndexStats(item);
         if (stats) {

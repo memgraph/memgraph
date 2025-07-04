@@ -166,7 +166,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     storage_->stored_node_labels_.try_insert(label);
   }
   if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-      !transaction_->active_indices_.label_->IndexExists(label)) {
+      !transaction_->active_indices_.label_->IndexRegistered(label)) {
     auto [_, inserted] = transaction_->introduced_new_label_index_.insert(label);
     if (inserted) {
       storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { ++label_indices[label]; });

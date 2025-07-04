@@ -62,9 +62,7 @@ using KVPair = std::tuple<PropertyId, PropertyValue>;
 /** Creates a map from a (possibly nested) list of `KVPair`s.
  */
 template <typename... Ts>
-auto MakeMap(Ts &&...values) -> PropertyValue
-  requires(std::is_same_v<std::decay_t<Ts>, KVPair> && ...)
-{
+auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
   return PropertyValue{PropertyValue::map_t{
       {std::get<0>(values),
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
@@ -263,6 +261,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 

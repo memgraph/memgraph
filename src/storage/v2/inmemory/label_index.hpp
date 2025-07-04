@@ -114,7 +114,7 @@ class InMemoryLabelIndex : public LabelIndex {
     // Not used for in-memory
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
 
-    bool IndexExists(LabelId label) const override;
+    bool IndexRegistered(LabelId label) const override;
 
     bool IndexReady(LabelId label) const override;
 

@@ -709,7 +709,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             if (count == 0) {
               // TODO: (andi) Handle auto-creation issue
               // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-              CreateIndex(label);
+              CreateIndex(label, false);
               label_indices.erase(it);
             }
           }
@@ -1377,9 +1377,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
-            "Creating label index requires a unique or read only access to the storage!");
+    LabelId label, bool check_access, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+  if (check_access) {
+    MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+              "Creating label index requires a unique or read only access to the storage!");
+  }
   // UNIQUE access is also required by schema.assert
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);

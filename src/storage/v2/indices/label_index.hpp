@@ -55,7 +55,7 @@ class LabelIndex {
     // Not used for in-memory
     virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
-    virtual bool IndexExists(LabelId label) const = 0;
+    virtual bool IndexRegistered(LabelId label) const = 0;
 
     virtual bool IndexReady(LabelId label) const = 0;
 
