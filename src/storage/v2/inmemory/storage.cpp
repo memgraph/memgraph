@@ -691,6 +691,8 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
       mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
     }
 
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    auto acc = mem_storage->vertices_.access();
     for (auto const *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
