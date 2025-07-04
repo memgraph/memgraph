@@ -154,6 +154,7 @@ const std::string kLinkPrefix = "link:";
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
+static constexpr auto kVersionV2 = "V2";
 }  // namespace
 
 /**
@@ -219,6 +220,51 @@ void MigrateVersions(kvstore::KVStore &store) {
     store.PutMultiple(puts);
     version_str = kVersionV1;
   }
+
+  // Migrate from V1 to V2: convert single role links to JSON arrays
+  if (version_str == kVersionV1) {
+    spdlog::info("Migrating auth storage from V1 to V2: converting single role links to JSON arrays");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+    auto deletes = std::vector<std::string>{};
+
+    // Migrate all link entries from single role format to JSON array format
+    for (auto it = store.begin(kLinkPrefix); it != store.end(kLinkPrefix); ++it) {
+      auto const &[key, value] = *it;
+
+      // Check if this is already in the new format (JSON array)
+      try {
+        auto json_data = nlohmann::json::parse(value);
+        if (json_data.is_array()) {
+          // Already in new format, skip
+          continue;
+        }
+      } catch (const nlohmann::json::parse_error &) {
+        // Not JSON, treat as old format
+      }
+
+      // Convert old format (single role name) to new format (JSON array)
+      if (!value.empty()) {
+        nlohmann::json roles_array = nlohmann::json::array();
+        roles_array.push_back(value);
+        puts.emplace(key, roles_array.dump());
+      } else {
+        // Empty value, delete the link
+        deletes.push_back(key);
+      }
+    }
+
+    // Apply the migration
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+    if (!deletes.empty()) {
+      store.DeleteMultiple(deletes);
+    }
+    version_str = kVersionV2;
+
+    spdlog::info("Auth storage migration to V2 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -252,7 +298,12 @@ auto ParseJson(std::string_view str) {
 Auth::Auth(std::string storage_directory, Config config)
     : storage_(std::move(storage_directory)), config_{std::move(config)} {
   modules_ = PopulateModules(FLAGS_auth_module_mappings);
-  MigrateVersions(storage_);
+  if (storage_.Size() > 0) {
+    MigrateVersions(storage_);
+  } else {
+    // Clean storage; put the version
+    storage_.Put(kVersion, kVersionV2);
+  }
 }
 
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
@@ -402,31 +453,25 @@ void Auth::LinkUser(User &user) const {
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
     try {
-      // Try to parse as JSON array (new format)
+      // Parse as JSON array (V2 format)
       auto json_data = ParseJson(*link);
-      if (json_data.is_array()) {
-        // New format: array of role names
-        for (const auto &role_name : json_data) {
-          if (role_name.is_string()) {
-            auto role = GetRole(role_name.get<std::string>());
-            if (role) {
-              user.AddRole(*role);
-            }
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+        return;
+      }
+      // V2 format: array of role names
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string()) {
+          auto role = GetRole(role_name.get<std::string>());
+          if (role) {
+            user.AddRole(*role);
           }
         }
-      } else {
-        // Old format: single role name as string
-        auto role = GetRole(*link);
-        if (role) {
-          user.SetRole(*role);  // This will clear existing roles and set the first one
-        }
       }
+
     } catch (const nlohmann::detail::exception &) {
-      // If JSON parsing fails, treat as old format (single role name)
-      auto role = GetRole(*link);
-      if (role) {
-        user.SetRole(*role);
-      }
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
     }
   }
 }
@@ -630,33 +675,25 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
     nlohmann::json updated_roles;
 
     try {
-      // Try to parse as JSON array (new format)
+      // Parse as JSON array (V2 format)
       auto json_data = ParseJson(it->second);
-      if (json_data.is_array()) {
-        // New format: remove the role from the array
-        updated_roles = nlohmann::json::array();
-        for (const auto &role_name : json_data) {
-          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
-            updated_roles.push_back(role_name);
-          } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-            needs_update = true;
-          }
-        }
-      } else {
-        // Old format: single role name as string
-        if (utils::ToLowerCase(it->second) == rolename) {
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: remove the role from the array
+      updated_roles = nlohmann::json::array();
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
+          updated_roles.push_back(role_name);
+        } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
           needs_update = true;
-          // Remove the link entirely for old format
-          updated_roles = nullptr;
         }
       }
     } catch (const nlohmann::detail::exception &) {
-      // If JSON parsing fails, treat as old format (single role name)
-      if (utils::ToLowerCase(it->second) == rolename) {
-        needs_update = true;
-        // Remove the link entirely for old format
-        updated_roles = nullptr;
-      }
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
     }
 
     if (needs_update) {
@@ -726,27 +763,23 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 
     bool has_role = false;
     try {
-      // Try to parse as JSON array (new format)
+      // Parse as JSON array (V2 format)
       auto json_data = ParseJson(it->second);
-      if (json_data.is_array()) {
-        // New format: check if role is in the array
-        for (const auto &role_name : json_data) {
-          if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
-            has_role = true;
-            break;
-          }
-        }
-      } else {
-        // Old format: single role name as string
-        if (utils::ToLowerCase(it->second) == rolename) {
+      if (!json_data.is_array()) {
+        spdlog::warn("Found non-array link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: check if role is in the array
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
           has_role = true;
+          break;
         }
       }
     } catch (const nlohmann::detail::exception &) {
-      // If JSON parsing fails, treat as old format (single role name)
-      if (utils::ToLowerCase(it->second) == rolename) {
-        has_role = true;
-      }
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
     }
 
     if (has_role) {
