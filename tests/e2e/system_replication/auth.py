@@ -1164,8 +1164,8 @@ def test_user_profile_replication(connection, test_name):
     )
 
     all_resource_check(
-        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
-        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
     )
 
     # SET PROFILES
@@ -1210,7 +1210,7 @@ def test_user_profile_replication(connection, test_name):
     )
 
     all_resource_check(
-        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
         {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
     )
 
@@ -1251,7 +1251,7 @@ def test_user_profile_replication(connection, test_name):
     )
 
     all_resource_check(
-        {("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")},
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")},
         {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
     )
 
@@ -1262,7 +1262,7 @@ def test_user_profile_replication(connection, test_name):
         set(),  # empty
     )
 
-    all_resource_check({("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+    all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
     # DROP PROFILE WITH USER
     execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
@@ -1282,7 +1282,7 @@ def test_user_profile_replication(connection, test_name):
         set(),  # empty
     )
 
-    all_resource_check({("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+    all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
     # CREATE ROLE
     execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
@@ -1394,7 +1394,7 @@ def test_user_profile_replication(connection, test_name):
             ("null",),
         },
     )
-    all_resource_check({("transactions_memory", "0B", "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+    all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
 
 if __name__ == "__main__":
