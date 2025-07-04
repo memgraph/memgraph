@@ -26,9 +26,11 @@ bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
     if (!inserted) {
       return false;
     }
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
 
     all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
       new_all_indices.emplace_back(it->second, label);
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
