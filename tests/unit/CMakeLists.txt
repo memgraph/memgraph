@@ -431,6 +431,9 @@ target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/inc
 add_unit_test(vector_index.cpp)
 target_link_libraries(${test_prefix}vector_index mg::storage)
 
+add_unit_test(vector_edge_index.cpp)
+target_link_libraries(${test_prefix}vector_edge_index mg::storage)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)

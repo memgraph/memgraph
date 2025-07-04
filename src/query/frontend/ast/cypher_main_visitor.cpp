@@ -511,6 +511,16 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVe
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateVectorEdgeIndex(MemgraphCypher::CreateVectorEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<CreateVectorEdgeIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  query_ = index_query;
+  return index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) {
   auto *index_query = storage_->Create<VectorIndexQuery>();
   index_query->action_ = VectorIndexQuery::Action::DROP;

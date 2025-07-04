@@ -696,8 +696,4 @@ void Storage::Accessor::DropTextIndex(const std::string &index_name) {
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
 }
 
-void Storage::Accessor::TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex) {
-  storage_->indices_.vector_index_.TryInsertVertex(vertex.vertex_);
-}
-
 }  // namespace memgraph::storage

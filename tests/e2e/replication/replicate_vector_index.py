@@ -14,7 +14,7 @@ import sys
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all, get_data_path, get_logs_path
+from common import execute_and_fetch_all, get_logs_path
 from mg_utils import mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -133,7 +133,7 @@ def test_vector_index_replication(connection, test_name):
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    expected_result = [("vector", "Node", "embedding", 0)]
+    expected_result = [("label+property_vector", "Node", "embedding", 0)]
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
@@ -147,7 +147,7 @@ def test_vector_index_replication(connection, test_name):
     wait_for_replication_change(cursor, 4)
 
     # 4/
-    expected_result = [("vector", "Node", "embedding", 1)]
+    expected_result = [("label+property_vector", "Node", "embedding", 1)]
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))

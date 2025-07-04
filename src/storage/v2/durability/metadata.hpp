@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
 namespace memgraph::storage::durability {
@@ -50,6 +51,7 @@ struct RecoveredIndicesAndConstraints {
     std::vector<PropertyId> edge_property;
     std::vector<std::pair<std::string, LabelId>> text_indices;
     std::vector<VectorIndexSpec> vector_indices;
+    std::vector<VectorEdgeIndexSpec> vector_edge_indices;
   } indices;
 
   struct ConstraintsMetadata {

@@ -2155,6 +2155,43 @@ class VectorIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CreateVectorEdgeIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string index_name_;
+  memgraph::query::EdgeTypeIx edge_type_;
+  memgraph::query::PropertyIx property_;
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+
+  CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
+    CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
+    object->index_name_ = index_name_;
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->property_ = storage->GetPropertyIx(property_.name);
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  CreateVectorEdgeIndexQuery(std::string index_name, EdgeTypeIx edge_type, PropertyIx property,
+                             std::unordered_map<Expression *, Expression *> configs)
+      : index_name_(std::move(index_name)),
+        edge_type_(std::move(edge_type)),
+        property_(std::move(property)),
+        configs_(std::move(configs)) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;

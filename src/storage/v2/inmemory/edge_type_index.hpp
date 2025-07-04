@@ -74,10 +74,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
 
-  static constexpr std::size_t kEdgeTypeIdPos = 0U;
-  static constexpr std::size_t kVertexPos = 1U;
-  static constexpr std::size_t kEdgeRefPos = 2U;
-
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,

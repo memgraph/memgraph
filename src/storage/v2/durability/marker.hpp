@@ -12,7 +12,6 @@
 #pragma once
 
 #include <cstdint>
-#include "storage/v2/enum_store.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -85,6 +84,7 @@ enum class Marker : uint8_t {
   DELTA_VECTOR_INDEX_DROP = 0x73,
   DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE = 0x74,
   DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP = 0x75,
+  DELTA_VECTOR_EDGE_INDEX_CREATE = 0x76,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -152,6 +152,7 @@ static constexpr Marker kMarkersAll[] = {
     Marker::DELTA_TYPE_CONSTRAINT_CREATE,
     Marker::DELTA_TYPE_CONSTRAINT_DROP,
     Marker::DELTA_VECTOR_INDEX_CREATE,
+    Marker::DELTA_VECTOR_EDGE_INDEX_CREATE,
     Marker::DELTA_VECTOR_INDEX_DROP,
     Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
     Marker::DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP,

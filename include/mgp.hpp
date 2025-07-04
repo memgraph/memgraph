@@ -4562,6 +4562,20 @@ inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_
   return results_or_error.At(kSearchResultsKey).ValueList();
 }
 
+inline List SearchVectorIndexOnEdges(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
+                                     size_t result_size) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index_on_edges, memgraph_graph,
+                                                      index_name.data(), query_vector.GetPtr(), result_size),
+                              StealType{});
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
 inline List GetVectorIndexInfo(mgp_graph *memgraph_graph) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph), StealType{});
 

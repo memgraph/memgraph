@@ -35,6 +35,7 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -975,6 +976,61 @@ TYPED_TEST(DumpTest, VectorIndices) {
         R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, VectorEdgeIndices) {
+  static constexpr std::string_view test_index1 = "test_index1";
+  static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
+  static constexpr uint16_t dimension = 2;
+  static constexpr std::size_t capacity = 10;
+  static constexpr uint16_t resize_coefficient = 2;
+  static constexpr unum::usearch::scalar_kind_t scalar_kind = unum::usearch::scalar_kind_t::f32_k;
+
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Vector index not implemented for ondisk";
+  }
+
+  {
+    auto dba = this->db->Access();
+    auto vector_property_id = dba->NameToProperty("vector_property");
+    memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+    auto u = CreateVertex(dba.get(), {}, {}, false);
+    auto v = CreateVertex(dba.get(), {}, {}, false);
+    CreateEdge(dba.get(), &u, &v, "EdgeType", {{vector_property_id, property_value}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    const auto spec = memgraph::storage::VectorEdgeIndexSpec{test_index1.data(),
+                                                             this->db->storage()->NameToEdgeType("EdgeType"),
+                                                             this->db->storage()->NameToProperty("vector_property"),
+                                                             metric,
+                                                             dimension,
+                                                             resize_coefficient,
+                                                             capacity,
+                                                             scalar_kind};
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(
+        stream.GetResults(),
+        R"(CREATE VECTOR EDGE INDEX `test_index1` ON :`EdgeType`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});", "CREATE (:__mg_vertex__ {__mg_id__: 1});",
+        "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
+        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`vector_property`: [1, 1]}]->(v);",
         kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
