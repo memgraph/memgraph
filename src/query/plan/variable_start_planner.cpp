@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -375,6 +375,7 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
       new_matchings.push_back(ToFilterMatching(all_filter_matchings[all_filter_matchings_idx]));
       new_matchings[i].symbol = filter.matchings[i].symbol;
       new_matchings[i].type = filter.matchings[i].type;
+      new_matchings[i].subquery = filter.matchings[i].subquery;
 
       all_filter_matchings_idx++;
     }
