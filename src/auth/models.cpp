@@ -711,31 +711,19 @@ void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::mo
 
 void User::SetRole(const Role &role) {
   roles_.clear();
-  roles_.push_back(role);
+  roles_.insert(role);
 }
 
 void User::ClearRole() { roles_.clear(); }
 
 // New methods for multiple roles
-void User::AddRole(const Role &role) {
-  // Check if role already exists
-  for (const auto &existing_role : roles_) {
-    if (existing_role.rolename() == role.rolename()) {
-      return;  // Role already exists
-    }
-  }
-  roles_.push_back(role);
-}
+void User::AddRole(const Role &role) { roles_.insert(role); }
 
-void User::RemoveRole(const std::string &rolename) {
-  roles_.erase(std::remove_if(roles_.begin(), roles_.end(),
-                              [&rolename](const Role &role) { return role.rolename() == rolename; }),
-               roles_.end());
-}
+void User::RemoveRole(const std::string &rolename) { roles_.erase(Role(rolename)); }
 
-const std::vector<Role> &User::roles() const { return roles_; }
+const std::unordered_set<Role> &User::roles() const { return roles_; }
 
-std::vector<Role> &User::roles() { return roles_; }
+std::unordered_set<Role> &User::roles() { return roles_; }
 
 Permissions User::GetPermissions() const {
   Permissions combined_permissions = permissions_;
@@ -809,7 +797,7 @@ const Role *User::role() const {
   if (roles_.empty()) {
     return nullptr;
   }
-  return &roles_[0];
+  return &(*roles_.begin());
 }
 
 nlohmann::json User::Serialize() const {

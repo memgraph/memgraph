@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <nlohmann/json_fwd.hpp>
 #include <utility>
@@ -460,6 +461,18 @@ class Role {
 
 bool operator==(const Role &first, const Role &second);
 
+}  // namespace memgraph::auth
+
+// Hash function for Role to enable use in unordered_set
+namespace std {
+template <>
+struct hash<memgraph::auth::Role> {
+  std::size_t operator()(const memgraph::auth::Role &role) const { return std::hash<std::string>{}(role.rolename()); }
+};
+}  // namespace std
+
+namespace memgraph::auth {
+
 // TODO (mferencevic): Implement password expiry.
 class User final {
  public:
@@ -505,8 +518,8 @@ class User final {
   // New methods for multiple roles
   void AddRole(const Role &role);
   void RemoveRole(const std::string &rolename);
-  const std::vector<Role> &roles() const;
-  std::vector<Role> &roles();
+  const std::unordered_set<Role> &roles() const;
+  std::unordered_set<Role> &roles();
 
   Permissions GetPermissions() const;
 
@@ -598,7 +611,7 @@ class User final {
   Databases database_access_{};
   std::optional<UserImpersonation> user_impersonation_{};
 #endif
-  std::vector<Role> roles_;
+  std::unordered_set<Role> roles_;
   utils::UUID uuid_{};  // To uniquely identify a user
 };
 
