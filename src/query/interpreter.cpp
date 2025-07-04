@@ -2533,18 +2533,15 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (memory_limit_) memgraph::memory::StartTrackingCurrentThread(&memory_tracker);
 #ifdef MG_ENTERPRISE
   // User-specific resource monitoring
-  if (user_resource_) {
+  if (user_resource_ &&
+      user_resource_->GetTransactionsMemory().second != utils::TransactionsMemoryResource::kUnlimited) {
     memgraph::memory::StartTrackingCurrentThread(&memory_tracker);  // Needs the query tracker for accurate tracking
     memgraph::memory::StartTrackingUserResource(user_resource_.get());
   }
 #endif
 
   {  // Limiting scope of memory tracking
-    auto reset_query_limit = utils::OnScopeExit{[
-#ifdef MG_ENTERPRISE
-                                                    this
-#endif
-    ]() {
+    auto reset_query_limit = utils::OnScopeExit{[]() {
       // Stopping tracking of transaction occurs in interpreter::pull
       // Exception can occur so we need to handle that case there.
       // We can't stop tracking here as there can be multiple pulls
@@ -2552,9 +2549,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       memgraph::memory::StopTrackingCurrentThread();
 #ifdef MG_ENTERPRISE
       // User-specific resource monitoring
-      if (user_resource_) {
-        memgraph::memory::StopTrackingUserResource();
-      }
+      memgraph::memory::StopTrackingUserResource();
 #endif
     }};
 
@@ -6673,10 +6668,11 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
             session_limit == -1 ? TypedValue("UNLIMITED") : TypedValue(static_cast<int64_t>(session_limit))});
         // Transaction memory usage
         const auto [tm_usage, tm_limit] = resource->GetTransactionsMemory();
+        const auto unlimited = tm_limit == utils::TransactionsMemoryResource::kUnlimited;
         res.emplace_back(std::vector<TypedValue>{
             TypedValue(auth::UserProfiles::kLimits[(int)auth::UserProfiles::Limits::kTransactionsMemory]),
-            TypedValue(utils::GetReadableSize(tm_usage)),
-            TypedValue(tm_limit == -1 ? "UNLIMITED" : utils::GetReadableSize(tm_limit))});
+            unlimited ? TypedValue(/* NA */) : TypedValue(utils::GetReadableSize(tm_usage)),
+            TypedValue(unlimited ? "UNLIMITED" : utils::GetReadableSize(tm_limit))});
         return res;
       };
     } break;
