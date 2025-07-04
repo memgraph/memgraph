@@ -35,8 +35,6 @@ bool TrackAllocOnCurrentThread(size_t size);
 // necessary
 void TrackFreeOnCurrentThread(size_t size);
 
-bool IsThreadTracked();
-
 #endif
 
 // API function call to start tracking current thread.
@@ -70,6 +68,9 @@ struct ThreadTrackingBlocker {
   ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
   ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
   ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
+
+  utils::QueryMemoryTracker *GetPrevMemoryTracker() const { return prev_state_; }
+  utils::UserResources *GetPrevUserTracker() const { return prev_user_state_; }
 
  private:
   utils::QueryMemoryTracker *prev_state_;

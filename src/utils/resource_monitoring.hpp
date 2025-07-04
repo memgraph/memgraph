@@ -46,35 +46,36 @@ class Resource {
   void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
   bool Increment(T size) {
-    // Failure is forbidden, so increment, return true and don't throw
+    auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
+
+    // Failure is forbidden, return true and don't throw
     if (!MemoryTrackerCanThrow()) {
       // NOTE: This is needed because we have paths that block exceptions
-      allocated_.fetch_add(size, std::memory_order_acq_rel);
       return true;
     }
 
-    // Always track even if unlimited
     const auto limit =
         limit_.load(std::memory_order_relaxed);  // Could miss updates to limit, but allowing stale values for now
-    auto current = allocated_.load(std::memory_order_acquire);
-    while (current + size <= limit) {
-      if (allocated_.compare_exchange_weak(current, current + size, std::memory_order_acq_rel)) {
-        return true;  // successfully incremented
-      }
+    if (current > limit) {
+      allocated_.fetch_sub(size, std::memory_order_acq_rel);  // Rollback increment
+      // register our error data, we will pick this up on the other side of jemalloc
+      utils::MemoryErrorStatus().set({static_cast<int64_t>(size), static_cast<int64_t>(current),
+                                      static_cast<int64_t>(limit), utils::MemoryTrackerStatus::kUser});
+      return false;  // increment failed
     }
-    // register our error data, we will pick this up on the other side of jemalloc
-    utils::MemoryErrorStatus().set({static_cast<int64_t>(size), static_cast<int64_t>(current + size),
-                                    static_cast<int64_t>(limit), utils::MemoryTrackerStatus::kUser});
-    return false;  // increment failed
+
+    return true;
   }
 
   // Decrementing cannot fail
   void Decrement(T size) {
-    auto current = allocated_.load(std::memory_order_acquire);
-    // Underflow protection
-    auto gen_next = [&current, size] { return current < size ? T(0) : current - size; };
-    while (!allocated_.compare_exchange_weak(current, gen_next(), std::memory_order_acq_rel))
-      ;
+    const auto current = allocated_.fetch_sub(size, std::memory_order_acq_rel);
+    if (current < size) {                                                           // Underflow protection
+      auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;  // Rollback decrement
+      auto gen_next = [&current, size] { return current < size ? T(0) : current - size; };
+      while (!allocated_.compare_exchange_weak(current, gen_next(), std::memory_order_acq_rel))
+        ;
+    }
   }
 
   T GetCurrent() const { return allocated_.load(std::memory_order_acquire); }
@@ -92,7 +93,6 @@ class TransactionsMemoryResource : public Resource<size_t> {  // Bytes allowed t
   explicit TransactionsMemoryResource(size_t limit) : Resource(limit) {}
 
   bool Allocate(size_t size);
-
   void Deallocate(size_t size);
 };
 
