@@ -164,7 +164,7 @@ jobs:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
-    timeout-minutes: 60
+    timeout-minutes: 80
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
