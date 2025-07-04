@@ -26,13 +26,14 @@ static constexpr std::string_view kReturnSimilarity = "similarity";
 
 static constexpr std::string_view kProcedureShowIndexInfo = "show_index_info";
 static constexpr std::string_view kReturnIndexName = "index_name";
-static constexpr std::string_view kReturnLabelOrEdgeType = "label_or_edge_type";
+static constexpr std::string_view kReturnLabelOrEdgeType = "label";
 static constexpr std::string_view kReturnProperty = "property";
 static constexpr std::string_view kMetric = "metric";
 static constexpr std::string_view kReturnDimension = "dimension";
 static constexpr std::string_view kReturnCapacity = "capacity";
 static constexpr std::string_view kReturnSize = "size";
 static constexpr std::string_view kReturnScalarKind = "scalar_kind";
+static constexpr std::string_view kReturnIndexType = "index_type";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -112,6 +113,7 @@ void VectorSearch::ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_
       record.Insert(VectorSearch::kReturnCapacity.data(), info_list[5].ValueInt());
       record.Insert(VectorSearch::kReturnSize.data(), info_list[6].ValueInt());
       record.Insert(VectorSearch::kReturnScalarKind.data(), info_list[7].ValueString());
+      record.Insert(VectorSearch::kReturnIndexType.data(), info_list[8].ValueString());
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -144,6 +146,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Return(VectorSearch::kReturnCapacity, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnSize, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnScalarKind, mgp::Type::String),
+                     mgp::Return(VectorSearch::kReturnIndexType, mgp::Type::String),
                  },
                  module, memory);
 

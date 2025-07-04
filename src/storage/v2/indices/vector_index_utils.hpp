@@ -13,13 +13,33 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
 
 #include "query/exceptions.hpp"
-#include "storage/v2/id_types.hpp"
 #include "usearch/index_plugins.hpp"
 
 namespace memgraph::storage {
+
+/// @enum VectorIndexType
+/// @brief Represents the type of vector index.
+enum class VectorIndexType : uint8_t {
+  ON_NODES,
+  ON_EDGES,
+};
+
+/// @brief Converts a VectorIndexType to a string representation.
+/// @param type The VectorIndexType to convert.
+/// @return A string representation of the VectorIndexType.
+/// @throws query::VectorSearchException if the type is unsupported.
+inline constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
+  switch (type) {
+    case VectorIndexType::ON_NODES:
+      return "label+property_vector";
+    case VectorIndexType::ON_EDGES:
+      return "edge-type+property_vector";
+    default:
+      return "unsupported vector index type";
+  }
+}
 
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
