@@ -708,6 +708,17 @@ class FakeDbAccessor {
 
   int64_t EdgesCount(memgraph::storage::PropertyId property) const { return 0; }
 
+  bool LabelIndexReady(memgraph::storage::LabelId label) const {
+    return label_index_.find(label) != label_index_.end();
+  }
+
+  bool LabelPropertyIndexReady(memgraph::storage::LabelId label,
+                               std::span<memgraph::storage::PropertyPath const> properties) const {
+    return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+             return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+           }) != label_properties_index_.end();
+  }
+
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
                                           std::span<storage::PropertyPath const> properties) const
       -> std::vector<storage::LabelPropertiesIndicesInfo> {
