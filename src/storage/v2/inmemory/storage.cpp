@@ -697,8 +697,6 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
       if (auto const maybe_unique_constraint_violation =
               mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
           maybe_unique_constraint_violation.has_value()) {
-        auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
-        storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
         return maybe_unique_constraint_violation;
       }
     }
@@ -735,7 +733,7 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
 void InMemoryStorage::InMemoryAccessor::AbortUniqueConstraints() {
   const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
   auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
-  storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
+  // storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -1068,6 +1066,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
     auto index_abort_processor = storage_->indices_.GetAbortProcessor();
+
+    auto const has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
+    if (has_any_unique_constraints && transaction_.constraint_verification_info &&
+        transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
+      // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
+      // values
+      auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
+      auto vertices_to_check_v = std::vector<Vertex const *>{vertices_to_check.begin(), vertices_to_check.end()};
+      storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
+    }
 
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
