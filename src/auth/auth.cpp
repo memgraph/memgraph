@@ -403,7 +403,7 @@ void Auth::LinkUser(User &user) const {
   if (link) {
     auto role = GetRole(*link);
     if (role) {
-      user.SetRole(*role);
+      user.SetRole(*role);  // This will clear existing roles and set the first one
     }
   }
 }
@@ -421,6 +421,8 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   bool success = false;
   if (const auto *role = user.role(); role != nullptr) {
+    // For backward compatibility, we only save the first role in the storage system
+    // TODO: In the future, we may want to extend the storage system to support multiple roles
     success = storage_.PutMultiple(
         {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
   } else {

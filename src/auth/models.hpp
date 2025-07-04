@@ -502,6 +502,12 @@ class User final {
 
   void ClearRole();
 
+  // New methods for multiple roles
+  void AddRole(const Role &role);
+  void RemoveRole(const std::string &rolename);
+  const std::vector<Role> &roles() const;
+  std::vector<Role> &roles();
+
   Permissions GetPermissions() const;
 
 #ifdef MG_ENTERPRISE
@@ -527,12 +533,16 @@ class User final {
 
   bool DeniesDB(std::string_view db_name) const {
     bool denies = database_access_.Denies(db_name);
-    if (role_) denies |= role_->DeniesDB(db_name);
+    for (const auto &role : roles_) {
+      denies |= role.DeniesDB(db_name);
+    }
     return denies;
   }
   bool GrantsDB(std::string_view db_name) const {
     bool grants = database_access_.Grants(db_name);
-    if (role_) grants |= role_->GrantsDB(db_name);
+    for (const auto &role : roles_) {
+      grants |= role.GrantsDB(db_name);
+    }
     return grants;
   }
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
@@ -543,9 +553,9 @@ class User final {
     if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
     bool role_grants = false;
     bool role_denies = false;
-    if (role_) {
-      role_denies = role_->UserImpIsDenied(user);
-      role_grants = role_->UserImpIsGranted(user);
+    for (const auto &role : roles_) {
+      role_denies |= role.UserImpIsDenied(user);
+      role_grants |= role.UserImpIsGranted(user);
     }
     if (!user_impersonation_) return !role_denies && role_grants;
     bool user_grants = role_grants || user_impersonation_->IsGranted(user);
@@ -588,7 +598,7 @@ class User final {
   Databases database_access_{};
   std::optional<UserImpersonation> user_impersonation_{};
 #endif
-  std::optional<Role> role_;
+  std::vector<Role> roles_;
   utils::UUID uuid_{};  // To uniquely identify a user
 };
 

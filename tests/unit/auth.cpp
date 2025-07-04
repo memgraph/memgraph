@@ -764,6 +764,65 @@ TEST_F(AuthWithStorage, UserRoleUniqueName) {
   ASSERT_FALSE(auth->AddUser("role"));
 }
 
+TEST_F(AuthWithStorage, MultipleRoles) {
+  // Create a user and multiple roles
+  auto user = auth->AddUser("user");
+  ASSERT_TRUE(user);
+  auto role1 = auth->AddRole("role1");
+  auto role2 = auth->AddRole("role2");
+  auto role3 = auth->AddRole("role3");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+  ASSERT_TRUE(role3);
+
+  // Add roles to user
+  user->AddRole(*role1);
+  user->AddRole(*role2);
+  user->AddRole(*role3);
+  auth->SaveUser(*user);
+
+  // Verify user has all roles
+  auto retrieved_user = auth->GetUser("user");
+  ASSERT_TRUE(retrieved_user);
+  ASSERT_EQ(retrieved_user->roles().size(), 3);
+
+  // Check that role() returns the first role for backward compatibility
+  const auto *first_role = retrieved_user->role();
+  ASSERT_NE(first_role, nullptr);
+  ASSERT_EQ(first_role->rolename(), "role1");
+
+  // Test removing a specific role
+  retrieved_user->RemoveRole("role2");
+  auth->SaveUser(*retrieved_user);
+
+  auto updated_user = auth->GetUser("user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->roles().size(), 2);
+
+  // Verify role2 was removed
+  bool has_role2 = false;
+  for (const auto &role : updated_user->roles()) {
+    if (role.rolename() == "role2") {
+      has_role2 = true;
+      break;
+    }
+  }
+  ASSERT_FALSE(has_role2);
+
+  // Test adding a duplicate role (should be ignored)
+  updated_user->AddRole(*role1);
+  ASSERT_EQ(updated_user->roles().size(), 2);  // Should still be 2
+
+  // Test clearing all roles
+  updated_user->ClearRole();
+  auth->SaveUser(*updated_user);
+
+  auto cleared_user = auth->GetUser("user");
+  ASSERT_TRUE(cleared_user);
+  ASSERT_EQ(cleared_user->roles().size(), 0);
+  ASSERT_EQ(cleared_user->role(), nullptr);
+}
+
 TEST(AuthWithoutStorage, CaseInsensitivity) {
   {
     auto user1 = User("test");
