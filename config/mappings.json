@@ -24,5 +24,5 @@
     "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",
     "apoc.refactor.cloneSubgraphFromPath": "refactor.clone_subgraph_from_path",
     "apoc.label.exists": "label.exists",
-    "apoc.date.convertFormat": "date.convert_format"
+    "apoc.date.convertFormat": "chrono.convert_format"
 }

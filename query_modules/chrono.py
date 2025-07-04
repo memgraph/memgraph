@@ -4,6 +4,13 @@ from zoneinfo import ZoneInfo
 
 import mgp
 
+# TODO(colinbarry) This file has been renamed to `chrono.py` from `date.py`
+# because we already have `date.py` in the MAGE query modules repo. Having
+# matching names means that installing all the query modules in one place gives
+# us either the Memgraph `date.py` or the MAGE `date.py`, depending on copy
+# order. Once we have a monorepo, this code can be combined with the existing
+# `date.py`.
+
 
 class FormatLength(IntEnum):
     """Enum for various date/time format lengths to replace magic numbers"""

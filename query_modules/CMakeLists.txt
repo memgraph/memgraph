@@ -97,7 +97,7 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/nxalg.py
     ${CMAKE_CURRENT_SOURCE_DIR}/wcc.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
-    ${CMAKE_CURRENT_SOURCE_DIR}/date.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/chrono.py
 )
 add_custom_target(copy_python_query_modules ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
@@ -117,6 +117,6 @@ install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
-install(FILES date.py DESTINATION lib/memgraph/query_modules)
+install(FILES chrono.py DESTINATION lib/memgraph/query_modules)
 
 # IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp
