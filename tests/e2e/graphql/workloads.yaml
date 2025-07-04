@@ -60,6 +60,12 @@ workloads:
     args: ["graphql/graphql_arrays.py"]
     <<: *in_memory_cluster
 
+  - name: "GraphQL types"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["graphql/graphql_types.py"]
+    <<: *in_memory_cluster
+
   - name: "graphql mathematical operators"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
@@ -106,4 +112,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
     args: ["graphql/graphql_mathematical_operators.py"]
+    <<: *disk_cluster
+
+  - name: "Disk GraphQL types"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["graphql/graphql_types.py"]
     <<: *disk_cluster
