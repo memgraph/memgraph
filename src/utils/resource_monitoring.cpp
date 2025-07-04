@@ -14,7 +14,6 @@
 namespace memgraph::utils {
 
 bool TransactionsMemoryResource::Allocate(size_t size) { return Increment(size); }
-
 void TransactionsMemoryResource::Deallocate(size_t size) { Decrement(size); }
 
 }  // namespace memgraph::utils
