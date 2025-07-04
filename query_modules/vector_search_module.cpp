@@ -26,7 +26,7 @@ static constexpr std::string_view kReturnSimilarity = "similarity";
 
 static constexpr std::string_view kProcedureShowIndexInfo = "show_index_info";
 static constexpr std::string_view kReturnIndexName = "index_name";
-static constexpr std::string_view kReturnLabelOrEdgeType = "label";
+static constexpr std::string_view kReturnLabel = "label";
 static constexpr std::string_view kReturnProperty = "property";
 static constexpr std::string_view kMetric = "metric";
 static constexpr std::string_view kReturnDimension = "dimension";
@@ -55,7 +55,6 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     for (const auto &result : results) {
       auto record = record_factory.NewRecord();
 
-      // result is also a list with two elements: node_id and score
       auto result_list = result.ValueList();
       record.Insert(VectorSearch::kReturnNode.data(), result_list[0].ValueNode());
       record.Insert(VectorSearch::kReturnDistance.data(), result_list[1].ValueDouble());
@@ -82,7 +81,6 @@ void VectorSearch::SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
     for (const auto &result : results) {
       auto record = record_factory.NewRecord();
 
-      // result is also a list with two elements: edge_id and score
       auto result_list = result.ValueList();
       record.Insert(VectorSearch::kReturnEdge.data(), result_list[0].ValueRelationship());
       record.Insert(VectorSearch::kReturnDistance.data(), result_list[1].ValueDouble());
@@ -106,7 +104,7 @@ void VectorSearch::ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_
       auto record = record_factory.NewRecord();
       auto info_list = info.ValueList();
       record.Insert(VectorSearch::kReturnIndexName.data(), info_list[0].ValueString());
-      record.Insert(VectorSearch::kReturnLabelOrEdgeType.data(), info_list[1].ValueString());
+      record.Insert(VectorSearch::kReturnLabel.data(), info_list[1].ValueString());
       record.Insert(VectorSearch::kReturnProperty.data(), info_list[2].ValueString());
       record.Insert(VectorSearch::kMetric.data(), info_list[3].ValueString());
       record.Insert(VectorSearch::kReturnDimension.data(), info_list[4].ValueInt());
@@ -139,7 +137,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     AddProcedure(VectorSearch::ShowIndexInfo, VectorSearch::kProcedureShowIndexInfo, mgp::ProcedureType::Read, {},
                  {
                      mgp::Return(VectorSearch::kReturnIndexName, mgp::Type::String),
-                     mgp::Return(VectorSearch::kReturnLabelOrEdgeType, mgp::Type::String),
+                     mgp::Return(VectorSearch::kReturnLabel, mgp::Type::String),
                      mgp::Return(VectorSearch::kReturnProperty, mgp::Type::String),
                      mgp::Return(VectorSearch::kMetric, mgp::Type::String),
                      mgp::Return(VectorSearch::kReturnDimension, mgp::Type::Int),

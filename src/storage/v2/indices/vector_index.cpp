@@ -69,8 +69,7 @@ VectorIndex::~VectorIndex() {}
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  const auto label = spec.label_id;
-  const auto label_prop = LabelPropKey{label, spec.property};
+  const auto label_prop = LabelPropKey{spec.label_id, spec.property};
   try {
     // Create the index
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
@@ -99,7 +98,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
 
     // Update the index with the vertices
     for (auto &vertex : vertices) {
-      if (!utils::Contains(vertex.labels, label)) {
+      if (!utils::Contains(vertex.labels, spec.label_id)) {
         continue;
       }
       if (UpdateVectorIndex(&vertex, label_prop) && snapshot_info) {

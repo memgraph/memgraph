@@ -50,12 +50,12 @@ struct VectorEdgeIndexInfo {
   std::string scalar_kind;
 };
 
-/// @class VectorIndex
-/// @brief High-level interface for managing vector indexes.
+/// @class VectoEdgerIndex
+/// @brief High-level interface for managing vector edge indexes.
 ///
-/// The VectorIndex class supports creating new indexes, adding nodes to an index,
-/// listing all indexes, and searching for nodes using a query vector.
-/// Currently, vector index operates in READ_UNCOMMITTED isolation level. Database can
+/// The VectorEdgeIndex class supports creating new indexes, adding edges to an index,
+/// listing all indexes, and searching for edges using a query vector.
+/// Currently, vector edge index operates in READ_UNCOMMITTED isolation level. Database can
 /// still operate in any other isolation level.
 /// This class is thread-safe and uses the Pimpl (Pointer to Implementation) idiom
 /// to hide implementation details.
@@ -91,7 +91,7 @@ class VectorEdgeIndex {
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
   /// @param snapshot_info
-  /// @param vertices vertices from which to create vector index
+  /// @param vertices vertices from which to create vector edge index
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
@@ -108,7 +108,7 @@ class VectorEdgeIndex {
                            PropertyId property, const PropertyValue &value);
 
   /// @brief Lists the info of all existing indexes.
-  /// @return A vector of VectorIndexInfo objects representing the indexes.
+  /// @return A vector of VectorEdgeIndexInfo objects representing the indexes.
   std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const;
 
   /// @brief Lists the labels and properties that have vector indices.
@@ -156,11 +156,12 @@ class VectorEdgeIndex {
   bool IndexExists(std::string_view index_name) const;
 
  private:
-  /// @brief Adds a vertex to an existing index.
-  /// @param vertex The vertex to be added.
-  /// @param label_prop The label and property key for the index.
-  /// @param value The value of the property.
-  /// @throw query::VectorSearchException
+  /// @brief Adds or updates an edge in the vector index.
+  /// @param entry The edge entry to be added or updated.
+  /// @param edge_type_prop The edge type and property key for the index.
+  /// @param value The property value to be indexed. If nullptr, the value will be taken from the edge's properties.
+  /// @return true if the index was updated successfully, false otherwise.
+  /// @throw query::VectorSearchException if the property is not a list or if the dimensions do not match.
   bool UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypePropKey &edge_type_prop,
                          const PropertyValue *value = nullptr);
 

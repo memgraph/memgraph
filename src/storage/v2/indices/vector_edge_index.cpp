@@ -28,7 +28,10 @@ namespace memgraph::storage {
 using mg_vector_edge_index_t = unum::usearch::index_dense_gt<VectorEdgeIndex::EdgeIndexEntry, unum::usearch::uint40_t>;
 
 struct EdgeTypeIndexItem {
-  // Similar to NodeIndexItem, but for edge type indices.
+  // unum::usearch::index_dense_gt is thread-safe and supports concurrent operations. However, we still need to use
+  // locking because resizing the index requires exclusive access. For all other operations, we can use shared lock even
+  // though we are modifying index. In the case of removing or adding elements to the index we will use
+  // MutableSharedLock to acquire an shared lock.
   std::shared_ptr<utils::Synchronized<mg_vector_edge_index_t, std::shared_mutex>> mg_index;
   VectorEdgeIndexSpec spec;
 };
@@ -36,15 +39,15 @@ struct EdgeTypeIndexItem {
 /// @brief Implements the underlying functionality of the `VectorIndex` class.
 ///
 /// The `Impl` structure follows the PIMPL (Pointer to Implementation) idiom to separate
-/// the interface of `VectorIndex` from its implementation
+/// the interface of `VectorEdgeIndex` from its implementation
 struct VectorEdgeIndex::Impl {
-  /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
+  /// The `index_` member is a map that associates a `EdgeTypePropKey` (a combination of edge type and property)
   /// with the pair of a IndexItem.
-  // std::map<std::variant<LabelPropKey, EdgeTypePropKey>, IndexItem, std::less<>> index_;
+  /// std::map<EdgeTypePropKey, EdgeTypeIndexItem> edge_index_;
   std::map<EdgeTypePropKey, EdgeTypeIndexItem, std::less<>> edge_index_;
 
   /// The `index_name_to_index_impl_` is a map that maps an index name (as a string) to the corresponding
-  /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
+  /// `EdgeTypePropKey`. This allows the system to quickly resolve an index name to the spec
   /// associated with that index, enabling easy lookup and management of indexes by name.
   std::map<std::string, EdgeTypePropKey, std::less<>> index_name_to_edge_type_prop_;
 };
@@ -61,8 +64,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
-    const auto edge_type = spec.edge_type_id;
-    const EdgeTypePropKey edge_type_prop{edge_type, spec.property};
+    const EdgeTypePropKey edge_type_prop{spec.edge_type_id, spec.property};
 
     if (pimpl->edge_index_.contains(edge_type_prop)) {
       throw query::VectorSearchException("Vector index with the given edge type and property already exists.");
@@ -93,7 +95,7 @@ bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipLi
 
       for (auto &edge : from_vertex.out_edges) {
         const auto type = std::get<kEdgeTypeIdPos>(edge);
-        if (type == edge_type) {
+        if (type == spec.edge_type_id) {
           auto *to_vertex = std::get<kVertexPos>(edge);
           if (to_vertex->deleted) {
             continue;
@@ -237,7 +239,7 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   }
   auto &[mg_index, _] = pimpl->edge_index_.at(edge_type_prop->second);
 
-  // The result vector will contain pairs of vertices and their score.
+  // The result vector will contain pairs of edges and their score.
   VectorSearchEdgeResults result;
   result.reserve(result_set_size);
 

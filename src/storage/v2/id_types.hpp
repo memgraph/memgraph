@@ -116,4 +116,14 @@ struct hash<memgraph::storage::LabelPropKey> {
   }
 };
 
+template <>
+struct hash<memgraph::storage::EdgeTypePropKey> {
+  size_t operator()(const memgraph::storage::EdgeTypePropKey &etpk) const noexcept {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, etpk.edge_type().AsUint());
+    boost::hash_combine(seed, etpk.property().AsUint());
+    return seed;
+  }
+};
+
 }  // namespace std

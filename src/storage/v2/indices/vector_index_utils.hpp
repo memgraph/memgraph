@@ -54,6 +54,10 @@ struct VectorIndexConfigMap {
   unum::usearch::scalar_kind_t scalar_kind;
 };
 
+/// @brief Converts a metric kind to its string representation.
+/// @param metric The metric kind to convert.
+/// @return A string representation of the metric kind.
+/// @throws query::VectorSearchException if the metric kind is unsupported.
 inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
   switch (metric) {
     case unum::usearch::metric_kind_t::l2sq_k:
@@ -81,6 +85,10 @@ inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
   }
 }
 
+/// @brief Converts a metric name to its corresponding metric kind.
+/// @param name The name of the metric.
+/// @return The corresponding metric kind.
+/// @throws query::VectorSearchException if the metric name is unsupported.
 inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
   if (name == "l2sq" || name == "euclidean_sq") {
     return unum::usearch::metric_kind_t::l2sq_k;
@@ -115,6 +123,10 @@ inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
                   name));
 }
 
+/// @brief Converts a scalar kind to its string representation.
+/// @param scalar The scalar kind to convert.
+/// @return A string representation of the scalar kind.
+/// @throws query::VectorSearchException if the scalar kind is unsupported.
 inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
   switch (scalar) {
     case unum::usearch::scalar_kind_t::b1x8_k:
@@ -156,6 +168,10 @@ inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
   }
 }
 
+/// @brief Converts a scalar name to its corresponding scalar kind.
+/// @param name The name of the scalar.
+/// @return The corresponding scalar kind.
+/// @throws query::VectorSearchException if the scalar name is unsupported.
 inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
   if (name == "b1x8" || name == "binary") {
     return unum::usearch::scalar_kind_t::b1x8_k;
@@ -212,7 +228,12 @@ inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
                   name));
 }
 
-inline constexpr double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distance) {
+/// @brief Converts a distance to a similarity score based on the metric kind.
+/// @param metric The metric kind used for the distance.
+/// @param distance The distance value to convert.
+/// @return The similarity score corresponding to the distance.
+/// @throws query::VectorSearchException if the metric kind is unsupported.
+inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distance) {
   switch (metric) {
     case unum::usearch::metric_kind_t::ip_k:
     case unum::usearch::metric_kind_t::cos_k:

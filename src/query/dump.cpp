@@ -18,7 +18,6 @@
 #include <optional>
 #include <ostream>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include <fmt/format.h>

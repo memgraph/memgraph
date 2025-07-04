@@ -16,11 +16,9 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
-#include <iterator>
 #include <mutex>
 #include <optional>
 #include <system_error>
-#include <tuple>
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
@@ -30,7 +28,6 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -1017,7 +1014,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<EdgeTypePropKey,
              std::vector<std::pair<PropertyValue, std::tuple<Vertex *const, Vertex *const, Edge *const>>>>
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
-                                            // property is set, it's like removing the property from the edge type index
+                                            // property is set, it's like removing the property from the index
 
     // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
