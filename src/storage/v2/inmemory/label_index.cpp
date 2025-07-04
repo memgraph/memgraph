@@ -48,7 +48,7 @@ auto InMemoryLabelIndex::GetIndividualIndex(LabelId label) const -> std::shared_
       });
 }
 
-auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
+auto InMemoryLabelIndex::PublishIndex(LabelId label, uint64_t commit_timestamp) -> bool {
   auto index = GetIndividualIndex(label);
   if (!index) return false;
   index->Publish(commit_timestamp);
@@ -66,7 +66,7 @@ InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
   }
 }
 
-auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
+auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
     auto new_index = std::make_shared<IndexContainer>(*index);
     auto it = new_index->find(label);
@@ -80,7 +80,13 @@ auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
   return result;
 }
 
-inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor) {
+inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,
+                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // observe regardless
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
+
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
@@ -90,7 +96,13 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&
   index_accessor.insert({&vertex, 0});
 }
 
-inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_accessor, Transaction const &tx) {
+inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_accessor,
+                                std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const &tx) {
+  // observe regardless
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
+
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -123,8 +135,8 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
 auto InMemoryLabelIndex::PopulateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -140,13 +152,15 @@ auto InMemoryLabelIndex::PopulateIndex(
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelIndex(vertex, label, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info);
+      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, std::move(cancel_check),
+                            parallel_exec_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
       auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
         TryInsertLabelPropertiesIndex(vertex, label, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info);
+      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, std::move(cancel_check),
+                            parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
     RemoveIndividualIndex(label);
