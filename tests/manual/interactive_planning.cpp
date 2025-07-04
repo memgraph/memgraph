@@ -354,7 +354,7 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
 
   bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type_id,
                                    memgraph::storage::PropertyId property_id) {
