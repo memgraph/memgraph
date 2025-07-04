@@ -823,6 +823,44 @@ TEST_F(AuthWithStorage, MultipleRoles) {
   ASSERT_EQ(cleared_user->role(), nullptr);
 }
 
+TEST_F(AuthWithStorage, StorageFormatBackwardCompatibility) {
+  // Test that the new storage format maintains backward compatibility
+
+  // Create a user with a single role (old format)
+  auto user = auth->AddUser("user");
+  ASSERT_TRUE(user);
+  auto role = auth->AddRole("role");
+  ASSERT_TRUE(role);
+  user->SetRole(*role);  // This uses the old single role format
+  auth->SaveUser(*user);
+
+  // Verify it loads correctly
+  auto retrieved_user = auth->GetUser("user");
+  ASSERT_TRUE(retrieved_user);
+  ASSERT_EQ(retrieved_user->roles().size(), 1);
+  ASSERT_EQ(retrieved_user->role()->rolename(), "role");
+
+  // Now add another role to test the new format
+  auto role2 = auth->AddRole("role2");
+  ASSERT_TRUE(role2);
+  retrieved_user->AddRole(*role2);
+  auth->SaveUser(*retrieved_user);
+
+  // Verify it still loads correctly with multiple roles
+  auto multi_role_user = auth->GetUser("user");
+  ASSERT_TRUE(multi_role_user);
+  ASSERT_EQ(multi_role_user->roles().size(), 2);
+
+  // Test AllUsersForRole with both formats
+  auto users_with_role = auth->AllUsersForRole("role");
+  ASSERT_EQ(users_with_role.size(), 1);
+  ASSERT_EQ(users_with_role[0].username(), "user");
+
+  auto users_with_role2 = auth->AllUsersForRole("role2");
+  ASSERT_EQ(users_with_role2.size(), 1);
+  ASSERT_EQ(users_with_role2[0].username(), "user");
+}
+
 TEST(AuthWithoutStorage, CaseInsensitivity) {
   {
     auto user1 = User("test");
