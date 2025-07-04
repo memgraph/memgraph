@@ -6284,17 +6284,13 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      if (index_query.properties_.empty()) {
-        // label index
-        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
+
+      // Covers both label and label+property indices
+      if (index_query.action_ == IndexQuery::Action::CREATE) {
+        // Need writers to leave so we can make populate a consistent index
+        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
       } else {
-        // label + properties
-        if (index_query.action_ == IndexQuery::Action::CREATE) {
-          // Need writers to leave so we can make populate a consistent index
-          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
-        } else {
-          accessor_type_ = storage::Storage::Accessor::Type::READ;
-        }
+        accessor_type_ = storage::Storage::Accessor::Type::READ;
       }
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access

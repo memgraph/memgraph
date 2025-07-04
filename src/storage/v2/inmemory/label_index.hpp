@@ -47,9 +47,15 @@ class InMemoryLabelIndex : public LabelIndex {
     IndexStatus status{};
   };
 
+  struct AllIndicesEntry {
+    std::shared_ptr<IndividualIndex> index_;
+    LabelId label_;
+  };
+
   using IndexContainer = std::map<LabelId, std::shared_ptr<IndividualIndex>>;
 
-  InMemoryLabelIndex() : index_(std::make_shared<IndexContainer>()) {}
+  InMemoryLabelIndex()
+      : index_(std::make_shared<IndexContainer>()), all_indices_(std::make_shared<std::vector<AllIndicesEntry>>()) {}
 
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
@@ -129,9 +135,6 @@ class InMemoryLabelIndex : public LabelIndex {
 
   auto GetActiveIndices() const -> std::unique_ptr<LabelIndex::ActiveIndices> override;
 
-  auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
-  auto RemoveIndividualIndex(LabelId label) -> bool;
-
   auto RegisterIndex(LabelId) -> bool;
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
@@ -153,7 +156,12 @@ class InMemoryLabelIndex : public LabelIndex {
   void DropGraphClearIndices() override;
 
  private:
+  auto CleanupAllIndices() -> void;
+  auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
+  auto RemoveIndividualIndex(LabelId label) -> bool;
+
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry>>, utils::WritePrioritizedRWLock> all_indices_;
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

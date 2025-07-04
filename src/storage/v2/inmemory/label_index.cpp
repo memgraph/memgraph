@@ -15,15 +15,24 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
 namespace memgraph::storage {
 
 bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
     auto new_index = std::make_shared<IndexContainer>(*index);
-    auto [_, inserted] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
+    auto [it, inserted] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
     if (!inserted) {
       return false;
     }
+
+    all_indices_.WithLock([&](auto &all_indices) {
+      auto new_all_indices = *all_indices;
+      new_all_indices.emplace_back(it->second, label);
+      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
+    });
+
     index = std::move(new_index);
     return true;
   });
@@ -58,7 +67,7 @@ InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
 }
 
 auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
-  return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
+  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
     auto new_index = std::make_shared<IndexContainer>(*index);
     auto it = new_index->find(label);
     if (it == new_index->end()) [[unlikely]]
@@ -67,6 +76,8 @@ auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
     index = std::move(new_index);
     return true;
   });
+  CleanupAllIndices();
+  return result;
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor) {
@@ -194,6 +205,7 @@ std::vector<LabelId> InMemoryLabelIndex::ActiveIndices::ListIndices(uint64_t sta
 }
 
 void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+  CleanupAllIndices();
   auto maybe_stop = utils::ResettableCounter(2048);
   auto index_container = index_.WithReadLock(std::identity{});
 
@@ -287,6 +299,7 @@ uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label
 }
 
 void InMemoryLabelIndex::RunGC() {
+  CleanupAllIndices();
   auto cpy = index_.WithReadLock(std::identity{});
   for (auto &index_entry : *cpy) {
     index_entry.second->skiplist.run_gc();
@@ -358,7 +371,19 @@ LabelIndex::AbortProcessor InMemoryLabelIndex::ActiveIndices::GetAbortProcessor(
 
 void InMemoryLabelIndex::DropGraphClearIndices() {
   index_.WithLock([](auto &idx) { idx = std::make_shared<IndexContainer>(); });
+  CleanupAllIndices();
   stats_->clear();
+}
+
+void InMemoryLabelIndex::CleanupAllIndices() {
+  // By cleanup, we mean just cleanup of the all_indexes_
+  // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry>> &indices) {
+    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
+    if (!ranges::all_of(*indices, keep_condition)) {
+      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    }
+  });
 }
 
 }  // namespace memgraph::storage
