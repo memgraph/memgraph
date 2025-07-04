@@ -13,7 +13,6 @@
 #include <ranges>
 #include <usearch/index_dense.hpp>
 #include "flags/bolt.hpp"
-#include "flags/general.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
@@ -55,9 +54,6 @@ VectorEdgeIndex::~VectorEdgeIndex() {}
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  if (!FLAGS_storage_properties_on_edges) {
-    throw query::VectorSearchException("Vector edge index can only be created when properties on edges are enabled.");
-  }
   try {
     if (pimpl->index_name_to_edge_type_prop_.contains(spec.index_name)) {
       throw query::VectorSearchException("Vector index with the given name already exists.");

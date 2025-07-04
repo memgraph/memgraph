@@ -1058,16 +1058,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   auto *from_vertex = current->property.out_vertex;
 
                   // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                  auto matching_edge = std::ranges::find_if(
-                      from_vertex->out_edges, [&](const std::tuple<EdgeTypeId, Vertex *, EdgeRef> &tuple) {
+                  auto matching_edge =
+                      r::find_if(from_vertex->out_edges, [&](const std::tuple<EdgeTypeId, Vertex *, EdgeRef> &tuple) {
                         const auto &[edge_type, target_vertex, edge_ref] = tuple;
                         return edge_ref.ptr == edge;
                       });
                   if (matching_edge != from_vertex->out_edges.end()) {
                     auto [edge_type, target_vertex, edge_ref] = *matching_edge;
                     // handle vector index -> we need to check if the edge type is indexed in the vector index
-                    if (std::ranges::find(vector_indexed_edge_types->second, edge_type) !=
-                        vector_indexed_edge_types->second.end()) {
+                    if (has_vector_indexed_edge_types && r::find(vector_indexed_edge_types->second, edge_type) !=
+                                                             vector_indexed_edge_types->second.end()) {
                       // this edge type is indexed in the vector index
                       vector_edge_type_property_restore[EdgeTypePropKey{edge_type, current->property.key}].emplace_back(
                           *current->property.value, std::make_tuple(from_vertex, target_vertex, edge_ref.ptr));

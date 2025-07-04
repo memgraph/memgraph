@@ -3712,7 +3712,6 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
   if (!GetParam()) {
     return;
   }
-  FLAGS_storage_properties_on_edges = true;  // This gets checked when vector edge index is getting created.
   // Create snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
@@ -3761,7 +3760,6 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
   if (!GetParam()) {
     return;
   }
-  FLAGS_storage_properties_on_edges = true;  // This gets checked when vector edge index is getting created.
   // Create snapshot.
   {
     memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},

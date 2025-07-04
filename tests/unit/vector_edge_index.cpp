@@ -37,10 +37,7 @@ class VectorEdgeIndexTest : public testing::Test {
  public:
   std::unique_ptr<Storage> storage;
 
-  void SetUp() override {
-    config_.salient.items.properties_on_edges = true;
-    storage = std::make_unique<InMemoryStorage>(config_);
-  }
+  void SetUp() override { storage = std::make_unique<InMemoryStorage>(config_); }
   void TearDown() override { storage.reset(); }
 
   void CreateEdgeIndex(std::uint16_t dimension, std::size_t capacity) {
