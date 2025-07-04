@@ -692,7 +692,7 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-    auto acc = mem_storage->vertices_.access();
+    // auto acc = mem_storage->vertices_.access();
     for (auto const *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
@@ -730,12 +730,6 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
   commit_timestamp_.reset();
-}
-
-void InMemoryStorage::InMemoryAccessor::AbortUniqueConstraints() {
-  const auto vertices_to_update = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-  auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
-  // storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -867,7 +861,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           spdlog::trace("Finalized WAL before abort");
         }
 
-        AbortUniqueConstraints();
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
         AbortAndResetCommitTs();

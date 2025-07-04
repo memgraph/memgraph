@@ -403,9 +403,6 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
     spdlog::trace("Finalized on replica");
   } else {
-    spdlog::trace("trying to abort uc on replica");
-    cached_commit_accessor_->AbortUniqueConstraints();
-    spdlog::trace("Aborted uc on replica");
     cached_commit_accessor_->AbortAndResetCommitTs();
     spdlog::trace("Aborted storage on replica");
   }
