@@ -11,8 +11,7 @@
 
 #pragma once
 
-#include <sys/types.h>
-#include <cstdint>
+#include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
@@ -71,6 +70,7 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
 struct Transaction;
 class EdgeAccessor;
 
+// TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
@@ -191,7 +191,13 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
-    enum Type { NO_ACCESS, UNIQUE, WRITE, READ, READ_ONLY };
+    enum Type {
+      NO_ACCESS,  // Modifies nothing in the storage
+      UNIQUE,     // An operation that requires mutral exclusive access to the storage
+      WRITE,      // Writes to the data of storage
+      READ,       // Either reads the data of storage, or a metadata operation that doesn't require unique access
+      READ_ONLY,  // Ensures writers have gone
+    };
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
@@ -329,12 +335,12 @@ class Storage {
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+    virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
@@ -413,11 +419,12 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyPath> properties) = 0;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
@@ -427,10 +434,11 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 
@@ -543,6 +551,10 @@ class Storage {
 
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 
+    bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
+      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
+    }
+
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
@@ -649,6 +661,10 @@ class Storage {
 
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
+  }
+
+  auto GetActiveIndices() const -> ActiveIndices {
+    return ActiveIndices{indices_.label_property_index_->GetActiveIndices()};
   }
 
   // TODO: make non-public

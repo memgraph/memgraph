@@ -162,9 +162,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_id}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_id}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
@@ -176,9 +176,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+properties index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label+properties index statistics.
@@ -195,10 +195,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create nested index.
-      auto unique_acc = store->UniqueAccess();
+      auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(
-          unique_acc->CreateIndex(label_indexed, {{nested1_property, nested2_property, nested3_property}}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+          acc->CreateIndex(label_indexed, {{nested1_property, nested2_property, nested3_property}}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create nested index statistics.
@@ -372,9 +372,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label+property index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, {property_count}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_count}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
@@ -2286,9 +2286,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     for (const auto &[label, properties] : indices.label_properties) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(label, std::vector(properties)).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      ASSERT_FALSE(acc->DropIndex(label, std::vector(properties)).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     auto constraints = [&] {
       auto acc = db.Access();

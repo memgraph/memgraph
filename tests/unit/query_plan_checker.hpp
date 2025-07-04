@@ -712,19 +712,8 @@ class FakeDbAccessor {
     return label_index_.find(label) != label_index_.end();
   }
 
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
-                                memgraph::storage::PropertyPath const &property) const {
-    std::vector const properties{property};
-    for (const auto &index : label_properties_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == properties) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
-                                std::span<memgraph::storage::PropertyPath const> properties) const {
+  bool LabelPropertyIndexReady(memgraph::storage::LabelId label,
+                               std::span<memgraph::storage::PropertyPath const> properties) const {
     return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
              return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
            }) != label_properties_index_.end();

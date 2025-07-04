@@ -23,4 +23,3 @@ ___
     - What has changed? What does it mean for a user? What should a user do with it? [#{{PR_number}}]({{link to the PR}})
 - [ ] **[ Documentation PR link memgraph/documentation#XXXX ]**
     - [ ] Is back linked to this development PR
-- [ ] **[ Tag someone from docs team ]**

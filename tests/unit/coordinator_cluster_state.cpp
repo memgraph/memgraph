@@ -41,6 +41,50 @@ class CoordinatorClusterStateTest : public ::testing::Test {
   void TearDown() override {}
 };
 
+TEST_F(CoordinatorClusterStateTest, TestUpgrade) {
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  {
+    nlohmann::json legacy_json = {
+        {memgraph::coordination::kDataInstances.data(), data_instances},
+        {memgraph::coordination::kMainUUID.data(), uuid},
+        {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
+        {memgraph::coordination::kEnabledReadsOnMain.data(), true},
+        {memgraph::coordination::kSyncFailoverOnly.data(), false},
+    };
+
+    CoordinatorClusterState legacy_state;
+    nlohmann::from_json(legacy_json, legacy_state);
+  }
+
+  {
+    nlohmann::json legacy_json = {
+        {memgraph::coordination::kClusterState.data(), data_instances},
+        {memgraph::coordination::kMainUUID.data(), uuid},
+        {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
+        {memgraph::coordination::kEnabledReadsOnMain.data(), true},
+        {memgraph::coordination::kSyncFailoverOnly.data(), false},
+    };
+    CoordinatorClusterState legacy_state;
+    nlohmann::from_json(legacy_json, legacy_state);
+  }
+}
+
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   CoordinatorClusterState cluster_state{};
   std::vector<DataInstanceContext> data_instances;

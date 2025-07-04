@@ -22,6 +22,8 @@ struct PersistenceError {};  // TODO: Generalize and add to InMemory durability 
                              // asserts and terminated if failed)
 
 struct IndexDefinitionError {};
+struct IndexDefinitionCancelationError {};
+struct IndexDefinitionAlreadyExistsError {};
 struct IndexDefinitionConfigError {};
 
 struct ConstraintsPersistenceError {};
@@ -32,7 +34,8 @@ inline bool operator==(const SerializationError & /*err1*/, const SerializationE
 using StorageManipulationError =
     std::variant<ConstraintViolation, ReplicationError, SerializationError, PersistenceError>;
 
-using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefinitionConfigError>;
+using StorageIndexDefinitionError = std::variant<IndexDefinitionError, IndexDefinitionAlreadyExistsError,
+                                                 IndexDefinitionConfigError, IndexDefinitionCancelationError>;
 
 struct ConstraintDefinitionError {};
 

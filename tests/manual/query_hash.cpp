@@ -33,8 +33,8 @@ int main(int argc, char **argv) {
 
   // print query, stripped query, hash and variable values (propertie values)
   std::cout << fmt::format("Query: {}\n", query);
-  std::cout << fmt::format("Stripped query: {}\n", preprocessed.query());
-  std::cout << fmt::format("Query hash: {}\n", preprocessed.hash());
+  std::cout << fmt::format("Stripped query: {}\n", preprocessed.stripped_query().str());
+  std::cout << fmt::format("Query hash: {}\n", preprocessed.stripped_query().hash());
   std::cout << fmt::format("Property values:\n");
   for (int i = 0; i < preprocessed.literals().size(); ++i) {
     std::cout << " " << preprocessed.literals().At(1).second;

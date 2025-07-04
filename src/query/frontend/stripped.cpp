@@ -168,8 +168,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     token_strings.push_back(std::move(unstripped_chunk));
   }
 
-  query_ = utils::Join(token_strings, " ");
-  hash_ = utils::Fnv(query_);
+  stripped_query_ = HashedString{utils::Join(token_strings, " ")};
 
   auto it = tokens.begin();
   while (it != tokens.end()) {
