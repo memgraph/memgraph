@@ -173,6 +173,45 @@ def get_mixed_setup_queries():
     ]
 
 
+def test_uc_replication(test_name):
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    execute_and_fetch_all(instance3_cursor, "CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE")
+
+    # 1. batch passes normally
+    create_query = """MATCH (n:Node) WITH coalesce(max(n.id), 0) as max_idx
+                    FOREACH (i in range(max_idx + 1, max_idx + 5000) | CREATE (:Node {id: i}))
+                    RETURN max_idx + 5000 as id"""
+
+    execute_and_fetch_all(instance3_cursor, create_query)
+    mg_sleep_and_assert(5000, partial(get_vertex_count, instance3_cursor))
+
+    # Instance 2
+    instance2_cursor = connect(host="localhost", port=7688).cursor()
+    mg_sleep_and_assert(5000, partial(get_vertex_count, instance2_cursor))
+    # Instance 1
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert(5000, partial(get_vertex_count, instance1_cursor))
+
+    # Kill instance_1 so that the next txn aborts
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance3_cursor, create_query)
+    assert (
+        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted on all instances."
+        in str(e.value)
+    )
+
+    # Start instance_1
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+
+    # Wait until the query passes
+    run_until_success(instance3_cursor, create_query)
+
+    # Everything should be normal here, validation should pass normally on instance_2
+
+
 # The test tests that STRICT_SYNC replicas cannot be used together with SYNC replicas
 @pytest.mark.parametrize("first_suffix, second_suffix", [("AS STRICT_SYNC", ""), ("", "AS STRICT_SYNC")])
 # @pytest.mark.skip(reason="works")
@@ -234,6 +273,7 @@ def run_until_success(cursor, query):
 # We test the behavior in which replica was 1st down: during that time, commits don't pass on MAIN
 # Replica comes up, main should be able to commit
 # Replica and main both go down, main restarts first => it should see a txn committed
+# @pytest.mark.skip(reason="Works")
 def test_replica_down_up_works(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
 

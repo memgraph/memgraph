@@ -399,9 +399,12 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   if (req.decision) {
+    spdlog::trace("Trying to finalize on replica");
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    spdlog::trace("Finalized on replica");
   } else {
     cached_commit_accessor_->AbortAndResetCommitTs();
+    spdlog::trace("Aborted storage on replica");
   }
 
   cached_commit_accessor_.reset();

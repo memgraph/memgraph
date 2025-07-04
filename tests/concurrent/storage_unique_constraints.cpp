@@ -18,7 +18,7 @@
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 
-const int kNumThreads = 8;
+constexpr int kNumThreads = 8;
 
 #define ASSERT_OK(x) ASSERT_FALSE((x).HasError())
 
@@ -82,6 +82,45 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
   }
   ASSERT_OK(vertex->AddLabel(label));
   *commit_status = !acc->PrepareForCommitPhase().HasError();
+}
+
+TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::bernoulli_distribution bernoulli(0.5);
+  std::uniform_int_distribution<> uniform(1, 20);  // Range: [1, 100]
+
+  {
+    auto unique_acc = storage->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(label, {prop1});
+    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    spdlog::trace("Created UC");
+  }
+
+  auto const thread_func = [&]() {
+    for (int j = 0; j < 1000; j++) {
+      spdlog::trace("iteration {}", j);
+      auto acc = storage->Access();
+      for (int i = 0; i < 5000; i++) {
+        auto vertex = acc->CreateVertex();
+        ASSERT_OK(vertex.AddLabel(label));
+        ASSERT_OK(vertex.SetProperty(prop1, PropertyValue(i)));
+      }
+
+      if (bernoulli(gen)) {
+        auto res = acc->PrepareForCommitPhase().HasError();
+        spdlog::trace("Res: {}", res);
+      } else {
+        acc->Abort();
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(uniform(gen)));
+    }
+  };
+
+  std::vector<std::jthread> threads;
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back(thread_func);
+  }
 }
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
