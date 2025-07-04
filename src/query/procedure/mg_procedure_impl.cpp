@@ -3419,7 +3419,7 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
 
 template <typename FoundElementRange, typename MakeElementValueFunc>
 void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result, size_t found_elements_size,
-                             MakeElementValueFunc make_element_value, FoundElementRange &&found_elements,
+                             MakeElementValueFunc make_element_value, const FoundElementRange &found_elements,
                              const std::optional<std::string> &error_msg) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_map");
