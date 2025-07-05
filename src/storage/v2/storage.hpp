@@ -330,7 +330,7 @@ class Storage {
 
     virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
 
-    virtual bool LabelIndexExists(LabelId label) const = 0;
+    virtual bool LabelIndexReady(LabelId label) const = 0;
 
     virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
@@ -417,7 +417,8 @@ class Storage {
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool unique_access_needed = true, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
         LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
@@ -660,6 +661,7 @@ class Storage {
 
   auto GetActiveIndices() const -> ActiveIndices {
     return ActiveIndices{
+        indices_.label_index_->GetActiveIndices(),
         indices_.label_property_index_->GetActiveIndices(),
         indices_.edge_type_index_->GetActiveIndices(),
     };

@@ -1282,12 +1282,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_.label_.get());
   auto *label_properties_active_indices =
       static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.label_properties_.get());
 
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts) ||
+      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts,
+                                                                label_active_indices->entries_for_deletion_) ||
       !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(
           transaction->start_timestamp, commit_ts, label_properties_active_indices->entries_for_deletion_)) {
     return StorageManipulationError{SerializationError{}};
@@ -2037,10 +2039,11 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed, PublishIndexWrapper wrapper) {
-  if (unique_access_needed) {
+    LabelId label, bool check_access, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+  if (check_access) {
     MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
   }
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
@@ -2381,10 +2384,8 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  auto *on_disk = static_cast<DiskStorage *>(storage_);
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {disk_label_index->ListIndices(),
+  return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           {/* edge type indices */},
           {/* edge_type_property */},
