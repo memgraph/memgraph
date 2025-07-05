@@ -3263,6 +3263,21 @@ auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_
   };
 }
 
+constexpr auto kCancelPeriodCreateIndex = 10'000;  // TODO: control via flag?
+auto make_create_index_cancel_callback(StoppingContext stopping_context) {
+  return
+      [stopping_context = std::move(stopping_context), counter = utils::ResettableCounter{kCancelPeriodCreateIndex}]() {
+        if (!counter()) {
+          return false;
+        }
+        // For now only handle TERMINATED + SHUTDOWN
+        // No timeout becasue we expect it would confuse users
+        // ie. we don't want to run for 20min and then discard because of timeout
+        auto reason = stopping_context.MustAbort();
+        return reason == AbortReason::TERMINATED || reason == AbortReason::SHUTDOWN;
+      };
+}
+
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::vector<Notification> *notifications, CurrentDB &current_db,
                                 StoppingContext stopping_context) {
@@ -3301,19 +3316,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
-      constexpr auto kCancelPeriodCreateIndex = 10'000;  // TODO: control via flag?
-      auto cancel_callback = [stopping_context = std::move(stopping_context),
-                              counter = utils::ResettableCounter{kCancelPeriodCreateIndex}]() {
-        if (!counter()) {
-          return false;
-        }
-        // For now only handle TERMINATED + SHUTDOWN
-        // No timeout becasue we expect it would confuse users
-        // ie. we don't want to run for 20min and then discard because of timeout
-        auto reason = stopping_context.MustAbort();
-        return reason == AbortReason::TERMINATED || reason == AbortReason::SHUTDOWN;
-      };
-
       // Creating an index influences computed plan costs.
       auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::CREATE_INDEX;
@@ -3324,11 +3326,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  plan_invalidator_builder = std::move(plan_invalidator_builder),
-                 cancel_callback = std::move(cancel_callback)](Notification &index_notification) mutable {
-        auto maybe_index_error = properties.empty()
-                                     ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
-                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
-                                                        std::move(plan_invalidator_builder));
+                 stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
+        auto maybe_index_error =
+            properties.empty()
+                ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
+                : dba->CreateIndex(label, std::move(properties), make_create_index_cancel_callback(stopping_context),
+                                   std::move(plan_invalidator_builder));
         if (maybe_index_error.HasError()) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
@@ -3387,7 +3390,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 }
 
 PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                    std::vector<Notification> *notifications, CurrentDB &current_db) {
+                                    std::vector<Notification> *notifications, CurrentDB &current_db,
+                                    StoppingContext stopping_context) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -3404,10 +3408,6 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
-  };
 
   auto *storage = db_acc->storage();
   auto edge_type = storage->NameToEdgeType(index_query->edge_type_.name);
@@ -3431,6 +3431,8 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
+      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
+
       index_notification.code = NotificationCode::CREATE_INDEX;
       const auto &ix_properties = index_query->properties_;
       if (ix_properties.empty()) {
@@ -3440,44 +3442,61 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                                                index_query->edge_type_.name, ix_properties.front().name);
       }
 
-      handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
+      handler = [dba, edge_type, edge_type_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+                 plan_invalidator_builder = std::move(plan_invalidator_builder),
+                 stopping_context = std::move(stopping_context)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
           if (global_index) {
-            if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
-            return dba->CreateGlobalEdgeIndex(properties[0]);
+            if (properties.empty()) throw utils::BasicException("Missing property for global edge index.");
+            return dba->CreateGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
+          } else if (properties.empty()) {
+            return dba->CreateIndex(edge_type, make_create_index_cancel_callback(stopping_context),
+                                    std::move(plan_invalidator_builder));
           }
-          return properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
+          return dba->CreateIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
         });
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Index on edge-type {} on properties {} already exists.", label_name, properties_stringified);
+          auto const error_visitor = [&]<typename T>(T const &) {
+            if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
+                          std::is_same_v<T, storage::IndexDefinitionConfigError> ||
+                          std::is_same_v<T, storage::IndexDefinitionAlreadyExistsError>) {
+              index_notification.code = NotificationCode::EXISTENT_INDEX;
+              index_notification.title = fmt::format("Index on edge-type {} on properties {} already exists.",
+                                                     edge_type_name, properties_stringified);
+            } else if constexpr (std::is_same_v<T, storage::IndexDefinitionCancelationError>) {
+              // TODO: could also be SHUTDOWN...but this is good enough for now
+              throw HintedAbortError(AbortReason::TERMINATED);
+            } else {
+              static_assert(utils::always_false<T>, "Unhandled error type in error_visitor");
+            }
+          };
+
+          std::visit(error_visitor, maybe_index_error.GetError());
         }
       };
       break;
     }
     case EdgeIndexQuery::Action::DROP: {
+      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
       handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+                 plan_invalidator_builder = std::move(plan_invalidator_builder)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
           if (global_index) {
             if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
-            return dba->DropGlobalEdgeIndex(properties[0]);
+            return dba->DropGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
           }
-          return properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
+          return properties.empty() ? dba->DropIndex(edge_type, std::move(plan_invalidator_builder))
+                                    : dba->DropIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
         });
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
@@ -6238,10 +6257,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
-  void Visit(EdgeIndexQuery &) override {
-    // TODO: concurrent creation
-    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
-  }
   void Visit(PointIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(TextIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(VectorIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
@@ -6289,6 +6304,28 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
         } else {
           accessor_type_ = storage::Storage::Accessor::Type::READ;
         }
+      }
+    } else {
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    }
+  }
+  void Visit(EdgeIndexQuery &edge_index_query) override {
+    if (is_in_memory_transactional_) {
+      // Concurrent population of index requires snapshot isolation
+      isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
+      if (edge_index_query.properties_.empty()) {
+        // edge type index
+        if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
+          // Need writers to leave so we can make populate a consistent index
+          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
+        } else {
+          accessor_type_ = storage::Storage::Accessor::Type::READ;
+        }
+      } else {
+        // edge type + properties
+        // edge global property
+        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
       }
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
@@ -6456,7 +6493,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
                                          &query_execution->notifications, current_db_, make_stopping_context());
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                             &query_execution->notifications, current_db_);
+                                             &query_execution->notifications, current_db_, make_stopping_context());
     } else if (utils::Downcast<PointIndexQuery>(parsed_query.query)) {
       prepared_query = PreparePointIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, current_db_);

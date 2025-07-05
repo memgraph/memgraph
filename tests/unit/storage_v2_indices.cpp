@@ -2052,7 +2052,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
@@ -2065,18 +2065,18 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
       ASSERT_NO_ERROR(acc->Commit());
-      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 5);
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_EQ(read_only_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
 
     {
       auto acc = this->storage->Access();
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -2209,7 +2209,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
     }
 
@@ -2224,9 +2224,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
 
     {
@@ -2239,14 +2239,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      auto drop_acc = this->DropIndexAccessor();
+      EXPECT_FALSE(drop_acc->DropIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(drop_acc->Commit());
     }
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
@@ -2262,13 +2262,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
     {
       auto acc = this->storage->Access();
-      EXPECT_TRUE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_TRUE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1));
     }
 
@@ -2299,14 +2299,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
   // 3. Delete even numbered edges.
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
 
     auto acc = this->storage->Access();
@@ -2373,14 +2373,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     // Check that transactions only see entries they are supposed to see.
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
 
     auto acc_before = this->storage->Access();
@@ -2417,14 +2417,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
 
     auto acc = this->storage->Access();
@@ -2443,9 +2443,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
 TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->Commit());
     }
 
     auto acc = this->storage->Access();

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
 #include <memory>
@@ -20,12 +21,16 @@ namespace memgraph::storage {
 struct IndicesCollection {
   std::vector<storage::LabelId> label_;
   std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_properties_;
+  std::vector<storage::EdgeTypeId> edge_type_;
+  // TODO: edge_type + properties
+  // TODO: edge properties
 };
 
 struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
-  explicit ActiveIndices(std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties)
-      : label_properties_{std::move(label_properties)} {}
+  explicit ActiveIndices(std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
+                         std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type)
+      : label_properties_{std::move(label_properties)}, edge_type_{std::move(edge_type)} {}
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
@@ -38,9 +43,15 @@ struct ActiveIndices {
       if (!label_properties_->IndexReady(label, properties)) return false;
     }
 
+    // edge type
+    for (auto const edge_type : required_indices.edge_type_) {
+      if (!edge_type_->IndexReady(edge_type)) return false;
+    }
+
     return true;
   }
 
   std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
+  std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
 };
 }  // namespace memgraph::storage
