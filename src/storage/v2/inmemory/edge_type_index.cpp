@@ -133,10 +133,11 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
     auto it = indices.find(edge_type);
     if (it != indices.end()) return false;  // already exists
 
-    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
     auto [new_it, _] = new_container->indices_.emplace(edge_type, std::make_shared<IndividualIndex>());
+
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
     all_indexes_.WithLock([&](auto &all_indexes) { all_indexes.emplace_back(new_it->second); });
     indices_container = new_container;

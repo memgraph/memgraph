@@ -198,21 +198,6 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   return exists && !deleted && current_value_equal_to_value;
 }
 
-template <typename TIndexAccessor>
-inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &index_accessor,
-                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  // observe regardless
-  if (snapshot_info) {
-    snapshot_info->Update(UpdateType::VERTICES);
-  }
-
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-    return;
-  }
-
-  index_accessor.insert({&vertex, 0});
-}
-
 template <typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
                                            TSkipListAccessorFactory &&accessor_factory, const TFunc &func,

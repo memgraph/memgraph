@@ -120,9 +120,9 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(lbl).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
   {
     auto acc = this->CreateIndexAccessor();

@@ -28,6 +28,7 @@ target_sources(mg-storage-v2
         edges_iterable.cpp
         indices/edge_type_index.cpp
         indices/indices.cpp
+        indices/indices_utils.hpp
         indices/label_index_stats.cpp
         indices/label_property_index.cpp
         indices/label_property_index_stats.cpp

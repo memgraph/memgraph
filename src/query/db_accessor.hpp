@@ -488,7 +488,7 @@ class DbAccessor final {
 
   storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetCreationStorageMode(); }
 
-  bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
+  bool LabelIndexReady(storage::LabelId label) const { return accessor_->LabelIndexReady(label); }
 
   bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) const {
     return accessor_->LabelPropertyIndexReady(label, properties);
@@ -635,8 +635,9 @@ class DbAccessor final {
   const std::string &id() const { return accessor_->id(); }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(label, true, std::move(wrapper));
+      storage::LabelId label, storage::CheckCancelFunction cancel_check = storage::neverCancel,
+      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
+    return accessor_->CreateIndex(label, true, cancel_check, std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(

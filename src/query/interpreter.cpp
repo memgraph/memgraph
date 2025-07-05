@@ -3327,10 +3327,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  label_name = index_query->label_.name, properties = std::move(properties),
                  plan_invalidator_builder = std::move(plan_invalidator_builder),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
+        auto cancel_callback = make_create_index_cancel_callback(stopping_context);
         auto maybe_index_error =
             properties.empty()
-                ? dba->CreateIndex(label, std::move(plan_invalidator_builder))
-                : dba->CreateIndex(label, std::move(properties), make_create_index_cancel_callback(stopping_context),
+                ? dba->CreateIndex(label, std::move(cancel_callback), std::move(plan_invalidator_builder))
+                : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
                                    std::move(plan_invalidator_builder));
         if (maybe_index_error.HasError()) {
           auto const error_visitor = [&]<typename T>(T const &) {
@@ -6290,24 +6291,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
+    using enum storage::Storage::Accessor::Type;
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      if (index_query.properties_.empty()) {
-        // label index
-        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
-      } else {
-        // label + properties
-        if (index_query.action_ == IndexQuery::Action::CREATE) {
-          // Need writers to leave so we can make populate a consistent index
-          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
-        } else {
-          accessor_type_ = storage::Storage::Accessor::Type::READ;
-        }
-      }
+      accessor_type_ = (index_query.action_ == IndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
-      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+      accessor_type_ = UNIQUE;
     }
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
