@@ -53,8 +53,8 @@ def test_concurrency_if_no_delta_on_same_edge_property_update(first_connection, 
     assert test_has_error is False
 
 
-def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connection):
-    first_connection.autocommit = False  # needed so the data query to trigger a transaction
+def test_concurrency_read_only_v_shared_storage_acc(first_connection, second_connection):
+    first_connection.autocommit = False  # needed so the data query to trigger a write transaction (blocking read only)
     second_connection.autocommit = True  # needed so the index query does not trigger a transaction
 
     m1c = first_connection.cursor()
@@ -69,7 +69,7 @@ def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connec
     except Exception as e:
         assert (
             str(e)
-            == "Cannot get unique access to the storage. Try stopping other queries that are running in parallel."
+            == "Cannot get read only access to the storage. Try stopping other queries that are running in parallel."
         )
         m2c_timeout = True
 
