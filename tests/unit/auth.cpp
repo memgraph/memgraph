@@ -24,6 +24,8 @@
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
 
+#include <boost/dll/runtime_symbol_info.hpp>
+
 using namespace memgraph::auth;
 namespace fs = std::filesystem;
 
@@ -40,6 +42,21 @@ class AuthWithStorage : public ::testing::Test {
   void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
+  Auth::Config auth_config{};
+  std::optional<Auth> auth{};
+};
+
+class V1Auth : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::license::global_license_checker.EnableTesting();
+    auth.emplace(test_folder_, auth_config);
+  }
+
+  void TearDown() override {}
+
+  fs::path test_folder_{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
@@ -241,6 +258,338 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
               PermissionLevel::DENY);
     ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1", FineGrainedPermission::READ),
               PermissionLevel::DENY);
+  }
+}
+
+TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
+  // Create a user and multiple roles with different database access
+  auto user = auth->AddUser("user");
+  ASSERT_TRUE(user);
+  auto role1 = auth->AddRole("role1");
+  auto role2 = auth->AddRole("role2");
+  auto role3 = auth->AddRole("role3");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+  ASSERT_TRUE(role3);
+
+  // Grant different fine-grained permissions to each role
+  role1->fine_grained_access_handler().label_permissions().Grant("label1", FineGrainedPermission::CREATE_DELETE);
+  role1->fine_grained_access_handler().edge_type_permissions().Grant("edge1", FineGrainedPermission::READ);
+
+  role2->fine_grained_access_handler().label_permissions().Grant("label2", FineGrainedPermission::UPDATE);
+  role2->fine_grained_access_handler().edge_type_permissions().Grant("edge2", FineGrainedPermission::CREATE_DELETE);
+
+  role3->fine_grained_access_handler().label_permissions().Grant("label3", FineGrainedPermission::READ);
+  role3->fine_grained_access_handler().edge_type_permissions().Grant("edge3", FineGrainedPermission::UPDATE);
+
+  // Grant database access to roles
+  role1->db_access().Grant("db1");
+  role2->db_access().Grant("db2");
+  role3->db_access().Grant("db3");
+  role3->db_access().Deny("db4");
+
+  // Add all roles to user
+  user->AddRole(*role1);
+  user->AddRole(*role2);
+  user->AddRole(*role3);
+
+  // Update storage
+  auth->SaveRole(*role1);
+  auth->SaveRole(*role2);
+  auth->SaveRole(*role3);
+  auth->SaveUser(*user);
+  user = auth->GetUser("user");
+
+  // Test -1: check that correct roles are returned
+  {
+    auto roles = user->GetRoles();
+    ASSERT_EQ(roles.size(), 3);
+    ASSERT_EQ(roles.count(*role1), 1);
+    ASSERT_EQ(roles.count(*role2), 1);
+    ASSERT_EQ(roles.count(*role3), 1);
+
+    auto roles_db1 = user->GetRoles("db1");
+    ASSERT_EQ(roles_db1.size(), 1);
+    ASSERT_EQ(roles_db1.count(*role1), 1);
+
+    auto roles_db2 = user->GetRoles("db2");
+    ASSERT_EQ(roles_db2.size(), 1);
+    ASSERT_EQ(roles_db2.count(*role2), 1);
+
+    auto roles_db3 = user->GetRoles("db3");
+    ASSERT_EQ(roles_db3.size(), 1);
+    ASSERT_EQ(roles_db3.count(*role3), 1);
+
+    auto roles_db4 = user->GetRoles("db4");
+    ASSERT_EQ(roles_db4.size(), 0);
+  }
+
+  // Test 0: Generic access check
+  {
+    ASSERT_TRUE(user->HasAccess("db1"));
+    ASSERT_TRUE(user->HasAccess("db2"));
+    ASSERT_TRUE(user->HasAccess("db3"));
+    ASSERT_FALSE(user->HasAccess("db4"));
+
+    user->db_access().Grant("db4");
+    ASSERT_FALSE(user->HasAccess("db4"));
+
+    role3->db_access().Grant("db4");
+
+    // Update linkage
+    auth->SaveRole(*role3);
+    auth->SaveUser(*user);
+    user = auth->GetUser("user");
+
+    ASSERT_TRUE(user->HasAccess("db4"));
+  }
+
+  // Test 1: No database filter - should include all roles
+  {
+    auto all_label_perms = user->GetFineGrainedAccessLabelPermissions();
+    auto all_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions();
+
+    // Should have permissions from all roles
+    ASSERT_EQ(all_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+    ASSERT_EQ(all_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(all_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  // Test 2: Filter by db1 - should only include role1
+  {
+    auto db1_label_perms = user->GetFineGrainedAccessLabelPermissions("db1");
+    auto db1_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db1");
+
+    // Should have permissions from role1 only
+    ASSERT_EQ(db1_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+
+    ASSERT_EQ(db1_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // Test 3: Filter by db2 - should only include role2
+  {
+    auto db2_label_perms = user->GetFineGrainedAccessLabelPermissions("db2");
+    auto db2_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db2");
+
+    // Should have permissions from role2 only
+    ASSERT_EQ(db2_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db2_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db2_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+
+    ASSERT_EQ(db2_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db2_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db2_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // Test 4: Filter by db3 - should only include role3
+  {
+    auto db3_label_perms = user->GetFineGrainedAccessLabelPermissions("db3");
+    auto db3_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db3");
+
+    // Should have permissions from role3 only
+    ASSERT_EQ(db3_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+    ASSERT_EQ(db3_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db3_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  // Test 5: Filter by non-existent database - should have no permissions
+  {
+    auto none_label_perms = user->GetFineGrainedAccessLabelPermissions("nonexistent");
+    auto none_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("nonexistent");
+
+    // Should have no permissions since no roles grant access to this database
+    ASSERT_EQ(none_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+
+    ASSERT_EQ(none_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // Test 6: Test with user's own fine-grained permissions
+  {
+    // Grant user's own permissions
+    user->fine_grained_access_handler().label_permissions().Grant("user_label", FineGrainedPermission::CREATE_DELETE);
+    user->fine_grained_access_handler().edge_type_permissions().Grant("user_edge", FineGrainedPermission::UPDATE);
+
+    // Test that user's own permissions are always included regardless of database filter
+    auto db1_perms = user->GetFineGrainedAccessLabelPermissions("db1");
+    auto db1_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("db1");
+
+    ASSERT_EQ(db1_perms.Has("user_label", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_edge_perms.Has("user_edge", FineGrainedPermission::READ), PermissionLevel::GRANT);
+
+    // Test with non-existent database - user permissions should still be included
+    auto none_perms = user->GetFineGrainedAccessLabelPermissions("nonexistent");
+    auto none_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("nonexistent");
+
+    ASSERT_EQ(none_perms.Has("user_label", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(none_edge_perms.Has("user_edge", FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  // Test 7: Test role-specific methods with database filtering
+  {
+    auto db1_role_label_perms = user->GetRoleFineGrainedAccessLabelPermissions("db1");
+    auto db1_role_edge_perms = user->GetRoleFineGrainedAccessEdgeTypePermissions("db1");
+
+    // Should only include role1 permissions
+    ASSERT_EQ(db1_role_label_perms.Has("label1", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_role_label_perms.Has("label2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_role_label_perms.Has("label3", FineGrainedPermission::READ), PermissionLevel::DENY);
+
+    ASSERT_EQ(db1_role_edge_perms.Has("edge1", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(db1_role_edge_perms.Has("edge2", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(db1_role_edge_perms.Has("edge3", FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  // Test 8: Test GetPermissions with database filtering
+  {
+    // Grant different permissions to each role
+    role1->permissions().Grant(Permission::MATCH);
+    role1->permissions().Deny(Permission::CREATE);
+
+    role2->permissions().Grant(Permission::DELETE);
+    role2->permissions().Grant(Permission::MERGE);
+
+    role3->permissions().Grant(Permission::SET);
+    role3->permissions().Grant(Permission::REMOVE);
+
+    // Update storage
+    auth->SaveUser(*user);
+    auth->SaveRole(*role1);
+    auth->SaveRole(*role2);
+    auth->SaveRole(*role3);
+
+    user = auth->GetUser("user");
+
+    // Test GetPermissions without database filter - should include all roles
+    auto all_permissions = user->GetPermissions();
+    EXPECT_EQ(all_permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
+    EXPECT_EQ(all_permissions.Has(Permission::CREATE), PermissionLevel::DENY);
+    EXPECT_EQ(all_permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
+    EXPECT_EQ(all_permissions.Has(Permission::MERGE), PermissionLevel::GRANT);
+    EXPECT_EQ(all_permissions.Has(Permission::SET), PermissionLevel::GRANT);
+    EXPECT_EQ(all_permissions.Has(Permission::REMOVE), PermissionLevel::GRANT);
+
+    // Test GetPermissions with db1 filter - should only include role1
+    auto db1_permissions = user->GetPermissions("db1");
+    EXPECT_EQ(db1_permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
+    EXPECT_EQ(db1_permissions.Has(Permission::CREATE), PermissionLevel::DENY);
+    EXPECT_EQ(db1_permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::SET), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::REMOVE), PermissionLevel::NEUTRAL);
+
+    // Test GetPermissions with db2 filter - should only include role2
+    auto db2_permissions = user->GetPermissions("db2");
+    ASSERT_EQ(db2_permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db2_permissions.Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db2_permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(db2_permissions.Has(Permission::MERGE), PermissionLevel::GRANT);
+    ASSERT_EQ(db2_permissions.Has(Permission::SET), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db2_permissions.Has(Permission::REMOVE), PermissionLevel::NEUTRAL);
+
+    // Test GetPermissions with db3 filter - should only include role3
+    auto db3_permissions = user->GetPermissions("db3");
+    ASSERT_EQ(db3_permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db3_permissions.Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db3_permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db3_permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(db3_permissions.Has(Permission::SET), PermissionLevel::GRANT);
+    ASSERT_EQ(db3_permissions.Has(Permission::REMOVE), PermissionLevel::GRANT);
+
+    // Test GetPermissions with non-existent database - should have no permissions
+    auto none_permissions = user->GetPermissions("nonexistent");
+    ASSERT_EQ(none_permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(none_permissions.Has(Permission::CREATE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(none_permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(none_permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(none_permissions.Has(Permission::SET), PermissionLevel::NEUTRAL);
+    ASSERT_EQ(none_permissions.Has(Permission::REMOVE), PermissionLevel::NEUTRAL);
+  }
+
+  // Test 9: Test GetPermissions with user's own permissions
+  {
+    // Grant user's own permissions
+    user->permissions().Grant(Permission::INDEX);
+    user->permissions().Grant(Permission::STATS);
+    user->permissions().Deny(Permission::MATCH);
+    user->permissions().Grant(Permission::CREATE);
+
+    // Test that user's own permissions are always included regardless of database filter
+    auto db1_permissions = user->GetPermissions("db1");
+    EXPECT_EQ(db1_permissions.Has(Permission::INDEX), PermissionLevel::GRANT);
+    EXPECT_EQ(db1_permissions.Has(Permission::STATS), PermissionLevel::GRANT);
+    EXPECT_EQ(db1_permissions.Has(Permission::MATCH), PermissionLevel::DENY);
+    EXPECT_EQ(db1_permissions.Has(Permission::CREATE), PermissionLevel::DENY);
+
+    auto none_permissions = user->GetPermissions("nonexistent");
+    ASSERT_EQ(none_permissions.Has(Permission::INDEX), PermissionLevel::GRANT);
+    ASSERT_EQ(none_permissions.Has(Permission::STATS), PermissionLevel::GRANT);
+  }
+
+  // Test 10: Test CanImpersonate with database filtering
+  {
+    // Create a target user to impersonate
+    auto target_user = auth->AddUser("target_user");
+    ASSERT_TRUE(target_user);
+
+    // Grant impersonation permissions to roles
+    role1->permissions().Grant(Permission::IMPERSONATE_USER);
+    role2->permissions().Grant(Permission::IMPERSONATE_USER);
+    role3->permissions().Grant(Permission::IMPERSONATE_USER);
+
+    // Grant impersonation access to roles
+    role1->GrantUserImp({*target_user});
+    role2->GrantUserImp({*target_user});
+    role3->GrantUserImp({*target_user});
+
+    // Update storage
+    auth->SaveRole(*role1);
+    auth->SaveRole(*role2);
+    auth->SaveRole(*role3);
+    auth->SaveUser(*user);
+    user = auth->GetUser("user");
+
+    // Test CanImpersonate without database filter - should include all roles
+    ASSERT_TRUE(user->CanImpersonate(*target_user));
+
+    // Test CanImpersonate with db1 filter - should only include role1
+    ASSERT_TRUE(user->CanImpersonate(*target_user, "db1"));
+
+    // Test CanImpersonate with db2 filter - should only include role2
+    ASSERT_TRUE(user->CanImpersonate(*target_user, "db2"));
+
+    // Test CanImpersonate with db3 filter - should only include role3
+    ASSERT_TRUE(user->CanImpersonate(*target_user, "db3"));
+
+    // Test CanImpersonate with non-existent database - should fail
+    ASSERT_FALSE(user->CanImpersonate(*target_user, "nonexistent"));
+
+    // Test with role that denies impersonation
+    role1->DenyUserImp({*target_user});
+    auth->SaveRole(*role1);
+    user = auth->GetUser("user");
+
+    // Should still work for other databases
+    ASSERT_TRUE(user->CanImpersonate(*target_user, "db2"));
+    ASSERT_TRUE(user->CanImpersonate(*target_user, "db3"));
+
+    // But should fail for db1 due to deny
+    ASSERT_FALSE(user->CanImpersonate(*target_user, "db1"));
   }
 }
 #endif
@@ -764,6 +1113,103 @@ TEST_F(AuthWithStorage, UserRoleUniqueName) {
   ASSERT_FALSE(auth->AddUser("role"));
 }
 
+TEST_F(AuthWithStorage, MultipleRoles) {
+  // Create a user and multiple roles
+  auto user = auth->AddUser("user");
+  ASSERT_TRUE(user);
+  auto role1 = auth->AddRole("role1");
+  auto role2 = auth->AddRole("role2");
+  auto role3 = auth->AddRole("role3");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+  ASSERT_TRUE(role3);
+
+  // Add roles to user
+  user->AddRole(*role1);
+  user->AddRole(*role2);
+  user->AddRole(*role3);
+  auth->SaveUser(*user);
+
+  // Verify user has all roles
+  auto retrieved_user = auth->GetUser("user");
+  ASSERT_TRUE(retrieved_user);
+  ASSERT_EQ(retrieved_user->roles().size(), 3);
+
+  // Check that role() returns the first role for backward compatibility
+  const auto *first_role = retrieved_user->role();
+  ASSERT_NE(first_role, nullptr);
+  ASSERT_EQ(first_role->rolename(), "role1");
+
+  // Test removing a specific role
+  retrieved_user->RemoveRole("role2");
+  auth->SaveUser(*retrieved_user);
+
+  auto updated_user = auth->GetUser("user");
+  ASSERT_TRUE(updated_user);
+  ASSERT_EQ(updated_user->roles().size(), 2);
+
+  // Verify role2 was removed
+  bool has_role2 = false;
+  for (const auto &role : updated_user->roles()) {
+    if (role.rolename() == "role2") {
+      has_role2 = true;
+      break;
+    }
+  }
+  ASSERT_FALSE(has_role2);
+
+  // Test adding a duplicate role (should be ignored)
+  updated_user->AddRole(*role1);
+  ASSERT_EQ(updated_user->roles().size(), 2);  // Should still be 2
+
+  // Test clearing all roles
+  updated_user->ClearRole();
+  auth->SaveUser(*updated_user);
+
+  auto cleared_user = auth->GetUser("user");
+  ASSERT_TRUE(cleared_user);
+  ASSERT_EQ(cleared_user->roles().size(), 0);
+  ASSERT_EQ(cleared_user->role(), nullptr);
+}
+
+TEST_F(AuthWithStorage, StorageFormatBackwardCompatibility) {
+  // Test that the new storage format maintains backward compatibility
+
+  // Create a user with a single role (old format)
+  auto user = auth->AddUser("user");
+  ASSERT_TRUE(user);
+  auto role = auth->AddRole("role");
+  ASSERT_TRUE(role);
+  user->SetRole(*role);  // This uses the old single role format
+  auth->SaveUser(*user);
+
+  // Verify it loads correctly
+  auto retrieved_user = auth->GetUser("user");
+  ASSERT_TRUE(retrieved_user);
+  ASSERT_EQ(retrieved_user->roles().size(), 1);
+  ASSERT_EQ(retrieved_user->role()->rolename(), "role");
+
+  // Now add another role to test the new format
+  auto role2 = auth->AddRole("role2");
+  ASSERT_TRUE(role2);
+  retrieved_user->AddRole(*role2);
+  auth->SaveUser(*retrieved_user);
+
+  // Verify it still loads correctly with multiple roles
+  auto multi_role_user = auth->GetUser("user");
+  ASSERT_TRUE(multi_role_user);
+  ASSERT_EQ(multi_role_user->roles().size(), 2);
+
+  // Test AllUsersForRole with both formats
+  auto users_with_role = auth->AllUsersForRole("role");
+  ASSERT_EQ(users_with_role.size(), 1);
+  ASSERT_EQ(users_with_role[0].username(), "user");
+
+  auto users_with_role2 = auth->AllUsersForRole("role2");
+  ASSERT_EQ(users_with_role2.size(), 1);
+  ASSERT_EQ(users_with_role2[0].username(), "user");
+}
+
 TEST(AuthWithoutStorage, CaseInsensitivity) {
   {
     auto user1 = User("test");
@@ -1217,6 +1663,32 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   admin->DenyUserImp({*another_user});
   ASSERT_TRUE(admin->CanImpersonate(*user));
   ASSERT_FALSE(admin->CanImpersonate(*another_user));
+}
+
+TEST_F(V1Auth, MigrationTest) {
+  // Check if migration was successful
+  ASSERT_TRUE(auth->HasUsers());
+  ASSERT_FALSE(auth->AllRoles().empty());
+
+  // Check for specific users
+  auto user1 = auth->GetUser("user1");
+  auto user2 = auth->GetUser("user2");
+  ASSERT_TRUE(user1);
+  ASSERT_TRUE(user2);
+
+  // Check for specific roles
+  auto role1 = auth->GetRole("role1");
+  auto role2 = auth->GetRole("role2");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+
+  // Check that each user is connected to a role
+  ASSERT_TRUE(user1->role());
+  ASSERT_TRUE(user2->role());
+
+  // Verify the role assignments
+  ASSERT_EQ(user1->role()->rolename(), "role1");
+  ASSERT_EQ(user2->role()->rolename(), "role2");
 }
 
 #endif

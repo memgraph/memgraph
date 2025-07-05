@@ -570,11 +570,13 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
     if (!role) {
       throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
     }
-    if (const auto *current_role = user->role(); current_role != nullptr) {
-      throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                                   current_role->rolename());
+    // Check if user already has this role
+    for (const auto &existing_role : user->roles()) {
+      if (existing_role.rolename() == rolename) {
+        throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username, rolename);
+      }
     }
-    user->SetRole(*role);
+    user->AddRole(*role);
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -589,6 +591,35 @@ void AuthQueryHandler::ClearRole(const std::string &username, system::Transactio
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
     user->ClearRole();
+    locked_auth->SaveUser(*user, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RemoveRole(const std::string &username, const std::string &rolename,
+                                  system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+
+    // Check if user has this role
+    bool has_role = false;
+    for (const auto &role : user->roles()) {
+      if (role.rolename() == rolename) {
+        has_role = true;
+        break;
+      }
+    }
+
+    if (!has_role) {
+      throw memgraph::query::QueryRuntimeException("User '{}' is not a member of role '{}'.", username, rolename);
+    }
+
+    user->RemoveRole(rolename);
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());

@@ -156,6 +156,7 @@ const std::string kLinkPrefix = "link:";
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
+static constexpr auto kVersionV2 = "V2";
 }  // namespace
 
 /**
@@ -221,6 +222,51 @@ void MigrateVersions(kvstore::KVStore &store) {
     store.PutMultiple(puts);
     version_str = kVersionV1;
   }
+
+  // Migrate from V1 to V2: convert single role links to JSON arrays
+  if (version_str == kVersionV1) {
+    spdlog::info("Migrating auth storage from V1 to V2: converting single role links to JSON arrays");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+    auto deletes = std::vector<std::string>{};
+
+    // Migrate all link entries from single role format to JSON array format
+    for (auto it = store.begin(kLinkPrefix); it != store.end(kLinkPrefix); ++it) {
+      auto const &[key, value] = *it;
+
+      // Check if this is already in the new format (JSON array)
+      try {
+        auto json_data = nlohmann::json::parse(value);
+        if (json_data.is_array()) {
+          // Already in new format, skip
+          continue;
+        }
+      } catch (const nlohmann::json::parse_error &) {
+        // Not JSON, treat as old format
+      }
+
+      // Convert old format (single role name) to new format (JSON array)
+      if (!value.empty()) {
+        nlohmann::json roles_array = nlohmann::json::array();
+        roles_array.push_back(value);
+        puts.emplace(key, roles_array.dump());
+      } else {
+        // Empty value, delete the link
+        deletes.push_back(key);
+      }
+    }
+
+    // Apply the migration
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+    if (!deletes.empty()) {
+      store.DeleteMultiple(deletes);
+    }
+    version_str = kVersionV2;
+
+    spdlog::info("Auth storage migration to V2 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -254,7 +300,12 @@ auto ParseJson(std::string_view str) {
 Auth::Auth(std::string storage_directory, Config config)
     : storage_(std::move(storage_directory)), config_{std::move(config)} {
   modules_ = PopulateModules(FLAGS_auth_module_mappings);
-  MigrateVersions(storage_);
+  if (storage_.Size() > 0) {
+    MigrateVersions(storage_);
+  } else {
+    // Clean storage; put the version
+    storage_.Put(kVersion, kVersionV2);
+  }
 }
 
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
@@ -391,9 +442,26 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
 void Auth::LinkUser(User &user) const {
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
-    auto role = GetRole(*link);
-    if (role) {
-      user.SetRole(*role);
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(*link);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+        return;
+      }
+      // V2 format: array of role names
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string()) {
+          auto role = GetRole(role_name.get<std::string>());
+          if (role) {
+            user.AddRole(*role);
+          }
+        }
+      }
+
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
     }
   }
 }
@@ -410,9 +478,14 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   bool success = false;
-  if (const auto *role = user.role(); role != nullptr) {
-    success = storage_.PutMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
+  if (!user.roles().empty()) {
+    // Store all roles as a JSON array
+    nlohmann::json roles_array = nlohmann::json::array();
+    for (const auto &role : user.roles()) {
+      roles_array.push_back(role.rolename());
+    }
+    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
+                                    {kLinkPrefix + user.username(), roles_array.dump()}});
   } else {
     success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
                                             {kLinkPrefix + user.username()});
@@ -584,14 +657,51 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
-  std::vector<std::string> keys;
+
+  // First, remove the role from all users who have it
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
-    if (utils::ToLowerCase(it->second) == rolename) {
-      keys.push_back(it->first);
+    auto username = it->first.substr(kLinkPrefix.size());
+    bool needs_update = false;
+    nlohmann::json updated_roles;
+
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: remove the role from the array
+      updated_roles = nlohmann::json::array();
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
+          updated_roles.push_back(role_name);
+        } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          needs_update = true;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+
+    if (needs_update) {
+      if (updated_roles.is_null()) {
+        // Remove the link entirely (old format or empty array)
+        storage_.Delete(it->first);
+      } else if (updated_roles.empty()) {
+        // Remove the link entirely (empty array)
+        storage_.Delete(it->first);
+      } else {
+        // Update with the remaining roles
+        storage_.Put(it->first, updated_roles.dump());
+      }
     }
   }
-  keys.push_back(kRolePrefix + rolename);
-  if (!storage_.DeleteMultiple(keys)) {
+
+  // Then remove the role itself
+  if (!storage_.Delete(kRolePrefix + rolename)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
 
@@ -640,8 +750,29 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     auto username = it->first.substr(kLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    if (it->second != utils::ToLowerCase(it->second)) continue;
-    if (it->second == rolename) {
+
+    bool has_role = false;
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found non-array link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: check if role is in the array
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          has_role = true;
+          break;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+
+    if (has_role) {
       if (auto user = GetUser(username)) {
         ret.push_back(std::move(*user));
       } else {
