@@ -13,7 +13,10 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "utils/query_memory_tracker.hpp"
+// Forward declaration
+namespace memgraph::utils {
+class QueryMemoryTracker;
+}
 
 namespace memgraph::memory {
 
