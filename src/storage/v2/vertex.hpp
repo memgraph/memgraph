@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,8 +38,10 @@ struct Vertex {
 
   utils::small_vector<LabelId> labels;
 
-  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+
+  utils::small_vector<EdgeTriple> in_edges;
+  utils::small_vector<EdgeTriple> out_edges;
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;

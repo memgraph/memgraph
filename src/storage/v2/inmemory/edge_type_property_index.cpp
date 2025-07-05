@@ -44,15 +44,15 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
       }
 
       for (auto &edge : from_vertex.out_edges) {
-        const auto type = std::get<kEdgeTypeIdPos>(edge);
+        const auto type = std::get<EdgeTypeId>(edge);
         if (type != edge_type) {
           continue;
         }
-        auto *to_vertex = std::get<kVertexPos>(edge);
+        auto *to_vertex = std::get<Vertex *>(edge);
         if (to_vertex->deleted) {
           continue;
         }
-        auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
+        auto *edge_ptr = std::get<EdgeRef>(edge).ptr;
         edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
         if (snapshot_info) {
           snapshot_info->Update(UpdateType::EDGES);

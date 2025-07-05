@@ -201,7 +201,13 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(std::vector<PropertyValue> co
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor) {
+                                          auto &&index_accessor,
+                                          std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  // observe regardless
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
+
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
@@ -217,7 +223,14 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, PropertiesPermutationHelper const &props,
-                                          auto &&index_accessor, Transaction const &tx) {
+                                          auto &&index_accessor,
+                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                          Transaction const &tx) {
+  // observe regardless
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::VERTICES);
+  }
+
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -265,7 +278,6 @@ bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
   if (res2.HasError()) {
     MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
   }
-  // Invalidate plans?
   return PublishIndex(label, properties, 0);
 }
 
@@ -297,8 +309,6 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
   });
 }
 
-struct PopulateCancel : std::exception {};
-
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
@@ -316,22 +326,16 @@ auto InMemoryLabelPropertyIndex::PopulateIndex(
 
     if (tx) {
       // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        if (cancel_check()) {
-          throw PopulateCancel{};
-        }
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, *tx);
+      auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info, *tx);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     } else {
       // If we are not in a transaction, we need to read the object as it is. (post recovery)
-      auto const try_insert_into_index = [&](Vertex &vertex, auto &index_accessor) {
-        if (cancel_check()) {
-          throw PopulateCancel{};
-        }
-        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor);
+      auto const insert_function = [&](Vertex &vertex, auto &index_accessor) {
+        TryInsertLabelPropertiesIndex(vertex, label, index->permutations_helper, index_accessor, snapshot_info);
       };
-      PopulateIndexDispatch(vertices, accessor_factory, try_insert_into_index, parallel_exec_info, snapshot_info);
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check), parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
     RemoveIndividualIndex(label, properties);
