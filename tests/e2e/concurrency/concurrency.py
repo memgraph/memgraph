@@ -54,7 +54,7 @@ def test_concurrency_if_no_delta_on_same_edge_property_update(first_connection, 
 
 
 def test_concurrency_read_only_v_shared_storage_acc(first_connection, second_connection):
-    first_connection.autocommit = False  # needed so the data query to trigger a write transaction (blocking read only)
+    first_connection.autocommit = False  # needed so the data query to trigger a transaction (assumed write)
     second_connection.autocommit = True  # needed so the index query does not trigger a transaction
 
     m1c = first_connection.cursor()
@@ -62,7 +62,7 @@ def test_concurrency_read_only_v_shared_storage_acc(first_connection, second_con
 
     # m1c takes and holds on to shared storage acc (data query)
     execute_and_fetch_all(m1c, "RETURN 1")
-    # m2c tries to take a unique storage accessor (index query); should timeout
+    # m2c tries to take a read only storage accessor (index query); should timeout
     m2c_timeout = False
     try:
         execute_and_fetch_all(m2c, "CREATE INDEX ON :L")
@@ -70,6 +70,30 @@ def test_concurrency_read_only_v_shared_storage_acc(first_connection, second_con
         assert (
             str(e)
             == "Cannot get read only access to the storage. Try stopping other queries that are running in parallel."
+        )
+        m2c_timeout = True
+
+    first_connection.commit()
+    assert m2c_timeout is True
+
+
+def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connection):
+    first_connection.autocommit = False  # needed so the data query to trigger a transaction (assumed write)
+    second_connection.autocommit = True  # needed so the drop graph query does not trigger a transaction
+
+    m1c = first_connection.cursor()
+    m2c = second_connection.cursor()
+
+    # m1c takes and holds on to shared storage acc (data query)
+    execute_and_fetch_all(m1c, "RETURN 1")
+    # m2c tries to take a unique storage accessor (drop graph query); should timeout
+    m2c_timeout = False
+    try:
+        execute_and_fetch_all(m2c, "DROP GRAPH")
+    except Exception as e:
+        assert (
+            str(e)
+            == "Cannot get unique access to the storage. Try stopping other queries that are running in parallel."
         )
         m2c_timeout = True
 
