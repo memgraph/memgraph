@@ -56,7 +56,7 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
   // Create and drop index will always use snapshot isolation
   if (delta) {
-    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+    ApplyDeltasForRead(&tx, delta, View::NEW /*NEW becasue of auto indexing*/, [&](const Delta &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Exists_ActionMethod(exists),
