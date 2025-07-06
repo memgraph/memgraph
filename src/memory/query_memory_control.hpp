@@ -13,7 +13,11 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "utils/query_memory_tracker.hpp"
+// Forward declaration
+namespace memgraph::utils {
+class QueryMemoryTracker;
+struct UserResources;
+}  // namespace memgraph::utils
 
 namespace memgraph::memory {
 
@@ -31,8 +35,6 @@ bool TrackAllocOnCurrentThread(size_t size);
 // necessary
 void TrackFreeOnCurrentThread(size_t size);
 
-bool IsThreadTracked();
-
 #endif
 
 // API function call to start tracking current thread.
@@ -42,6 +44,9 @@ void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker);
 // API function call to stop tracking current thread.
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThread();
+
+void StartTrackingUserResource(utils::UserResources *resource);
+void StopTrackingUserResource();
 
 // Is query's memory tracked
 bool IsQueryTracked();
@@ -53,5 +58,24 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 // Pauses procedure tracking. This enables to continue
 // tracking on procedure once procedure execution resumes.
 void PauseProcedureTracking();
+
+struct ThreadTrackingBlocker {
+#if USE_JEMALLOC
+  ThreadTrackingBlocker();
+  ~ThreadTrackingBlocker();
+
+  ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
+  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
+  ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
+  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
+
+  utils::QueryMemoryTracker *GetPrevMemoryTracker() const { return prev_state_; }
+  utils::UserResources *GetPrevUserTracker() const { return prev_user_state_; }
+
+ private:
+  utils::QueryMemoryTracker *prev_state_;
+  utils::UserResources *prev_user_state_;
+#endif
+};
 
 }  // namespace memgraph::memory

@@ -17,6 +17,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::glue {
 
@@ -97,10 +98,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// Server/Session level API ///
 
   // Called during Init
-  bool Authenticate(const std::string &username, const std::string &password);
+  utils::BasicResult<communication::bolt::AuthFailure> Authenticate(const std::string &username,
+                                                                    const std::string &password);
 
   // Called during Init
-  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
+  utils::BasicResult<communication::bolt::AuthFailure> SSOAuthenticate(const std::string &scheme,
+                                                                       const std::string &identity_provider_response);
+
+  void LogOff();
 
   static std::optional<std::string> GetServerNameForInit();
 
@@ -128,6 +133,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::audit::Log *audit_log_;
   RunTimeConfig runtime_db_;    // Run-time configurable database tarted used by the interpreter
   RunTimeConfig runtime_user_;  // Run-time configurable user (impersonation)
+  std::shared_ptr<memgraph::utils::UserResources> user_resource_;  // User-related resource monitoring
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
