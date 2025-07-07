@@ -6950,7 +6950,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write global edge property indices.
     {
-      auto indices = storage->indices_.edge_property_index_->ListIndices();
+      auto indices = transaction->active_indices_.edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
         write_mapping(property);

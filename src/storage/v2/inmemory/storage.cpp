@@ -1043,6 +1043,17 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   }
                 }
 
+                //TODO:
+                // Edge property collect
+                if (index_abort_processor.edge_property_.cleanup_collection_.contains(current->property.key)) {
+                  auto *from_vertex = current->property.out_vertex;
+                  for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                    index_abort_processor.CollectOnPropertyChange(current->property.key, from_vertex, to_vertex,
+                                                                      edge_ref.ptr, edge_type);
+                  }
+                }
+
+
                 // Collect edge vector
                 const auto &vector_indexed_edge_types =
                     index_abort_processor.vector_edge_.p2et.find(current->property.key);
@@ -1518,7 +1529,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
     PropertyId property, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Create index requires a unique or read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
@@ -1527,7 +1539,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
+  if (!mem_edge_property_index->CreateIndexOnePass(property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // TODO: concurrent index creation need to publish
@@ -1615,7 +1627,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
     PropertyId property, DropIndexWrapper wrapper) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
@@ -1851,27 +1863,27 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  auto *mem_edge_property_active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
   return EdgesIterable(
-      mem_edge_property_index->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+      mem_edge_property_active_indices->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
-  return EdgesIterable(mem_edge_property_index->Edges(property, utils::MakeBoundInclusive(value),
-                                                      utils::MakeBoundInclusive(value), view, storage_, &transaction_));
+  auto *mem_edge_property_active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
+  return EdgesIterable(mem_edge_property_active_indices->Edges(
+      property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
                                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  auto *mem_edge_property_active_indices =
+      static_cast<InMemoryEdgePropertyIndex::ActiveIndices *>(transaction_.active_indices_.edge_property_.get());
   return EdgesIterable(
-      mem_edge_property_index->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
+      mem_edge_property_active_indices->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
@@ -3173,7 +3185,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_properties_->ListIndices(transaction_.start_timestamp),
-          mem_edge_property_index->ListIndices(),
+          transaction_.active_indices_.edge_property_->ListIndices(transaction_.start_timestamp),
           storage_->indices_.text_index_.ListIndices(),
           storage_->indices_.point_index_.ListIndices(),
           storage_->indices_.vector_index_.ListIndices(),

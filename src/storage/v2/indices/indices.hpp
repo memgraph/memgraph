@@ -54,8 +54,7 @@ struct Indices {
     LabelPropertyIndex::AbortProcessor label_properties_;
     EdgeTypeIndex::AbortProcessor edge_type_;
     EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
-
-    EdgePropertyIndex::IndexStats property_edge_;
+    EdgePropertyIndex::AbortProcessor edge_property_;
     // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
     VectorIndex::IndexStats vector_;

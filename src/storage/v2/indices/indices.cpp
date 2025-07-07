@@ -80,8 +80,8 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge, const Transaction &tx) const {
   tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property,
                                                                 value, tx.start_timestamp);
-  edge_property_index_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
-                                            tx.start_timestamp);
+  tx.active_indices_.edge_property_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
+                                                         tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
 }
 
@@ -113,7 +113,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
           active_indices.label_properties_->GetAbortProcessor(),
           active_indices.edge_type_->GetAbortProcessor(),
           active_indices.edge_type_properties_->GetAbortProcessor(),
-          static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
+          active_indices.edge_property_->GetAbortProcessor(),
           vector_index_.Analysis(),
           vector_edge_index_.Analysis()};
 }
@@ -134,6 +134,7 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
 
 void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex,
                                                       Vertex *to_vertex, Edge *edge) {
+  edge_property_.CollectOnPropertyChange(property, from_vertex, to_vertex, edge, edge_type);
   edge_type_property_.CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge);
 }
 
@@ -146,5 +147,6 @@ void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_in
   active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);
   active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
+  active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
 }
 }  // namespace memgraph::storage

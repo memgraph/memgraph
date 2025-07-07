@@ -37,6 +37,7 @@ extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
 extern const Event ActiveEdgeTypeIndices;
 extern const Event ActiveEdgeTypePropertyIndices;
+extern const Event ActiveEdgePropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 extern const Event ActiveVectorIndices;
@@ -677,6 +678,7 @@ class Storage {
         indices_.label_property_index_->GetActiveIndices(),
         indices_.edge_type_index_->GetActiveIndices(),
         indices_.edge_type_property_index_->GetActiveIndices(),
+        indices_.edge_property_index_->GetActiveIndices(),
     };
   }
 

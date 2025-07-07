@@ -42,9 +42,6 @@ class EdgeTypeIndex {
     virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                       const Transaction &tx) = 0;
 
-    virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
-                                          EdgeRef edge_ref, EdgeTypeId edge_type, const Transaction &tx) = 0;
-
     virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
 
     virtual bool IndexReady(EdgeTypeId edge_type) const = 0;

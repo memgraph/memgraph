@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -34,11 +35,13 @@ struct ActiveIndices {
   explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
                          std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
                          std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
-                         std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties)
+                         std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties,
+                         std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property)
       : label_{std::move(label)},
         label_properties_{std::move(label_properties)},
         edge_type_{std::move(edge_type)},
-        edge_type_properties_(std::move(edge_type_properties)) {}
+        edge_type_properties_(std::move(edge_type_properties)),
+        edge_property_(std::move(edge_property) {}
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
@@ -61,6 +64,11 @@ struct ActiveIndices {
       if (!edge_type_properties_->IndexReady(edge_type, property)) return false;
     }
 
+    // edge property
+    for (auto const property : required_indices.edge_property_) {
+      if (!edge_property_->IndexReady(property)) return false;
+    }
+
     return true;
   }
 
@@ -68,5 +76,6 @@ struct ActiveIndices {
   std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
   std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
   std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties_;
+  std::unique_ptr<EdgePropertyIndex::ActiveIndices> edge_property_;
 };
 }  // namespace memgraph::storage

@@ -2962,11 +2962,11 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),

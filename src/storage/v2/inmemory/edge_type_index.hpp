@@ -125,8 +125,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                               const Transaction &tx) override;
 
-    void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                  EdgeTypeId edge_type, const Transaction &tx) override;
     void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
 
