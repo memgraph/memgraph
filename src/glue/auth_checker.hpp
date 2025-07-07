@@ -39,10 +39,6 @@ class AuthChecker : public query::AuthChecker {
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
                                              std::string_view db_name = "");
 
-  [[nodiscard]] static bool IsRoleAuthorized(const auth::Role &role,
-                                             const std::vector<query::AuthQuery::Privilege> &privileges,
-                                             std::string_view db_name = "");
-
   [[nodiscard]] static bool IsRoleAuthorized(const auth::Roles &roles,
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
                                              std::string_view db_name = "");

@@ -157,24 +157,9 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
     return false;
   }
 #endif
-  const auto user_permissions = user.GetPermissions();
+  const auto user_permissions = user.GetPermissions(db_name);
   return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
     return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
-           memgraph::auth::PermissionLevel::GRANT;
-  });
-}
-
-bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
-                                   const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                   std::string_view db_name) {  // NOLINT
-#ifdef MG_ENTERPRISE
-  if (!db_name.empty() && !role.HasAccess(db_name)) {
-    return false;
-  }
-#endif
-  const auto role_permissions = role.permissions();
-  return std::all_of(privileges.begin(), privileges.end(), [&role_permissions](const auto privilege) {
-    return role_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
 }
@@ -187,7 +172,7 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Roles &roles,
     return false;
   }
 #endif
-  const auto roles_permissions = roles.GetPermissions();
+  const auto roles_permissions = roles.GetPermissions(db_name);
   return std::all_of(privileges.begin(), privileges.end(), [&roles_permissions](const auto privilege) {
     return roles_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;

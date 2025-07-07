@@ -787,7 +787,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 /// @throw QueryRuntimeException if an error occurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
-                         Interpreter &interpreter) {
+                         Interpreter &interpreter, std::optional<dbms::DatabaseAccess> db_acc) {
   AuthQueryHandler *auth = interpreter_context->auth;
 #ifdef MG_ENTERPRISE
   auto *db_handler = interpreter_context->dbms_handler;
@@ -1098,7 +1098,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     }
     case AuthQuery::Action::SHOW_PRIVILEGES:
       callback.header = {"privilege", "effective", "description"};
-      callback.fn = [auth, user_or_role] { return auth->GetPrivileges(user_or_role); };
+      callback.fn = [auth, user_or_role, db_acc = std::move(db_acc)] {
+        return auth->GetPrivileges(user_or_role, db_acc ? db_acc.value()->name() : "");
+      };
       return callback;
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
       callback.header = {"role"};
@@ -3957,14 +3959,16 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 #endif
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               InterpreterContext *interpreter_context, Interpreter &interpreter) {
+                               InterpreterContext *interpreter_context, Interpreter &interpreter,
+                               std::optional<memgraph::dbms::DatabaseAccess> db_acc) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, interpreter);
+  auto callback =
+      HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, interpreter, std::move(db_acc));
 
   return PreparedQuery{
       std::move(callback.header), std::move(parsed_query.required_privileges),
@@ -6605,7 +6609,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       /// SYSTEM (Replication) PURE
-      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this,
+                                        current_db_.db_acc_);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
@@ -6800,7 +6805,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  const std::string db_name = db ? *db : "";
+  const std::string db_name = db.value_or("");
   if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
     Abort();
     if (db_name.empty()) {

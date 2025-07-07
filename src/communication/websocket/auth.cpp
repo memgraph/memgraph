@@ -54,7 +54,10 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
   // Check permissions
   if (user_or_role_) {
     return std::visit(utils::Overloaded{[&](auto &user_or_role) {
-                        return user_or_role.GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
+                        // Main could be deleted, so we will connect without a db; this is only used by websocket on
+                        // connect, so not critical (we will not be able to access any db)
+                        const auto &db_name = user_or_role.GetMain();
+                        return user_or_role.GetPermissions(db_name).Has(permission) == auth::PermissionLevel::GRANT;
                       }},
                       *user_or_role_);
   }

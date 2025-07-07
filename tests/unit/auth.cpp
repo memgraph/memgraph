@@ -331,7 +331,12 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     ASSERT_TRUE(user->HasAccess("db3"));
     ASSERT_FALSE(user->HasAccess("db4"));
 
+    ASSERT_FALSE(user->has_access("db1"));
+    ASSERT_FALSE(user->has_access("db2"));
+    ASSERT_FALSE(user->has_access("db3"));
+    ASSERT_FALSE(user->has_access("db4"));
     user->db_access().Grant("db4");
+    ASSERT_TRUE(user->has_access("db4"));
     ASSERT_FALSE(user->HasAccess("db4"));
 
     role3->db_access().Grant("db4");
@@ -529,16 +534,35 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     user->permissions().Deny(Permission::MATCH);
     user->permissions().Grant(Permission::CREATE);
 
-    // Test that user's own permissions are always included regardless of database filter
     auto db1_permissions = user->GetPermissions("db1");
-    EXPECT_EQ(db1_permissions.Has(Permission::INDEX), PermissionLevel::GRANT);
-    EXPECT_EQ(db1_permissions.Has(Permission::STATS), PermissionLevel::GRANT);
-    EXPECT_EQ(db1_permissions.Has(Permission::MATCH), PermissionLevel::DENY);
+    EXPECT_FALSE(user->has_access("db1"));
+    EXPECT_TRUE(user->HasAccess("db1"));
+    EXPECT_EQ(db1_permissions.Has(Permission::INDEX), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::STATS), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
     EXPECT_EQ(db1_permissions.Has(Permission::CREATE), PermissionLevel::DENY);
+    EXPECT_EQ(db1_permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::SET), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(db1_permissions.Has(Permission::REMOVE), PermissionLevel::NEUTRAL);
+
+    auto db4_permissions = user->GetPermissions("db4");
+    EXPECT_TRUE(user->has_access("db4"));
+    EXPECT_TRUE(user->HasAccess("db4"));
+    EXPECT_EQ(db4_permissions.Has(Permission::INDEX), PermissionLevel::GRANT);
+    EXPECT_EQ(db4_permissions.Has(Permission::STATS), PermissionLevel::GRANT);
+    EXPECT_EQ(db4_permissions.Has(Permission::MATCH), PermissionLevel::DENY);
+    EXPECT_EQ(db4_permissions.Has(Permission::CREATE), PermissionLevel::GRANT);
+    ASSERT_EQ(db4_permissions.Has(Permission::SET), PermissionLevel::GRANT);
+    ASSERT_EQ(db4_permissions.Has(Permission::REMOVE), PermissionLevel::GRANT);
 
     auto none_permissions = user->GetPermissions("nonexistent");
-    ASSERT_EQ(none_permissions.Has(Permission::INDEX), PermissionLevel::GRANT);
-    ASSERT_EQ(none_permissions.Has(Permission::STATS), PermissionLevel::GRANT);
+    EXPECT_FALSE(user->has_access("nonexistent"));
+    EXPECT_FALSE(user->HasAccess("nonexistent"));
+    EXPECT_EQ(none_permissions.Has(Permission::INDEX), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(none_permissions.Has(Permission::STATS), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(none_permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+    EXPECT_EQ(none_permissions.Has(Permission::CREATE), PermissionLevel::NEUTRAL);
   }
 
   // Test 10: Test CanImpersonate with database filtering
@@ -614,15 +638,15 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth->GetUser("user1");
     ASSERT_TRUE(user1);
-    const auto *role1 = user1->role();
-    ASSERT_NE(role1, nullptr);
-    ASSERT_EQ(role1->rolename(), "role1");
+    const auto &roles = user1->roles();
+    ASSERT_EQ(roles.size(), 1);
+    ASSERT_EQ(roles.rolenames().front(), "role1");
 
     auto user2 = auth->GetUser("user2");
     ASSERT_TRUE(user2);
-    const auto *role2 = user2->role();
-    ASSERT_NE(role2, nullptr);
-    ASSERT_EQ(role2->rolename(), "role2");
+    const auto &roles2 = user2->roles();
+    ASSERT_EQ(roles2.size(), 1);
+    ASSERT_EQ(roles2.rolenames().front(), "role2");
   }
 
   ASSERT_TRUE(auth->RemoveRole("role1"));
@@ -630,14 +654,14 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth->GetUser("user1");
     ASSERT_TRUE(user1);
-    const auto *role = user1->role();
-    ASSERT_EQ(role, nullptr);
+    const auto &roles = user1->roles();
+    ASSERT_EQ(roles.size(), 0);
 
     auto user2 = auth->GetUser("user2");
     ASSERT_TRUE(user2);
-    const auto *role2 = user2->role();
-    ASSERT_NE(role2, nullptr);
-    ASSERT_EQ(role2->rolename(), "role2");
+    const auto &roles2 = user2->roles();
+    ASSERT_EQ(roles2.size(), 1);
+    ASSERT_EQ(roles2.rolenames().front(), "role2");
   }
 
   {
@@ -648,14 +672,14 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth->GetUser("user1");
     ASSERT_TRUE(user1);
-    const auto *role1 = user1->role();
-    ASSERT_EQ(role1, nullptr);
+    const auto &roles = user1->roles();
+    ASSERT_EQ(roles.size(), 0);
 
     auto user2 = auth->GetUser("user2");
     ASSERT_TRUE(user2);
-    const auto *role2 = user2->role();
-    ASSERT_NE(role2, nullptr);
-    ASSERT_EQ(role2->rolename(), "role2");
+    const auto &roles2 = user2->roles();
+    ASSERT_EQ(roles2.size(), 1);
+    ASSERT_EQ(roles2.rolenames().front(), "role2");
   }
 
   {
@@ -696,9 +720,9 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth->GetUser("user");
     ASSERT_TRUE(user);
-    const auto *role = user->role();
-    ASSERT_NE(role, nullptr);
-    ASSERT_EQ(role->rolename(), "role");
+    const auto &roles = user->roles();
+    ASSERT_EQ(roles.size(), 1);
+    ASSERT_EQ(roles.rolenames().front(), "role");
   }
 
   {
@@ -711,7 +735,7 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth->GetUser("user");
     ASSERT_TRUE(user);
-    ASSERT_EQ(user->role(), nullptr);
+    ASSERT_EQ(user->roles().size(), 0);
   }
 }
 
@@ -1136,9 +1160,11 @@ TEST_F(AuthWithStorage, MultipleRoles) {
   ASSERT_EQ(retrieved_user->roles().size(), 3);
 
   // Check that role() returns the first role for backward compatibility
-  const auto *first_role = retrieved_user->role();
-  ASSERT_NE(first_role, nullptr);
-  ASSERT_EQ(first_role->rolename(), "role1");
+  const auto &roles = retrieved_user->roles();
+  ASSERT_EQ(roles.size(), 3);
+  ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role1") != roles.rolenames().end());
+  ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role2") != roles.rolenames().end());
+  ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role3") != roles.rolenames().end());
 
   // Test removing a specific role
   retrieved_user->RemoveRole("role2");
@@ -1169,7 +1195,6 @@ TEST_F(AuthWithStorage, MultipleRoles) {
   auto cleared_user = auth->GetUser("user");
   ASSERT_TRUE(cleared_user);
   ASSERT_EQ(cleared_user->roles().size(), 0);
-  ASSERT_EQ(cleared_user->role(), nullptr);
 }
 
 TEST_F(AuthWithStorage, StorageFormatBackwardCompatibility) {
@@ -1187,7 +1212,7 @@ TEST_F(AuthWithStorage, StorageFormatBackwardCompatibility) {
   auto retrieved_user = auth->GetUser("user");
   ASSERT_TRUE(retrieved_user);
   ASSERT_EQ(retrieved_user->roles().size(), 1);
-  ASSERT_EQ(retrieved_user->role()->rolename(), "role");
+  ASSERT_EQ(retrieved_user->roles().rolenames().front(), "role");
 
   // Now add another role to test the new format
   auto role2 = auth->AddRole("role2");
@@ -1395,9 +1420,9 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto user = auth->GetUser("aLIce");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
-    const auto *role = user->role();
-    ASSERT_NE(role, nullptr);
-    ASSERT_EQ(role->rolename(), "moderator");
+    const auto &roles = user->roles();
+    ASSERT_EQ(roles.size(), 1);
+    ASSERT_EQ(roles.rolenames().front(), "moderator");
   }
 
   // AllUsersForRole
@@ -1614,7 +1639,7 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   ASSERT_TRUE(auth->AddUser("user"));
   ASSERT_TRUE(auth->AddUser("another_user"));
 
-  // User has no permissions by deafult; add some
+  // User has no permissions by default; add some
   auto user = auth->GetUser("user");
   auto another_user = auth->GetUser("another_user");
   ASSERT_TRUE(user);
@@ -1683,12 +1708,12 @@ TEST_F(V1Auth, MigrationTest) {
   ASSERT_TRUE(role2);
 
   // Check that each user is connected to a role
-  ASSERT_TRUE(user1->role());
-  ASSERT_TRUE(user2->role());
+  ASSERT_EQ(user1->roles().size(), 1);
+  ASSERT_EQ(user2->roles().size(), 1);
 
   // Verify the role assignments
-  ASSERT_EQ(user1->role()->rolename(), "role1");
-  ASSERT_EQ(user2->role()->rolename(), "role2");
+  ASSERT_EQ(user1->roles().rolenames().front(), "role1");
+  ASSERT_EQ(user2->roles().rolenames().front(), "role2");
 }
 
 #endif

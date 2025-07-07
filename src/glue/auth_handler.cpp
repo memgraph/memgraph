@@ -77,30 +77,28 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructPrivilegesResult(
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
-    const std::optional<memgraph::auth::User> &user) {
+    const std::optional<memgraph::auth::User> &user, std::string_view db_name) {
   std::vector<PermissionForPrivilegeResult> privilege_results;
 
-  const auto &permissions = user->GetPermissions();
-  const auto &user_level_permissions = user->permissions();
+  const auto &permissions = user->GetPermissions(db_name);
+  memgraph::auth::Permissions user_level_permissions =
+      user->has_access(db_name) ? user->permissions() : memgraph::auth::Permissions{};
+  const auto &roles_permissions = user->roles().GetPermissions(db_name);
 
   for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto user_permission_result = GetPermissionForPrivilegeForUserOrRole(permissions, privilege, "USER");
     auto user_only_permissions_result =
         GetPermissionForPrivilegeForUserOrRole(user_level_permissions, privilege, "USER");
+    auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(roles_permissions, privilege, "ROLE");
 
     if (user_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
       std::vector<std::string> full_description;
       if (user_only_permissions_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
         full_description.emplace_back(user_only_permissions_result.description);
       }
-
-      if (const auto *role = user->role(); role != nullptr) {
-        auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(role->permissions(), privilege, "ROLE");
-        if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
-          full_description.emplace_back(role_permission_result.description);
-        }
+      if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
+        full_description.emplace_back(role_permission_result.description);
       }
-
       privilege_results.push_back(PermissionForPrivilegeResult{user_permission_result.permission,
                                                                user_permission_result.permission_level,
                                                                memgraph::utils::Join(full_description, ", ")});
@@ -158,8 +156,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   auto allows = db.GetAllowAll();
   auto grants = db.GetGrants();
   auto denies = db.GetDenies();
-  if (const auto *role = user->role()) {
-    const auto &role_db = role->db_access();
+  for (const auto &role : user->roles()) {
+    const auto &role_db = role.db_access();
     allows |= role_db.GetAllowAll();
     grants.insert(role_db.GetGrants().begin(), role_db.GetGrants().end());
     denies.insert(role_db.GetDenies().begin(), role_db.GetDenies().end());
@@ -177,6 +175,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   return {res};
 }
 
+// TODO Filter by db name
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
@@ -530,8 +529,12 @@ std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::strin
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
 
-    if (const auto *role = user->role(); role != nullptr) {
-      return role->rolename();
+    if (const auto &roles = user->roles(); !roles.empty()) {
+      std::string res;
+      for (const auto &role : roles) {
+        res += role.rolename() + ",";
+      }
+      return res.substr(0, res.size() - 1);
     }
     return std::nullopt;
   } catch (const memgraph::auth::AuthException &e) {
@@ -626,7 +629,8 @@ void AuthQueryHandler::RemoveRole(const std::string &username, const std::string
   }
 }
 
-std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role) {
+std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role,
+                                                                                      std::string_view db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
@@ -640,7 +644,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
     }
 
     if (user) {
-      grants = ShowUserPrivileges(user);
+      grants = ShowUserPrivileges(user, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user);
