@@ -26,7 +26,7 @@ struct IndicesCollection {
   std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_properties_;
   std::vector<storage::EdgeTypeId> edge_type_;
   std::vector<std::pair<storage::EdgeTypeId, storage::PropertyId>> edge_type_properties_;
-  // TODO: edge properties
+  std::vector<storage::PropertyId> edge_property_;
 };
 
 struct ActiveIndices {
