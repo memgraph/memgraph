@@ -151,11 +151,11 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mg
 
     // Add type information
     if (root_labels.Size() == 1) {
-      root_map.Insert("_type", mgp::Value(std::string(root_labels[0])));
+      root_map.Insert("_type", mgp::Value(root_labels[0]));
     } else if (root_labels.Size() > 1) {
       mgp::List label_list;
       for (size_t i = 0; i < root_labels.Size(); ++i) {
-        label_list.Append(mgp::Value(std::string(root_labels[i])));
+        label_list.Append(mgp::Value(root_labels[i]));
       }
       root_map.Insert("_type", mgp::Value(label_list));
     }
@@ -204,11 +204,11 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mg
 
         // Add type information
         if (target_labels.Size() == 1) {
-          target_map.Insert("_type", mgp::Value(std::string(target_labels[0])));
+          target_map.Insert("_type", mgp::Value(target_labels[0]));
         } else if (target_labels.Size() > 1) {
           mgp::List label_list;
           for (size_t l = 0; l < target_labels.Size(); ++l) {
-            label_list.Append(mgp::Value(std::string(target_labels[l])));
+            label_list.Append(mgp::Value(target_labels[l]));
           }
           target_map.Insert("_type", mgp::Value(label_list));
         }
