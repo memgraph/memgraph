@@ -327,7 +327,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
-  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
+  auto [it, inserted] = acc.insert(Vertex{Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
