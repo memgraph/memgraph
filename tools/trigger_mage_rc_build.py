@@ -35,9 +35,7 @@ def main():
         "Authorization: token": f"Bearer {os.getenv('GITHUB_TOKEN')}",
     }
 
-    response = requests.post(
-        url="https://api.github.com/repos/memgraph/memgraph/dispatches", json=payload, headers=headers
-    )
+    response = requests.post(url="https://api.github.com/repos/memgraph/mage/dispatches", json=payload, headers=headers)
 
     if response.status_code == 204:
         print("MAGE build triggered successfully.")
