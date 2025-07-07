@@ -226,8 +226,8 @@ link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 cmake_policy(SET CMP0138 NEW)
 # include(CheckIPOSupported)
 # check_ipo_supported() # fatal error if IPO is not supported
-# set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-# set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
