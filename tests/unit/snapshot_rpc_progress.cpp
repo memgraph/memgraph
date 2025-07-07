@@ -128,7 +128,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(label_idx.CreateIndex(label, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
@@ -150,7 +150,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_idx.CreateIndex(label, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
@@ -174,7 +174,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   snapshot_info.emplace(mocked_observer, 2);
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(label_idx.CreateIndex(label, vertices.access(), par_schema_info, snapshot_info));
+  ASSERT_TRUE(label_idx.CreateIndexOnePass(label, vertices.access(), par_schema_info, snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) {
@@ -401,7 +401,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(etype_idx.CreateIndex(etype, vertices.access(), snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
@@ -424,7 +424,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(3);
-  ASSERT_TRUE(etype_idx.CreateIndex(etype, vertices.access(), snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertices) {

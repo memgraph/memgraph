@@ -38,8 +38,10 @@ struct Vertex {
 
   utils::small_vector<LabelId> labels;
 
-  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  using EdgeTriple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+
+  utils::small_vector<EdgeTriple> in_edges;
+  utils::small_vector<EdgeTriple> out_edges;
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;

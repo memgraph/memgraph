@@ -708,7 +708,7 @@ class FakeDbAccessor {
 
   int64_t EdgesCount(memgraph::storage::PropertyId property) const { return 0; }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) const {
+  bool LabelIndexReady(memgraph::storage::LabelId label) const {
     return label_index_.find(label) != label_index_.end();
   }
 
@@ -754,7 +754,7 @@ class FakeDbAccessor {
     return res;
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) const {
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type) const {
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
   }
 
@@ -850,8 +850,8 @@ class FakeDbAccessor {
 
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
 
-  auto GetEnumValue(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name,
+                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     // Does this need to be less fake?
     return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
   }

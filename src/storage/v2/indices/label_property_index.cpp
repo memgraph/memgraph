@@ -128,11 +128,6 @@ size_t PropertyValueRange::hash() const noexcept {
   return seed;
 }
 
-void LabelPropertyIndex::AbortProcessor::Process(LabelPropertyIndex::ActiveIndices &active_indices,
-                                                 uint64_t start_timestamp) {
-  active_indices.AbortEntries(cleanup_collection, start_timestamp);
-}
-
 void LabelPropertyIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex *vertex) {
   const auto &it = p2l.find(propId);
   if (it == p2l.end()) return;

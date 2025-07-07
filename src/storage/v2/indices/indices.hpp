@@ -57,7 +57,7 @@ struct Indices {
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
-    LabelPropertyIndex::AbortProcessor property_label_;
+    LabelPropertyIndex::AbortProcessor label_properties_;
     EdgeTypeIndex::AbortProcessor edge_type_;
 
     EdgeTypePropertyIndex::IndexStats property_edge_type_;

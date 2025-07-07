@@ -148,8 +148,8 @@ struct PropertiesPermutationHelper {
    * values. This returns a vector of boolean flags indicating per-element
    * equality (in monotonic property id order.)
    */
-  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
-      -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties,
+                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).
@@ -184,12 +184,13 @@ class LabelPropertyIndex {
   struct ActiveIndices;
 
   struct AbortProcessor {
+    // TODO: this is a filter for only relevant indicies? If so it should be based off the ActiveIndices
+    //       + via constructor
     std::map<LabelId, std::map<PropertyId, std::vector<IndexInfo>>> l2p;
     std::map<PropertyId, std::map<LabelId, std::vector<IndexInfo>>> p2l;
 
     void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
-    void Process(ActiveIndices &active_indices, uint64_t start_timestamp);
 
     // collection
     AbortableInfo cleanup_collection;

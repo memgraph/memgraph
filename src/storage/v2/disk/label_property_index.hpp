@@ -37,13 +37,12 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
     void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                             const Transaction &tx) override{};
+                             const Transaction &tx) override {};
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyPath const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
+        const -> std::vector<LabelPropertiesIndicesInfo> override;
 
     auto ListIndices(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
@@ -89,7 +88,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   auto GetInfo() const -> std::set<LabelProperty>;
 
-  void DropGraphClearIndices() override{};
+  void DropGraphClearIndices() override {};
 
   auto GetActiveIndices() const -> std::unique_ptr<LabelPropertyIndex::ActiveIndices> override;
 

@@ -762,21 +762,44 @@ TYPED_TEST(CppApiTestFixture, TestMapKeyExist) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
-  auto storage_acc = this->storage->UniqueAccess();
-  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
-  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  {
+    auto storage_acc = this->CreateIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
-  ASSERT_TRUE(mgp::CreateLabelIndex(&raw_graph, "Person"));
+    ASSERT_TRUE(mgp::CreateLabelIndex(&raw_graph, "Person"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
 
-  auto indices = mgp::ListAllLabelIndices(&raw_graph);
-  ASSERT_EQ(indices.Size(), 1);
-  ASSERT_EQ(indices[0].ValueString(), "Person");
-  ASSERT_TRUE(mgp::DropLabelIndex(&raw_graph, "Person"));
-
-  auto updated_indices = mgp::ListAllLabelIndices(&raw_graph);
-  ASSERT_EQ(updated_indices.Size(), 0);
-
-  ASSERT_FALSE(mgp::DropLabelIndex(&raw_graph, "NonExistentLabel"));
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto indices = mgp::ListAllLabelIndices(&raw_graph);
+    ASSERT_EQ(indices.Size(), 1);
+    ASSERT_EQ(indices[0].ValueString(), "Person");
+  }
+  {
+    auto storage_acc = this->DropIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_TRUE(mgp::DropLabelIndex(&raw_graph, "Person"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto updated_indices = mgp::ListAllLabelIndices(&raw_graph);
+    ASSERT_EQ(updated_indices.Size(), 0);
+  }
+  {
+    auto storage_acc = this->DropIndexAccessor();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    ASSERT_FALSE(mgp::DropLabelIndex(&raw_graph, "NonExistentLabel"));
+    ASSERT_FALSE(db_acc->Commit().HasError());
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {

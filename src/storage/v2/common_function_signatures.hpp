@@ -29,10 +29,8 @@ using PublishIndexWrapper = std::function<PublishIndexFunction(PublishIndexFunct
 using DropIndexWrapper = std::function<DropIndexFunction(DropIndexFunction)>;
 
 // default for when callback not provided
-constexpr auto publish_no_wrap = [](PublishIndexFunction func) {
-  return [func = std::move(func)](uint64_t timestamp) { return func(timestamp); };
-};
-constexpr auto drop_no_wrap = [](DropIndexFunction func) { return [func = std::move(func)] { return func(); }; };
+constexpr auto publish_no_wrap = std::identity{};
+constexpr auto drop_no_wrap = std::identity{};
 constexpr auto always_invalidate_plan_cache = []<typename... Args>(Args && ...) { return true; };
 
 }  // namespace memgraph::storage

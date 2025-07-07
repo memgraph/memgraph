@@ -359,9 +359,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create label index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(label_unused).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label index statistics.
@@ -445,9 +445,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   void CreateEdgeIndex(memgraph::storage::Storage *store, memgraph::storage::EdgeTypeId edge_type) {
     {
       // Create edge-type index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(edge_type).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto read_only_acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(read_only_acc->CreateIndex(edge_type).HasError());
+      ASSERT_FALSE(read_only_acc->Commit().HasError());
     }
   }
 
@@ -2281,9 +2281,9 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
-      auto unique_acc = db.UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(index).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      ASSERT_FALSE(acc->DropIndex(index).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     for (const auto &[label, properties] : indices.label_properties) {
       auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
