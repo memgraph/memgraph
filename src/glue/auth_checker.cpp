@@ -95,8 +95,8 @@ namespace memgraph::glue {
 AuthChecker::AuthChecker(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
 std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(const std::optional<std::string> &username,
-                                                                  const std::optional<std::string> &rolename) const {
-  const auto user_or_role = auth_->ReadLock()->GetUserOrRole(username, rolename);
+                                                                  const std::vector<std::string> &rolenames) const {
+  const auto user_or_role = auth_->ReadLock()->GetUserOrRole(username, rolenames);
   if (user_or_role) {
     return std::make_shared<QueryUserOrRole>(auth_, *user_or_role);
   }

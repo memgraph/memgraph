@@ -482,8 +482,7 @@ namespace memgraph::auth {
 class Roles {
  public:
   Roles() = default;
-  explicit Roles(const std::unordered_set<Role> &roles) : roles_{roles} {}
-  explicit Roles(std::unordered_set<Role> &&roles) : roles_{std::move(roles)} {}
+  explicit Roles(std::unordered_set<Role> roles) : roles_{std::move(roles)} {}
 
   // Add a single role
   void AddRole(const Role &role) { roles_.insert(role); }

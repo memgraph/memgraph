@@ -23,7 +23,7 @@ class AuthChecker : public query::AuthChecker {
   explicit AuthChecker(auth::SynchedAuth *auth);
 
   std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
-                                                       const std::optional<std::string> &rolename) const override;
+                                                       const std::vector<std::string> &rolenames) const override;
 
   static std::unique_ptr<query::QueryUserOrRole> GenQueryUser(auth::SynchedAuth *auth,
                                                               const std::optional<auth::UserOrRole> &user_or_role);

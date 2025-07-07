@@ -33,7 +33,7 @@ class AuthChecker {
   virtual ~AuthChecker() = default;
 
   virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
-                                                        const std::optional<std::string> &rolename) const = 0;
+                                                        const std::vector<std::string> &rolenames) const = 0;
 
   virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
@@ -101,8 +101,8 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
   struct User : query::QueryUserOrRole {
-    User() : query::QueryUserOrRole{std::nullopt, std::nullopt} {}
-    User(std::string name) : query::QueryUserOrRole{std::move(name), std::nullopt} {}
+    User() : query::QueryUserOrRole{{}, {}} {}
+    User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/, std::string_view /*db_name*/,
                       UserPolicy * /*policy*/) const override {
       return true;
@@ -114,7 +114,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
   };
 
   std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &name,
-                                                       const std::optional<std::string> & /*role*/) const override {
+                                                       const std::vector<std::string> & /*roles*/) const override {
     if (name) return std::make_shared<User>(*name);
     return std::make_shared<User>();
   }

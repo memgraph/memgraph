@@ -136,7 +136,7 @@ StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transfor
 const std::string kStreamName{"name"};
 const std::string kIsRunningKey{"is_running"};
 const std::string kOwner{"owner"};
-const std::string kOwnerRole{"owner_role"};
+const std::string kOwnerRoles{"owner_roles"};
 const std::string kType{"type"};
 }  // namespace
 
@@ -148,10 +148,10 @@ void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
 
   if (status.owner.has_value()) {
     data[kOwner] = std::move(*status.owner);
-    if (status.owner_role.has_value()) {
-      data[kOwnerRole] = std::move(*status.owner_role);
+    if (!status.owner_roles.empty()) {
+      data[kOwnerRoles] = std::move(status.owner_roles);
     } else {
-      data[kOwnerRole] = nullptr;
+      data[kOwnerRoles] = nullptr;
     }
   } else {
     data[kOwner] = nullptr;
@@ -167,11 +167,10 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
 
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     status.owner = owner.get<typename decltype(status.owner)::value_type>();
-    if (const auto &owner_role = data.at(kOwnerRole); !owner_role.is_null()) {
-      status.owner_role.emplace();
-      owner_role.get_to(*status.owner_role);
+    if (const auto &owner_roles = data.at(kOwnerRoles); !owner_roles.is_null()) {
+      owner_roles.get_to(status.owner_roles);
     } else {
-      status.owner_role.reset();
+      status.owner_roles.clear();
     }
   } else {
     status.owner = {};
@@ -503,7 +502,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   }
 
   auto ownername = owner->username();
-  auto rolename = owner->rolename();
+  auto rolenames = owner->rolenames();
 
   auto *memory_resource = utils::NewDeleteResource();
 
@@ -585,7 +584,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(ownername),
-                                       std::move(rolename),
+                                       std::move(rolenames),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
                                            stream_name, std::move(stream_info), std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
@@ -620,7 +619,7 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
 
       std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_roles);
       } catch (const utils::BasicException &e) {
         spdlog::warn(
             fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));
@@ -801,7 +800,7 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
             auto info = locked_stream_source->Info(stream_data.transformation_name);
             result.emplace_back(StreamStatus<>{stream_name, StreamType(*locked_stream_source),
                                                locked_stream_source->IsRunning(), std::move(info.common_info),
-                                               stream_data.owner, stream_data.owner_role});
+                                               stream_data.owner, stream_data.owner_roles});
           },
           stream_data);
     }

@@ -28,13 +28,13 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   std::string GetDefaultDB() const override;
 #endif
 
-  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{std::nullopt, std::nullopt}, auth_{auth} {}
+  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
   std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
     if (user_) return {*user_};
-    if (roles_) return auth::RoleWUsername{*username_, auth::Roles({*roles_})};
+    if (roles_) return auth::RoleWUsername{*username_, *roles_};
     return {};
   }
 

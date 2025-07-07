@@ -367,19 +367,51 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
-  const auto rolename = get_string_field("role");
-  if (!rolename) {
+  // Handle both single role and multiple roles
+  std::vector<std::string> role_names;
+
+  // Check for "roles" field first (multiple roles)
+  if (ret.find("roles") != ret.end()) {
+    const auto &roles_field = ret.at("roles");
+    if (roles_field.is_array()) {
+      for (const auto &role_name : roles_field) {
+        if (role_name.is_string()) {
+          role_names.push_back(role_name.get<std::string>());
+        }
+      }
+    } else if (roles_field.is_string()) {
+      role_names.push_back(roles_field.get<std::string>());
+    }
+  }
+
+  // Fall back to single "role" field for backward compatibility
+  if (role_names.empty()) {
+    const auto rolename = get_string_field("role");
+    if (!rolename) {
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate external user because the role was not returned by the auth module.",
+          "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+    role_names.push_back(*rolename);
+  }
+
+  if (role_names.empty()) {
     spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate external user because the role was not returned by the auth module.",
-        "https://memgr.ph/auth"));
+        "Couldn't authenticate user: no valid role(s) returned by the external auth module.", "https://memgr.ph/sso"));
     return std::nullopt;
   }
 
-  auto role = GetRole(*rolename);
-  if (!role) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
-                                        rolename, "https://memgr.ph/auth"));
-    return std::nullopt;
+  // Get all the roles
+  auth::Roles roles;
+  for (const auto &role_name : role_names) {
+    auto role = GetRole(role_name);
+    if (!role) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
+                                          role_name, "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+    roles.AddRole(*role);
   }
 
   auto username = provided_username.has_value() ? provided_username : get_string_field("username");
@@ -398,8 +430,8 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
-  spdlog::trace("Authenticated user '{}' with role '{}'.", *username, role->rolename());
-  return UserOrRole(auth::RoleWUsername{*username, Roles({*role})});
+  spdlog::trace("Authenticated user '{}' with roles: {}.", *username, fmt::join(roles.rolenames(), ", "));
+  return UserOrRole(auth::RoleWUsername{*username, roles});
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {

@@ -78,16 +78,12 @@ QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_
     : query::QueryUserOrRole{std::visit(
                                  utils::Overloaded{[](const auto &user_or_role) { return user_or_role.username(); }},
                                  user_or_role),
-                             std::visit(utils::Overloaded{[&](const auth::User &) -> std::optional<std::string> {
-                                                            return std::nullopt;
-                                                          },
-                                                          [&](const auth::Roles &roles) -> std::optional<std::string> {
-                                                            auto rolenames = roles.rolenames();
-                                                            if (rolenames.empty()) return std::nullopt;
-                                                            // For backward compatibility, return the first role name
-                                                            return rolenames[0];
-                                                          }},
-                                        user_or_role)},
+                             std::visit(
+                                 utils::Overloaded{[&](const auth::User &) -> std::vector<std::string> { return {}; },
+                                                   [&](const auth::Roles &roles) -> std::vector<std::string> {
+                                                     return roles.rolenames();
+                                                   }},
+                                 user_or_role)},
       auth_{auth} {
   std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
                                [&](auth::Roles &&roles) { roles_.emplace(std::move(roles)); }},

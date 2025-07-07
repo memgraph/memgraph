@@ -299,18 +299,18 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
-  const auto owner_role_json = json_trigger_data["owner_role"];
-  const std::optional<std::string> role{};
-  if (owner_role_json.is_string()) {
-    owner.emplace(owner_role_json.get<std::string>());
-  } else if (!owner_role_json.is_null()) {
+  const auto owner_roles_json = json_trigger_data["owner_roles"];
+  std::vector<std::string> roles{};
+  if (owner_roles_json.is_array()) {
+    roles = owner_roles_json.get<std::vector<std::string>>();
+  } else if (!owner_roles_json.is_null()) {
     spdlog::warn(invalid_state_message);
     return;
   }
 
   std::shared_ptr<query::QueryUserOrRole> user = nullptr;
   try {
-    user = auth_checker->GenQueryUser(owner, role);
+    user = auth_checker->GenQueryUser(owner, roles);
   } catch (const utils::BasicException &e) {
     spdlog::warn(
         fmt::format("Failed to load trigger '{}' because its owner is not an existing Memgraph user.", trigger_name));
@@ -385,18 +385,18 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
     if (maybe_username) {
       data["owner"] = *maybe_username;
       // Roles need to be associated with a username
-      const auto &maybe_rolename = owner_from_trigger->rolename();
-      if (maybe_rolename) {
-        data["owner_role"] = *maybe_rolename;
+      const auto &maybe_rolename = owner_from_trigger->rolenames();
+      if (!maybe_rolename.empty()) {
+        data["owner_roles"] = maybe_rolename;
       } else {
-        data["owner_role"] = nullptr;
+        data["owner_roles"] = nullptr;
       }
     } else {
       data["owner"] = nullptr;
     }
   } else {
     data["owner"] = nullptr;
-    data["owner_role"] = nullptr;
+    data["owner_roles"] = nullptr;
   }
   storage_.Put(trigger->Name(), data.dump());
   store_guard.unlock();
