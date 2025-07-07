@@ -141,7 +141,13 @@ std::optional<std::string> SessionHL::GetDefaultDB() const {
 std::string SessionHL::GetCurrentUser() const {
   if (interpreter_.user_or_role_) {
     if (const auto &name = interpreter_.user_or_role_->username()) return *name;
-    if (const auto &name = interpreter_.user_or_role_->rolename()) return *name;
+    if (const auto &names = interpreter_.user_or_role_->rolenames(); !names.empty()) {
+      // This is only used to figure out if the impersonated user is different from the main user. Since
+      // this is a role; it will always be different since roles cannot be impersonated.
+      std::string res;
+      std::for_each(names.begin(), names.end(), [&res](const auto &name) { res += name + ","; });
+      return res;
+    }
   }
   return "";
 }

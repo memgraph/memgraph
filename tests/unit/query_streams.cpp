@@ -38,7 +38,7 @@ namespace {
 const static std::string kTopicName{"TrialTopic"};
 
 struct FakeUser : memgraph::query::QueryUserOrRole {
-  FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, std::nullopt} {}
+  FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, {}} {}
 
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, std::string_view db_name,
                     memgraph::query::UserPolicy *policy) const {

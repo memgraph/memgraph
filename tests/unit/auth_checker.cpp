@@ -239,8 +239,8 @@ TEST(AuthChecker, Generate) {
   memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
   memgraph::glue::AuthChecker auth_checker(&auth);
 
-  auto empty_user = auth_checker.GenQueryUser(std::nullopt, std::nullopt);
-  ASSERT_THROW(auth_checker.GenQueryUser("does_not_exist", std::nullopt), memgraph::auth::AuthException);
+  auto empty_user = auth_checker.GenQueryUser(std::nullopt, {});
+  ASSERT_THROW(auth_checker.GenQueryUser("does_not_exist", {}), memgraph::auth::AuthException);
 
   EXPECT_FALSE(empty_user && *empty_user);
   // Still empty auth, so the above should have su permissions
@@ -266,8 +266,8 @@ TEST(AuthChecker, Generate) {
   // Add role and new user
   auto new_role = *auth->AddRole("new_role");
   auto new_user2 = *auth->AddUser("new_user2");
-  auto role = auth_checker.GenQueryUser("anyuser", "new_role");
-  auto user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
+  auto role = auth_checker.GenQueryUser("anyuser", {"new_role"});
+  auto user2 = auth_checker.GenQueryUser("new_user2", {});
 
   // Should be permission-less by default
   EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
@@ -282,8 +282,8 @@ TEST(AuthChecker, Generate) {
   new_role.permissions().Grant(memgraph::auth::Permission::TRIGGER);
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
-  role = auth_checker.GenQueryUser("no check", "new_role");
-  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
+  role = auth_checker.GenQueryUser("no check", {"new_role"});
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
@@ -294,7 +294,7 @@ TEST(AuthChecker, Generate) {
   // Connect role and recheck
   new_user2.SetRole(new_role);
   auth->SaveUser(new_user2);
-  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_TRUE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));

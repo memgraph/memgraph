@@ -1899,7 +1899,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
   // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
+  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
 
   return [db_acc = std::move(db_acc), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
@@ -1935,7 +1935,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
   // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
+  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
 
   return [db = std::move(db), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
@@ -4127,7 +4127,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPrope
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role) {
   // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
+  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
            trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
