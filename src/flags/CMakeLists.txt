@@ -39,6 +39,9 @@ target_sources(mg-flags
         scheduler.cpp
 )
 target_include_directories(mg-flags PUBLIC include)
+
+find_package(spdlog REQUIRED)
+
 target_link_libraries(mg-flags
         PUBLIC spdlog::spdlog mg-settings mg-utils mg-license
         PRIVATE lib::rangev3 croncpp::croncpp)

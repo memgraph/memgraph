@@ -18,6 +18,7 @@ set(GFLAGS_NOTHREADS OFF)
 find_package(gflags REQUIRED)
 find_package(fmt REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(spdlog REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -226,31 +227,6 @@ set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
-macro(build_gtest)
-  add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
-    CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
-  set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
-    CACHE PATH "Path to gtest and gmock include directory" FORCE)
-  set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
-    CACHE FILEPATH "Path to gmock library" FORCE)
-  set(GMOCK_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock_main.a
-    CACHE FILEPATH "Path to gmock_main library" FORCE)
-  set(GTEST_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest.a
-    CACHE FILEPATH "Path to gtest library" FORCE)
-  set(GTEST_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest_main.a
-    CACHE FILEPATH "Path to gtest_main library" FORCE)
-  mark_as_advanced(GTEST_INCLUDE_DIR GMOCK_LIBRARY GMOCK_MAIN_LIBRARY GTEST_LIBRARY GTEST_MAIN_LIBRARY)
-  import_library(gtest STATIC ${GTEST_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-  import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-  import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-  import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-endmacro()
-mg_build_if_needed(build_gtest "gtest")
-mg_create_linkable_if_no_cmake(gtest STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgtest.a" "${MG_TOOLCHAIN_ROOT}/include")
-mg_create_linkable_if_no_cmake(gtest_main STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgtest_main.a" "${MG_TOOLCHAIN_ROOT}/include")
-mg_create_linkable_if_no_cmake(gmock STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgmock.a" "${MG_TOOLCHAIN_ROOT}/include")
-mg_create_linkable_if_no_cmake(gmock_main STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgmock_main.a" "${MG_TOOLCHAIN_ROOT}/include")
-
 # Setup cppitertools
 import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -319,11 +295,6 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-mg_create_linkable_if_no_cmake(spdlog::spdlog STATIC
-  "${MG_TOOLCHAIN_ROOT}/lib/libspdlog.a"
-  "${MG_TOOLCHAIN_ROOT}/include/spdlog"
-)
-# add_subdirectory(spdlog)
 
 macro(build_kafka)
     import_external_library(librdkafka STATIC

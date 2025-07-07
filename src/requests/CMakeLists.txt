@@ -4,6 +4,7 @@ set(requests_src_files
 find_package(CURL REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
+find_package(spdlog REQUIRED)
 
 
 add_library(mg-requests STATIC ${requests_src_files})

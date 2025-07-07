@@ -143,8 +143,6 @@ declare -A primary_urls=(
   ["antlr4-generator"]="http://$local_cache_host/file/antlr-$antlr4_tag-complete.jar"
   ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
-  ["gbenchmark"]="http://$local_cache_host/git/benchmark.git"
-  ["gtest"]="http://$local_cache_host/git/googletest.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
@@ -175,8 +173,6 @@ declare -A secondary_urls=(
   ["antlr4-generator"]="https://www.antlr.org/download/antlr-$antlr4_tag-complete.jar"
   ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
-  ["gbenchmark"]="https://github.com/google/benchmark.git"
-  ["gtest"]="https://github.com/google/googletest.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
@@ -221,15 +217,8 @@ repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitert
 rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
-benchmark_tag="v1.6.0"
-skip_if_under_toolchain "gbenchmark" repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
-
 libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
 skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
-
-# google test
-googletest_tag="v1.14.0"
-skip_if_under_toolchain "gtest" repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
