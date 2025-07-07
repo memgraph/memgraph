@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 
+#include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
@@ -55,7 +56,7 @@ struct Indices {
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
-    LabelPropertyIndex::AbortProcessor property_label_;
+    LabelPropertyIndex::AbortProcessor label_properties_;
     EdgeTypeIndex::AbortProcessor edge_type_;
 
     EdgeTypePropertyIndex::IndexStats property_edge_type_;
@@ -67,10 +68,10 @@ struct Indices {
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
-    void Process(Indices &indices, uint64_t start_timestamp);
+    void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp);
   };
 
-  auto GetAbortProcessor() const -> AbortProcessor;
+  auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`

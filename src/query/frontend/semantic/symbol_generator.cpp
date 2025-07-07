@@ -97,7 +97,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
       }
       user_symbols.emplace_back(sym_pair.second);
     }
-    if (user_symbols.empty()) {
+    if (scope.in_return && user_symbols.empty()) {
       throw SemanticException("There are no variables in scope to use for '*'.");
     }
   }

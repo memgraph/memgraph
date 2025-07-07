@@ -97,10 +97,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     return stats;
   }
 
-  static constexpr std::size_t kEdgeTypeIdPos = 0U;
-  static constexpr std::size_t kVertexPos = 1U;
-  static constexpr std::size_t kEdgeRefPos = 2U;
-
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,

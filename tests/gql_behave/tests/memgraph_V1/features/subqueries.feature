@@ -420,6 +420,36 @@ Feature: Subqueries
         Then the result should be:
             | title          |
             | 'Forrest Gump' |
+
+Scenario: Advance command on subquery should not affect outer query vertex visibility
+    Given an empty graph
+    And having executed
+        """
+        CREATE (a:User {id: "user1", name: "Alice"})
+        CREATE (b:Post {id: "post1", title: "Hello"})
+        CREATE (c:Post {id: "post2", title: "World"})
+        CREATE (a)-[:HAS_POST]->(b)
+        CREATE (a)-[:HAS_POST]->(c)
+        """
+    When executing query:
+        """
+        MATCH (user:User {id: "user1"})
+        CALL {
+            WITH user
+            OPTIONAL MATCH (user)-[rel:HAS_POST]->(post:Post)
+            WITH rel, collect(DISTINCT post) AS posts
+            CALL {
+                WITH posts
+                UNWIND posts AS post
+                DETACH DELETE post
+            }
+        }
+        RETURN user.name AS name, user.id AS id
+        """
+    Then the result should be:
+        | name    | id     |
+        | 'Alice' | 'user1' |
+
     Scenario: Match after call
         Given an empty graph
         And having executed

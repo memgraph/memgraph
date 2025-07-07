@@ -11,17 +11,11 @@
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
 
-#include <algorithm>
-
-#include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
-#include "storage/v2/mvcc.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/disk_utils.hpp"
-#include "utils/exceptions.hpp"
 
 namespace memgraph::storage {
 
@@ -30,19 +24,20 @@ EdgeImportModeCache::EdgeImportModeCache(const Config &config)
 
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  return mem_label_index->Vertices(label, vertices_.access(), view, storage, transaction);
+  auto index = in_memory_indices_.label_index_->GetActiveIndices();
+  return static_cast<InMemoryLabelIndex::ActiveIndices *>(index.get())
+      ->Vertices(label, vertices_.access(), view, storage, transaction);
 }
 
 InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) const {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, std::array{PropertyPath{property}},
-                                            std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)},
-                                            vertices_.access(), view, storage, transaction);
+  auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
+  return static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get())
+      ->Vertices(label, std::array{PropertyPath{property}},
+                 std::array{PropertyValueRange::Bounded(lower_bound, upper_bound)}, vertices_.access(), view, storage,
+                 transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(
@@ -50,21 +45,20 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool const res = mem_label_property_index->CreateIndex(label, {{property}}, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_label_properties_.insert({label, property});
-  }
-  return res;
+  bool const res =
+      mem_label_property_index->CreateIndexOnePass(label, {{property}}, vertices_.access(), parallel_exec_info);
+  if (!res) return false;
+  scanned_label_properties_.insert({label, property});
+  return true;
 }
 
 bool EdgeImportModeCache::CreateIndex(
     LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  bool res = mem_label_index->CreateIndex(label, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_labels_.insert(label);
-  }
-  return res;
+  bool res = mem_label_index->CreateIndexOnePass(label, vertices_.access(), parallel_exec_info);
+  if (!res) return false;
+  scanned_labels_.insert(label);
+  return true;
 }
 
 bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {

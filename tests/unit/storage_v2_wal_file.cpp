@@ -45,7 +45,12 @@ class DeltaGenerator final {
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
                        gen->storage_mode_, false, false,
-                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext()) {}
+                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext(),
+                       memgraph::storage::ActiveIndices{
+                           std::make_unique<memgraph::storage::InMemoryLabelIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
+                       }) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
@@ -389,11 +394,11 @@ class DeltaGenerator final {
           case LABEL_INDEX_STATS_SET:
             return {WalLabelIndexStatsSet{label, stats}};
           case LABEL_PROPERTIES_INDEX_CREATE:
-            return {WalLabelPropertyIndexCreate{label, property_paths_as_str}};
+            return {WalLabelPropertyIndexCreate{label, {property_paths_as_str}}};
           case LABEL_PROPERTIES_INDEX_DROP:
-            return {WalLabelPropertyIndexDrop{label, property_paths_as_str}};
+            return {WalLabelPropertyIndexDrop{label, {property_paths_as_str}}};
           case LABEL_PROPERTIES_INDEX_STATS_SET:
-            return {WalLabelPropertyIndexStatsSet{label, property_paths_as_str, stats}};
+            return {WalLabelPropertyIndexStatsSet{label, {property_paths_as_str}, stats}};
           case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
             return {WalLabelPropertyIndexStatsClear{label}};
           case EDGE_INDEX_CREATE:

@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <fmt/core.h>
-#include "utils/simple_json.hpp"
+#include <cstdint>
+#include <string>
 
 namespace memgraph::storage {
 
@@ -23,15 +23,8 @@ struct LabelIndexStats {
   auto operator<=>(const LabelIndexStats &) const = default;
 };
 
-static inline std::string ToJson(const LabelIndexStats &in) {
-  return fmt::format(R"({{"count":{}, "avg_degree":{}}})", in.count, in.avg_degree);
-}
+std::string ToJson(const LabelIndexStats &in);
 
-static inline bool FromJson(const std::string &json, LabelIndexStats &out) {
-  bool res = true;
-  res &= utils::GetJsonValue(json, "count", out.count);
-  res &= utils::GetJsonValue(json, "avg_degree", out.avg_degree);
-  return res;
-}
+bool FromJson(const std::string &json, LabelIndexStats &out);
 
 }  // namespace memgraph::storage

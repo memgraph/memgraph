@@ -357,9 +357,16 @@ uint64_t ComputeProfilingKey(const T *obj) {
   return reinterpret_cast<uint64_t>(obj);
 }
 
+// Checking abort is a cheap check but is still doing atomic
+// reads. Reducing the frequency of those reads will reduce their
+// impact on performance for the expected (non-abort) case.
+thread_local auto maybe_check_abort = utils::ResettableCounter{20};
+
 inline void AbortCheck(ExecutionContext const &context) {
-  if (!context.maybe_check_abort_()) return;
-  if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
+  if (!maybe_check_abort()) return;
+
+  if (auto const reason = context.stopping_context.MustAbort(); reason != AbortReason::NO_ABORT)
+    throw HintedAbortError(reason);
 }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
@@ -6426,7 +6433,9 @@ class CallValidateProcedureCursor : public Cursor {
                                   storage::View::NEW, nullptr, &context.number_of_hops);
 
     const auto args = self_->arguments_;
-    MG_ASSERT(args.size() == 3U);
+    if (args.size() != 3U) {
+      throw QueryRuntimeException("'mgps.validate' requires exactly 3 arguments.");
+    }
 
     const auto predicate = args[0]->Accept(evaluator);
     const bool predicate_val = predicate.ValueBool();

@@ -25,6 +25,7 @@
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -33,6 +34,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
@@ -41,13 +43,24 @@
 
 namespace memgraph::storage {
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
+struct CommitCallbacks {
+  using func_t = std::function<void(uint64_t)>;
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+  void RunAll(uint64_t commit_timestamp) {
+    for (auto &callback : callbacks_) {
+      callback(commit_timestamp);
+    }
+    callbacks_.clear();
+  }
+
+  std::vector<std::function<void(uint64_t)>> callbacks_;
+};
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, std::optional<uint64_t> last_durable_ts = std::nullopt)
+              PointIndexContext point_index_ctx, ActiveIndices active_indices,
+              std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -66,7 +79,8 @@ struct Transaction {
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
-        last_durable_ts_{last_durable_ts} {}
+        last_durable_ts_{last_durable_ts},
+        active_indices_{std::move(active_indices)} {}
 
   Transaction(Transaction &&other) noexcept = default;
 
@@ -159,6 +173,11 @@ struct Transaction {
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
+
+  /// Concurrent safe indices that existed at the beginning of the transaction
+  /// Used to insert new entries, and during planning to speed up scans
+  ActiveIndices active_indices_;
+  CommitCallbacks commit_callbacks_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
