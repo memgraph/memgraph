@@ -219,19 +219,6 @@ mg_create_linkable_if_no_cmake(antlr4 STATIC
   "${MG_TOOLCHAIN_ROOT}/include/antlr4-runtime"
 )
 
-macro(build_gbenchmark)
-  import_external_library(benchmark STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
-    # Skip testing. The tests don't compile with Clang 8.
-    CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
-endmacro()
-mg_build_if_needed(build_gbenchmark "gbenchmark")
-mg_create_linkable_if_no_cmake(benchmark STATIC
-  "${MG_TOOLCHAIN_ROOT}/lib/libbenchmark.a"
-  "${MG_TOOLCHAIN_ROOT}/include"
-)
-
 # setup rapidcheck (it cannot be external, since it doesn't have install
 # target)
 set(RC_ENABLE_GTEST ON CACHE BOOL "Build Google Test integration" FORCE)

@@ -37,6 +37,7 @@ class Memgraph(ConanFile):
         self.requires("zlib/1.2.11")
         self.requires("fmt/8.0.1")
         self.requires("gflags/2.2.2")
+        self.requires("benchmark/1.9.1")
         # self.requires("boost/1.78.0")
         # self.requires("antlr4/4.13.1")
         # self.requires("antlr4-cppruntime/4.13.2")
