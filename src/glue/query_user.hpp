@@ -34,7 +34,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
     if (user_) return {*user_};
-    if (role_) return auth::RoleWUsername{*username_, *role_};
+    if (roles_) return auth::RoleWUsername{*username_, auth::Roles({*roles_})};
     return {};
   }
 
@@ -42,7 +42,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   friend class AuthChecker;
   auth::SynchedAuth *auth_;
   mutable std::optional<auth::User> user_{};
-  mutable std::optional<auth::Role> role_{};
+  mutable std::optional<auth::Roles> roles_{};
   mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
 };
 

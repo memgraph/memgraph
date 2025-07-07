@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -30,9 +30,8 @@ using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph
 
 static const constexpr char *const kAllDatabases = "*";
 
-struct RoleWUsername : Role {
-  template <typename... Args>
-  RoleWUsername(std::string_view username, Args &&...args) : Role{std::forward<Args>(args)...}, username_{username} {}
+struct RoleWUsername : Roles {
+  RoleWUsername(std::string_view username, const Roles &roles) : Roles(roles), username_{username} {}
 
   std::string username() { return username_; }
   const std::string &username() const { return username_; }
@@ -251,14 +250,14 @@ class Auth final {
       expect(username && rolename, "When using a module, a role needs to be connected to a username.");
       const auto role = GetRole(*rolename);
       expect(role != std::nullopt, "No role named " + *rolename);
-      return UserOrRole(auth::RoleWUsername{*username, *role});
+      return UserOrRole(auth::RoleWUsername{*username, Roles({*role})});
     }
 
     // First check if we need to find a role
     if (username && rolename) {
       const auto role = GetRole(*rolename);
       expect(role != std::nullopt, "No role named " + *rolename);
-      return UserOrRole(auth::RoleWUsername{*username, *role});
+      return UserOrRole(auth::RoleWUsername{*username, Roles({*role})});
     }
 
     // We are only looking for a user

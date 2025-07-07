@@ -21,11 +21,20 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
   // Check policy and update if behind (and policy permits it)
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
-    if (role_) role_ = locked_auth->GetRole(role_->rolename());
+    if (roles_) {
+      // For backward compatibility, update the first role
+      auto rolenames = roles_->rolenames();
+      if (!rolenames.empty()) {
+        auto role = locked_auth->GetRole(rolenames[0]);
+        if (role) {
+          roles_ = auth::Roles({*role});
+        }
+      }
+    }
   }
 
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
-  if (role_) return AuthChecker::IsRoleAuthorized(*role_, privileges, db_name);
+  if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
   return !policy->DoUpdate() || !locked_auth->AccessControlled();
 }
@@ -36,7 +45,16 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
   // Check policy and update if behind (and policy permits it)
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
-    if (role_) role_ = locked_auth->GetRole(role_->rolename());
+    if (roles_) {
+      // For backward compatibility, update the first role
+      auto rolenames = roles_->rolenames();
+      if (!rolenames.empty()) {
+        auto role = locked_auth->GetRole(rolenames[0]);
+        if (role) {
+          roles_ = auth::Roles({*role});
+        }
+      }
+    }
   }
 
   auto user_to_impersonate = locked_auth->GetUser(target);
@@ -45,13 +63,13 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
   }
 
   if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate);
-  if (role_) return AuthChecker::CanImpersonate(*role_, *user_to_impersonate);
+  if (roles_) return AuthChecker::CanImpersonate(*roles_, *user_to_impersonate);
   return false;
 }
 
 std::string QueryUserOrRole::GetDefaultDB() const {
   if (user_) return user_->db_access().GetMain();
-  if (role_) return role_->db_access().GetMain();
+  if (roles_) return roles_->db_access().GetMain();
   return std::string{dbms::kDefaultDB};
 }
 #endif
@@ -63,13 +81,16 @@ QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_
                              std::visit(utils::Overloaded{[&](const auth::User &) -> std::optional<std::string> {
                                                             return std::nullopt;
                                                           },
-                                                          [&](const auth::Role &role) -> std::optional<std::string> {
-                                                            return role.rolename();
+                                                          [&](const auth::Roles &roles) -> std::optional<std::string> {
+                                                            auto rolenames = roles.rolenames();
+                                                            if (rolenames.empty()) return std::nullopt;
+                                                            // For backward compatibility, return the first role name
+                                                            return rolenames[0];
                                                           }},
                                         user_or_role)},
       auth_{auth} {
   std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
-                               [&](auth::Role &&role) { role_.emplace(std::move(role)); }},
+                               [&](auth::Roles &&roles) { roles_.emplace(std::move(roles)); }},
              std::move(user_or_role));
 }
 
