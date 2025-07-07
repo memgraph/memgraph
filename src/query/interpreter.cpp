@@ -6408,17 +6408,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      if (!edge_index_query.global_) {
-        // edge type index & edge type property index
-        if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
-          // Need writers to leave so we can make populate a consistent index
-          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
-        } else {
-          accessor_type_ = storage::Storage::Accessor::Type::READ;
-        }
+      if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
+        // Need writers to leave so we can make populate a consistent index
+        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
       } else {
-        // edge global property
-        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
+        accessor_type_ = storage::Storage::Accessor::Type::READ;
       }
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
