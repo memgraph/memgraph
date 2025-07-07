@@ -710,20 +710,15 @@ void User::UpdatePassword(const std::optional<std::string> &password,
 void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
 
 void User::SetRole(const Role &role) {
-  roles_.clear();
-  roles_.insert(role);
+  // Clear all roles and add the new one
+  roles_ = Roles{};
+  roles_.AddRole(role);
 }
 
-void User::ClearRole() { roles_.clear(); }
-
-// New methods for multiple roles
-void User::AddRole(const Role &role) { roles_.insert(role); }
-
-void User::RemoveRole(const std::string &rolename) { roles_.erase(Role(rolename)); }
-
-const std::unordered_set<Role> &User::roles() const { return roles_; }
-
-std::unordered_set<Role> &User::roles() { return roles_; }
+void User::ClearRole() {
+  // Clear all roles by creating a new empty Roles object
+  roles_ = Roles{};
+}
 
 Permissions User::GetPermissions() const {
   Permissions combined_permissions = permissions_;
@@ -802,12 +797,7 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
-const Role *User::role() const {
-  if (roles_.empty()) {
-    return nullptr;
-  }
-  return &(*roles_.begin());
-}
+const Role *User::role() const { return roles_.first_role(); }
 
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();

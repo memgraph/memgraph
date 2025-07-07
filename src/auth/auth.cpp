@@ -399,7 +399,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   }
 
   spdlog::trace("Authenticated user '{}' with role '{}'.", *username, role->rolename());
-  return UserOrRole(auth::RoleWUsername{*username, *role});
+  return UserOrRole(auth::RoleWUsername{*username, Roles({*role})});
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {

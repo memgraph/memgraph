@@ -43,6 +43,10 @@ class AuthChecker : public query::AuthChecker {
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
                                              std::string_view db_name = "");
 
+  [[nodiscard]] static bool IsRoleAuthorized(const auth::Roles &roles,
+                                             const std::vector<query::AuthQuery::Privilege> &privileges,
+                                             std::string_view db_name = "");
+
   [[nodiscard]] static bool IsUserOrRoleAuthorized(const auth::UserOrRole &user_or_role,
                                                    const std::vector<query::AuthQuery::Privilege> &privileges,
                                                    std::string_view db_name = "");
@@ -50,6 +54,7 @@ class AuthChecker : public query::AuthChecker {
 #ifdef MG_ENTERPRISE
   [[nodiscard]] static bool CanImpersonate(const auth::User &user, const auth::User &target);
   [[nodiscard]] static bool CanImpersonate(const auth::Role &role, const auth::User &target);
+  [[nodiscard]] static bool CanImpersonate(const auth::Roles &roles, const auth::User &target);
 #endif
 
  private:
