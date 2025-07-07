@@ -15,6 +15,7 @@
 #include <memory>
 #include <utility>
 #include "flags/run_time_configurable.hpp"
+#include "storage/v2/commit_log.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -264,7 +265,11 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.vector_index_.ApproximateVectorCount(label, property);
+      return storage_->indices_.vector_index_.ApproximateNodesVectorCount(label, property);
+    }
+
+    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const override {
+      return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
@@ -439,6 +444,8 @@ class InMemoryStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) override;
+
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
@@ -505,10 +512,15 @@ class InMemoryStorage final : public Storage {
                        PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
         -> PointIterable override;
 
-    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
+    std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
+    std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
 
     void DowngradeToReadIfValid();
 

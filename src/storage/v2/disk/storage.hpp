@@ -151,6 +151,11 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
+    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId /*label*/, PropertyId /*property*/) const override {
+      // Vector index does not exist for on disk
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
@@ -265,6 +270,9 @@ class DiskStorage final : public Storage {
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;
 
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) override;
+
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
 
@@ -293,10 +301,15 @@ class DiskStorage final : public Storage {
                        PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
         -> PointIterable override;
 
-    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
+    std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
+    std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
 
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
