@@ -451,9 +451,6 @@ mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "${MG_TOOLCHAIN_ROOT}/li
 target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
 target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
-# setup strong_type (cmake sub_directory tolerant)
-add_subdirectory(strong_type EXCLUDE_FROM_ALL)
-
 # setup usearch
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES

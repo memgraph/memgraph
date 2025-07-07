@@ -96,6 +96,7 @@ target_sources(mg-storage-v2
 
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
+find_package(strong_type REQUIRED)
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
@@ -114,7 +115,7 @@ target_link_libraries(mg-storage-v2
     mgcxx_text_search
     tantivy_text_search
     usearch
-    strong_type::strong_type
+    rollbear::strong_type
     rangev3
 )
 

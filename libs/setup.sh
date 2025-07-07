@@ -159,7 +159,6 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
-  ["strong_type"]="http://$local_cache_host/git/strong_type.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
   ["croncpp"]="http://$local_cache_host/git/croncpp.git"
 )
@@ -189,7 +188,6 @@ declare -A secondary_urls=(
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
-  ["strong_type"]="https://github.com/rollbear/strong_type.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
   ["croncpp"]="https://github.com/mariusbancila/croncpp.git"
 )
@@ -348,10 +346,6 @@ fi
 # mgcxx (text search)
 mgcxx_tag="v0.0.7"
 skip_if_under_toolchain "mgcxx" repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
-
-# strong_type v14
-strong_type_ref="v14"
-repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
 
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
