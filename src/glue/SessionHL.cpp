@@ -129,10 +129,11 @@ namespace memgraph::glue {
 std::optional<std::string> SessionHL::GetDefaultDB() const {
   if (interpreter_.user_or_role_) {
     try {
-      return interpreter_.user_or_role_->GetDefaultDB();
+      const auto &db_name = interpreter_.user_or_role_->GetDefaultDB();
+      return db_name.empty() ? std::nullopt : std::make_optional(db_name);
     } catch (auth::AuthException &) {
       // Support non-db connection
-      return {};
+      return std::nullopt;
     }
   }
   return std::string{memgraph::dbms::kDefaultDB};
@@ -146,7 +147,7 @@ std::string SessionHL::GetCurrentUser() const {
       // this is a role; it will always be different since roles cannot be impersonated.
       std::string res;
       std::for_each(names.begin(), names.end(), [&res](const auto &name) { res += name + ","; });
-      return res;
+      return res.substr(0, res.size() - 1);
     }
   }
   return "";

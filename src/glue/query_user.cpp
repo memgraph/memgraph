@@ -68,8 +68,8 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
 }
 
 std::string QueryUserOrRole::GetDefaultDB() const {
-  if (user_) return user_->db_access().GetMain();
-  if (roles_) return roles_->db_access().GetMain();
+  if (user_) return user_->GetMain();
+  if (roles_) return roles_->GetMain();
   return std::string{dbms::kDefaultDB};
 }
 #endif

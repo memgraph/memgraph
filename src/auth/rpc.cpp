@@ -46,13 +46,11 @@ inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {
 // Serialize code for auth::User
 void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
-  // For backward compatibility with replication, we only serialize the first role
-  // TODO: In the future, we may want to extend this to support multiple roles
-  std::optional<auth::Role> role{};
-  if (const auto *role_ptr = self.role(); role_ptr) {
-    role.emplace(*role_ptr);
+  std::vector<auth::Role> roles;
+  for (const auto &role : self.roles()) {
+    roles.emplace_back(role);
   }
-  memgraph::slk::Save(role, builder);
+  memgraph::slk::Save(roles, builder);
 }
 // Deserialize code for auth::User
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
@@ -60,12 +58,12 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
   *self = memgraph::auth::User::Deserialize(json);
-  std::optional<auth::Role> role{};
-  memgraph::slk::Load(&role, reader);
-  if (role)
-    self->SetRole(*role);  // This will clear existing roles and set the first one
-  else
-    self->ClearRole();
+  std::vector<auth::Role> roles;
+  memgraph::slk::Load(&roles, reader);
+  self->ClearRole();
+  for (const auto &role : roles) {
+    self->SetRole(role);
+  }
 }
 
 // Serialize code for auth::Auth::Config

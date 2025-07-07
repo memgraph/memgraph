@@ -720,15 +720,6 @@ void User::ClearRole() {
   roles_ = Roles{};
 }
 
-Permissions User::GetPermissions() const {
-  Permissions combined_permissions = permissions_;
-  for (const auto &role : roles_) {
-    combined_permissions = Permissions{combined_permissions.grants() | role.permissions().grants(),
-                                       combined_permissions.denies() | role.permissions().denies()};
-  }
-  return combined_permissions;
-}
-
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions(std::optional<std::string_view> db_name) const {
   return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions(db_name));
@@ -797,7 +788,6 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
-const Role *User::role() const { return roles_.first_role(); }
 
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();

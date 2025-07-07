@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <optional>
 #include <set>
 #include <string>
@@ -410,7 +411,7 @@ class Role {
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return db_access_; }
   const Databases &db_access() const { return db_access_; }
-
+  const std::string &GetMain() const { return db_access_.GetMain(); }
   bool DeniesDB(std::string_view db_name) const { return db_access_.Denies(db_name); }
   bool GrantsDB(std::string_view db_name) const { return db_access_.Grants(db_name); }
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
@@ -516,34 +517,18 @@ class Roles {
     return names;
   }
 
-  Permissions GetPermissions() const {
+  Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
     Permissions permissions;
     for (const auto &role : roles_) {
-      permissions = Permissions{permissions.grants() | role.permissions().grants(),
-                                permissions.denies() | role.permissions().denies()};
+      if (!db_name || role.HasAccess(*db_name)) {
+        permissions = Permissions{permissions.grants() | role.permissions().grants(),
+                                  permissions.denies() | role.permissions().denies()};
+      }
     }
     return permissions;
   }
 
-  const Permissions &permissions() const {
-    // Combine all role permissions
-    uint64_t grants = 0, denies = 0;
-    for (const auto &role : roles_) {
-      grants |= role.permissions().grants();
-      denies |= role.permissions().denies();
-    }
-    static Permissions combined_permissions;
-    combined_permissions = Permissions{grants, denies};
-    return combined_permissions;
-  }
-
 #ifdef MG_ENTERPRISE
-  const FineGrainedAccessHandler &fine_grained_access_handler() const {
-    // Return the first role's handler (for backward compatibility)
-    static FineGrainedAccessHandler empty_handler;
-    return roles_.empty() ? empty_handler : roles_.begin()->fine_grained_access_handler();
-  }
-
   const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const {
     static FineGrainedAccessPermissions empty_permissions;
@@ -551,7 +536,7 @@ class Roles {
 
     FineGrainedAccessPermissions combined_permissions;
     for (const auto &role : roles_) {
-      if (!db_name || role.GrantsDB(*db_name)) {
+      if (!db_name || role.HasAccess(*db_name)) {
         combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
       }
     }
@@ -567,7 +552,7 @@ class Roles {
 
     FineGrainedAccessPermissions combined_permissions;
     for (const auto &role : roles_) {
-      if (!db_name || role.GrantsDB(*db_name)) {
+      if (!db_name || role.HasAccess(*db_name)) {
         combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
       }
     }
@@ -576,54 +561,32 @@ class Roles {
     return result;
   }
 
-  const Databases &db_access() const {
-    // Return the first role's db_access (for backward compatibility)
-    static Databases empty_db_access;
-    return roles_.empty() ? empty_db_access : roles_.begin()->db_access();
+  // No way to define a higher priority database, so we return the first one
+  const std::string &GetMain() const {
+    static std::string empty_db;
+    return roles_.empty() ? empty_db : roles_.begin()->GetMain();
   }
 
   bool DeniesDB(std::string_view db_name) const {
-    for (const auto &role : roles_) {
-      if (role.DeniesDB(db_name)) return true;
-    }
-    return false;
+    return std::ranges::any_of(roles_, [db_name](const auto &role) { return role.DeniesDB(db_name); });
   }
 
   bool GrantsDB(std::string_view db_name) const {
-    for (const auto &role : roles_) {
-      if (role.GrantsDB(db_name)) return true;
-    }
-    return false;
+    return std::ranges::any_of(roles_, [db_name](const auto &role) { return role.GrantsDB(db_name); });
   }
 
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 
-  bool CanImpersonate(const User &user) const {
-    for (const auto &role : roles_) {
-      if (role.CanImpersonate(user)) return true;
-    }
-    return false;
-  }
-
   bool UserImpIsGranted(const User &user) const {
-    for (const auto &role : roles_) {
-      if (role.UserImpIsGranted(user)) return true;
-    }
-    return false;
+    return std::ranges::any_of(roles_, [&user](const auto &role) { return role.UserImpIsGranted(user); });
   }
 
   bool UserImpIsDenied(const User &user) const {
-    for (const auto &role : roles_) {
-      if (role.UserImpIsDenied(user)) return true;
-    }
-    return false;
+    return std::ranges::any_of(roles_, [&user](const auto &role) { return role.UserImpIsDenied(user); });
   }
 
-  const auto &user_impersonation() const {
-    // Return the first role's user_impersonation (for backward compatibility)
-    static std::optional<UserImpersonation> empty_impersonation;
-    return roles_.empty() ? empty_impersonation : roles_.begin()->user_impersonation();
-  }
+  // TODO Make multi-db compatible
+  bool CanImpersonate(const User &user) const { return !UserImpIsDenied(user) && UserImpIsGranted(user); }
 #endif
 
   // Iteration support
@@ -701,8 +664,6 @@ class User final {
   const Roles &roles() const { return roles_; }
   Roles &roles() { return roles_; }
 
-  Permissions GetPermissions() const;  // TODO Deprecate
-
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
@@ -722,11 +683,11 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  const Role *role() const;  // TODO Deprecate
-
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
+
+  const std::string &GetMain() const { return database_access_.GetMain(); }
 
   bool DeniesDB(std::string_view db_name) const {
     bool denies = database_access_.Denies(db_name);
@@ -752,15 +713,15 @@ class User final {
     }
     return !denies && grants;
   }
+
+  bool has_access(std::string_view db_name) const {
+    return !database_access_.Denies(db_name) && database_access_.Grants(db_name);
+  }
 #endif
 
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
-    if (db_name) {
-      if (GetPermissions(*db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
-    } else {
-      if (GetPermissions().Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
-    }
+    if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
     bool role_grants = false;
     bool role_denies = false;
     for (const auto &role : roles_) {
@@ -793,20 +754,22 @@ class User final {
   const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
-// Multi-tenant role management
+  // Multi-tenant role management
+  Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
 #ifdef MG_ENTERPRISE
-
-  Permissions GetPermissions(std::string_view db_name) const {
-    Permissions permissions = permissions_;
-    for (const auto &role : roles_) {
-      if (role.GrantsDB(db_name)) {
-        permissions = Permissions{permissions.grants() | role.permissions().grants(),
-                                  permissions.denies() | role.permissions().denies()};
-      }
+    // filter roles based on the database name and combine with user permissions
+    const auto &roles_permissions = roles_.GetPermissions(db_name);
+    if (!db_name || has_access(*db_name)) {
+      return Permissions{permissions_.grants() | roles_permissions.grants(),
+                         permissions_.denies() | roles_permissions.denies()};
     }
-    return permissions;
+    return roles_permissions;
+#else
+    return permissions_;
+#endif
   }
 
+#ifdef MG_ENTERPRISE
   std::unordered_set<Role> GetRoles(std::optional<std::string_view> db_name = std::nullopt) const {
     return roles_.GetFilteredRoles(db_name);
   }

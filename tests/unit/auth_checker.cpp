@@ -310,16 +310,17 @@ TEST(AuthChecker, Generate) {
   new_role.db_access().Grant("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   // Session policy test
   // Session long policy
   EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::session_long_policy));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::session_long_policy));
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::session_long_policy));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
   // Up to date policy
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
@@ -330,6 +331,7 @@ TEST(AuthChecker, Generate) {
   new_role.db_access().Deny("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
   EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
@@ -341,9 +343,10 @@ TEST(AuthChecker, Generate) {
   new_role.db_access().Revoke("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
   EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
@@ -354,18 +357,22 @@ TEST(AuthChecker, Generate) {
   new_user2.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
   new_user2.GrantUserImp();
   auth->SaveUser(new_user2);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
   // deny "new_user"
   new_user2.DenyUserImp({*user});
   auth->SaveUser(new_user2);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
   // grant just "new_user"
   new_user2.GrantUserImp({*user});
   auth->SaveUser(new_user2);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
   // revoke permission
   new_user2.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
   auth->SaveUser(new_user2);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
 
   // via role
@@ -373,18 +380,22 @@ TEST(AuthChecker, Generate) {
   new_role.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
   new_role.GrantUserImp();
   auth->SaveRole(new_role);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
   // deny "new_user"
   new_role.DenyUserImp({*user});
   auth->SaveRole(new_role);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
   // grant "new_user" to user
   new_user2.GrantUserImp({*user});
   auth->SaveUser(new_user2);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
   // revoke permission
   new_role.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
   auth->SaveRole(new_role);
+  user2 = auth_checker.GenQueryUser("new_user2", {});
   EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
 }
 #endif

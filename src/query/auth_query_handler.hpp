@@ -104,7 +104,8 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void ClearRole(const std::string &username, system::Transaction *system_tx) = 0;
 
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
+  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
+                                                                              std::string_view = "") = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(
